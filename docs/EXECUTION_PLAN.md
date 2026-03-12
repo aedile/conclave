@@ -27,6 +27,13 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 **Goal:** Translate the high-level architecture into a rigorous, actionable `BACKLOG.md` before coding begins.
 * **Task 0.5.1 [PM / Architect]:** Decompose all Phase 1-6 tasks into granular User Stories featuring strict 5-point Definition of Done (DoD) acceptance criteria, ensuring no Epic exceeds 2 days of human/agent execution time. *Critical Path.*
 
+### Phase 0.6: Autonomous Agile Environment Provisioning 
+**Goal:** Establish the native Claude Code Agent Teams environment, utilizing local ChromaDB MCP for persistent semantic memory and Git Worktrees for parallel, collision-free execution, prior to any technical development.
+* **Task 0.6.1 [PM / System Admin]:** Host Initialization & MCP Setup.
+* **Task 0.6.2 [PM]:** Memory Seeding (Governance).
+* **Task 0.6.3 [PM / System Admin]:** Team Scaffolding & Git Worktree Hooks.
+* **Task 0.6.4 [PM]:** Task Queue Initialization & JSON Migration.
+
 ### Phase 0.8: Technical Spikes (Fast-Fail Prototyping)
 **Goal:** Mathematically and computationally prove the core "physics" of the synthetic data generation engine in isolated Python scripts *before* any production architecture or containerization is built.
 * **Task 0.8.1 [Dev B]:** Spike A - ML Memory Physics & Open-Source Synthesizer Constraints (Prove SDV/DP-SGD solves tabular masking within constraints).
@@ -92,10 +99,16 @@ gantt
     axisFormat  %m-%d
     todayMarker off
     
+    section Phase 0.6: Agile Config
+    Agent Teams Setup (PM)         :crit, t06_1, 2026-03-12, 1d
+    ChromaDB Seeding (PM)          :crit, t06_2, after t06_1, 1d
+    Git Worktree Hooks (DevOps)    :crit, t06_3, after t06_1, 1d
+    JSON Queue Migration (PM)      :crit, t06_4, after t06_3, 1d
+    
     section Phase 0.8: Spikes
-    ML Memory Physics (Dev B)      :crit, t08_1, 2026-03-12, 2d
-    Deterministic FPE (Dev C)      :crit, t08_2, 2026-03-12, 2d
-    Topological Graphing (Dev D)   :crit, t08_3, 2026-03-12, 2d
+    ML Memory Physics (Dev B)      :crit, t08_1, after t06_4, 2d
+    Deterministic FPE (Dev C)      :crit, t08_2, after t06_4, 2d
+    Topological Graphing (Dev D)   :crit, t08_3, after t06_4, 2d
 
     section Phase 1: Init & Quality
     Sec Scanners & Linters (Dev A) :crit, t1_1, after t08_3, 3d

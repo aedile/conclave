@@ -157,13 +157,15 @@ The integrity, stability, and security of an air-gapped system are entirely depe
 
 ### **Agentic Collaboration Model & Agile Definition of Done (DoD)**
 
-The project utilizes a hybrid Scaled Agile approach leveraging autonomous AI agents. To prevent agentic hallucination loops and maintain extreme software quality, the **Agentic Collaboration Model** strictly dictates that Human Developers act as Software Architects, Reviewers, and QA constraints, while AI Agents act as high-velocity execution engines for boilerplate, tests, and standard implementations. All agentic loops are strictly governed by a "Timebox & Escalate" rule: if an agent fails to resolve a ticket or pass CI within a defined token/time threshold, it must halt and explicitly request Human intervention.
+The project utilizes a **Native Autonomous Agile Orchestration** approach leveraging Claude Code Agent Teams and persistent ChromaDB semantic memory. To prevent agentic hallucination loops and maintain extreme software quality, the **Agentic Collaboration Model** strictly dictates that a primary PM Agent coordinates parallel Developer Streams. All coding execution must strictly use the **Native Git Worktree Paradigm** (`claude --worktree`) to completely eliminate filesystem and compilation collisions. All agentic loops are governed by a "Timebox & Escalate" rule: if an agent fails to resolve a ticket or pass CI within a defined token/time threshold, it must halt and explicitly request Human intervention.
+
+Furthermore, to prevent knowledge loss over lengthy execution phases, the architecture enforces a strict **Retrospective Protocol**. Before context compaction, a `PreCompact` hook explicitly triggers the vectorization and storage of retrospective lessons learned into the local ChromaDB database.
 
 Furthermore, a feature cannot transition from 'In Progress' to 'Done' across the Kanban board until it satisfies the following 5-point **Definition of Done (DoD)**:
 1. **Architectural Compliance:** Code perfectly matches the mandates (e.g., uses specific offline-ready fonts and mandated encryption libraries).
 2. **Coverage Gate:** The specific Git diff features >= 90% test coverage.
 3. **Pipeline Green:** The code successfully passes all strict CI/CD linting, AST analysis, and security scanners.
-4. **Peer Review:** The code has been formally reviewed (by Human or Agent).
+4. **Automated Matrix Code Review:** The code has been formally evaluated via a parallel matrix utilizing specialized QA, Security, and Architecture evaluator subagents to independently audit the diff before merge.
 5. **Acceptance Verification:** The feature perfectly satisfies the `BACKLOG.md` Acceptance Criteria.
 
 The pipeline architecture is constructed around the principle of "shifting left," embedding security and quality validations at the earliest possible stages of development. These gates are enforced redundantly at both the local pre-commit layer and on the centralized CI server (e.g., GitLab CI, GitHub Actions, or Azure DevOps) to prevent unauthorized bypass mechanisms.1

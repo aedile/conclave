@@ -5,6 +5,7 @@ This document serves as the top-level index for all project phases and their con
 ## Phase Hierarchy
 
 *   [Phase 0.5: Agentic Backlog Decomp & Epic Sizing](backlog/phase-0.5.md)
+*   [Phase 0.6: Autonomous Agile Environment Provisioning](backlog/phase-0.6.md)
 *   [Phase 0.8: Technical Spikes (Fast-Fail Prototyping)](backlog/phase-0.8.md)
 *   [Phase 1: Project Initialization & Quality Gates](backlog/phase-1.md)
 *   [Phase 2: Foundational Architecture & Shared Services](backlog/phase-2.md)
@@ -20,6 +21,12 @@ This document serves as the top-level index for all project phases and their con
 ### [Phase 0.5: Agentic Backlog Decomp & Epic Sizing](backlog/phase-0.5.md)
 *   **Task 0.5.1 [PM / Architect]:** Decompose tasks into User Stories with DoD.
 *   **Task 0.5.2 [PM / Architect]:** Final Dependency & Constitution Check.
+
+### [Phase 0.6: Autonomous Agile Environment Provisioning](backlog/phase-0.6.md)
+*   **Task 0.6.1 [PM / System Admin]:** Host Initialization & MCP Setup.
+*   **Task 0.6.2 [PM]:** Memory Seeding (Governance).
+*   **Task 0.6.3 [PM / System Admin]:** Team Scaffolding & Git Worktree Hooks.
+*   **Task 0.6.4 [PM]:** Task Queue Initialization & JSON Migration.
 
 ### [Phase 0.8: Technical Spikes (Fast-Fail Prototyping)](backlog/phase-0.8.md)
 *   **Task 0.8.1 [Dev B]:** Spike A - ML Memory Physics & Open-Source Synthesizer Constraints.
