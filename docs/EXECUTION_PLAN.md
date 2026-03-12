@@ -15,13 +15,17 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 * **Phase 4: Synthesis, Masking & Privacy (Parallelizable)**
   * *Dependency:* Blocked by Phase 3.
 * **Phase 5: Orchestration, UI, & Licensing (Parallelizable)**
-  * *Dependency:* Blocked by Phase 4.
+  * *Dependency:* Blocked by Phase 3 (Can occur concurrently with Phase 4 using ML mocks).
 * **Phase 6: Integration, Audit & Finalization (Parallelizable/Sequential)**
   * *Dependency:* Blocked by Phase 5.
 
 ---
 
 ## Detailed Task Breakdown
+
+### Phase 0.5: Agentic Backlog Decomp & Epic Sizing
+**Goal:** Translate the high-level architecture into a rigorous, actionable `BACKLOG.md` before coding begins.
+* **Task 0.5.1 [PM / Architect]:** Decompose all Phase 1-6 tasks into granular User Stories featuring strict 5-point Definition of Done (DoD) acceptance criteria, ensuring no Epic exceeds 2 days of human/agent execution time. *Critical Path.*
 
 ### Phase 1: Project Initialization & Quality Gates
 **Goal:** Establish the unbreakable security & quality gates (Priority 0 & 1). No code can be written until this infrastructure enforces the Constitution.
@@ -46,6 +50,7 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 * **Task 3.2 [Dev B]:** Implement Relational Mapping (Schema inference, explicit and virtual foreign key mapping via streaming topological sort). 
 * **Task 3.3 [Dev C]:** Build the Deterministic Masking Engine (Format-preserving algorithms, collision prevention, and LUHN checks for SSN, CC, etc.).
 * **Task 3.4 [Dev D]:** Build the Subsetting & Materialization Core (Relational transversal for percentage slicing, Saga rollbacks, and secure egress to sink).
+* **Task 3.5 [Dev A]:** Execute End-to-End (E2E) Integration Tests for the complete Subsetting workflow (utilizing Playwright/Cypress with explicit `@axe-core/playwright` accessibility assertions and pristine database rollbacks via `pytest-postgresql`). *Blocked by 3.4*
 
 ### Phase 4: Advanced Generative AI & Differential Privacy
 **Goal:** Implement complex, GPU-accelerated data generation workflows utilizing established open-source ML libraries (OpenDP, SDV) to avoid bespoke R&D TCO.
@@ -64,10 +69,9 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 
 ### Phase 6: Integration, Audit & Finalization
 **Goal:** Validate all components working in unison, enforce NIST erasure, and prepare for handover.
-* **Task 6.1 [Dev A]:** Execute End-to-End (E2E) Integration Tests for the complete Subsetting workflow (utilizing Playwright/Cypress with explicit `@axe-core/playwright` accessibility assertions and pristine database rollbacks via `pytest-postgresql`). *Blocked by 3.4*
-* **Task 6.2 [Dev B]:** Execute E2E Integration Tests for the full Generative Synthesis workflow (utilizing Dummy ML assertions for CI/CD speed and frontend `@axe-core` checks). *Blocked by 6.1, 4.3, 4.4*
-* **Task 6.3 [Dev C]:** Validate NIST SP 800-88 Cryptographic Erasure triggers, OWASP validation, and LLM/Agentic Fuzz Testing against JSON depth limits and ML layer Float-point NaNs.
-* **Task 6.4 [Dev D]:** Final Security Remediation, Documentation generation, and Platform Handover validation.
+* **Task 6.1 [Dev B]:** Execute E2E Integration Tests for the full Generative Synthesis workflow (utilizing Dummy ML assertions for CI/CD speed and frontend `@axe-core` checks). *Blocked by 3.5, 4.3, 4.4*
+* **Task 6.2 [Dev C]:** Validate NIST SP 800-88 Cryptographic Erasure triggers, OWASP validation, and LLM/Agentic Fuzz Testing against JSON depth limits and ML layer Float-point NaNs.
+* **Task 6.3 [Dev D]:** Final Security Remediation, Documentation generation, and Platform Handover validation.
 
 ---
 
@@ -102,6 +106,7 @@ gantt
     Topological Schema Sorting (Dev B)          :t3_2, after t2_1, 5d
     Masking & Collision Engine (Dev C)          :t3_3, after t2_1, 5d
     Subsetting & Saga Materialization (Dev D)   :t3_4, after t2_1, 5d
+    Subsetting E2E (Dev A)                      :t3_5, after t3_4, 3d
 
     section Phase 4: Adv. AI & Privacy
     GPU & Ephemeral Storage (Dev A)     :t4_1, after t3_1, 3d
@@ -110,15 +115,14 @@ gantt
     Pessimistic Epsilon Ledgers (Dev D) :t4_4, after t3_4, 5d
 
     section Phase 5: Orchestration & UI
-    Task Orchestration API (Dev A) :t5_1, after t4_1, 4d
-    Offline Licensing (Dev B)      :t5_2, after t4_2, 4d
-    React SPA & WCAG 2.1 (Dev C)   :t5_3, after t4_3, 6d
-    React Dashboard (Dev D)        :t5_4, after t4_4, 4d
+    Task Orchestration API (Dev A) :t5_1, after t3_5, 4d
+    Offline Licensing (Dev B)      :t5_2, after t3_5, 4d
+    React SPA & WCAG 2.1 (Dev C)   :t5_3, after t3_5, 6d
+    React Dashboard (Dev D)        :t5_4, after t3_5, 4d
     Crypto Shredding (Dev A)       :t5_5, after t5_1, 3d
 
     section Phase 6: E2E Integration
-    Subsetting E2E (Dev A)         :t6_1, after t5_5, 3d
-    Synthesis E2E (Dev B)          :t6_2, after t6_1, 3d
-    NIST Erasure Tests (Dev C)     :t6_3, after t5_4, 4d
-    Handover & Docs (Dev D)        :t6_4, after t5_4, 4d
+    Synthesis E2E (Dev B)          :t6_1, after t5_5, 3d
+    NIST Erasure Tests (Dev C)     :t6_2, after t5_4, 4d
+    Handover & Docs (Dev D)        :t6_3, after t5_4, 4d
 ```

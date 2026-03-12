@@ -155,6 +155,17 @@ Operating a complex UI in a dark-room environment necessitates specific frontend
 
 The integrity, stability, and security of an air-gapped system are entirely dependent on the flawless quality of the software artifacts transported into it. Because post-deployment patching in dark-room environments is logistically challenging and highly regulated, the "Developer Constitution" mandates a series of severe, automated quality gates that act as an unyielding filter during the Continuous Integration and Continuous Deployment (CI/CD) phase.1 No code, under any circumstance, may be merged into the main deployment branch unless it successfully passes every single automated gate.1
 
+### **Agentic Collaboration Model & Agile Definition of Done (DoD)**
+
+The project utilizes a hybrid Scaled Agile approach leveraging autonomous AI agents. To prevent agentic hallucination loops and maintain extreme software quality, the **Agentic Collaboration Model** strictly dictates that Human Developers act as Software Architects, Reviewers, and QA constraints, while AI Agents act as high-velocity execution engines for boilerplate, tests, and standard implementations. All agentic loops are strictly governed by a "Timebox & Escalate" rule: if an agent fails to resolve a ticket or pass CI within a defined token/time threshold, it must halt and explicitly request Human intervention.
+
+Furthermore, a feature cannot transition from 'In Progress' to 'Done' across the Kanban board until it satisfies the following 5-point **Definition of Done (DoD)**:
+1. **Architectural Compliance:** Code perfectly matches the mandates (e.g., uses specific offline-ready fonts and mandated encryption libraries).
+2. **Coverage Gate:** The specific Git diff features >= 90% test coverage.
+3. **Pipeline Green:** The code successfully passes all strict CI/CD linting, AST analysis, and security scanners.
+4. **Peer Review:** The code has been formally reviewed (by Human or Agent).
+5. **Acceptance Verification:** The feature perfectly satisfies the `BACKLOG.md` Acceptance Criteria.
+
 The pipeline architecture is constructed around the principle of "shifting left," embedding security and quality validations at the earliest possible stages of development. These gates are enforced redundantly at both the local pre-commit layer and on the centralized CI server (e.g., GitLab CI, GitHub Actions, or Azure DevOps) to prevent unauthorized bypass mechanisms.1
 
 1. **Mandatory Secret Scanning (gitleaks):** The absolute first stage of the CI/CD pipeline executes gitleaks to perform advanced entropy analysis and sophisticated regular expression matching against the entire repository commit history.16 This critical gate ensures that no hardcoded API keys, JWTs, database passwords, or cryptographic salts are inadvertently packaged into the source code, preventing catastrophic credential leaks.86  
