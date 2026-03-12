@@ -1,0 +1,56 @@
+# Conclave Engine Master Backlog
+
+This document serves as the top-level index for all project phases and their constituent tasks. The granular execution details (User Stories, Acceptance Criteria, Definition of Done, and specific developer mandates) for each task are maintained within the dedicated Phase Decomposition files located in `docs/backlog/`.
+
+## Phase Hierarchy
+
+*   [Phase 1: Project Initialization & Quality Gates](backlog/phase-1.md)
+*   [Phase 2: Foundational Architecture & Shared Services](backlog/phase-2.md)
+*   [Phase 3: The "Thin Slice" (Rapid ROI)](backlog/phase-3.md)
+*   [Phase 4: Advanced Generative AI & Differential Privacy](backlog/phase-4.md)
+*   [Phase 5: Orchestration, UI, & Licensing](backlog/phase-5.md)
+*   [Phase 6: Integration, Audit & Finalization](backlog/phase-6.md)
+
+---
+
+## Task Index
+
+### [Phase 1: Project Initialization & Quality Gates](backlog/phase-1.md)
+*   **Task 1.1 [Dev A]:** Configure CI/CD Pipeline & Scanners (`gitleaks`, `bandit`, `ruff`, `mypy`, `trivy`, `pip-audit`, SBOM, `import-linter`).
+*   **Task 1.2 [Dev B]:** Setup TDD Framework (`pytest`, `pytest-cov`, `pytest-postgresql`) with 90% coverage gates.
+*   **Task 1.3 [Dev A]:** Construct Base Docker Image (Node.js/Python final stages, `tini` / `su-exec`).
+*   **Task 1.4 [Dev B]:** Configure Container Security & Storage Policies (LUKS volumes, `IPC_LOCK`).
+*   **Task 1.5 [Dev C]:** Establish Local Developer Experience (base & override `docker-compose.yml`, local MinIO, Jaeger).
+*   **Task 1.6 [Dev D]:** Docker Hardening (`--read-only` rootfs, Redis config, log-rotation, tmpfs Secrets).
+*   **Task 1.7 [Dev A]:** Air-Gap Artifact Bundler (`make build-airgap-bundle` script).
+
+### [Phase 2: Foundational Architecture & Shared Services](backlog/phase-2.md)
+*   **Task 2.1 [Dev A]:** Implement Module Bootstrapper (FastAPI), OTEL injection, Idempotency, and "Orphan Task Reaper".
+*   **Task 2.2 [Dev B]:** Configure PostgreSQL config, PgBouncer, SQLModel base ORM, and Application-Level Encryption (ALE).
+*   **Task 2.3 [Dev C]:** Implement JWT Auth middleware, granular scopes, and IP/mTLS Certificate binding.
+*   **Task 2.4 [Dev D]:** Develop "Vault Unseal" API, internal mTLS CA, WORM Audit Logger, `/metrics`, Alertmanager, and as-code Grafana.
+
+### [Phase 3: The "Thin Slice" (Rapid ROI - Ingest, Subset, Egress)](backlog/phase-3.md)
+*   **Task 3.1 [Dev A]:** Build the Ingestion Engine (DB connections, I/O protocols).
+*   **Task 3.2 [Dev B]:** Implement Relational Mapping (Schema inference, foreign key mapping via topological sort).
+*   **Task 3.3 [Dev C]:** Build Deterministic Masking Engine (Format-preserving algorithms, collision prevention, LUHN).
+*   **Task 3.4 [Dev D]:** Build Subsetting & Materialization Core (Relational transversal, Saga rollbacks, secure egress).
+*   **Task 3.5 [Dev A]:** Execute E2E Integration Tests for Subsetting workflow (`@axe-core/playwright`, `pytest-postgresql`).
+
+### [Phase 4: Advanced Generative AI & Differential Privacy](backlog/phase-4.md)
+*   **Task 4.1 [Dev A]:** Integrate GPU Passthrough and Ephemeral Object/Blob storage.
+*   **Task 4.2 [Dev B]:** Integrate OSS Synthesizer (e.g., SDV) with batching/checkpointing.
+*   **Task 4.3 [Dev C]:** Integrate OSS Differential Privacy (OpenDP/SmartNoise) and OOM Guardrails.
+*   **Task 4.4 [Dev D]:** Build Privacy Accountant Logic (Epsilon ledger limits, pessimistic locking).
+
+### [Phase 5: Orchestration, UI, & Licensing](backlog/phase-5.md)
+*   **Task 5.1 [Dev A]:** Build Task Orchestration API (FastAPI endpoints, Webhooks, Pagination, RFC 7807, SSE, schema sync).
+*   **Task 5.2 [Dev B]:** Implement Offline License Activation Protocol (QR Challenge, JWT offline validation).
+*   **Task 5.3 [Dev C]:** Build Accessible React SPA (WCAG 2.1 AA, `Content-Security-Policy`, local fonts, Vault Unseal router).
+*   **Task 5.4 [Dev D]:** Develop Data Synthesis Dashboard (Determinate progress UX, SSE integration, `localStorage` state rehydration).
+*   **Task 5.5 [Dev A]:** Implement Cryptographic Shredding & Re-Keying API (Rotate ALE keys, zeroize constraints).
+
+### [Phase 6: Integration, Audit & Finalization](backlog/phase-6.md)
+*   **Task 6.1 [Dev B]:** Execute E2E Integration Tests for Generative Synthesis (Dummy ML assertions).
+*   **Task 6.2 [Dev C]:** Validate NIST SP 800-88 Cryptographic Erasure triggers, OWASP validation, and LLM Fuzz Testing.
+*   **Task 6.3 [Dev D]:** Final Security Remediation, Documentation generation, and Platform Handover validation.
