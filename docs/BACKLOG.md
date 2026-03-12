@@ -4,6 +4,8 @@ This document serves as the top-level index for all project phases and their con
 
 ## Phase Hierarchy
 
+*   [Phase 0.5: Agentic Backlog Decomp & Epic Sizing](backlog/phase-0.5.md)
+*   [Phase 0.8: Technical Spikes (Fast-Fail Prototyping)](backlog/phase-0.8.md)
 *   [Phase 1: Project Initialization & Quality Gates](backlog/phase-1.md)
 *   [Phase 2: Foundational Architecture & Shared Services](backlog/phase-2.md)
 *   [Phase 3: The "Thin Slice" (Rapid ROI)](backlog/phase-3.md)
@@ -14,6 +16,15 @@ This document serves as the top-level index for all project phases and their con
 ---
 
 ## Task Index
+
+### [Phase 0.5: Agentic Backlog Decomp & Epic Sizing](backlog/phase-0.5.md)
+*   **Task 0.5.1 [PM / Architect]:** Decompose tasks into User Stories with DoD.
+*   **Task 0.5.2 [PM / Architect]:** Final Dependency & Constitution Check.
+
+### [Phase 0.8: Technical Spikes (Fast-Fail Prototyping)](backlog/phase-0.8.md)
+*   **Task 0.8.1 [Dev B]:** Spike A - ML Memory Physics & Open-Source Synthesizer Constraints.
+*   **Task 0.8.2 [Dev C]:** Spike B - Deterministic Format-Preserving Encryption.
+*   **Task 0.8.3 [Dev D]:** Spike C - Topological Graphing & Memory-Safe Transversal.
 
 ### [Phase 1: Project Initialization & Quality Gates](backlog/phase-1.md)
 *   **Task 1.1 [Dev A]:** Configure CI/CD Pipeline & Scanners (`gitleaks`, `bandit`, `ruff`, `mypy`, `trivy`, `pip-audit`, SBOM, `import-linter`).
