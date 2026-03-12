@@ -29,15 +29,16 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 * **Task 1.2 [Dev B]:** Setup TDD Framework (`pytest`, `pytest-cov`, and `pytest-postgresql` for transaction rollbacks) with enforcement gates (fail < 90%). *Critical Path.*
 * **Task 1.3 [Dev A]:** Construct Base Docker Image (Node.js build stage, Python final stage, `tini` / `su-exec` privilege dropping entrypoint). *Blocked by 1.1 & 1.2*
 * **Task 1.4 [Dev B]:** Configure Container Security & Storage Policies (LUKS-based encrypted volumes and `IPC_LOCK` memory allocations). *Blocked by 1.1 & 1.2*
-* **Task 1.5 [Dev C]:** Establish Local Developer Experience (Create structured `docker-compose.yml` with bind mounts for Uvicorn hot-reloading, local MinIO, local Jaeger UI, and DB `seeds.py`). *Blocked by 1.3*
-* **Task 1.6 [Dev D]:** Docker Hardening (Enforce `--read-only` root filesystems for production containers and disable Redis disk dumps). *Blocked by 1.4*
+* **Task 1.5 [Dev C]:** Establish Local Developer Experience (Create structured base `docker-compose.yml` and `docker-compose.override.yml` to prevent drift, with bind mounts for Uvicorn hot-reloading, local MinIO, local Jaeger UI, and DB `seeds.py`). *Blocked by 1.3*
+* **Task 1.6 [Dev D]:** Docker Hardening (Enforce `--read-only` root filesystems for production containers, disable Redis disk dumps, configure log-rotation max-size boundaries, and inject tmpfs Docker Secrets). *Blocked by 1.4*
+* **Task 1.7 [Dev A]:** Air-Gap Artifact Bundler (Develop `make build-airgap-bundle` script for deterministic sneaker-net deployments and offline caching). *Blocked by 1.6*
 
 ### Phase 2: Foundational Architecture & Shared Services
 **Goal:** Scaffold the Python modular monolith structure, the PostgreSQL database, and cross-cutting security/utility services.
-* **Task 2.1 [Dev A]:** Implement the Module & Bootstrapper (FastAPI native `Depends()`), OpenTelemetry context injection for background Huey tasks, and Redis/TTL-based Idempotency Key checks.
+* **Task 2.1 [Dev A]:** Implement the Module & Bootstrapper (FastAPI native `Depends()`), OpenTelemetry context injection for background Huey tasks, Redis/TTL-based Idempotency Key checks, and the "Orphan Task Reaper" for OOM state recovery.
 * **Task 2.2 [Dev B]:** Develop the PostgreSQL Database configuration via Docker Compose (with PgBouncer connection pooling), base SQLModel ORM models, and Application-Level Encryption (ALE) for PII fields.
 * **Task 2.3 [Dev C]:** Implement JWT Authentication & authorization middleware with granular scopes, and strictly enforce IP/mTLS Certificate binding to prevent token replay attacks.
-* **Task 2.4 [Dev D]:** Develop Cryptographic "Vault Unseal" API, lightweight internal mTLS CA for inter-container traffic, WORM-compliant Cryptographically Signed Audit Logger, and `/metrics`.
+* **Task 2.4 [Dev D]:** Develop Cryptographic "Vault Unseal" API, lightweight internal mTLS CA for inter-container traffic, WORM-compliant Cryptographically Signed Audit Logger, `/metrics`, Alertmanager configuration, and as-code Grafana dashboards.
 
 ### Phase 3: The "Thin Slice" (Rapid ROI - Ingest, Subset, Egress)
 **Goal:** Deliver immediate business value to QA Engineers by establishing the end-to-end pipeline for deterministic masking and subsetting, deferring complex AI.
@@ -88,12 +89,13 @@ gantt
     Storage Encryption (Dev B)     :crit, t1_4, after t1_2, 2d
     Local Compose/Make (Dev C)     :crit, t1_5, after t1_3, 2d
     Docker Hardening (Dev D)       :crit, t1_6, after t1_4, 1d
+    Air-Gap Bundler (Dev A)        :crit, t1_7, after t1_6, 2d
 
     section Phase 2: Foundational Arch.
-    OTEL & Idempotent API (Dev A)            :t2_1, after t1_3, 4d
-    PostgreSQL & PgBouncer (Dev B)           :t2_2, after t1_3, 4d
-    JWT Auth & ACL Adapters (Dev C)          :t2_3, after t1_3, 4d
-    WORM Logs & Custom KPIs (Dev D)          :t2_4, after t1_3, 4d
+    OTEL & Idempotent API (Dev A)            :t2_1, after t1_7, 4d
+    PostgreSQL & PgBouncer (Dev B)           :t2_2, after t1_7, 4d
+    JWT Auth & ACL Adapters (Dev C)          :t2_3, after t1_7, 4d
+    WORM Logs & Custom KPIs (Dev D)          :t2_4, after t1_7, 4d
 
     section Phase 3: Thin Slice (Rapid ROI)
     Ingestion Engine (Dev A)                    :t3_1, after t2_1, 5d
