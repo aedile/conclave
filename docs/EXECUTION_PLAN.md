@@ -30,13 +30,14 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 * **Task 1.3 [Dev A]:** Construct Base Docker Image (Node.js build stage, Python final stage, `tini` / `su-exec` privilege dropping entrypoint). *Blocked by 1.1 & 1.2*
 * **Task 1.4 [Dev B]:** Configure Container Security & Storage Policies (LUKS-based encrypted volumes and `IPC_LOCK` memory allocations). *Blocked by 1.1 & 1.2*
 * **Task 1.5 [Dev C]:** Establish Local Developer Experience (Create structured `docker-compose.yml` with bind mounts for Uvicorn hot-reloading, local MinIO, local Jaeger UI, and DB `seeds.py`). *Blocked by 1.3*
+* **Task 1.6 [Dev D]:** Docker Hardening (Enforce `--read-only` root filesystems for production containers and disable Redis disk dumps). *Blocked by 1.4*
 
 ### Phase 2: Foundational Architecture & Shared Services
 **Goal:** Scaffold the Python modular monolith structure, the PostgreSQL database, and cross-cutting security/utility services.
 * **Task 2.1 [Dev A]:** Implement the Module & Bootstrapper (FastAPI native `Depends()`), OpenTelemetry context injection for background Huey tasks, and Redis/TTL-based Idempotency Key checks.
-* **Task 2.2 [Dev B]:** Develop the PostgreSQL Database configuration via Docker Compose (with PgBouncer connection pooling) and base SQLModel ORM models for Data Access.
-* **Task 2.3 [Dev C]:** Implement JWT Authentication & authorization middleware with granular scopes, and implement the Anti-Corruption Layers for ML tools.
-* **Task 2.4 [Dev D]:** Develop Cryptographic "Vault Unseal" API, WORM-compliant Cryptographically Signed Audit Logger, and Prometheus `/metrics` with custom business KPIs.
+* **Task 2.2 [Dev B]:** Develop the PostgreSQL Database configuration via Docker Compose (with PgBouncer connection pooling), base SQLModel ORM models, and Application-Level Encryption (ALE) for PII fields.
+* **Task 2.3 [Dev C]:** Implement JWT Authentication & authorization middleware with granular scopes, and strictly enforce IP/mTLS Certificate binding to prevent token replay attacks.
+* **Task 2.4 [Dev D]:** Develop Cryptographic "Vault Unseal" API, lightweight internal mTLS CA for inter-container traffic, WORM-compliant Cryptographically Signed Audit Logger, and `/metrics`.
 
 ### Phase 3: The "Thin Slice" (Rapid ROI - Ingest, Subset, Egress)
 **Goal:** Deliver immediate business value to QA Engineers by establishing the end-to-end pipeline for deterministic masking and subsetting, deferring complex AI.
@@ -58,12 +59,13 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 * **Task 5.2 [Dev B]:** Implement the Offline License Activation Protocol (QR Challenge generation, JWT offline validation bounding MAC/Node usage).
 * **Task 5.3 [Dev C]:** Build the base Accessible React SPA (Strict WCAG 2.1 AA adherence, offline asset bundling, setup `Vault Unseal` interception router).
 * **Task 5.4 [Dev D]:** Develop the Data Synthesis Dashboard (Asynchronous task progress UX, WebSockets/polling connection to Huey, privacy budget metrics).
+* **Task 5.5 [Dev A]:** Implement Cryptographic Shredding & Re-Keying API (Rotate Application-Level Encryption keys and zeroize old master constraints). *Blocked by 2.2, 5.1*
 
 ### Phase 6: Integration, Audit & Finalization
 **Goal:** Validate all components working in unison, enforce NIST erasure, and prepare for handover.
 * **Task 6.1 [Dev A]:** Execute End-to-End (E2E) Integration Tests for the complete Subsetting & Deterministic Masking workflow (utilizing pristine database rollbacks via `pytest-postgresql`). *Blocked by 3.4*
 * **Task 6.2 [Dev B]:** Execute E2E Integration Tests for the full Generative Synthesis workflow (utilizing Dummy ML assertions for CI/CD speed). *Blocked by 6.1, 4.3, 4.4*
-* **Task 6.3 [Dev C]:** Validate NIST SP 800-88 Cryptographic Erasure triggers (Volume key zeroization upon task completion/abortion) and OWASP validation.
+* **Task 6.3 [Dev C]:** Validate NIST SP 800-88 Cryptographic Erasure triggers, OWASP validation, and LLM/Agentic Fuzz Testing against JSON depth limits and ML layer Float-point NaNs.
 * **Task 6.4 [Dev D]:** Final Security Remediation, Documentation generation, and Platform Handover validation.
 
 ---
@@ -85,6 +87,7 @@ gantt
     Base Docker Image (Dev A)      :crit, t1_3, after t1_1, 2d
     Storage Encryption (Dev B)     :crit, t1_4, after t1_2, 2d
     Local Compose/Make (Dev C)     :crit, t1_5, after t1_3, 2d
+    Docker Hardening (Dev D)       :crit, t1_6, after t1_4, 1d
 
     section Phase 2: Foundational Arch.
     OTEL & Idempotent API (Dev A)            :t2_1, after t1_3, 4d
@@ -109,9 +112,10 @@ gantt
     Offline Licensing (Dev B)      :t5_2, after t4_2, 4d
     React SPA & WCAG 2.1 (Dev C)   :t5_3, after t4_3, 6d
     React Dashboard (Dev D)        :t5_4, after t4_4, 4d
+    Crypto Shredding (Dev A)       :t5_5, after t5_1, 3d
 
     section Phase 6: E2E Integration
-    Subsetting E2E (Dev A)         :t6_1, after t5_1, 3d
+    Subsetting E2E (Dev A)         :t6_1, after t5_5, 3d
     Synthesis E2E (Dev B)          :t6_2, after t6_1, 3d
     NIST Erasure Tests (Dev C)     :t6_3, after t5_4, 4d
     Handover & Docs (Dev D)        :t6_4, after t5_4, 4d
