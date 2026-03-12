@@ -25,7 +25,7 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 
 ### Phase 1: Project Initialization & Quality Gates
 **Goal:** Establish the unbreakable security & quality gates (Priority 0 & 1). No code can be written until this infrastructure enforces the Constitution.
-* **Task 1.1 [Dev A]:** Configure CI/CD Pipeline & Security/Quality Scanners (`gitleaks`, `bandit`, `ruff`, `mypy`, `trivy`, `pip-audit`, SBOM generation, `axe-core` accessibility static analysis, and structural `import-linter`). *Critical Path.*
+* **Task 1.1 [Dev A]:** Configure CI/CD Pipeline & backend Security/Quality Scanners (`gitleaks`, `bandit`, `ruff`, `mypy`, `trivy`, `pip-audit`, SBOM generation, and structural `import-linter`). *Critical Path.*
 * **Task 1.2 [Dev B]:** Setup TDD Framework (`pytest`, `pytest-cov`, and `pytest-postgresql` for transaction rollbacks) with enforcement gates (fail < 90%). *Critical Path.*
 * **Task 1.3 [Dev A]:** Construct Base Docker Image (Node.js build stage, Python final stage, `tini` / `su-exec` privilege dropping entrypoint). *Blocked by 1.1 & 1.2*
 * **Task 1.4 [Dev B]:** Configure Container Security & Storage Policies (LUKS-based encrypted volumes and `IPC_LOCK` memory allocations). *Blocked by 1.1 & 1.2*
@@ -56,16 +56,16 @@ The tasks below are structured to maximize parallel workstreams (up to 4 develop
 
 ### Phase 5: Orchestration, UI, & Licensing
 **Goal:** Fulfill the WCAG 2.1 AA mandates, deliver the offline dashboard via React, and secure network licensing.
-* **Task 5.1 [Dev A]:** Build the Task Orchestration API (FastAPI endpoints wrapping Huey jobs, Webhook emitter for agents, Cursor-Based Pagination, RFC 7807 formatting, and `datamodel-code-generator` schema sync).
+* **Task 5.1 [Dev A]:** Build the Task Orchestration API (FastAPI endpoints wrapping Huey jobs, Webhook emitter for agents, Cursor-Based Pagination, strictly structured RFC 7807 error formatting, SSE (Server-Sent Events) streaming infrastructure, and `datamodel-code-generator` schema sync).
 * **Task 5.2 [Dev B]:** Implement the Offline License Activation Protocol (QR Challenge generation, JWT offline validation bounding MAC/Node usage).
-* **Task 5.3 [Dev C]:** Build the base Accessible React SPA (Strict WCAG 2.1 AA adherence, offline asset bundling, setup `Vault Unseal` interception router).
-* **Task 5.4 [Dev D]:** Develop the Data Synthesis Dashboard (Asynchronous task progress UX, WebSockets/polling connection to Huey, privacy budget metrics).
+* **Task 5.3 [Dev C]:** Build the base Accessible React SPA (Strict WCAG 2.1 AA adherence, strict `Content-Security-Policy` header enforcement, local WOFF2 embedded fonts, and `Vault Unseal` interception router).
+* **Task 5.4 [Dev D]:** Develop the Data Synthesis Dashboard (Determinate UX progress states, SSE integration to Huey, `localStorage` active state rehydration, `aria-live` focus accessibility, and RFC 7807 UI Error Remediation cards).
 * **Task 5.5 [Dev A]:** Implement Cryptographic Shredding & Re-Keying API (Rotate Application-Level Encryption keys and zeroize old master constraints). *Blocked by 2.2, 5.1*
 
 ### Phase 6: Integration, Audit & Finalization
 **Goal:** Validate all components working in unison, enforce NIST erasure, and prepare for handover.
-* **Task 6.1 [Dev A]:** Execute End-to-End (E2E) Integration Tests for the complete Subsetting & Deterministic Masking workflow (utilizing pristine database rollbacks via `pytest-postgresql`). *Blocked by 3.4*
-* **Task 6.2 [Dev B]:** Execute E2E Integration Tests for the full Generative Synthesis workflow (utilizing Dummy ML assertions for CI/CD speed). *Blocked by 6.1, 4.3, 4.4*
+* **Task 6.1 [Dev A]:** Execute End-to-End (E2E) Integration Tests for the complete Subsetting workflow (utilizing Playwright/Cypress with explicit `@axe-core/playwright` accessibility assertions and pristine database rollbacks via `pytest-postgresql`). *Blocked by 3.4*
+* **Task 6.2 [Dev B]:** Execute E2E Integration Tests for the full Generative Synthesis workflow (utilizing Dummy ML assertions for CI/CD speed and frontend `@axe-core` checks). *Blocked by 6.1, 4.3, 4.4*
 * **Task 6.3 [Dev C]:** Validate NIST SP 800-88 Cryptographic Erasure triggers, OWASP validation, and LLM/Agentic Fuzz Testing against JSON depth limits and ML layer Float-point NaNs.
 * **Task 6.4 [Dev D]:** Final Security Remediation, Documentation generation, and Platform Handover validation.
 
