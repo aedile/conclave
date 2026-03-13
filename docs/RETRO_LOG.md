@@ -16,10 +16,40 @@ Drain (delete) rows when their target task is completed.
 | ADV-007 | DevOps R1/R3 | Standalone CI hardening task | GitHub Actions in `ci.yml` are pinned to mutable version tags (`@v4`, `@v2`) not commit SHAs. Third-party actions (`gitleaks-action@v2`, `snok/install-poetry`) carry supply-chain risk. SHA-pin all actions in a dedicated CI hardening pass. |
 | ADV-008 | QA/DevOps P0.8.1 | Before Task 4.2 (SDV integration) | `_process_chunk()` in `spike_ml_memory.py` uses `except ValueError: pass` — silent swallow must be replaced with `WARNING`-level logging before any synthesizer code is promoted to `src/synth_engine/modules/synthesizer/`. Also: numpy fast path uses unseeded `np.random.normal` (global PRNG state) — breaks determinism; must seed `np.random.default_rng` from same seed as stdlib PRNG before Phase 4 promotion. |
 | ADV-009 | QA P0.8.1 | Before Phase 4 | `spikes/` directory is outside bandit and ruff scan targets. As spike code accumulates and patterns are promoted to `src/`, this creates a scan blind spot. Add `spikes/` to bandit targets in `pyproject.toml` or add a `.bandit` marker documenting the intentional exclusion. Also add `# noqa: S311` alongside existing `# nosec B311` at `spike_ml_memory.py` lines 379 and 522. |
+| ADV-010 | QA P0.8.2 | Before Phase 3 | `# nosec B311`/`# nosec B608` suppresses bandit only — ruff needs separate `# noqa: S311`/`# noqa: S608` annotations. Four S608 violations exist in `spikes/spike_topological_subset.py`. Fix: add `"spikes/**" = ["S311", "S608"]` to `[tool.ruff.lint.per-file-ignores]` in `pyproject.toml`. This pattern will recur when SQL-adjacent code lands in Phase 3 `src/ingestion/` — apply dual annotations there from the first commit. |
+| ADV-011 | QA P0.8.2 | Before Phase 4 (masking module) | `FeistelFPE` in `spike_fpe_luhn.py` has unguarded edge cases: `rounds=0` is an identity transformation (no encryption); `luhn_check("")` and `_luhn_check_digit("")` return `False`/`"0"` silently. Write `tests/unit/test_fpe_luhn.py` (TDD RED) against spike code before promoting to `src/synth_engine/modules/masking/`. Also document spike-to-production promotion checklist in `AUTONOMOUS_DEVELOPMENT_PROMPT.md` before Phase 4. |
+| ADV-012 | QA P0.8.3 | Before Phase 3 (ingestion module) | `SubsetQueryGenerator._resolve_reachable()` uses "any-parent OR" semantics to mark a table reachable — correct for downstream-pull subsetting but must be explicitly decided in an ADR before Phase 3 implementation to prevent correctness regressions. Also: `_infer_pk_column()` checks `pk==1` only (incorrect for composite-PK tables). Both must be addressed in the Phase 3 ADR for ingestion subsetting. |
+| ADV-013 | DevOps P0.8.3 | Before Phase 3 (ingestion module) | When `SubsetQueryGenerator` is promoted to `src/synth_engine/modules/ingestion/`, `seed_table` crosses a trust boundary. Require allowlist validation against `SchemaInspector.get_tables()` before any f-string SQL construction. Document `spikes/` CI carve-out (no mypy/ruff/bandit enforcement) explicitly in ADR or README so future reviewers do not mistake the absence of enforcement for an oversight. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-13] P0.8.3 — Spike C: Topological Subset & Referential Integrity
+
+**QA** (Round 1 — FINDING, advisory, non-blocking):
+Kahn's algorithm correct; CTE/EXISTS pattern is the right architectural choice over JOINs; streaming memory proof genuine (0.38 MB peak on 81-row subset). Two edge cases flagged for Phase 3: `_infer_pk_column` checks `pk==1` only (wrong for composite-PK tables); `_resolve_reachable` uses "any-parent OR" semantics — correct for downstream-pull subsetting but must be explicitly decided in an ADR before Phase 3. `_build_cte_body` docstring describes `reachable` parameter inaccurately. Ruff S608 suppression gap: four violations in `spikes/` because `# nosec B608` suppresses bandit only, not ruff — requires `"spikes/**" = ["S311", "S608"]` in `[tool.ruff.lint.per-file-ignores]` before Phase 3. Retrospective: `# nosec B608` vs `# noqa: S608` are not interchangeable — this will silently recur when SQL-adjacent code appears in Phase 3 `src/ingestion/` modules.
+
+**UI/UX** (Round 1 — SKIP):
+No templates, routes, forms, or interactive elements. Forward: topological subset logic will surface in Phase 5 as relationship visualization. Force-directed graphs are one of the most reliably inaccessible UI patterns — any visual graph must have a text-based equivalent (structured table or adjacency list). Subset size and privacy epsilon budget displayed as status indicators must not rely on color alone to signal threshold warnings.
+
+**DevOps** (Round 1 — PASS):
+gitleaks 41 commits, 0 leaks. All fixture PII uses `fictional.invalid` RFC 2606 reserved domain. `nosec B608` annotations carry written justifications in both inline comments and class docstrings — correct suppression annotation practice. Advisory: when `SubsetQueryGenerator` graduates to `src/`, `seed_table` crosses a trust boundary; require allowlist validation against `SchemaInspector.get_tables()` before any f-string SQL construction. Recommend documenting `spikes/` CI carve-out explicitly in ADR or README.
+
+---
+
+### [2026-03-13] P0.8.2 — Spike B: FPE Cipher & LUHN-Preserving Masking
+
+**QA** (Round 1 — FINDING, advisory, non-blocking):
+Feistel implementation algorithmically correct — `encrypt`/`decrypt` are proper inverses, zero collisions confirmed. Dead code: `original_cards` parameter in `_run_assertions()` is accepted, documented, then immediately discarded (`_ = original_cards`) — remove before Phase 4 promotion. Unguarded edge cases: `rounds=0` is identity transformation; `luhn_check("")` returns `False` silently; `_luhn_check_digit("")` returns `"0"` silently — none block spike merge, all must be addressed in `tests/unit/test_fpe_luhn.py` (TDD RED) before `masking/fpe.py` lands in `src/`. Retrospective: dead `original_cards` parameter is a canary for leftover refactoring scaffolding — spike-to-production promotion path is currently undocumented; address in `AUTONOMOUS_DEVELOPMENT_PROMPT.md` before Phase 4.
+
+**UI/UX** (Round 1 — SKIP):
+No templates, routes, forms, or interactive elements. Forward: when FPE-masked values surface in the Phase 5 dashboard, masked CC numbers in display must carry `aria-label` distinguishing them as synthetic/masked; icon-only controls require non-visual labels; epsilon/privacy-budget gauges must not rely on color alone.
+
+**DevOps** (Round 1 — PASS):
+gitleaks 40 commits, 0 leaks. `secrets.token_bytes(32)` key never printed, logged, or serialized. `random.Random(42)` (fixture generation only) annotated `# noqa: S311` + `# nosec B311` with written justification at two levels — correct crypto/PRNG boundary management. All input validation in place (`isdigit()`, length guards). Advisory: `spikes/` outside bandit scan targets — add `.bandit` marker or extend scan path before Phase 4.
 
 ---
 
