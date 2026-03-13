@@ -16,9 +16,9 @@ Security properties
   JSON) means an adversary cannot silently delete or reorder events.
 - ``hmac.compare_digest`` for signature verification prevents
   timing-oracle attacks.
-- Events are emitted to ``logging.getLogger("conclave.audit")`` at INFO
-  level; log shipping to an append-only store (WORM) is an operational
-  concern outside the scope of this module.
+- Events are emitted to ``logging.getLogger("synth_engine.security.audit")``
+  at INFO level; log shipping to an append-only store (WORM) is an
+  operational concern outside the scope of this module.
 
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
@@ -34,7 +34,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
-_AUDIT_LOGGER_NAME = "conclave.audit"
+_AUDIT_LOGGER_NAME = "synth_engine.security.audit"
 _GENESIS_HASH = "0" * 64
 
 
@@ -47,7 +47,9 @@ class AuditEvent(BaseModel):
         actor: Identity of the principal that performed the action.
         resource: Logical resource affected.
         action: Verb describing what was done (e.g. ``"unseal"``).
-        details: Arbitrary string key-value metadata.
+        details: Arbitrary string key-value metadata.  Callers MUST NOT
+            pass PII field values here; the field is intentionally
+            unstructured but its contents are written to the audit log.
         prev_hash: SHA-256 hex of the previous event's JSON, or the
             genesis sentinel ``"0" * 64`` for the first event.
         signature: HMAC-SHA256 hex over the canonical message fields.
@@ -118,14 +120,15 @@ class AuditLogger:
 
         Builds the event against the current chain head (``_prev_hash``),
         signs it, advances the chain, and logs the JSON representation
-        to ``conclave.audit`` at INFO level.
+        to ``synth_engine.security.audit`` at INFO level.
 
         Args:
             event_type: Short uppercase identifier for the event category.
             actor: Identity of the principal performing the action.
             resource: Logical resource being acted upon.
             action: Verb describing the action.
-            details: Arbitrary string metadata for the event.
+            details: Arbitrary string metadata for the event.  Callers
+                MUST NOT pass PII field values here.
 
         Returns:
             The constructed and signed :class:`AuditEvent`.
@@ -179,6 +182,11 @@ def get_audit_logger() -> AuditLogger:
     Reads ``AUDIT_KEY`` from the environment (hex-encoded 32 bytes).
     A dedicated key separate from ``ALE_KEY`` and ``JWT_SECRET_KEY``
     limits the blast radius of a single key compromise.
+
+    Each returned instance starts a new hash chain from genesis
+    (``prev_hash = '0' * 64``).  For a single continuous chain across
+    multiple calls, the caller must hold the returned instance for the
+    lifetime of the chain rather than calling this factory on each request.
 
     Returns:
         A ready-to-use :class:`AuditLogger` instance.

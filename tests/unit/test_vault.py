@@ -133,6 +133,29 @@ def test_short_vault_salt_raises_value_error(monkeypatch: pytest.MonkeyPatch) ->
 
 
 # ---------------------------------------------------------------------------
+# Edge-case guard tests (QA review finding P2-T2.4)
+# ---------------------------------------------------------------------------
+
+
+def test_empty_passphrase_raises_value_error(vault_salt_env: str) -> None:
+    """unseal() raises ValueError when passphrase is an empty string."""
+    from synth_engine.shared.security.vault import VaultState
+
+    with pytest.raises(ValueError, match="[Pp]assphrase"):
+        VaultState.unseal("")  # nosec B105 # pragma: allowlist secret
+
+
+def test_re_unseal_while_unsealed_raises_value_error(vault_salt_env: str) -> None:
+    """unseal() raises ValueError when the vault is already unsealed."""
+    from synth_engine.shared.security.vault import VaultState
+
+    VaultState.unseal("first-passphrase")  # nosec B105 # pragma: allowlist secret
+
+    with pytest.raises(ValueError, match="already unsealed"):
+        VaultState.unseal("second-passphrase")  # nosec B105 # pragma: allowlist secret
+
+
+# ---------------------------------------------------------------------------
 # SealGateMiddleware and /unseal endpoint tests
 # ---------------------------------------------------------------------------
 
@@ -206,3 +229,36 @@ async def test_require_unsealed_raises_when_sealed() -> None:
         await require_unsealed()
 
     assert exc_info.value.status_code == 423
+
+
+@pytest.mark.asyncio
+async def test_require_unsealed_returns_none_when_unsealed(vault_salt_env: str) -> None:
+    """require_unsealed() returns None (no exception) when the vault is unsealed."""
+    from synth_engine.bootstrapper.dependencies.vault import require_unsealed
+    from synth_engine.shared.security.vault import VaultState
+
+    VaultState.unseal("any-valid-passphrase")  # nosec B105 # pragma: allowlist secret
+
+    # Should not raise; the return value is None
+    result = await require_unsealed()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_unseal_endpoint_returns_400_on_missing_salt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /unseal returns 400 when VAULT_SEAL_SALT is not set."""
+    monkeypatch.delenv("VAULT_SEAL_SALT", raising=False)
+
+    from synth_engine.bootstrapper.main import create_app
+
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/unseal",
+            json={"passphrase": "test-passphrase"},  # nosec B105 # pragma: allowlist secret
+        )
+
+    assert response.status_code == 400
+    assert "VAULT_SEAL_SALT" in response.json()["detail"]

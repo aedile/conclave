@@ -52,17 +52,39 @@ bytes, validated at `get_audit_logger()` factory time.
 
 ### WORM via Log Shipping
 
-Events are emitted to `logging.getLogger("conclave.audit")` at INFO level as
-JSON.  Making the logger output append-only (WORM) is an *operational* concern:
-configure log shipping to an append-only store (S3 with Object Lock, a syslog
-daemon, or a SIEM) at deploy time.  This module provides the cryptographic
-guarantees; the storage layer provides the persistence guarantees.
+Events are emitted to `logging.getLogger("synth_engine.security.audit")` at
+INFO level as JSON.  Making the logger output append-only (WORM) is an
+*operational* concern: configure log shipping to an append-only store (S3 with
+Object Lock, a syslog daemon, or a SIEM) at deploy time.  This module provides
+the cryptographic guarantees; the storage layer provides the persistence
+guarantees.
 
 ### Timing-Safe Verification
 
 `AuditLogger.verify_event()` uses `hmac.compare_digest` to compare the
 expected and actual signatures.  This prevents timing-oracle attacks that could
 leak partial information about `AUDIT_KEY`.
+
+### Per-Call Chain Isolation
+
+`get_audit_logger()` is a factory: each call returns a **new** `AuditLogger`
+instance whose hash chain begins at genesis (`prev_hash = "0" * 64`).  Callers
+that require a single continuous chain across multiple operations must hold the
+returned instance for the lifetime of that chain and must not call the factory
+again on each operation.
+
+### PII Constraint on `details` Field
+
+The `details: dict[str, str]` field on `AuditEvent` is intentionally
+unstructured to allow callers to attach contextual metadata.  However, callers
+**MUST NOT** pass PII field values (e.g. names, email addresses, file contents)
+in this dictionary.  The field's contents are written verbatim to the audit log
+and shipped to the log store.
+
+This constraint is currently enforced by convention only.  Before Phase 3 work
+begins, a Pydantic validator or key allowlist should be added to `AuditEvent` to
+reject keys outside a defined set, converting this from a documentation
+constraint to a code constraint.
 
 ---
 
@@ -84,3 +106,5 @@ leak partial information about `AUDIT_KEY`.
 - `AUDIT_KEY` must be rotated carefully: rotating the key breaks verification
   of old events unless the old key is retained.  Rotation procedure is out of
   scope for this ADR.
+- `details` is an open-ended PII sink until a key allowlist is added (planned
+  before Phase 3).

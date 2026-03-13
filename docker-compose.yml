@@ -193,7 +193,8 @@ services:
   #
   # Security notes:
   #   - No external port exposure: only accessible via the internal network.
-  #   - /metrics endpoint is unauthenticated by design (internal-only).
+  #   - /metrics endpoint is unauthenticated by design (internal-only);
+  #     network-level protection is documented in ADR-0011.
   # ---------------------------------------------------------------------------
   prometheus:
     image: prom/prometheus:v2.53.0
@@ -240,6 +241,8 @@ services:
   #
   # Security notes:
   #   - Admin password injected via Docker secret (grafana_admin_password).
+  #   - Admin username injected via Docker secret (grafana_admin_user) so
+  #     the default "admin" username is not used — DevOps review finding P2-T2.4.
   #   - Anonymous access and sign-up are explicitly disabled.
   #   - Dashboard and datasource provisioning is read-only mounted.
   #   - grafana_data volume persists dashboards / plugins between restarts.
@@ -248,6 +251,7 @@ services:
     image: grafana/grafana:11.3.0
     environment:
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_SECURITY_ADMIN_USER__FILE: /run/secrets/grafana_admin_user
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
@@ -255,6 +259,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     secrets:
       - grafana_admin_password
+      - grafana_admin_user
     ports:
       - "3000:3000"
     networks:
@@ -304,8 +309,9 @@ networks:
 #   openssl rand -hex 32 > secrets/app_secret_key.txt
 #   openssl rand -hex 32 > secrets/postgres_password.txt
 #   openssl rand -hex 32 > secrets/grafana_admin_password.txt
+#   echo "conclave-admin" > secrets/grafana_admin_user.txt
 #   chmod 600 secrets/app_secret_key.txt secrets/postgres_password.txt \
-#             secrets/grafana_admin_password.txt
+#             secrets/grafana_admin_password.txt secrets/grafana_admin_user.txt
 # =============================================================================
 secrets:
   app_secret_key:
@@ -314,3 +320,5 @@ secrets:
     file: ./secrets/postgres_password.txt
   grafana_admin_password:
     file: ./secrets/grafana_admin_password.txt
+  grafana_admin_user:
+    file: ./secrets/grafana_admin_user.txt

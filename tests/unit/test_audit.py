@@ -202,10 +202,10 @@ def test_audit_event_logged_to_stdout(
     logger_instance: AuditLogger,  # noqa: F821
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """log_event() emits a log record at INFO on the conclave.audit logger."""
+    """log_event() emits a log record at INFO on the synth_engine.security.audit logger."""
     import logging
 
-    with caplog.at_level(logging.INFO, logger="conclave.audit"):
+    with caplog.at_level(logging.INFO, logger="synth_engine.security.audit"):
         event = logger_instance.log_event(
             event_type="LOG_TEST",
             actor="pytest",
@@ -223,3 +223,15 @@ def test_audit_event_logged_to_stdout(
     parsed = json.loads(matching[0].message)
     assert parsed["event_type"] == "LOG_TEST"
     assert parsed["signature"] == event.signature
+
+
+# ---------------------------------------------------------------------------
+# Logger naming convention test (DevOps review finding P2-T2.4)
+# ---------------------------------------------------------------------------
+
+
+def test_audit_logger_name_follows_convention() -> None:
+    """_AUDIT_LOGGER_NAME follows the synth_engine.<module_path> convention."""
+    from synth_engine.shared.security.audit import _AUDIT_LOGGER_NAME
+
+    assert _AUDIT_LOGGER_NAME == "synth_engine.security.audit"

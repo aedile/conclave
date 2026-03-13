@@ -55,6 +55,28 @@ for i in range(len(mv)):
 This limits the window during which an attacker who reads `/proc/self/mem` or
 a core dump could recover the key.  The passphrase is never stored.
 
+#### Partial Zeroing Guarantee (CPython Memory Model Constraint)
+
+The zeroing guarantee applies **only** to the `bytearray` that holds the final
+derived KEK.  Two intermediate `bytes` objects are created during derivation and
+cannot be zeroed under CPython's memory model:
+
+1. `passphrase.encode()` — produces an immutable `bytes` object on the heap.
+2. The return value of `hashlib.pbkdf2_hmac(...)` — another immutable `bytes`
+   object that is immediately copied into the mutable `bytearray`.
+
+Python's garbage collector may not reclaim these objects immediately, and CPython
+does not guarantee memory zeroing on deallocation.  An attacker with
+`/proc/self/mem` access during a narrow window after `unseal()` and before GC
+could theoretically read these intermediate bytes.
+
+**Risk acceptance:** This is an inherent constraint of the CPython stdlib PBKDF2
+path.  Mitigations available at the OS/container layer (e.g., `mlock(2)` via the
+`IPC_LOCK` capability, read-only rootfs, no core dumps) reduce but do not
+eliminate this risk.  A future task may evaluate a C-extension PBKDF2 binding
+that operates on mutable buffers throughout, but the stdlib path is accepted for
+Phase 2.
+
 ### Salt: `VAULT_SEAL_SALT` Environment Variable
 
 The salt is not secret — it merely prevents rainbow-table pre-computation of
@@ -64,6 +86,16 @@ consistent across process restarts (same passphrase → same KEK).
 
 If `VAULT_SEAL_SALT` is missing at unseal time, `VaultState.unseal()` raises
 `ValueError` — the engine refuses to derive a zero-salt KEK.
+
+### Unseal Guard Conditions
+
+`VaultState.unseal()` validates the following pre-conditions before deriving the
+KEK, raising `ValueError` for each:
+
+1. **Empty passphrase** — an empty string is rejected immediately.
+2. **Re-unseal while unsealed** — calling `unseal()` when the vault is already
+   unsealed raises `ValueError`.  Callers must call `seal()` first if a
+   deliberate key rotation is intended.  This prevents silent KEK rotation.
 
 ### HTTP Status: 423 Locked
 
@@ -90,6 +122,8 @@ The following paths bypass the seal gate and are accessible without unsealing:
 - 423 gate is enforced at the middleware layer — no route handler can
   accidentally bypass it.
 - `PBKDF2_HMAC` is stdlib; no new cryptographic dependencies introduced.
+- Empty passphrase and re-unseal are explicitly rejected, eliminating silent
+  failure modes.
 
 **Negative / Mitigations:**
 - An operator must POST `/unseal` after every container restart.  This is
@@ -97,3 +131,5 @@ The following paths bypass the seal gate and are accessible without unsealing:
 - The sealed state is class-level (singleton).  Tests must call
   `VaultState.reset()` in teardown to prevent state bleed.  This is enforced
   by a `pytest` autouse fixture.
+- Two intermediate `bytes` objects cannot be zeroed (CPython constraint).
+  Risk is accepted; documented above and mitigated at the OS/container layer.

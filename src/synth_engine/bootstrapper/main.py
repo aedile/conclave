@@ -15,6 +15,9 @@ Task 2.4 additions:
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -26,6 +29,7 @@ from synth_engine.shared.security.vault import VaultState
 from synth_engine.shared.telemetry import configure_telemetry
 
 _SERVICE_NAME = "conclave-engine"
+_logger = logging.getLogger(__name__)
 
 
 class UnsealRequest(BaseModel):
@@ -100,8 +104,8 @@ def _register_routes(app: FastAPI) -> None:
         """Unseal the vault by deriving the KEK from the operator passphrase.
 
         Reads ``VAULT_SEAL_SALT`` from the environment, runs PBKDF2-HMAC-
-        SHA256 (600k iterations), stores the result in ephemeral memory,
-        and logs an audit event.
+        SHA256 (600k iterations) in a thread pool to avoid blocking the event
+        loop, stores the result in ephemeral memory, and logs an audit event.
 
         Args:
             body: JSON body containing the operator passphrase.
@@ -111,8 +115,8 @@ def _register_routes(app: FastAPI) -> None:
             ``{"detail": "<reason>"}`` with HTTP 400 on failure.
         """
         try:
-            VaultState.unseal(body.passphrase)
-        except (ValueError, Exception) as exc:
+            await asyncio.to_thread(VaultState.unseal, body.passphrase)
+        except ValueError as exc:
             return JSONResponse(content={"detail": str(exc)}, status_code=400)
 
         # Emit audit event — best-effort; failure must not prevent unsealing
@@ -129,11 +133,7 @@ def _register_routes(app: FastAPI) -> None:
             )
         except (ValueError, RuntimeError):
             # AUDIT_KEY not configured in this environment — log but continue
-            import logging
-
-            logging.getLogger("conclave").warning(
-                "AUDIT_KEY not configured; vault unseal event was not audited."
-            )
+            _logger.warning("AUDIT_KEY not configured; vault unseal event was not audited.")
 
         return JSONResponse(content={"status": "unsealed"})
 

@@ -86,13 +86,25 @@ class VaultState:
         The passphrase is never stored; only the derived KEK is retained
         in an in-memory ``bytearray``.
 
+        This method is idempotent-hostile: calling ``unseal()`` while the
+        vault is already unsealed raises ``ValueError`` to prevent silent
+        KEK rotation.  Call ``seal()`` first if a re-unseal is intended.
+
         Args:
             passphrase: Operator-provided unseal passphrase.
 
         Raises:
+            ValueError: If *passphrase* is empty.
+            ValueError: If the vault is already unsealed (call ``seal()``
+                first to re-unseal).
             ValueError: If ``VAULT_SEAL_SALT`` is not set or decodes to
                 fewer than 16 bytes.
         """
+        if not passphrase:
+            raise ValueError("Passphrase must not be empty.")
+        if not cls._is_sealed:
+            raise ValueError("Vault is already unsealed. Call seal() before unsealing again.")
+
         raw_salt = os.environ.get("VAULT_SEAL_SALT")
         if not raw_salt:
             raise ValueError(
@@ -160,4 +172,3 @@ class VaultState:
         so that state does not bleed between test cases.
         """
         cls.seal()
-        cls._is_sealed = True
