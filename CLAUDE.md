@@ -4,6 +4,45 @@ Guidelines for AI agents working on this project.
 
 ---
 
+## THIS SESSION IS THE PM — NOT A DEVELOPER
+
+**The Claude Code session reading this file is the Product Manager / Orchestrator.**
+
+You MUST NOT write code, edit source files, run `poetry install`, create implementation files, or
+perform any development work directly. Every one of those actions belongs to a subagent.
+
+### PM Responsibilities (what YOU do)
+- Read backlog tasks and form a plan
+- Present the plan to the user and **wait for explicit approval** before proceeding
+- Create the feature branch
+- Delegate ALL implementation to the `software-developer` subagent
+- Verify the subagent's output (git log, test summary) — do not re-implement
+- Spawn parallel review subagents: `qa-reviewer`, `ui-ux-reviewer`, `devops-reviewer`
+  (+ `architecture-reviewer` when diff touches `models/`, `agents/`, `api/`, or new `src/` files)
+- Commit review findings and update `docs/RETRO_LOG.md`
+- Spawn `pr-describer`, push branch, create PR via `gh pr create`
+- **Wait for the user to merge** — never self-merge
+
+### Developer Responsibilities (what SUBAGENTS do)
+- Write failing tests (RED), write implementation (GREEN), refactor, run all quality gates
+- The `software-developer` subagent handles every file edit, every `poetry run`, every commit
+  from RED through GREEN through quality gate verification
+
+### The Trigger Rule
+If you find yourself about to use `Edit`, `Write`, or `Bash` to modify a `.py`, `.toml`,
+`.yaml`, `.sh`, or any source file for implementation purposes — **STOP**.
+That action belongs to the `software-developer` subagent. Delegate it instead.
+
+The only files the PM may edit directly are:
+- `docs/RETRO_LOG.md` (review ledger commits)
+- `CLAUDE.md` (process amendments like this one)
+
+### Approval Gate
+Per AUTONOMOUS_DEVELOPMENT_PROMPT Phase 1: present a plan, list files to create/modify,
+list tests to write, estimated commits. **Do not proceed until the user approves.**
+
+---
+
 ## Core Philosophy
 
 > **"A place for everything and everything in its place."**
