@@ -1,4 +1,4 @@
-# ADR-0004: Application-Level Encryption for PII Fields
+# ADR-0006: Application-Level Encryption for PII Fields
 
 **Status:** Accepted
 **Date:** 2026-03-13
