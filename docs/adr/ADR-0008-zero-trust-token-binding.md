@@ -1,4 +1,4 @@
-# ADR-0006: Zero-Trust JWT Token Binding
+# ADR-0008: Zero-Trust JWT Token Binding
 
 **Status:** Accepted
 **Date:** 2026-03-13

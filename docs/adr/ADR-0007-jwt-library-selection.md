@@ -1,4 +1,4 @@
-# ADR-0005: JWT Library Selection — python-jose
+# ADR-0007: JWT Library Selection — python-jose
 
 **Status:** Accepted
 **Date:** 2026-03-13
