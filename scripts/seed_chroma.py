@@ -143,8 +143,18 @@ def main() -> None:
     """Seed ChromaDB with governance documents and verify retrieval.
 
     Raises:
-        SystemExit: If the ChromaDB client cannot connect.
+        SystemExit: If SEEDING_MANIFEST contains collection names absent from
+            VERIFICATION_QUERIES, if the ChromaDB client cannot connect, or
+            if a source file is not found.
     """
+    # ADV-002: Startup invariant — every collection in SEEDING_MANIFEST must have
+    # a corresponding entry in VERIFICATION_QUERIES. A divergence here would cause
+    # an unguarded KeyError at runtime; fail fast with a clear error instead.
+    missing_queries = set(SEEDING_MANIFEST.values()) - set(VERIFICATION_QUERIES.keys())
+    if missing_queries:
+        logger.error("VERIFICATION_QUERIES missing entries for: %s", sorted(missing_queries))
+        sys.exit(1)
+
     repo_root = Path(__file__).resolve().parent.parent
 
     logger.info("Connecting to ChromaDB at %s...", DB_PATH)
@@ -165,7 +175,7 @@ def main() -> None:
         query = VERIFICATION_QUERIES[collection_name]
         verify_retrieval(collection, collection_name, query)
 
-    logger.info("Memory seeding complete. Governance context is now queryable by all agent streams.")
+    logger.info("Memory seeding complete. Governance context is queryable by all agent streams.")
 
 
 if __name__ == "__main__":
