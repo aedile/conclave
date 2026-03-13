@@ -19,7 +19,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from jose import ExpiredSignatureError, JWTError, jwt
+import jwt as pyjwt
+from jwt.exceptions import ExpiredSignatureError, PyJWTError
 from pydantic import BaseModel
 from starlette.requests import Request
 
@@ -186,7 +187,7 @@ def create_access_token(
         "iat": int(now.timestamp()),
     }
 
-    return str(jwt.encode(claims, config.secret_key, algorithm=config.algorithm))
+    return pyjwt.encode(claims, config.secret_key, algorithm=config.algorithm)
 
 
 # ---------------------------------------------------------------------------
@@ -216,14 +217,14 @@ def verify_token(token: str, request: Request, config: JWTConfig) -> TokenPayloa
             client identity cannot be determined.
     """
     try:
-        raw_payload: dict[str, Any] = jwt.decode(
+        raw_payload: dict[str, Any] = pyjwt.decode(
             token,
             config.secret_key,
             algorithms=[config.algorithm],
         )
     except ExpiredSignatureError as exc:
         raise TokenVerificationError(detail="Token expired", status_code=401) from exc
-    except JWTError as exc:
+    except PyJWTError as exc:
         raise TokenVerificationError(detail="Invalid token", status_code=401) from exc
 
     payload = TokenPayload.model_validate(raw_payload)

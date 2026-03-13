@@ -1,37 +1,48 @@
-# ADR-0007: JWT Library Selection — python-jose
+# ADR-0007: JWT Library Selection — PyJWT
 
-**Status:** Accepted
+**Status:** Accepted (supersedes python-jose decision of 2026-03-13)
 **Date:** 2026-03-13
 
 ## Context
 
 The zero-trust token-binding implementation (T2.3) requires a Python library for issuing and
-verifying JWTs. Two primary candidates were evaluated: `python-jose[cryptography]` and `PyJWT`.
+verifying JWTs. The project originally adopted `python-jose[cryptography]`. A CVE was subsequently
+published against `ecdsa`, an unmaintained transitive dependency of `python-jose`:
+
+- **CVE-2024-23342** — `ecdsa` library (all versions including 0.19.1): Minerva timing
+  side-channel on ECDSA nonce generation. Rated MEDIUM. `ecdsa` is unmaintained; no patch is
+  expected. This CVE blocks `pip-audit` on every CI run as long as `python-jose` is present.
 
 ## Decision
 
-Use `python-jose[cryptography]`.
+Replace `python-jose[cryptography]` with `PyJWT[cryptography]` (version `>=2.10.0,<3.0.0`).
 
-Rationale:
+## Rationale
 
-- Supports both symmetric (HS256) and asymmetric (RS256/ES256) algorithms via the same API,
-  allowing a future move to asymmetric keys without a library change.
-- The `[cryptography]` extra uses the `cryptography` package (already in the dependency graph
-  via passlib) rather than requiring a separate native extension.
-- Named exception classes (`ExpiredSignatureError`, `JWTError`) enable precise exception
-  handling; `ExpiredSignatureError` is caught before the general `JWTError` to give callers
-  accurate error context.
-- pip-audit baseline: no known CVEs at time of adoption (2026-03-13).
+- `PyJWT` has no dependency on `ecdsa`. Its elliptic-curve support is provided entirely by the
+  `cryptography` package (already present via `passlib[bcrypt]`), which is actively maintained.
+- `PyJWT` ships its own PEP 561 type stubs. No separate `types-*` package is needed; the
+  `types-python-jose` dev dependency has been removed.
+- The public API used by this project (`encode`, `decode`, named exception classes) is
+  identical in both libraries for HS256. The migration is a drop-in replacement.
+- `ExpiredSignatureError` exists in both `jose` and `jwt.exceptions`; exception handling
+  semantics are unchanged — `ExpiredSignatureError` is still caught before the general
+  `PyJWTError` to give callers accurate error context.
+- PyJWT 2.x `encode()` returns `str` directly (no cast required), which simplifies the
+  implementation slightly.
+- pip-audit baseline: clean (no known CVEs) as of 2026-03-13.
 
 ## Air-gap bundling implications
 
-`python-jose` and its `[cryptography]` extra are bundled as pre-built wheels in
-`scripts/build_airgap.sh` via `docker save`. No additional wheels or network access are needed
-at runtime.
+`PyJWT` and its `[cryptography]` extra are bundled as pre-built wheels in
+`scripts/build_airgap.sh` via `docker save`. The `ecdsa` wheel is no longer included.
+No additional wheels or network access are needed at runtime.
 
 ## Consequences
 
-- Pin: `python-jose = ">=3.3.0,<4.0.0"` with `extras = ["cryptography"]` in `pyproject.toml`.
+- Pin: `PyJWT = ">=2.10.0,<3.0.0"` with `extras = ["cryptography"]` in `pyproject.toml`.
+- `types-python-jose` removed from dev dependencies; `PyJWT` stubs are included in the
+  main package.
 - Run `poetry run pip-audit` on every dependency update to monitor for new CVEs.
 - If RS256/ES256 is required in production, no library change is needed — only a `JWTConfig`
   change to supply the PEM key and update the `algorithm` field.
