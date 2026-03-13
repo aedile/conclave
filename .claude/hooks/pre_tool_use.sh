@@ -116,8 +116,8 @@ done
 
 if [[ "${NEEDS_INJECTION}" == "true" ]]; then
     echo "PreToolUse: sourcing ${ENV_FILE} for port-bound command: ${COMMAND:0:60}..."
-    # shellcheck source=/dev/null
     set -a
+    # shellcheck source=/dev/null
     source "${ENV_FILE}"
     set +a
 fi
