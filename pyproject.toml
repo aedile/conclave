@@ -55,6 +55,10 @@ ignore = ["S101"]
 # S603/S607: subprocess without shell=True / partial path — pre-existing scripts
 # UP006/UP035: typing.List is deprecated — scripts pre-date pyproject.toml; modernise in Task 2.x
 "scripts/**" = ["S603", "S607", "UP006", "UP035"]
+# S311: PRNG intentional — spike code uses random for synthetic data, not cryptography
+# S608: SQL injection — spike code uses schema identifiers from sqlite_master, not user input
+# These are exploratory spikes, not production code.
+"spikes/**" = ["S311", "S608"]
 
 # ---------------------------------------------------------------------------
 # Mypy — Strict Type Checking (src/synth_engine only; scripts/ pre-date this)

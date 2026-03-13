@@ -348,7 +348,7 @@ def main() -> None:
     fpe = FeistelFPE(key=key, rounds=FEISTEL_ROUNDS)
 
     # Seed RNG for reproducible card generation (non-cryptographic use).
-    rng = random.Random(42)  # noqa: S311  # nosec B311
+    rng = random.Random(42)  # nosec B311
 
     print(f"\nGenerating {CARD_COUNT:,} valid Luhn credit card numbers...")
     cards = _generate_cards(rng)
