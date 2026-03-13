@@ -53,9 +53,13 @@ def get_engine(database_url: str) -> Engine:
     because SQLite uses a ``StaticPool`` that does not accept them.
 
     Args:
-        database_url: A SQLAlchemy-compatible connection URL, e.g.
-            ``postgresql+psycopg2://user:pass@host:5432/dbname`` or
-            ``sqlite:///:memory:`` for in-process tests.
+        database_url: A SQLAlchemy-compatible connection URL.  Credentials
+            must be sourced from environment variables at call-site, never
+            hard-coded.  Example format (values supplied at runtime)::
+
+                postgresql+psycopg2://<USER>:<PASSWORD>@<HOST>:<PORT>/<DBNAME>
+
+            or ``sqlite:///:memory:`` for in-process tests.
 
     Returns:
         A configured :class:`sqlalchemy.Engine` instance.
@@ -104,7 +108,7 @@ def get_session(engine: Engine) -> Generator[Session]:
 def _utcnow() -> datetime:
     """Return the current UTC time as a timezone-aware datetime.
 
-    Using ``datetime.now(timezone.utc)`` instead of the deprecated
+    Using ``datetime.now(UTC)`` instead of the deprecated
     ``datetime.utcnow()`` ensures the returned object carries explicit
     timezone information, which is required for correct cross-timezone
     arithmetic and is the preferred approach in Python 3.12+.
