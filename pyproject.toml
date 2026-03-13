@@ -22,6 +22,8 @@ psycopg2-binary = ">=2.9.0,<3.0.0"
 cryptography = ">=46.0.5,<47.0.0"
 PyJWT = {version = ">=2.10.0,<3.0.0", extras = ["cryptography"]}
 passlib = {version = ">=1.7.4,<2.0.0", extras = ["bcrypt"]}
+prometheus-client = ">=0.21.0,<1.0.0"
+pydantic = ">=2.0.0,<3.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
@@ -78,6 +80,9 @@ ignore = ["S101"]
 # The inner `dependency` function is only invoked by the FastAPI framework, never
 # called directly as plain Python, so this is intentional and safe.
 "src/synth_engine/bootstrapper/dependencies/auth.py" = ["B008"]
+# B008: same rationale as auth.py — Depends() calls in route argument defaults are
+# intentional FastAPI DI usage, not eager function calls.
+"src/synth_engine/bootstrapper/main.py" = ["B008"]
 
 # ---------------------------------------------------------------------------
 # Mypy — Strict Type Checking (src/synth_engine only; scripts/ pre-date this)

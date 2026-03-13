@@ -3068,6 +3068,23 @@ pyyaml = ">=5.1"
 virtualenv = ">=20.10.0"
 
 [[package]]
+name = "prometheus-client"
+version = "0.24.1"
+description = "Python client for the Prometheus monitoring system."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "prometheus_client-0.24.1-py3-none-any.whl", hash = "sha256:150db128af71a5c2482b36e588fc8a6b95e498750da4b17065947c16070f4055"},
+    {file = "prometheus_client-0.24.1.tar.gz", hash = "sha256:7e0ced7fbbd40f7b84962d5d2ab6f17ef88a72504dcf7c0b40737b43b2a461f9"},
+]
+
+[package.extras]
+aiohttp = ["aiohttp"]
+django = ["django"]
+twisted = ["twisted"]
+
+[[package]]
 name = "protobuf"
 version = "6.33.5"
 description = ""
@@ -5133,4 +5150,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.14"
-content-hash = "87bee3f4f98eaace4194d1e334ba7309055c20a400e3173b0a3195eb4ee49350"
+content-hash = "ebac7ad9de55f70ea8a2ef91655f25927cc73b86ed840be0fb2e3b9d69f69952"
