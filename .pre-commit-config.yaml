@@ -8,6 +8,15 @@ repos:
       - id: gitleaks
 
   # ---------------------------------------------------------------------------
+  # Security — detect-secrets: baseline-aware secret scanning
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+
+  # ---------------------------------------------------------------------------
   # Linting and formatting — ruff (replaces flake8, isort, pyupgrade)
   # ---------------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -37,4 +46,4 @@ repos:
     rev: 1.9.4
     hooks:
       - id: bandit
-        args: [-c, pyproject.toml, -r, src/]
+        args: [-c, pyproject.toml, -r, src/, scripts/]

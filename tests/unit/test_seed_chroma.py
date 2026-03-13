@@ -90,6 +90,18 @@ class TestChunkDocument:
         chunks = module.chunk_document(text, chunk_size=50, overlap=10)
         assert all(len(c) > 0 for c in chunks)
 
+    def test_raises_on_non_positive_chunk_size(self) -> None:
+        """chunk_document raises ValueError when chunk_size <= 0."""
+        module = _import_module()
+        with pytest.raises(ValueError, match="chunk_size"):
+            module.chunk_document("some text" * 100, chunk_size=0, overlap=0)
+
+    def test_raises_on_negative_overlap(self) -> None:
+        """chunk_document raises ValueError when overlap is negative."""
+        module = _import_module()
+        with pytest.raises(ValueError, match="overlap"):
+            module.chunk_document("some text" * 100, chunk_size=100, overlap=-1)
+
 
 # ---------------------------------------------------------------------------
 # seed_collection

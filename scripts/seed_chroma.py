@@ -59,16 +59,22 @@ def chunk_document(text: str, chunk_size: int = 600, overlap: int = 100) -> List
 
     Args:
         text: Raw document text.
-        chunk_size: Maximum characters per chunk.
+        chunk_size: Maximum characters per chunk. Must be a positive integer.
         overlap: Characters of overlap between consecutive chunks.
-            Must be strictly less than chunk_size to prevent infinite looping.
+            Must be non-negative and strictly less than chunk_size to prevent
+            infinite looping.
 
     Returns:
         List of non-empty string chunks.
 
     Raises:
-        ValueError: If overlap is greater than or equal to chunk_size.
+        ValueError: If chunk_size is not positive, if overlap is negative,
+            or if overlap is greater than or equal to chunk_size.
     """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size ({chunk_size}) must be a positive integer.")
+    if overlap < 0:
+        raise ValueError(f"overlap ({overlap}) must be non-negative.")
     if overlap >= chunk_size:
         raise ValueError(
             f"overlap ({overlap}) must be strictly less than chunk_size ({chunk_size}) "
