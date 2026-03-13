@@ -7,7 +7,7 @@ CONSTITUTION Priority 3: TDD RED Phase
 Task: P2-T2.1 — Module Bootstrapper, OTEL, Idempotency, Orphan Task Reaper
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -15,10 +15,10 @@ import pytest
 
 def _utc_now() -> datetime:
     """Return the current time in UTC as a timezone-aware datetime."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
-@pytest.fixture()
+@pytest.fixture
 def stale_task_factory():
     """Factory for creating Task instances that are older than any threshold."""
     from synth_engine.shared.tasks.reaper import Task
@@ -33,7 +33,7 @@ def stale_task_factory():
     return _make
 
 
-@pytest.fixture()
+@pytest.fixture
 def recent_task_factory():
     """Factory for creating Task instances that are within any threshold."""
     from synth_engine.shared.tasks.reaper import Task

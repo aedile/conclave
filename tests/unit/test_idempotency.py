@@ -59,9 +59,7 @@ async def test_duplicate_request_returns_409() -> None:
     redis_mock.exists.side_effect = [0, 1]
 
     app = _build_app(redis_mock)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         headers = {"X-Idempotency-Key": "test-key-abc"}
         await client.post("/items", headers=headers)
         response = await client.post("/items", headers=headers)
@@ -83,12 +81,8 @@ async def test_first_request_passes_through() -> None:
     redis_mock.exists.return_value = 0  # Key not seen before
 
     app = _build_app(redis_mock)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        response = await client.post(
-            "/items", headers={"X-Idempotency-Key": "brand-new-key"}
-        )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/items", headers={"X-Idempotency-Key": "brand-new-key"})
 
     assert response.status_code == 201
     assert response.json() == {"created": True}
@@ -105,9 +99,7 @@ async def test_missing_header_on_post_passes_through() -> None:
     redis_mock = MagicMock()
 
     app = _build_app(redis_mock)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/items")
 
     assert response.status_code == 201
@@ -126,12 +118,8 @@ async def test_get_request_ignores_idempotency() -> None:
     redis_mock.exists.return_value = 1  # Would trigger 409 if checked
 
     app = _build_app(redis_mock)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        response = await client.get(
-            "/items", headers={"X-Idempotency-Key": "some-key"}
-        )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/items", headers={"X-Idempotency-Key": "some-key"})
 
     assert response.status_code == 200
     redis_mock.exists.assert_not_called()
@@ -148,9 +136,7 @@ async def test_patch_request_enforces_idempotency() -> None:
     redis_mock.exists.side_effect = [0, 1]
 
     app = _build_app(redis_mock)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         headers = {"X-Idempotency-Key": "patch-key-xyz"}
         await client.patch("/items/1", headers=headers)
         response = await client.patch("/items/1", headers=headers)
@@ -169,9 +155,7 @@ async def test_redis_key_format_uses_prefix() -> None:
     redis_mock.exists.return_value = 0
 
     app = _build_app(redis_mock, ttl=120)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         await client.post("/items", headers={"X-Idempotency-Key": "my-unique-key"})
 
     redis_mock.setex.assert_called_once_with("idempotency:my-unique-key", 120, "1")

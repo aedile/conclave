@@ -22,9 +22,7 @@ async def test_health_endpoint_returns_200() -> None:
     from synth_engine.main import create_app
 
     app = create_app()
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/health")
 
     assert response.status_code == 200
