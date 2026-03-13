@@ -1,0 +1,15 @@
+# .gitleaks.toml
+#
+# Gitleaks configuration for Conclave Engine.
+#
+# Allowlist rationale:
+#   .secrets.baseline — detect-secrets stores SHA-1 digests of flagged values
+#   in this file. Gitleaks' generic-api-key entropy rule incorrectly matches
+#   those digests. This is a well-known tool interaction false positive.
+#   The baseline file is safe: it contains only hashes, never plaintext secrets.
+
+[[allowlists]]
+description = "detect-secrets stores hashed values that trigger generic-api-key — not real secrets"
+paths = [
+    ".secrets.baseline",
+]
