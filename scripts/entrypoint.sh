@@ -10,12 +10,14 @@
 #
 # Usage (via Dockerfile ENTRYPOINT + CMD):
 #   ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
-#   CMD        ["poetry", "run", "uvicorn", "..."]
+#   CMD        ["uvicorn", "synth_engine.bootstrapper.main:app", "..."]
 # =============================================================================
 set -eu
 
 # The non-root user to execute as.  Matches Dockerfile useradd UID 1000.
 APP_USER="${APP_USER:-appuser}"
 
-echo "[entrypoint] Dropping privileges to ${APP_USER} and executing: $*"
+# Log only the binary name ($1) — logging $* risks capturing DSNs, tokens, or
+# other auth-material that may be present in future CMD arguments.
+echo "[entrypoint] Dropping privileges to ${APP_USER} and executing: $1"
 exec su-exec "${APP_USER}" "$@"

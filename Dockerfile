@@ -100,6 +100,10 @@ LABEL org.opencontainers.image.title="conclave-engine" \
 
 EXPOSE 8000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
 # tini as PID-1; entrypoint drops to appuser via su-exec before executing CMD
+# Poetry is not present in the final image — invoke uvicorn directly.
 ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
-CMD ["poetry", "run", "uvicorn", "synth_engine.bootstrapper.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "synth_engine.bootstrapper.main:app", "--host", "0.0.0.0", "--port", "8000"]

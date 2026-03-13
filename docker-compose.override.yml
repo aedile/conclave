@@ -30,9 +30,8 @@ services:
       - chroma_data:/app/.chroma_data
 
     # Override CMD to enable Uvicorn's --reload flag.
+    # Poetry is not present in the final image; invoke uvicorn directly.
     command:
-      - poetry
-      - run
       - uvicorn
       - synth_engine.bootstrapper.main:app
       - --host

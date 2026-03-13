@@ -15,13 +15,13 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
 )
-logger = logging.getLogger("conclave.seeds")
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
     """Run the seed script.
 
-    Connects to an in-memory SQLite database as a smoke-test and prints a
+    Connects to an in-memory SQLite database as a smoke-test and logs a
     placeholder message.  Phase 3 will replace this with real schema population
     logic against the configured production database.
     """
@@ -35,7 +35,7 @@ def main() -> None:
     finally:
         connection.close()
 
-    print("Seeds: ready (placeholder — Phase 3 will populate real schema)")
+    logger.info("Seeds: ready (placeholder — Phase 3 will populate real schema)")
 
 
 if __name__ == "__main__":

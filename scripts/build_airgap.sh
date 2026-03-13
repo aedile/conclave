@@ -17,12 +17,13 @@
 # =============================================================================
 set -euo pipefail
 
+trap 'log "ERROR: build failed. Cleaning up ${DIST_DIR:-dist} ..."; rm -rf "${DIST_DIR:-dist}" conclave-bundle-*.tar.gz' ERR
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
 # Images to include in the bundle.
-# shellcheck disable=SC2034  # IMAGES is used via indirect expansion below
 IMAGES=(
     "conclave-engine:latest"
     "postgres:16-alpine"
@@ -106,6 +107,11 @@ done
 log "Copying Compose files"
 cp docker-compose.yml "${DIST_DIR}/"
 cp docker-compose.override.yml "${DIST_DIR}/"
+
+if [[ -f ".env.dev" ]]; then
+    log "Copying .env.dev"
+    cp .env.dev "${DIST_DIR}/"
+fi
 
 log "Copying scripts/"
 cp -r scripts/ "${DIST_DIR}/scripts/"

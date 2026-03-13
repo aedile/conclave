@@ -76,8 +76,11 @@ container.  Root is never available to the application at runtime.
 
 ### How It Works
 
-1. The Docker daemon starts the container as root (required to bind ports < 1024
-   via tini).
+1. The Docker daemon starts the container's init process (`tini`) as the
+   daemon's configured user (root by default), which is required to exec the
+   init binary and establish PID 1.  The application port (8000) is above 1024
+   and does not require elevated privileges — root is not needed for port
+   binding.
 2. `tini` (PID 1) calls `/entrypoint.sh`.
 3. `/entrypoint.sh` calls `su-exec appuser <CMD>`, which performs a permanent
    `setuid`/`setgid` drop to UID/GID 1000 before `exec`-ing the application.
