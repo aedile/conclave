@@ -5,24 +5,27 @@ CONSTITUTION Priority 3: TDD RED Phase
 CONSTITUTION Priority 4: 90%+ Coverage
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import pytest
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _import_module():
     """Import seed_chroma after ensuring scripts/ is on sys.path."""
     import importlib
+
     scripts_dir = os.path.join(os.path.dirname(__file__), "..", "..", "scripts")
     if scripts_dir not in sys.path:
         sys.path.insert(0, os.path.abspath(scripts_dir))
     import seed_chroma
+
     importlib.reload(seed_chroma)
     return seed_chroma
 
@@ -30,6 +33,7 @@ def _import_module():
 # ---------------------------------------------------------------------------
 # chunk_document
 # ---------------------------------------------------------------------------
+
 
 class TestChunkDocument:
     """Tests for chunk_document()."""
@@ -86,10 +90,23 @@ class TestChunkDocument:
         chunks = module.chunk_document(text, chunk_size=50, overlap=10)
         assert all(len(c) > 0 for c in chunks)
 
+    def test_raises_on_non_positive_chunk_size(self) -> None:
+        """chunk_document raises ValueError when chunk_size <= 0."""
+        module = _import_module()
+        with pytest.raises(ValueError, match="chunk_size"):
+            module.chunk_document("some text" * 100, chunk_size=0, overlap=0)
+
+    def test_raises_on_negative_overlap(self) -> None:
+        """chunk_document raises ValueError when overlap is negative."""
+        module = _import_module()
+        with pytest.raises(ValueError, match="overlap"):
+            module.chunk_document("some text" * 100, chunk_size=100, overlap=-1)
+
 
 # ---------------------------------------------------------------------------
 # seed_collection
 # ---------------------------------------------------------------------------
+
 
 class TestSeedCollection:
     """Tests for seed_collection()."""
@@ -98,7 +115,7 @@ class TestSeedCollection:
         """seed_collection reads a file and calls collection.upsert with the expected chunk count.
 
         'hello world ' * 100 = 1200 chars. With chunk_size=600, overlap=100:
-          chunk 0: chars 0–599, chunk 1: chars 500–1099, chunk 2: chars 1000–1199 → 3 chunks.
+          chunk 0: chars 0-599, chunk 1: chars 500-1099, chunk 2: chars 1000-1199 -> 3 chunks.
         """
         module = _import_module()
         source = tmp_path / "doc.md"
@@ -159,6 +176,7 @@ class TestSeedCollection:
 # verify_retrieval
 # ---------------------------------------------------------------------------
 
+
 class TestVerifyRetrieval:
     """Tests for verify_retrieval()."""
 
@@ -170,9 +188,7 @@ class TestVerifyRetrieval:
 
         module.verify_retrieval(mock_collection, "Constitution", "logging policy")
 
-        mock_collection.query.assert_called_once_with(
-            query_texts=["logging policy"], n_results=1
-        )
+        mock_collection.query.assert_called_once_with(query_texts=["logging policy"], n_results=1)
 
     def test_handles_empty_query_results_gracefully(self) -> None:
         """verify_retrieval does not raise when query returns no documents."""
@@ -206,10 +222,14 @@ class TestMain:
         mock_chroma = MagicMock()
         mock_chroma.PersistentClient.return_value = mock_client
 
-        with patch.dict("sys.modules", {"chromadb": mock_chroma, "chromadb.Collection": MagicMock()}):
+        with patch.dict(
+            "sys.modules", {"chromadb": mock_chroma, "chromadb.Collection": MagicMock()}
+        ):
             module = _import_module()
-            with patch.object(module, "seed_collection") as mock_seed, \
-                 patch.object(module, "verify_retrieval"):
+            with (
+                patch.object(module, "seed_collection") as mock_seed,
+                patch.object(module, "verify_retrieval"),
+            ):
                 module.main()
 
             expected_calls = len(module.SEEDING_MANIFEST)
@@ -220,8 +240,33 @@ class TestMain:
         mock_chroma = MagicMock()
         mock_chroma.PersistentClient.side_effect = Exception("connection refused")
 
-        with patch.dict("sys.modules", {"chromadb": mock_chroma, "chromadb.Collection": MagicMock()}):
+        with patch.dict(
+            "sys.modules", {"chromadb": mock_chroma, "chromadb.Collection": MagicMock()}
+        ):
             module = _import_module()
             with pytest.raises(SystemExit) as exc_info:
                 module.main()
+        assert exc_info.value.code == 1
+
+    def test_main_exits_when_verification_queries_missing_entry(self) -> None:
+        """main() calls sys.exit(1) when SEEDING_MANIFEST has an unmatched collection.
+
+        Guards against the ADV-002 KeyError that would occur if SEEDING_MANIFEST
+        and VERIFICATION_QUERIES diverge: a new collection added to the manifest
+        but its query entry forgotten would previously KeyError at runtime.
+        """
+        mock_chroma = MagicMock()
+        mock_chroma.PersistentClient.return_value = MagicMock()
+
+        with patch.dict(
+            "sys.modules", {"chromadb": mock_chroma, "chromadb.Collection": MagicMock()}
+        ):
+            module = _import_module()
+            # Inject an unmatched collection into SEEDING_MANIFEST so that
+            # VERIFICATION_QUERIES is missing an entry for it.
+            patched_manifest = dict(module.SEEDING_MANIFEST)
+            patched_manifest["docs/NEW_DOC.md"] = "UnmatchedCollection"
+            with patch.object(module, "SEEDING_MANIFEST", patched_manifest):
+                with pytest.raises(SystemExit) as exc_info:
+                    module.main()
         assert exc_info.value.code == 1

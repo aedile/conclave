@@ -2,18 +2,17 @@
 #
 # Continuous Integration — Conclave Engine
 #
-# Phase 0.6 bootstrap CI: runs the unit test suite and security scan on every
-# push and pull request. This is intentionally minimal for the pre-Poetry phase.
+# Phase 1 CI: Full quality gates via Poetry. Runs on every push and pull
+# request. Jobs are chained so a security failure short-circuits all downstream
+# work.
 #
-# PHASE 1 UPGRADE (Task 1.1): Once pyproject.toml is initialized, replace the
-# manual pip installs and python3 invocations below with:
-#   poetry install --with dev
-#   poetry run ruff check src/ tests/
-#   poetry run mypy src/
-#   poetry run pytest --cov=src/synth_engine --cov-fail-under=90
-#   poetry run bandit -c pyproject.toml -r src/
+# Job order: security → lint → test → sbom
+# shellcheck runs independently (no Python deps required).
 
 name: CI
+
+permissions:
+  contents: read
 
 on:
   push:
@@ -51,11 +50,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
-  # Unit tests — pytest without coverage gate (pre-Poetry; src/ is empty)
-  # Coverage gate will be enforced once pyproject.toml is introduced in Phase 1
+  # Lint — ruff, mypy, bandit, vulture, import-linter, pip-audit
+  # Runs after security to ensure no credential leaks reach expensive checks
   # ---------------------------------------------------------------------------
-  test:
-    name: Unit Tests (Python 3.14)
+  lint:
+    name: Lint & Static Analysis
     runs-on: ubuntu-latest
     needs: security
 
@@ -67,21 +66,133 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-          # cache: pip requires requirements.txt or pyproject.toml — add in Task 1.1
 
-      - name: Install test dependencies
-        # Pin chromadb to match local development version.
-        # Update this pin alongside any chromadb upgrade in pyproject.toml (Phase 1).
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install "pytest" "chromadb==1.5.5"
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: "2.2.1"
+          virtualenvs-create: true
+          virtualenvs-in-project: true
 
-      - name: Run unit tests
-        run: python3 -m pytest tests/unit/ -v --tb=short
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ runner.os }}-py3.14-
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Ruff lint
+        run: poetry run ruff check src/ tests/ scripts/
+
+      - name: Ruff format check
+        run: poetry run ruff format --check src/ tests/ scripts/
+
+      - name: Mypy type check
+        run: poetry run mypy src/
+
+      - name: Bandit security scan
+        run: poetry run bandit -c pyproject.toml -r src/ scripts/
+
+      - name: Vulture dead code scan
+        run: poetry run vulture src/
+
+      - name: Import-linter boundary check
+        run: poetry run lint-imports
+
+      - name: pip-audit dependency vulnerability scan
+        run: poetry run pip-audit
+
+  # ---------------------------------------------------------------------------
+  # Unit tests — pytest with 90% coverage gate
+  # ---------------------------------------------------------------------------
+  test:
+    name: Unit Tests (Python 3.14)
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: "2.2.1"
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ runner.os }}-py3.14-
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Run unit tests with coverage
+        run: >
+          poetry run pytest tests/unit/
+          --cov=src/synth_engine
+          --cov-report=term-missing
+          --cov-fail-under=90
+
+  # ---------------------------------------------------------------------------
+  # SBOM — generate Software Bill of Materials after tests pass
+  # ---------------------------------------------------------------------------
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: "2.2.1"
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ runner.os }}-py3.14-
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Generate CycloneDX SBOM
+        run: poetry run cyclonedx-py poetry -o sbom.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+          retention-days: 90
 
   # ---------------------------------------------------------------------------
   # Shell lint — shellcheck on all hook and script .sh files
-  # Ensures the hook infrastructure is syntactically valid across platforms
+  # Runs independently — no Python deps required
   # ---------------------------------------------------------------------------
   shellcheck:
     name: Shell Lint (shellcheck)

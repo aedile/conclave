@@ -1,0 +1,136 @@
+[tool.poetry]
+name = "conclave-engine"
+version = "0.1.0"
+description = "Air-Gapped Synthetic Data Generation Engine"
+authors = []
+readme = "README.md"
+packages = [{ include = "synth_engine", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.14"
+chromadb = "^1.5.5"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+pytest-cov = "^6.1"
+ruff = "^0.11"
+mypy = "^1.15"
+bandit = { version = "^1.8", extras = ["toml"] }
+pip-audit = "^2.9"
+vulture = "^2.14"
+import-linter = "^2.3"
+pre-commit = "^4.2"
+cyclonedx-bom = "^5.1"
+detect-secrets = "^1.5"
+
+# ---------------------------------------------------------------------------
+# Integration group — NOT included by default; wired in Task 2.2
+# Install with: poetry install --with dev,integration
+# Requires libpq (PostgreSQL client library) to be present on the host.
+# ---------------------------------------------------------------------------
+[tool.poetry.group.integration.dependencies]
+pytest-postgresql = "^7.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+# ---------------------------------------------------------------------------
+# Ruff — Linting and Formatting
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "S", "B", "A", "C4", "PT", "RUF"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+# S101: assert — allowed in tests and scripts
+# S108: insecure /tmp usage — mocked paths in unit tests are not real filesystem calls
+# RUF002: ambiguous unicode in docstrings — pre-existing test docstrings use EN DASH notation
+"tests/**" = ["S101", "S108", "RUF002"]
+# S603/S607: subprocess without shell=True / partial path — pre-existing scripts
+# UP006/UP035: typing.List is deprecated — scripts pre-date pyproject.toml; modernise in Task 2.x
+"scripts/**" = ["S603", "S607", "UP006", "UP035"]
+
+# ---------------------------------------------------------------------------
+# Mypy — Strict Type Checking (src/synth_engine only; scripts/ pre-date this)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+strict = true
+python_version = "3.14"
+mypy_path = "src"
+packages = ["synth_engine"]
+
+# ---------------------------------------------------------------------------
+# Bandit — Security Scanner (src/ and scripts/)
+# ---------------------------------------------------------------------------
+[tool.bandit]
+targets = ["src", "scripts"]
+skips = ["B101"]
+
+# ---------------------------------------------------------------------------
+# Pytest — Test Runner and Coverage
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--cov=src/synth_engine",
+    "--cov-report=term-missing",
+    "--cov-fail-under=90",
+    "--tb=short",
+]
+markers = [
+    "unit: Fast, isolated unit tests with no external dependencies",
+    "integration: Tests requiring live databases or external services (Task 2.2)",
+]
+
+# ---------------------------------------------------------------------------
+# Coverage — Source Mapping and Branch Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["synth_engine"]
+branch = true
+
+[tool.coverage.paths]
+source = ["src/synth_engine", "*/synth_engine"]
+
+# ---------------------------------------------------------------------------
+# Import-Linter — Module Boundary Enforcement
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = ["synth_engine"]
+
+[[tool.importlinter.contracts]]
+name = "Module independence: ingestion, profiler, masking, synthesizer, privacy are independent"
+type = "independence"
+modules = [
+    "synth_engine.modules.ingestion",
+    "synth_engine.modules.profiler",
+    "synth_engine.modules.masking",
+    "synth_engine.modules.synthesizer",
+    "synth_engine.modules.privacy",
+]
+
+[[tool.importlinter.contracts]]
+name = "Modules must not import from bootstrapper"
+type = "forbidden"
+source_modules = [
+    "synth_engine.modules.ingestion",
+    "synth_engine.modules.profiler",
+    "synth_engine.modules.masking",
+    "synth_engine.modules.synthesizer",
+    "synth_engine.modules.privacy",
+    "synth_engine.shared",
+]
+forbidden_modules = ["synth_engine.bootstrapper"]
+
+# ---------------------------------------------------------------------------
+# Vulture — Dead Code Detection
+# ---------------------------------------------------------------------------
+[tool.vulture]
+min_confidence = 80
+paths = ["src"]

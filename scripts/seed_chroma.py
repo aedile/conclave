@@ -59,16 +59,22 @@ def chunk_document(text: str, chunk_size: int = 600, overlap: int = 100) -> List
 
     Args:
         text: Raw document text.
-        chunk_size: Maximum characters per chunk.
+        chunk_size: Maximum characters per chunk. Must be a positive integer.
         overlap: Characters of overlap between consecutive chunks.
-            Must be strictly less than chunk_size to prevent infinite looping.
+            Must be non-negative and strictly less than chunk_size to prevent
+            infinite looping.
 
     Returns:
         List of non-empty string chunks.
 
     Raises:
-        ValueError: If overlap is greater than or equal to chunk_size.
+        ValueError: If chunk_size is not positive, if overlap is negative,
+            or if overlap is greater than or equal to chunk_size.
     """
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size ({chunk_size}) must be a positive integer.")
+    if overlap < 0:
+        raise ValueError(f"overlap ({overlap}) must be non-negative.")
     if overlap >= chunk_size:
         raise ValueError(
             f"overlap ({overlap}) must be strictly less than chunk_size ({chunk_size}) "
@@ -143,8 +149,18 @@ def main() -> None:
     """Seed ChromaDB with governance documents and verify retrieval.
 
     Raises:
-        SystemExit: If the ChromaDB client cannot connect.
+        SystemExit: If SEEDING_MANIFEST contains collection names absent from
+            VERIFICATION_QUERIES, if the ChromaDB client cannot connect, or
+            if a source file is not found.
     """
+    # ADV-002: Startup invariant — every collection in SEEDING_MANIFEST must have
+    # a corresponding entry in VERIFICATION_QUERIES. A divergence here would cause
+    # an unguarded KeyError at runtime; fail fast with a clear error instead.
+    missing_queries = set(SEEDING_MANIFEST.values()) - set(VERIFICATION_QUERIES.keys())
+    if missing_queries:
+        logger.error("VERIFICATION_QUERIES missing entries for: %s", sorted(missing_queries))
+        sys.exit(1)
+
     repo_root = Path(__file__).resolve().parent.parent
 
     logger.info("Connecting to ChromaDB at %s...", DB_PATH)
@@ -165,7 +181,7 @@ def main() -> None:
         query = VERIFICATION_QUERIES[collection_name]
         verify_retrieval(collection, collection_name, query)
 
-    logger.info("Memory seeding complete. Governance context is now queryable by all agent streams.")
+    logger.info("Memory seeding complete. Governance context is queryable by all agent streams.")
 
 
 if __name__ == "__main__":
