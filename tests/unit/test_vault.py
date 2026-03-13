@@ -187,7 +187,7 @@ async def test_unseal_endpoint_unseals_vault(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             "/unseal",
-            json={"passphrase": "test-passphrase"},  # nosec B106 # pragma: allowlist secret
+            json={"passphrase": "test-passphrase"},  # nosec B105 # pragma: allowlist secret
         )
 
     assert response.status_code == 200

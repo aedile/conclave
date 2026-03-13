@@ -20,6 +20,11 @@
 #   - pgbouncer in transaction-pool mode for connection multiplexing
 #   - pgbouncer/userlist.txt mounted read-only for authenticated connections
 #   - internal bridge network isolating data-plane traffic
+#
+# Task 2.4 additions:
+#   - prometheus — Prometheus metrics scraper (scrapes /metrics from app:8000)
+#   - alertmanager — Alert routing (dev: null receiver, no external notifications)
+#   - grafana — Dashboard visualisation (admin password via Docker secret)
 # =============================================================================
 
 services:
@@ -180,6 +185,87 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ---------------------------------------------------------------------------
+  # prometheus — metrics scraper (Task 2.4)
+  #
+  # Scrapes /metrics from app:8000 every 15 seconds.  The prometheus_data
+  # volume persists TSDB samples between restarts.
+  #
+  # Security notes:
+  #   - No external port exposure: only accessible via the internal network.
+  #   - /metrics endpoint is unauthenticated by design (internal-only).
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # alertmanager — alert routing (dev: null receiver) (Task 2.4)
+  #
+  # Routes Prometheus alerts.  In development the null receiver discards all
+  # alerts.  Replace with PagerDuty / Slack receivers for production.
+  # ---------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # grafana — dashboard visualisation (Task 2.4)
+  #
+  # Security notes:
+  #   - Admin password injected via Docker secret (grafana_admin_password).
+  #   - Anonymous access and sign-up are explicitly disabled.
+  #   - Dashboard and datasource provisioning is read-only mounted.
+  #   - grafana_data volume persists dashboards / plugins between restarts.
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    secrets:
+      - grafana_admin_password
+    ports:
+      - "3000:3000"
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+    restart: unless-stopped
+
 # =============================================================================
 # Named volumes
 # =============================================================================
@@ -193,6 +279,12 @@ volumes:
   # For production deployments the host path MUST reside on a LUKS-encrypted
   # volume — see docs/infrastructure_security.md.
   postgres_data:
+
+  # prometheus_data: persists Prometheus TSDB samples between container restarts.
+  prometheus_data:
+
+  # grafana_data: persists Grafana dashboards, plugins, and user state.
+  grafana_data:
 
 # =============================================================================
 # Networks
@@ -211,10 +303,14 @@ networks:
 #   mkdir -p secrets
 #   openssl rand -hex 32 > secrets/app_secret_key.txt
 #   openssl rand -hex 32 > secrets/postgres_password.txt
-#   chmod 600 secrets/app_secret_key.txt secrets/postgres_password.txt
+#   openssl rand -hex 32 > secrets/grafana_admin_password.txt
+#   chmod 600 secrets/app_secret_key.txt secrets/postgres_password.txt \
+#             secrets/grafana_admin_password.txt
 # =============================================================================
 secrets:
   app_secret_key:
     file: ./secrets/app_secret_key.txt
   postgres_password:
     file: ./secrets/postgres_password.txt
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt
