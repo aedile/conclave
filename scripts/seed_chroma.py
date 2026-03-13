@@ -21,7 +21,8 @@ try:
     import chromadb
     from chromadb import Collection
 except ImportError:
-    print("chromadb module is not installed. Please install it to continue.")
+    # logger is not yet configured at import time — sys.stderr is the only safe output.
+    sys.stderr.write("chromadb module is not installed. Please install it to continue.\n")
     sys.exit(1)
 
 logger = logging.getLogger(__name__)
@@ -139,11 +140,20 @@ def verify_retrieval(collection: Collection, collection_name: str, query: str) -
 
 
 def main() -> None:
-    """Seed ChromaDB with governance documents and verify retrieval."""
+    """Seed ChromaDB with governance documents and verify retrieval.
+
+    Raises:
+        SystemExit: If the ChromaDB client cannot connect.
+    """
     repo_root = Path(__file__).resolve().parent.parent
 
     logger.info("Connecting to ChromaDB at %s...", DB_PATH)
-    client = chromadb.PersistentClient(path=DB_PATH)
+    try:
+        client = chromadb.PersistentClient(path=DB_PATH)
+    except Exception as e:
+        # chromadb's public API does not expose a stable typed exception base class.
+        logger.error("Failed to connect to ChromaDB at %s: %s", DB_PATH, e)
+        sys.exit(1)
 
     for relative_path, collection_name in SEEDING_MANIFEST.items():
         source_path = repo_root / relative_path

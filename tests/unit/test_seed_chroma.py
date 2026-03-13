@@ -95,7 +95,11 @@ class TestSeedCollection:
     """Tests for seed_collection()."""
 
     def test_upserts_chunks_into_collection(self, tmp_path: Path) -> None:
-        """seed_collection reads a file and calls collection.upsert with the chunks."""
+        """seed_collection reads a file and calls collection.upsert with the expected chunk count.
+
+        'hello world ' * 100 = 1200 chars. With chunk_size=600, overlap=100:
+          chunk 0: chars 0–599, chunk 1: chars 500–1099, chunk 2: chars 1000–1199 → 3 chunks.
+        """
         module = _import_module()
         source = tmp_path / "doc.md"
         source.write_text("hello world " * 100, encoding="utf-8")
@@ -104,7 +108,7 @@ class TestSeedCollection:
         count = module.seed_collection(mock_collection, source, "TestCollection")
 
         mock_collection.upsert.assert_called_once()
-        assert count > 0
+        assert count == 3
 
     def test_exits_when_source_file_missing(self, tmp_path: Path) -> None:
         """seed_collection calls sys.exit(1) when source path does not exist."""
@@ -186,3 +190,38 @@ class TestVerifyRetrieval:
         mock_collection.query.return_value = {}
 
         module.verify_retrieval(mock_collection, "Constitution", "query")
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+
+class TestMain:
+    """Tests for seed_chroma.main()."""
+
+    def test_main_happy_path_iterates_seeding_manifest(self) -> None:
+        """main() calls seed_collection and verify_retrieval for each entry in SEEDING_MANIFEST."""
+        mock_client = MagicMock()
+        mock_chroma = MagicMock()
+        mock_chroma.PersistentClient.return_value = mock_client
+
+        with patch.dict("sys.modules", {"chromadb": mock_chroma, "chromadb.Collection": MagicMock()}):
+            module = _import_module()
+            with patch.object(module, "seed_collection") as mock_seed, \
+                 patch.object(module, "verify_retrieval"):
+                module.main()
+
+            expected_calls = len(module.SEEDING_MANIFEST)
+            assert mock_seed.call_count == expected_calls
+
+    def test_main_exits_on_chromadb_connection_failure(self) -> None:
+        """main() calls sys.exit(1) when PersistentClient raises."""
+        mock_chroma = MagicMock()
+        mock_chroma.PersistentClient.side_effect = Exception("connection refused")
+
+        with patch.dict("sys.modules", {"chromadb": mock_chroma, "chromadb.Collection": MagicMock()}):
+            module = _import_module()
+            with pytest.raises(SystemExit) as exc_info:
+                module.main()
+        assert exc_info.value.code == 1

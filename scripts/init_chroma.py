@@ -14,7 +14,8 @@ from typing import List
 try:
     import chromadb
 except ImportError:
-    print("chromadb module is not installed. Please install it to continue.")
+    # logger is not yet configured at import time — sys.stderr is the only safe output.
+    sys.stderr.write("chromadb module is not installed. Please install it to continue.\n")
     sys.exit(1)
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ def initialize_collections(db_path: str, collection_names: List[str]) -> None:
     try:
         client = chromadb.PersistentClient(path=db_path)
     except Exception as e:
+        # chromadb's public API does not expose a stable typed exception base class.
         logger.error("Failed to connect to ChromaDB at %s: %s", db_path, e)
         sys.exit(1)
 
@@ -42,6 +44,7 @@ def initialize_collections(db_path: str, collection_names: List[str]) -> None:
             client.get_or_create_collection(name=name)
             logger.info("Collection '%s' successfully initialized or verified.", name)
         except Exception as e:
+            # chromadb's public API does not expose a stable typed exception base class.
             logger.error("Failed to initialize collection '%s': %s", name, e)
 
 
