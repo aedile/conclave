@@ -6,22 +6,25 @@ CONSTITUTION Priority 4: 90%+ Coverage
 """
 
 import sys
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _import_module():
     """Import init_chroma after ensuring scripts/ is on sys.path."""
     import importlib
     import os
+
     scripts_dir = os.path.join(os.path.dirname(__file__), "..", "..", "scripts")
     if scripts_dir not in sys.path:
         sys.path.insert(0, os.path.abspath(scripts_dir))
     import init_chroma
+
     importlib.reload(init_chroma)
     return init_chroma
 
@@ -29,6 +32,7 @@ def _import_module():
 # ---------------------------------------------------------------------------
 # initialize_collections
 # ---------------------------------------------------------------------------
+
 
 class TestInitializeCollections:
     """Tests for initialize_collections()."""
@@ -94,6 +98,7 @@ class TestInitializeCollections:
 # main
 # ---------------------------------------------------------------------------
 
+
 class TestMain:
     """Tests for main()."""
 
@@ -105,6 +110,7 @@ class TestMain:
             with patch.dict("os.environ", {}, clear=True):
                 # Remove HOME specifically
                 import os
+
                 env_without_home = {k: v for k, v in os.environ.items() if k != "HOME"}
                 with patch.dict("os.environ", env_without_home, clear=True):
                     with pytest.raises(SystemExit) as exc_info:
