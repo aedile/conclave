@@ -30,6 +30,35 @@ node_modules/
 npm-debug.log
 yarn-error.log
 
-# Environment variables
+# Environment variables — production and local overrides
+# .env.dev is intentionally tracked (contains non-sensitive local defaults only)
 .env
 .env.local
+.env.production
+.env.staging
+
+# =============================================================================
+# Conclave Engine — project-specific gitignored paths
+# =============================================================================
+
+# Real user data (PII) — NEVER commit
+data/
+
+# Generated synthetic datasets — NEVER commit
+output/
+
+# Application logs — NEVER commit
+logs/
+*.log
+
+# Docker build artefacts
+dist/
+*.tar.gz
+
+# Docker secrets — files exist on host, NEVER committed
+# The secrets/ directory itself (with .gitkeep) IS tracked.
+secrets/*.txt
+secrets/*.key
+secrets/*.pem
+secrets/*.p12
+secrets/*.pfx

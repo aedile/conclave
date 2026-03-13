@@ -1,0 +1,59 @@
+# Version control — never copy git history into the image
+.git/
+.gitignore
+.gitattributes
+
+# Python bytecode and caches
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Sensitive data directories (GITIGNORED — but defence-in-depth here too)
+data/
+output/
+logs/
+secrets/
+
+# Log files
+*.log
+
+# Test suite (not needed in production image)
+tests/
+
+# Spike / exploratory code
+spikes/
+
+# Documentation (not needed in production image)
+docs/
+
+# Environment files (may contain secrets)
+.env
+.env.*
+.envrc
+
+# Node artefacts (managed in the frontend-builder stage only)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# IDE and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Pre-commit and CI configuration
+.pre-commit-config.yaml
+.secrets.baseline
+
+# Build artefacts
+dist/
+*.tar.gz
