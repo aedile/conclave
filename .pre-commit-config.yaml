@@ -33,8 +33,7 @@ repos:
   # additional_dependencies must list every package imported at module scope in
   # src/synth_engine/ so that the mirrors-mypy isolated environment can resolve
   # types.  Pin versions to match pyproject.toml production dependencies.
-  # opentelemetry-exporter-otlp is listed so mypy can resolve the lazily-
-  # imported OTLPSpanExporter type stub even though it is an optional runtime dep.
+  # Update this list whenever a new production dependency is added.
   # ---------------------------------------------------------------------------
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.19.1
@@ -49,6 +48,11 @@ repos:
           - opentelemetry-sdk>=1.28.0
           - opentelemetry-instrumentation-fastapi>=0.49b0
           - opentelemetry-exporter-otlp-proto-grpc>=1.28.0
+          - sqlmodel>=0.0.21
+          - sqlalchemy>=2.0.0
+          - cryptography>=43.0.0
+          - types-cryptography
+          - pydantic>=2.0.0
         files: ^src/
 
   # ---------------------------------------------------------------------------

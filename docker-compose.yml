@@ -14,6 +14,12 @@
 #   - no-new-privileges security opt  — prevents privilege escalation via SUID
 #   - Docker secrets skeleton          — secrets injected at runtime, not baked in
 #   - Log rotation                     — bounded disk usage for json-file logs
+#
+# Task 2.2 additions:
+#   - postgres service with LUKS-intended named volume and Docker secret password
+#   - pgbouncer in transaction-pool mode for connection multiplexing
+#   - pgbouncer/userlist.txt mounted read-only for authenticated connections
+#   - internal bridge network isolating data-plane traffic
 # =============================================================================
 
 services:
@@ -65,6 +71,9 @@ services:
     ports:
       - "8000:8000"
 
+    networks:
+      - internal
+
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -93,7 +102,83 @@ services:
       options:
         max-size: "10m"
         max-file: "2"
+    networks:
+      - internal
     restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # postgres — Primary relational store (Task 2.2)
+  #
+  # Security notes:
+  #   - Password injected via Docker secret (file never committed to VCS).
+  #   - Named volume postgres_data MUST reside on a LUKS-encrypted host volume
+  #     in production deployments.
+  #   - No external port exposure: only app and pgbouncer reach Postgres via
+  #     the internal bridge network.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: conclave
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: conclave
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conclave"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # pgbouncer — Connection pooler in transaction mode (Task 2.2)
+  #
+  # Sits between app and postgres.  Transaction pooling means a server
+  # connection is only held for the duration of a transaction, drastically
+  # reducing idle connection overhead in high-concurrency workloads.
+  #
+  # Security notes:
+  #   - No external port exposure: only accessible via the internal network.
+  #   - Credentials sourced from environment variables populated at runtime.
+  #   - PGBOUNCER_AUTH_TYPE and PGBOUNCER_AUTH_FILE enforce authenticated
+  #     connections; unauthenticated access is denied (lateral movement risk
+  #     mitigation — DevOps review finding P2-T2.2).
+  #   - userlist.txt is mounted read-only; replace plaintext password with
+  #     SCRAM-SHA-256 hashes for production deployments.
+  # ---------------------------------------------------------------------------
+  pgbouncer:
+    image: pgbouncer/pgbouncer:1.23.1
+    environment:
+      DATABASES_HOST: postgres
+      DATABASES_PORT: "5432"
+      DATABASES_USER: conclave
+      DATABASES_DBNAME: conclave
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: "100"
+      PGBOUNCER_DEFAULT_POOL_SIZE: "10"
+      PGBOUNCER_AUTH_TYPE: md5
+      PGBOUNCER_AUTH_FILE: /etc/pgbouncer/userlist.txt
+    volumes:
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 # =============================================================================
 # Named volumes
@@ -104,6 +189,20 @@ volumes:
   # volume — see docs/infrastructure_security.md.
   chroma_data:
 
+  # postgres_data: persists PostgreSQL WAL and data files.
+  # For production deployments the host path MUST reside on a LUKS-encrypted
+  # volume — see docs/infrastructure_security.md.
+  postgres_data:
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  # internal: isolated bridge network — no external ingress except via the
+  # app service's published port.  All inter-service traffic is confined here.
+  internal:
+    driver: bridge
+
 # =============================================================================
 # Docker secrets skeleton
 #
@@ -111,8 +210,11 @@ volumes:
 # Before running `docker-compose up` on a fresh host, provision the files:
 #   mkdir -p secrets
 #   openssl rand -hex 32 > secrets/app_secret_key.txt
-#   chmod 600 secrets/app_secret_key.txt
+#   openssl rand -hex 32 > secrets/postgres_password.txt
+#   chmod 600 secrets/app_secret_key.txt secrets/postgres_password.txt
 # =============================================================================
 secrets:
   app_secret_key:
     file: ./secrets/app_secret_key.txt
+  postgres_password:
+    file: ./secrets/postgres_password.txt
