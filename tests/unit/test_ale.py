@@ -26,7 +26,7 @@ def _reset_fernet(monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[misc
     _reset_fernet_cache()
 
 
-@pytest.fixture()
+@pytest.fixture
 def ale_key(monkeypatch: pytest.MonkeyPatch) -> str:
     """Provision a fresh Fernet key in the environment for ALE tests."""
     key = Fernet.generate_key().decode()
