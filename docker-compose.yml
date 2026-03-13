@@ -1,0 +1,118 @@
+---
+# =============================================================================
+# docker-compose.yml — Base production service definitions
+#
+# This file describes the minimum required services for a production-equivalent
+# deployment.  It is intentionally sparse: dev-only services (Jaeger, MinIO,
+# Uvicorn hot-reload) live in docker-compose.override.yml.
+#
+# Security hardening applied here (Task 1.6):
+#   - read_only: true              — immutable container rootfs
+#   - tmpfs for /tmp, /run/secrets — writable scratch space without persistent
+#                                    storage on the rootfs
+#   - cap_drop: ALL + cap_add selective — least-privilege capability model
+#   - no-new-privileges security opt  — prevents privilege escalation via SUID
+#   - Docker secrets skeleton          — secrets injected at runtime, not baked in
+#   - Log rotation                     — bounded disk usage for json-file logs
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # app — Conclave Engine (Synthetic Data Generation API)
+  # ---------------------------------------------------------------------------
+  app:
+    image: conclave-engine:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # --- Capability model: drop all, re-add only what is required ------------
+    # IPC_LOCK: allows mlock(2) so cryptographic key material is never swapped
+    #           to disk — required for DP-SGD key management and Vault integration.
+    cap_drop:
+      - ALL
+    cap_add:
+      - IPC_LOCK
+
+    # --- Security options ----------------------------------------------------
+    security_opt:
+      - no-new-privileges:true
+
+    # --- Immutable rootfs (Task 1.6) -----------------------------------------
+    read_only: true
+
+    # --- Writable scratch areas (tmpfs so nothing persists to the rootfs) ----
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /run/secrets:size=4m,mode=0700
+
+    # --- Runtime secrets (placeholder; files must exist before `up`) ---------
+    secrets:
+      - app_secret_key
+
+    # --- Persistent named volumes --------------------------------------------
+    volumes:
+      - chroma_data:/app/.chroma_data
+
+    # --- Log rotation (Task 1.6) ---------------------------------------------
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+    ports:
+      - "8000:8000"
+
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # redis — Ephemeral task queue backing store for Huey (Phase 4+)
+  #
+  # Security notes:
+  #   - No external port exposure: only app can reach Redis via the internal
+  #     Docker network.
+  #   - Persistence disabled (--save "" --appendonly no): Redis holds only
+  #     transient job state; no sensitive data is written to disk.
+  #   - read_only rootfs + tmpfs: same hardening as app service.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    # No ports: intentionally internal-only
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    restart: unless-stopped
+
+# =============================================================================
+# Named volumes
+# =============================================================================
+volumes:
+  # chroma_data: persists the ChromaDB vector store between container restarts.
+  # For production deployments the host path MUST reside on a LUKS-encrypted
+  # volume — see docs/infrastructure_security.md.
+  chroma_data:
+
+# =============================================================================
+# Docker secrets skeleton
+#
+# Secret files are NEVER committed to git (see .gitignore: secrets/*.txt).
+# Before running `docker-compose up` on a fresh host, provision the files:
+#   mkdir -p secrets
+#   openssl rand -hex 32 > secrets/app_secret_key.txt
+#   chmod 600 secrets/app_secret_key.txt
+# =============================================================================
+secrets:
+  app_secret_key:
+    file: ./secrets/app_secret_key.txt
