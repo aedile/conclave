@@ -20,6 +20,8 @@ sqlmodel = ">=0.0.21,<1.0.0"
 alembic = ">=1.14.0,<2.0.0"
 psycopg2-binary = ">=2.9.0,<3.0.0"
 cryptography = ">=46.0.5,<47.0.0"
+PyJWT = {version = ">=2.10.0,<3.0.0", extras = ["cryptography"]}
+passlib = {version = ">=1.7.4,<2.0.0", extras = ["bcrypt"]}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
@@ -61,9 +63,10 @@ ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
 # S101: assert — allowed in tests and scripts
+# S105: hardcoded-password-string — test-only credentials, not real secrets
 # S108: insecure /tmp usage — mocked paths in unit tests are not real filesystem calls
 # RUF002: ambiguous unicode in docstrings — pre-existing test docstrings use EN DASH notation
-"tests/**" = ["S101", "S108", "RUF002"]
+"tests/**" = ["S101", "S105", "S108", "RUF002"]
 # S603/S607: subprocess without shell=True / partial path — pre-existing scripts
 # UP006/UP035: typing.List is deprecated — scripts pre-date pyproject.toml; modernise in Task 2.x
 "scripts/**" = ["S603", "S607", "UP006", "UP035"]
@@ -71,6 +74,10 @@ ignore = ["S101"]
 # S608: SQL injection — spike code uses schema identifiers from sqlite_master, not user input
 # These are exploratory spikes, not production code.
 "spikes/**" = ["S311", "S608"]
+# B008: FastAPI Depends() in argument defaults is the canonical FastAPI DI pattern.
+# The inner `dependency` function is only invoked by the FastAPI framework, never
+# called directly as plain Python, so this is intentional and safe.
+"src/synth_engine/bootstrapper/dependencies/auth.py" = ["B008"]
 
 # ---------------------------------------------------------------------------
 # Mypy — Strict Type Checking (src/synth_engine only; scripts/ pre-date this)
@@ -148,6 +155,19 @@ source_modules = [
     "synth_engine.shared",
 ]
 forbidden_modules = ["synth_engine.bootstrapper"]
+
+[[tool.importlinter.contracts]]
+name = "shared must not import from modules or bootstrapper"
+type = "forbidden"
+source_modules = ["synth_engine.shared"]
+forbidden_modules = [
+    "synth_engine.modules.ingestion",
+    "synth_engine.modules.profiler",
+    "synth_engine.modules.synthesizer",
+    "synth_engine.modules.masking",
+    "synth_engine.modules.privacy",
+    "synth_engine.bootstrapper",
+]
 
 # ---------------------------------------------------------------------------
 # Vulture — Dead Code Detection
