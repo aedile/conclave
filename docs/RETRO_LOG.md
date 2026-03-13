@@ -16,10 +16,24 @@ Drain (delete) rows when their target task is completed.
 | ADV-002 | QA R3 | Task 1.1 — CI/CD Pipeline | `VERIFICATION_QUERIES[collection_name]` in `seed_chroma.py` is an unguarded dict key lookup. If `SEEDING_MANIFEST` and `VERIFICATION_QUERIES` diverge, a `KeyError` surfaces at runtime with no test coverage. Recommend a shared data structure or startup assertion in Task 1.1 refactor. |
 | ADV-003 | DevOps R2/R3 | Task 1.1 — CI/CD Pipeline | `chromadb` is installed ad-hoc via `pip` in the bootstrap phase. Once `pyproject.toml` is created in Task 1.1, `chromadb` must be declared with a pinned version range and `pip-audit` added to the CI pipeline. |
 | ADV-004 | DevOps R3 | Task 1.1 — CI/CD Pipeline | `bandit` cannot scan `scripts/` because `pyproject.toml` does not exist. Once Poetry is initialized, extend `bandit` scan scope to include `scripts/*.py` alongside `src/`. |
+| ADV-005 | DevOps R5 | Task 1.1 — CI/CD Pipeline | `pytest` is unpinned in `.github/workflows/ci.yml` line 74 (`pip install "pytest"`). A breaking pytest release could silently fail CI. Pin to a specific version alongside `chromadb==1.5.5`, and consolidate both into `pyproject.toml` dev dependencies in Task 1.1. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-13] P0.6 — Autonomous Agile Environment Provisioning (Round 5)
+
+**QA** (Round 5 — PASS):
+Round 5 diff is narrow and correct: chromadb pinned to `chromadb==1.5.5` in CI and `docs/RETRO_LOG.md` created with a well-structured Open Advisory Items table. All 23 tests pass; no source or test code changed. Vulture passes clean on both confidence thresholds. The one latent risk worth elevating: ADV-002's `VERIFICATION_QUERIES[collection_name]` unguarded dict lookup is a real `KeyError` waiting to surface if `SEEDING_MANIFEST` and `VERIFICATION_QUERIES` diverge. It is correctly documented but should be treated as a must-fix (not advisory) when Task 1.1 lands — not something to close casually.
+
+**UI/UX** (Round 5 — SKIP):
+No templates, static assets, routes, or interactive elements. Five consecutive SKIP rounds confirm the project is correctly sequencing infrastructure before UI. Key forward recommendation: treat the first `base.html` as a first-class architecture decision — hard-code landmark regions, a skip-to-content link, and heading hierarchy before feature templates proliferate. Add `pa11y` or `axe-core` to CI at that point so WCAG 2.1 AA regressions are machine-caught at the PR gate.
+
+**DevOps** (Round 5 — PASS):
+chromadb pin resolves R4 FINDING cleanly with a maintenance comment cross-referencing the pyproject.toml transition. RETRO_LOG.md structured ledger with Open Advisory Items is operationally significant — genuine institutional memory for cross-task findings. One residual observation: `pytest` itself remains unpinned on CI line 74 alongside the now-pinned `chromadb`; captured as ADV-005. gitleaks-action@v2 floating tag (supply-chain note) acceptable at bootstrap stage; recommend SHA-pinning in first full CI hardening pass.
 
 ---
 
