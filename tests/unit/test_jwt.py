@@ -7,21 +7,19 @@ All tests use unittest.mock to mock Request objects.
 No running FastAPI app is required.
 """
 
-import asyncio
 import hashlib
 import os
 from unittest.mock import MagicMock, PropertyMock
 
 import pytest
-from fastapi import HTTPException
 
 from synth_engine.shared.auth.jwt import (
     JWTConfig,
     TokenPayload,
+    TokenVerificationError,
     _hash_client_identifier,
     create_access_token,
     extract_client_identifier,
-    get_current_user,
     get_jwt_config,
     verify_token,
 )
@@ -46,17 +44,32 @@ def _make_config(expire_minutes: int = 30) -> JWTConfig:
 
 
 def _mock_request(
-    client_host: str = "192.168.1.1",
+    client_host: str | None = "192.168.1.1",
     forwarded_for: str | None = None,
     mtls_san: str | None = None,
+    no_client: bool = False,
 ) -> MagicMock:
-    """Build a mock Starlette/FastAPI Request with common headers."""
+    """Build a mock Starlette/FastAPI Request with common headers.
+
+    Args:
+        client_host: Value for ``request.client.host``.
+        forwarded_for: Value for the ``X-Forwarded-For`` header.
+        mtls_san: Value for the ``X-Client-Cert-SAN`` header.
+        no_client: When True, sets ``request.client = None``.
+
+    Returns:
+        A configured :class:`~unittest.mock.MagicMock` standing in for a
+        Starlette ``Request``.
+    """
     request = MagicMock()
 
-    # request.client.host
-    client = MagicMock()
-    type(client).host = PropertyMock(return_value=client_host)
-    request.client = client
+    if no_client:
+        request.client = None
+    else:
+        # request.client.host
+        client = MagicMock()
+        type(client).host = PropertyMock(return_value=client_host)
+        request.client = client
 
     # request.headers behaves like a dict
     headers: dict[str, str] = {}
@@ -122,6 +135,14 @@ def test_extract_falls_back_to_client_host() -> None:
     assert result == "172.16.0.5"
 
 
+def test_extract_raises_400_when_client_is_none() -> None:
+    """extract_client_identifier raises TokenVerificationError 400 when request.client is None."""
+    request = _mock_request(no_client=True)
+    with pytest.raises(TokenVerificationError) as exc_info:
+        extract_client_identifier(request, "X-Forwarded-For")
+    assert exc_info.value.status_code == 400
+
+
 # ---------------------------------------------------------------------------
 # create_access_token / verify_token — happy path
 # ---------------------------------------------------------------------------
@@ -161,7 +182,7 @@ def test_mismatched_client_ip_raises_401() -> None:
     )
     request = _mock_request(client_host="10.0.0.1")
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TokenVerificationError) as exc_info:
         verify_token(token, request, config)
 
     assert exc_info.value.status_code == 401
@@ -184,7 +205,7 @@ def test_expired_token_raises_401() -> None:
     )
     request = _mock_request(client_host="192.168.1.1")
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TokenVerificationError) as exc_info:
         verify_token(token, request, config)
 
     assert exc_info.value.status_code == 401
@@ -223,7 +244,7 @@ def test_mtls_san_takes_precedence_over_ip() -> None:
     assert payload.sub == "dave"
 
     # Token bound to the IP must fail because extracted identifier is SAN
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TokenVerificationError) as exc_info:
         verify_token(token_ip, request, config)
     assert exc_info.value.status_code == 401
 
@@ -234,7 +255,7 @@ def test_mtls_san_takes_precedence_over_ip() -> None:
 
 
 def test_invalid_signature_raises_401() -> None:
-    """A token with a tampered signature must raise HTTPException 401."""
+    """A token with a tampered signature must raise TokenVerificationError 401."""
     config = _make_config()
     token = create_access_token(
         subject="eve",
@@ -248,14 +269,14 @@ def test_invalid_signature_raises_401() -> None:
     bad_token = ".".join(parts[:2] + [tampered])
 
     request = _mock_request(client_host="192.168.1.1")
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(TokenVerificationError) as exc_info:
         verify_token(bad_token, request, config)
 
     assert exc_info.value.status_code == 401
 
 
 # ---------------------------------------------------------------------------
-# Scope enforcement inside verify_token (get_current_user dependency)
+# Scope enforcement via has_required_scope
 # ---------------------------------------------------------------------------
 
 
@@ -324,88 +345,7 @@ def test_get_jwt_config_returns_config_when_env_var_set(
     assert config.secret_key == test_val
 
 
-# ---------------------------------------------------------------------------
-# get_current_user — async dependency factory
-# ---------------------------------------------------------------------------
-
-
-def test_get_current_user_returns_callable() -> None:
-    """get_current_user() returns an async callable (the inner dependency)."""
-    dep = get_current_user(required_scope=Scope.READ_RESULTS)
-    assert callable(dep)
-
-
-def test_get_current_user_dependency_valid_token_and_scope() -> None:
-    """Dependency resolves successfully when token is valid and scope matches."""
-    config = _make_config()
-    client_ip = "10.1.1.1"
-    token = create_access_token(
-        subject="henry",
-        scopes=[Scope.READ_RESULTS],
-        client_identifier=client_ip,
-        config=config,
-    )
-    request = _mock_request(client_host=client_ip)
-
-    dep = get_current_user(required_scope=Scope.READ_RESULTS)
-    payload = asyncio.run(dep(request, token, config))
-    assert payload.sub == "henry"
-
-
-def test_get_current_user_dependency_raises_403_on_insufficient_scope() -> None:
-    """Dependency raises HTTPException 403 when token lacks the required scope."""
-    config = _make_config()
-    client_ip = "10.1.1.2"
-    token = create_access_token(
-        subject="iris",
-        scopes=[Scope.READ_RESULTS],
-        client_identifier=client_ip,
-        config=config,
-    )
-    request = _mock_request(client_host=client_ip)
-
-    dep = get_current_user(required_scope=Scope.SYNTHESIZE)
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(dep(request, token, config))
-    assert exc_info.value.status_code == 403
-    assert "scope" in exc_info.value.detail.lower()
-
-
-def test_get_current_user_no_scope_requirement_accepts_any_valid_token() -> None:
-    """Dependency with required_scope=None accepts any valid token."""
-    config = _make_config()
-    client_ip = "10.1.1.3"
-    token = create_access_token(
-        subject="jake",
-        scopes=[Scope.AUDIT_READ],
-        client_identifier=client_ip,
-        config=config,
-    )
-    request = _mock_request(client_host=client_ip)
-
-    dep = get_current_user(required_scope=None)
-    payload = asyncio.run(dep(request, token, config))
-    assert payload.sub == "jake"
-
-
-def test_get_current_user_dependency_admin_scope_passes_any_requirement() -> None:
-    """Admin token satisfies any scope requirement via hierarchy."""
-    config = _make_config()
-    client_ip = "10.1.1.4"
-    token = create_access_token(
-        subject="kate",
-        scopes=[Scope.ADMIN],
-        client_identifier=client_ip,
-        config=config,
-    )
-    request = _mock_request(client_host=client_ip)
-
-    dep = get_current_user(required_scope=Scope.VAULT_UNSEAL)
-    payload = asyncio.run(dep(request, token, config))
-    assert payload.sub == "kate"
-
-
-def test_get_current_user_os_env_read() -> None:
+def test_get_jwt_config_os_env_read() -> None:
     """get_jwt_config reads the secret key from the OS environment."""
     secret = "env-only-test-val"  # nosec B105 # pragma: allowlist secret
     os.environ["JWT_SECRET_KEY"] = secret

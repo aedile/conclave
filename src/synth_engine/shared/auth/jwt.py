@@ -3,31 +3,46 @@
 Every access token is cryptographically bound to the client identity
 (mTLS Subject Alternative Name or IP address) that was present at
 issuance.  Re-use from a different origin is detected at validation
-time and rejected with HTTP 401.
+time and rejected with a :class:`TokenVerificationError`.
 
-The binding uses a SHA-256 hash of the raw client identifier so that
-the token never contains a plain-text IP or SAN.
+This module is intentionally framework-agnostic.  No FastAPI or Starlette
+imports are allowed here.  The FastAPI dependency factory that translates
+:class:`TokenVerificationError` into ``HTTPException`` lives in
+``synth_engine.bootstrapper.dependencies.auth``.
 """
 
 import hashlib
+import hmac
+import logging
 import os
-from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError, jwt
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from synth_engine.shared.auth.scopes import Scope, has_required_scope
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
-# OAuth2 scheme — token URL is handled by the bootstrapper router
+# Custom exception — framework-agnostic
 # ---------------------------------------------------------------------------
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
+
+class TokenVerificationError(Exception):
+    """Raised when JWT verification fails.
+
+    Attributes:
+        detail: Human-readable error description.
+        status_code: HTTP status code the caller should use (401 or 400).
+    """
+
+    def __init__(self, detail: str, status_code: int = 401) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +113,7 @@ def extract_client_identifier(request: Request, trusted_proxy_header: str) -> st
     """Extract the raw client identifier from an incoming request.
 
     Priority order:
+
     1. ``X-Client-Cert-SAN`` header — present when mTLS is terminated
        upstream and the SAN is forwarded by the proxy.
     2. First IP in *trusted_proxy_header* — typically ``X-Forwarded-For``,
@@ -111,6 +127,10 @@ def extract_client_identifier(request: Request, trusted_proxy_header: str) -> st
 
     Returns:
         Raw (un-hashed) client identifier string.
+
+    Raises:
+        TokenVerificationError: 400 when ``request.client`` is ``None`` and no
+            proxy header is present (e.g. Unix socket or minimal ASGI transport).
     """
     headers = request.headers
 
@@ -124,7 +144,12 @@ def extract_client_identifier(request: Request, trusted_proxy_header: str) -> st
         # original client IP.
         return forwarded_for.split(",")[0].strip()
 
-    return request.client.host  # type: ignore[union-attr]
+    if request.client is None:
+        raise TokenVerificationError(
+            detail="Cannot determine client identity: no client connection information available",
+            status_code=400,
+        )
+    return request.client.host
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +199,8 @@ def verify_token(token: str, request: Request, config: JWTConfig) -> TokenPayloa
 
     Decodes the token, validates the signature and expiry, then computes
     the SHA-256 hash of the current request's client identifier and
-    compares it to the ``bound_client_hash`` claim.
+    compares it to the ``bound_client_hash`` claim using a constant-time
+    comparison to prevent timing side-channels.
 
     Args:
         token: Compact serialised JWT string.
@@ -185,8 +211,9 @@ def verify_token(token: str, request: Request, config: JWTConfig) -> TokenPayloa
         Decoded and validated :class:`TokenPayload`.
 
     Raises:
-        HTTPException: 401 when the token is expired, has an invalid
-            signature, or is not bound to the current client.
+        TokenVerificationError: 401 when the token is expired, has an invalid
+            signature, or is not bound to the current client.  400 when the
+            client identity cannot be determined.
     """
     try:
         raw_payload: dict[str, Any] = jwt.decode(
@@ -195,23 +222,26 @@ def verify_token(token: str, request: Request, config: JWTConfig) -> TokenPayloa
             algorithms=[config.algorithm],
         )
     except ExpiredSignatureError as exc:
-        raise HTTPException(status_code=401, detail="Token expired") from exc
+        raise TokenVerificationError(detail="Token expired", status_code=401) from exc
     except JWTError as exc:
-        raise HTTPException(status_code=401, detail="Invalid token") from exc
+        raise TokenVerificationError(detail="Invalid token", status_code=401) from exc
 
     payload = TokenPayload.model_validate(raw_payload)
 
     client_identifier = extract_client_identifier(request, config.trusted_proxy_header)
     expected_hash = _hash_client_identifier(client_identifier)
 
-    if payload.bound_client_hash != expected_hash:
-        raise HTTPException(status_code=401, detail="Token not bound to this client")
+    if not hmac.compare_digest(payload.bound_client_hash, expected_hash):
+        raise TokenVerificationError(
+            detail="Token not bound to this client",
+            status_code=401,
+        )
 
     return payload
 
 
 # ---------------------------------------------------------------------------
-# FastAPI dependency factory
+# Environment configuration factory
 # ---------------------------------------------------------------------------
 
 
@@ -231,59 +261,3 @@ def get_jwt_config() -> JWTConfig:
     if not secret:
         raise RuntimeError("JWT_SECRET_KEY environment variable is required but not set.")
     return JWTConfig(secret_key=secret)
-
-
-# Type alias for the async dependency signature returned by get_current_user.
-_DependencyFn = Callable[..., Coroutine[Any, Any, TokenPayload]]
-
-
-def get_current_user(required_scope: Scope | None = None) -> _DependencyFn:
-    """FastAPI dependency factory that validates a JWT and optionally checks scope.
-
-    Returns an ``async`` dependency that:
-    1. Extracts the bearer token via ``oauth2_scheme``.
-    2. Calls :func:`verify_token` to validate signature, expiry, and client binding.
-    3. When *required_scope* is supplied, checks that the token's scopes satisfy
-       it via :func:`~synth_engine.shared.auth.scopes.has_required_scope`.
-
-    Args:
-        required_scope: Optional scope that the caller must possess.  When
-            ``None`` any valid token is accepted.
-
-    Returns:
-        An async FastAPI dependency callable that yields :class:`TokenPayload`.
-
-    Example::
-
-        @router.get("/datasets")
-        async def list_datasets(
-            user: TokenPayload = Depends(get_current_user(Scope.READ_RESULTS)),
-        ) -> list[DatasetSummary]:
-            ...
-    """
-
-    async def dependency(
-        request: Request,
-        token: str = Depends(oauth2_scheme),
-        config: JWTConfig = Depends(get_jwt_config),
-    ) -> TokenPayload:
-        """Validate the bearer token and enforce the required scope.
-
-        Args:
-            request: Incoming request (injected by FastAPI).
-            token: Bearer token extracted by the OAuth2 scheme.
-            config: JWT configuration resolved from the environment.
-
-        Returns:
-            Validated token payload.
-
-        Raises:
-            HTTPException: 401 for invalid/expired/unbound tokens,
-                403 for insufficient scope.
-        """
-        payload = verify_token(token, request, config)
-        if required_scope is not None and not has_required_scope(payload.scopes, required_scope):
-            raise HTTPException(status_code=403, detail="Insufficient scope")
-        return payload
-
-    return dependency

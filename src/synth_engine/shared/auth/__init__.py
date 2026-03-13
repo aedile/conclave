@@ -1,8 +1,9 @@
 """Zero-Trust authentication and RBAC scope utilities.
 
-This sub-package provides JWT validation with client-binding and
-role-based access control scopes for the Conclave Engine API.
+This sub-package provides framework-agnostic JWT validation with
+client-binding and role-based access control scopes for the Conclave Engine.
 
-Cross-cutting concern: shared by bootstrapper (FastAPI middleware) and
-any future module that needs to validate caller identity.
+The FastAPI dependency factory lives in
+``bootstrapper/dependencies/auth.get_current_user`` so that this package
+remains free of web-framework coupling.
 """

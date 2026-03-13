@@ -10,6 +10,9 @@ implies every other scope).
 """
 
 import enum
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Scope(str, enum.Enum):
@@ -63,6 +66,10 @@ def has_required_scope(token_scopes: list[str], required: Scope) -> bool:
         try:
             candidate = Scope(raw)
         except ValueError:
+            logger.warning(
+                "Unrecognised scope string in token payload: %r — skipping",
+                raw,
+            )
             continue
         if required in SCOPE_HIERARCHY.get(candidate, set()):
             return True
