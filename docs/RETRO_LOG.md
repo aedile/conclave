@@ -20,10 +20,26 @@ Drain (delete) rows when their target task is completed.
 | ADV-011 | QA P0.8.2 | Before Phase 4 (masking module) | `FeistelFPE` in `spike_fpe_luhn.py` has unguarded edge cases: `rounds=0` is an identity transformation (no encryption); `luhn_check("")` and `_luhn_check_digit("")` return `False`/`"0"` silently. Write `tests/unit/test_fpe_luhn.py` (TDD RED) against spike code before promoting to `src/synth_engine/modules/masking/`. Also document spike-to-production promotion checklist in `AUTONOMOUS_DEVELOPMENT_PROMPT.md` before Phase 4. |
 | ADV-012 | QA P0.8.3 | Before Phase 3 (ingestion module) | `SubsetQueryGenerator._resolve_reachable()` uses "any-parent OR" semantics to mark a table reachable — correct for downstream-pull subsetting but must be explicitly decided in an ADR before Phase 3 implementation to prevent correctness regressions. Also: `_infer_pk_column()` checks `pk==1` only (incorrect for composite-PK tables). Both must be addressed in the Phase 3 ADR for ingestion subsetting. |
 | ADV-013 | DevOps P0.8.3 | Before Phase 3 (ingestion module) | When `SubsetQueryGenerator` is promoted to `src/synth_engine/modules/ingestion/`, `seed_table` crosses a trust boundary. Require allowlist validation against `SchemaInspector.get_tables()` before any f-string SQL construction. Document `spikes/` CI carve-out (no mypy/ruff/bandit enforcement) explicitly in ADR or README so future reviewers do not mistake the absence of enforcement for an oversight. |
+| ADV-014 | DevOps P1-T1.3–1.7 | Before Phase 2 ships | Dockerfile FROM lines for `node:20-alpine`, `python:3.14-slim`, and `redis:7-alpine` use floating minor-version tags. A silent tag update can introduce new packages or CVEs without triggering a dependency review. Pin all FROM lines to SHA-256 digests (e.g. `python:3.14-slim@sha256:<digest>`) before any production deployment. |
+| ADV-015 | DevOps P1-T1.3–1.7 | Standalone CI hardening task | No Trivy image-scan job in `ci.yml`. The Dockerfile comment notes a manual trivy scan but this is unenforced. Add `aquasecurity/trivy-action` to CI with `exit-code: 1` on CRITICAL/HIGH CVEs — makes the image-CVE gate as automatic as bandit and pip-audit. Bundle with ADV-007 (SHA-pin GitHub Actions) into a single CI hardening pass. |
+| ADV-016 | UI/UX P1-T1.3–1.7 | Before Phase 5 dashboard task | Three accessibility pre-conditions from the Docker topology: (1) CSP headers for React/Vite SPA must be established in FastAPI middleware before frontend build starts — restrictive `script-src 'self'` will block inline scripts used by accessibility polyfills; (2) any Jaeger iframe embed needs `<iframe title="...">` and documented third-party WCAG scope exclusion; (3) MinIO console must be treated as internal developer tool only — never surfaced to end users. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-13] P1-T1.3–1.7 — Docker Infrastructure (base image, security, dev-experience, hardening, air-gap bundler)
+
+**QA** (Round 1 — FINDING, 2 blockers fixed before merge):
+Two blockers caught: (1) `CMD ["poetry", "run", "uvicorn", ...]` in Dockerfile final stage called a binary absent from the final image — Poetry installed in builder only; container would crash on every start; fixed to direct `uvicorn` invocation. (2) No `trap ERR` in `build_airgap.sh` — a failed `docker save` would leave a partial `.tar` in `dist/` silently bundled on re-run; `trap ERR` cleanup added. Advisory: no `HEALTHCHECK` instruction (added); `infrastructure_security.md §3` incorrectly justified root requirement as "binding ports < 1024" for port 8000 (corrected). Misleading SC2034 shellcheck disable comment removed. `.env.dev` missing from airgap bundle (copy step added). Retrospective: multi-stage Dockerfile CMD/stage mismatch signals future infra PRs need a `make test-image` container smoke step to surface this class of failure before review.
+
+**UI/UX** (Round 1 — SKIP):
+No templates, routes, forms, or interactive elements. Forward: three accessibility pre-conditions from the Docker topology tracked as ADV-016 — CSP headers for React SPA, Jaeger iframe accessibility, MinIO console scope. The frontend-builder Dockerfile stage is the first commitment to a React/Vite architecture; accessibility obligations attached to that commitment are cheapest to address at architecture time.
+
+**DevOps** (Round 1 — PASS):
+gitleaks 49 commits, 0 leaks. `cap_drop: ALL`, `read_only: true`, tini PID-1, su-exec, Docker Secrets skeleton all correctly implemented. Advisory fixes applied: bare `print()` in `seeds.py` replaced with `logger.info()`; logger name `"conclave.seeds"` corrected to `__name__`; `entrypoint.sh` echo replaced `$*` with `$1` (latent auth-material logging trap). Advisory: three base images use floating tags (`node:20-alpine`, `python:3.14-slim`, `redis:7-alpine`) — tracked as ADV-014. No Trivy CI step — tracked as ADV-015. Retrospective: the project's habit of pinning Python packages in `pyproject.toml` must extend to Dockerfile FROM lines before Phase 2 ships.
 
 ---
 
