@@ -1,6 +1,6 @@
 """Unit tests for RBAC scope definitions.
 
-CONSTITUTION Priority 3: TDD RED Phase
+CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: P2-T2.3 — Zero-Trust JWT Authentication & RBAC Scopes
 """
 
@@ -53,8 +53,22 @@ def test_read_results_does_not_imply_synthesize() -> None:
     assert has_required_scope(["synth:read"], Scope.SYNTHESIZE) is False
 
 
+def test_unknown_scope_string_is_skipped() -> None:
+    """An unrecognised scope string is silently skipped (ValueError branch)."""
+    # "unknown:scope" is not a valid Scope enum value; it must not raise and
+    # must not satisfy any required scope.
+    assert has_required_scope(["unknown:scope"], Scope.SYNTHESIZE) is False
+    assert has_required_scope(["unknown:scope", "synth:write"], Scope.SYNTHESIZE) is True
+
+
+def test_unknown_scope_mixed_with_valid() -> None:
+    """Unknown scopes are ignored; valid ones in the same list still match."""
+    token_scopes = ["garbage:value", "admin:*"]
+    assert has_required_scope(token_scopes, Scope.VAULT_UNSEAL) is True
+
+
 @pytest.mark.parametrize(
-    "scope_value,expected",
+    ("scope_value", "expected"),
     [
         (Scope.SYNTHESIZE, "synth:write"),
         (Scope.READ_RESULTS, "synth:read"),

@@ -1,13 +1,15 @@
 """Unit tests for Zero-Trust JWT authentication with client-binding.
 
-CONSTITUTION Priority 3: TDD RED Phase
+CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: P2-T2.3 — Zero-Trust JWT Authentication & RBAC Scopes
 
 All tests use unittest.mock to mock Request objects.
 No running FastAPI app is required.
 """
 
+import asyncio
 import hashlib
+import os
 from unittest.mock import MagicMock, PropertyMock
 
 import pytest
@@ -19,16 +21,18 @@ from synth_engine.shared.auth.jwt import (
     _hash_client_identifier,
     create_access_token,
     extract_client_identifier,
+    get_current_user,
+    get_jwt_config,
     verify_token,
 )
 from synth_engine.shared.auth.scopes import Scope
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SECRET = "super-secret-key-for-testing-only-32chars!!"
+# Test-only HMAC secret — not a production credential.
+_SECRET = "super-secret-key-for-testing-only-32chars!!"  # nosec B105 # pragma: allowlist secret
 _ALGORITHM = "HS256"
 
 
@@ -293,3 +297,120 @@ def test_admin_scope_satisfies_all() -> None:
 
     assert has_required_scope(payload.scopes, Scope.SYNTHESIZE)
     assert has_required_scope(payload.scopes, Scope.VAULT_UNSEAL)
+
+
+# ---------------------------------------------------------------------------
+# get_jwt_config — environment variable reading
+# ---------------------------------------------------------------------------
+
+
+def test_get_jwt_config_raises_when_env_var_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_jwt_config raises RuntimeError when JWT_SECRET_KEY is absent."""
+    monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
+        get_jwt_config()
+
+
+def test_get_jwt_config_returns_config_when_env_var_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_jwt_config returns a JWTConfig populated from the environment."""
+    test_val = "env-test-only"  # nosec B105 # pragma: allowlist secret
+    monkeypatch.setenv("JWT_SECRET_KEY", test_val)
+    config = get_jwt_config()
+    assert isinstance(config, JWTConfig)
+    assert config.secret_key == test_val
+
+
+# ---------------------------------------------------------------------------
+# get_current_user — async dependency factory
+# ---------------------------------------------------------------------------
+
+
+def test_get_current_user_returns_callable() -> None:
+    """get_current_user() returns an async callable (the inner dependency)."""
+    dep = get_current_user(required_scope=Scope.READ_RESULTS)
+    assert callable(dep)
+
+
+def test_get_current_user_dependency_valid_token_and_scope() -> None:
+    """Dependency resolves successfully when token is valid and scope matches."""
+    config = _make_config()
+    client_ip = "10.1.1.1"
+    token = create_access_token(
+        subject="henry",
+        scopes=[Scope.READ_RESULTS],
+        client_identifier=client_ip,
+        config=config,
+    )
+    request = _mock_request(client_host=client_ip)
+
+    dep = get_current_user(required_scope=Scope.READ_RESULTS)
+    payload = asyncio.run(dep(request, token, config))
+    assert payload.sub == "henry"
+
+
+def test_get_current_user_dependency_raises_403_on_insufficient_scope() -> None:
+    """Dependency raises HTTPException 403 when token lacks the required scope."""
+    config = _make_config()
+    client_ip = "10.1.1.2"
+    token = create_access_token(
+        subject="iris",
+        scopes=[Scope.READ_RESULTS],
+        client_identifier=client_ip,
+        config=config,
+    )
+    request = _mock_request(client_host=client_ip)
+
+    dep = get_current_user(required_scope=Scope.SYNTHESIZE)
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(dep(request, token, config))
+    assert exc_info.value.status_code == 403
+    assert "scope" in exc_info.value.detail.lower()
+
+
+def test_get_current_user_no_scope_requirement_accepts_any_valid_token() -> None:
+    """Dependency with required_scope=None accepts any valid token."""
+    config = _make_config()
+    client_ip = "10.1.1.3"
+    token = create_access_token(
+        subject="jake",
+        scopes=[Scope.AUDIT_READ],
+        client_identifier=client_ip,
+        config=config,
+    )
+    request = _mock_request(client_host=client_ip)
+
+    dep = get_current_user(required_scope=None)
+    payload = asyncio.run(dep(request, token, config))
+    assert payload.sub == "jake"
+
+
+def test_get_current_user_dependency_admin_scope_passes_any_requirement() -> None:
+    """Admin token satisfies any scope requirement via hierarchy."""
+    config = _make_config()
+    client_ip = "10.1.1.4"
+    token = create_access_token(
+        subject="kate",
+        scopes=[Scope.ADMIN],
+        client_identifier=client_ip,
+        config=config,
+    )
+    request = _mock_request(client_host=client_ip)
+
+    dep = get_current_user(required_scope=Scope.VAULT_UNSEAL)
+    payload = asyncio.run(dep(request, token, config))
+    assert payload.sub == "kate"
+
+
+def test_get_current_user_os_env_read() -> None:
+    """get_jwt_config reads the secret key from the OS environment."""
+    secret = "env-only-test-val"  # nosec B105 # pragma: allowlist secret
+    os.environ["JWT_SECRET_KEY"] = secret
+    try:
+        cfg = get_jwt_config()
+        assert cfg.secret_key == secret
+    finally:
+        del os.environ["JWT_SECRET_KEY"]
