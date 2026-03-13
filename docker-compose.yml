@@ -18,6 +18,7 @@
 # Task 2.2 additions:
 #   - postgres service with LUKS-intended named volume and Docker secret password
 #   - pgbouncer in transaction-pool mode for connection multiplexing
+#   - pgbouncer/userlist.txt mounted read-only for authenticated connections
 #   - internal bridge network isolating data-plane traffic
 # =============================================================================
 
@@ -148,6 +149,11 @@ services:
   # Security notes:
   #   - No external port exposure: only accessible via the internal network.
   #   - Credentials sourced from environment variables populated at runtime.
+  #   - PGBOUNCER_AUTH_TYPE and PGBOUNCER_AUTH_FILE enforce authenticated
+  #     connections; unauthenticated access is denied (lateral movement risk
+  #     mitigation — DevOps review finding P2-T2.2).
+  #   - userlist.txt is mounted read-only; replace plaintext password with
+  #     SCRAM-SHA-256 hashes for production deployments.
   # ---------------------------------------------------------------------------
   pgbouncer:
     image: pgbouncer/pgbouncer:1.23.1
@@ -159,6 +165,10 @@ services:
       PGBOUNCER_POOL_MODE: transaction
       PGBOUNCER_MAX_CLIENT_CONN: "100"
       PGBOUNCER_DEFAULT_POOL_SIZE: "10"
+      PGBOUNCER_AUTH_TYPE: md5
+      PGBOUNCER_AUTH_FILE: /etc/pgbouncer/userlist.txt
+    volumes:
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
     depends_on:
       postgres:
         condition: service_healthy

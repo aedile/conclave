@@ -68,6 +68,8 @@ def get_fernet() -> Fernet:
 
     Raises:
         RuntimeError: If the ``ALE_KEY`` environment variable is not set.
+        ValueError: If the ``ALE_KEY`` value is not a valid Fernet key
+            (e.g. incorrect length or encoding).
     """
     key = os.environ.get("ALE_KEY")
     if not key:
@@ -113,12 +115,12 @@ class EncryptedString(TypeDecorator[str]):
     impl = String
     cache_ok = True
 
-    def process_bind_param(self, value: Any, dialect: Dialect | None) -> str | None:
+    def process_bind_param(self, value: Any, _dialect: Dialect | None) -> str | None:
         """Encrypt *value* before writing to the database.
 
         Args:
             value: The plaintext string to encrypt, or ``None``.
-            dialect: The SQLAlchemy dialect in use (ignored).
+            _dialect: The SQLAlchemy dialect in use (intentionally unused).
 
         Returns:
             A Fernet token encoded as a UTF-8 string, or ``None`` if
@@ -130,16 +132,20 @@ class EncryptedString(TypeDecorator[str]):
         token: bytes = fernet.encrypt(str(value).encode())
         return token.decode()
 
-    def process_result_value(self, value: Any, dialect: Dialect | None) -> str | None:
+    def process_result_value(self, value: Any, _dialect: Dialect | None) -> str | None:
         """Decrypt *value* retrieved from the database.
 
         Args:
             value: The Fernet token string to decrypt, or ``None``.
-            dialect: The SQLAlchemy dialect in use (ignored).
+            _dialect: The SQLAlchemy dialect in use (intentionally unused).
 
         Returns:
             The decrypted plaintext string, or ``None`` if *value* is
             ``None``.
+
+        Raises:
+            cryptography.fernet.InvalidToken: If *value* is not a valid
+                Fernet token (e.g. corrupted or tampered ciphertext).
         """
         if value is None:
             return None

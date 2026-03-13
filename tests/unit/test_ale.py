@@ -2,14 +2,14 @@
 
 Tests verify Fernet-based EncryptedString TypeDecorator behaviour:
 transparent encrypt-on-write, decrypt-on-read, None pass-through, and
-robust failure when the ALE_KEY environment variable is absent.
+robust failure when the ALE_KEY environment variable is absent or malformed.
 
 CONSTITUTION Priority 3: TDD — Red Phase
 Task: P2-T2.2 — Secure Database Layer
 """
 
 import pytest
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +79,31 @@ def test_encrypted_string_none_passthrough(ale_key: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# EncryptedString — empty string handling
+# ---------------------------------------------------------------------------
+
+
+def test_encrypted_string_empty_string_roundtrip(ale_key: str) -> None:
+    """process_bind_param on empty string must return ciphertext, not empty or None.
+
+    An empty string is a valid PII field value (e.g. a cleared field) and must
+    be encrypted like any other non-None value.  The round-trip must yield the
+    original empty string.
+    """
+    from synth_engine.shared.security.ale import EncryptedString
+
+    col = EncryptedString()
+    ciphertext = col.process_bind_param("", None)
+
+    assert ciphertext is not None, "empty string must produce a ciphertext, not None"
+    assert ciphertext != "", "empty string must produce a non-empty ciphertext"
+
+    # Round-trip: decrypting the ciphertext must recover the empty string
+    plaintext = col.process_result_value(ciphertext, None)
+    assert plaintext == ""
+
+
+# ---------------------------------------------------------------------------
 # get_fernet — key loading
 # ---------------------------------------------------------------------------
 
@@ -92,6 +117,42 @@ def test_missing_ale_key_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -
     _reset_fernet_cache()
     with pytest.raises(RuntimeError, match="ALE_KEY environment variable not set"):
         get_fernet()
+
+
+def test_malformed_ale_key_raises_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """get_fernet() must raise ValueError when ALE_KEY is not a valid Fernet key.
+
+    A malformed key (e.g. random ASCII that is not a valid URL-safe base64
+    32-byte token) must surface as a ValueError so callers can distinguish
+    between a missing key (RuntimeError) and a misconfigured key (ValueError).
+    """
+    monkeypatch.setenv("ALE_KEY", "not-valid-fernet-key")
+
+    from synth_engine.shared.security.ale import _reset_fernet_cache, get_fernet
+
+    _reset_fernet_cache()
+    with pytest.raises(ValueError, match="Fernet key must be 32 url-safe base64-encoded bytes"):
+        get_fernet()
+
+
+# ---------------------------------------------------------------------------
+# EncryptedString — corrupted ciphertext
+# ---------------------------------------------------------------------------
+
+
+def test_corrupted_ciphertext_raises_invalid_token(ale_key: str) -> None:
+    """process_result_value must raise InvalidToken for corrupted ciphertext.
+
+    If a stored ciphertext is truncated, tampered with, or otherwise invalid
+    the Fernet layer must reject it with cryptography.fernet.InvalidToken so
+    callers can handle integrity failures explicitly rather than silently
+    receiving garbage plaintext.
+    """
+    from synth_engine.shared.security.ale import EncryptedString
+
+    col = EncryptedString()
+    with pytest.raises(InvalidToken):
+        col.process_result_value("corrupted-not-a-fernet-token", None)
 
 
 # ---------------------------------------------------------------------------
