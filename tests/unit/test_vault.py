@@ -14,7 +14,6 @@ import os
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -33,7 +32,7 @@ def reset_vault_state() -> None:
         pass
 
 
-@pytest.fixture()
+@pytest.fixture
 def vault_salt_env(monkeypatch: pytest.MonkeyPatch) -> str:
     """Provision VAULT_SEAL_SALT in the environment and return the raw value."""
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
@@ -121,6 +120,18 @@ def test_missing_vault_salt_raises_value_error(monkeypatch: pytest.MonkeyPatch) 
         VaultState.unseal("any-passphrase")  # nosec B105 # pragma: allowlist secret
 
 
+def test_short_vault_salt_raises_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """unseal() raises ValueError when VAULT_SEAL_SALT decodes to fewer than 16 bytes."""
+    # base64url-encode a 4-byte value — too short
+    short_salt = base64.urlsafe_b64encode(b"\x00" * 4).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", short_salt)
+
+    from synth_engine.shared.security.vault import VaultState
+
+    with pytest.raises(ValueError, match="16 bytes"):
+        VaultState.unseal("any-passphrase")  # nosec B105 # pragma: allowlist secret
+
+
 # ---------------------------------------------------------------------------
 # SealGateMiddleware and /unseal endpoint tests
 # ---------------------------------------------------------------------------
@@ -182,3 +193,16 @@ async def test_unseal_endpoint_unseals_vault(
     assert response.status_code == 200
     assert response.json() == {"status": "unsealed"}
     assert VaultState.is_sealed() is False
+
+
+@pytest.mark.asyncio
+async def test_require_unsealed_raises_when_sealed() -> None:
+    """require_unsealed dependency raises HTTPException(423) while vault is sealed."""
+    from fastapi import HTTPException
+
+    from synth_engine.bootstrapper.dependencies.vault import require_unsealed
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_unsealed()
+
+    assert exc_info.value.status_code == 423
