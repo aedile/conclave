@@ -46,7 +46,9 @@ class TestInitializeCollections:
 
         with patch.dict("sys.modules", {"chromadb": mock_chroma}):
             module = _import_module()
-            module.initialize_collections("/tmp/test_db", ["ADRs", "Retrospectives"])
+            module.initialize_collections(  # nosec B108 — path passed to a mock; no real filesystem access
+                "/tmp/test_db", ["ADRs", "Retrospectives"]
+            )
 
         assert mock_client.get_or_create_collection.call_count == 2
         mock_client.get_or_create_collection.assert_any_call(name="ADRs")
@@ -66,7 +68,9 @@ class TestInitializeCollections:
         with patch.dict("sys.modules", {"chromadb": mock_chroma}):
             module = _import_module()
             # Should not raise — error is logged and loop continues
-            module.initialize_collections("/tmp/test_db", ["ADRs", "Retrospectives"])
+            module.initialize_collections(  # nosec B108 — path passed to a mock; no real filesystem access
+                "/tmp/test_db", ["ADRs", "Retrospectives"]
+            )
 
         assert mock_client.get_or_create_collection.call_count == 2
 
@@ -78,7 +82,9 @@ class TestInitializeCollections:
         with patch.dict("sys.modules", {"chromadb": mock_chroma}):
             module = _import_module()
             with pytest.raises(SystemExit) as exc_info:
-                module.initialize_collections("/tmp/bad_db", ["ADRs"])
+                module.initialize_collections(  # nosec B108 — path passed to a mock; no real filesystem access
+                    "/tmp/bad_db", ["ADRs"]
+                )
         assert exc_info.value.code == 1
 
     def test_empty_collection_list_is_no_op(self) -> None:
@@ -89,7 +95,9 @@ class TestInitializeCollections:
 
         with patch.dict("sys.modules", {"chromadb": mock_chroma}):
             module = _import_module()
-            module.initialize_collections("/tmp/test_db", [])
+            module.initialize_collections(  # nosec B108 — path passed to a mock; no real filesystem access
+                "/tmp/test_db", []
+            )
 
         mock_client.get_or_create_collection.assert_not_called()
 
