@@ -2,8 +2,9 @@
 
 Tests verify that stale IN_PROGRESS tasks are correctly identified and
 marked as failed, while recent tasks and non-IN_PROGRESS tasks are skipped.
+Also tests that fail_task exceptions are caught per-task so the loop continues.
 
-CONSTITUTION Priority 3: TDD RED Phase
+CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: P2-T2.1 — Module Bootstrapper, OTEL, Idempotency, Orphan Task Reaper
 """
 
@@ -19,7 +20,7 @@ def _utc_now() -> datetime:
 
 
 @pytest.fixture
-def stale_task_factory():
+def stale_task_factory():  # type: ignore[no-untyped-def]
     """Factory for creating Task instances that are older than any threshold."""
     from synth_engine.shared.tasks.reaper import Task
 
@@ -34,7 +35,7 @@ def stale_task_factory():
 
 
 @pytest.fixture
-def recent_task_factory():
+def recent_task_factory():  # type: ignore[no-untyped-def]
     """Factory for creating Task instances that are within any threshold."""
     from synth_engine.shared.tasks.reaper import Task
 
@@ -153,3 +154,37 @@ def test_reap_logs_info_on_completion(stale_task_factory, caplog: pytest.LogCapt
         reaper.reap()
 
     assert "Reaped 1 orphaned tasks" in caplog.text
+
+
+def test_reap_continues_after_fail_task_exception(  # type: ignore[no-untyped-def]
+    stale_task_factory, caplog: pytest.LogCaptureFixture
+) -> None:
+    """reap() continues to the next task when fail_task() raises an exception.
+
+    A single fail_task failure must not abort processing of subsequent tasks.
+    The error must be logged and the final count reflects only the tasks
+    for which reaping was attempted (not necessarily succeeded).
+    """
+    import logging
+
+    from synth_engine.shared.tasks.reaper import OrphanTaskReaper
+
+    task_a = stale_task_factory("task-fail-001")
+    task_b = stale_task_factory("task-ok-002")
+
+    repo = MagicMock()
+    repo.get_stale_tasks.return_value = [task_a, task_b]
+    # First call raises; second call succeeds
+    repo.fail_task.side_effect = [Exception("db timeout"), None]
+
+    reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=60)
+
+    with caplog.at_level(logging.ERROR, logger="synth_engine.shared.tasks.reaper"):
+        count = reaper.reap()
+
+    # Both tasks were attempted; count reflects total stale tasks
+    assert count == 2
+    # fail_task was called for both tasks
+    assert repo.fail_task.call_count == 2
+    # Error was logged for the failing task
+    assert "task-fail-001" in caplog.text

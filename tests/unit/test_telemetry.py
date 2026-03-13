@@ -1,14 +1,16 @@
 """Unit tests for the OTEL telemetry configuration module.
 
 Verifies graceful degradation when OTLP endpoint is absent and
-correct tracer acquisition from the global provider.
+correct tracer acquisition from the global provider.  Also covers
+URL redaction for credentials in OTLP endpoint logs, and the OTLP
+happy-path when the exporter package is available.
 
-CONSTITUTION Priority 3: TDD RED Phase
+CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: P2-T2.1 — Module Bootstrapper, OTEL, Idempotency, Orphan Task Reaper
 """
 
 import os
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from opentelemetry.trace import Tracer
 
@@ -49,6 +51,31 @@ def test_configure_telemetry_with_endpoint_falls_back_gracefully() -> None:
             configure_telemetry("test-service-fallback")
 
 
+def test_configure_telemetry_with_otlp_exporter_installed() -> None:
+    """configure_telemetry() uses OTLPSpanExporter when the package is available.
+
+    When the exporter package is present and the endpoint env var is set,
+    the OTLP path must be taken and the exporter constructed with the endpoint.
+    """
+    from synth_engine.shared.telemetry import configure_telemetry
+
+    mock_exporter_instance = MagicMock()
+    mock_exporter_cls = MagicMock(return_value=mock_exporter_instance)
+    mock_otlp_module = MagicMock()
+    mock_otlp_module.OTLPSpanExporter = mock_exporter_cls
+
+    with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4317"}):
+        with patch.dict(
+            "sys.modules",
+            {
+                "opentelemetry.exporter.otlp.proto.grpc.trace_exporter": mock_otlp_module,
+            },
+        ):
+            configure_telemetry("otlp-test-service")
+
+    mock_exporter_cls.assert_called_once_with(endpoint="http://jaeger:4317")
+
+
 def test_get_tracer_returns_tracer_instance() -> None:
     """get_tracer() returns a valid Tracer instance.
 
@@ -77,3 +104,46 @@ def test_get_tracer_with_different_names() -> None:
 
     assert isinstance(tracer_a, Tracer)
     assert isinstance(tracer_b, Tracer)
+
+
+def test_redact_url_strips_credentials() -> None:
+    """_redact_url() removes userinfo from a URL before logging.
+
+    Credentials embedded as ``user:pass@host`` in the OTLP endpoint must
+    be stripped so they never appear in log sinks.
+    """
+    from synth_engine.shared.telemetry import _redact_url
+
+    result = _redact_url("grpc://admin:secret@jaeger.internal:4317")
+    assert "secret" not in result
+    assert "admin" not in result
+    assert "jaeger.internal" in result
+
+
+def test_redact_url_plain_url_unchanged() -> None:
+    """_redact_url() returns a credential-free URL unmodified (except normalisation).
+
+    A URL with no userinfo component must still return the scheme, host,
+    port, and path without modification.
+    """
+    from synth_engine.shared.telemetry import _redact_url
+
+    result = _redact_url("http://jaeger:4317")
+    assert "jaeger" in result
+    assert "4317" in result
+
+
+def test_redact_url_returns_safe_fallback_on_error() -> None:
+    """_redact_url() returns a safe fallback string when URL parsing raises.
+
+    The function must never raise an exception, even for malformed input,
+    so that logging failures cannot crash the application.
+    """
+    from unittest.mock import patch
+
+    from synth_engine.shared.telemetry import _redact_url
+
+    with patch("synth_engine.shared.telemetry.urlparse", side_effect=Exception("parse error")):
+        result = _redact_url("not-a-url")
+
+    assert result == "<unparseable endpoint>"

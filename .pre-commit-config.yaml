@@ -29,6 +29,12 @@ repos:
   # ---------------------------------------------------------------------------
   # Type checking — mypy strict mode on src/synth_engine only
   # scripts/ are excluded as they pre-date this project and are covered by bandit
+  #
+  # additional_dependencies must list every package imported at module scope in
+  # src/synth_engine/ so that the mirrors-mypy isolated environment can resolve
+  # types.  Pin versions to match pyproject.toml production dependencies.
+  # opentelemetry-exporter-otlp is listed so mypy can resolve the lazily-
+  # imported OTLPSpanExporter type stub even though it is an optional runtime dep.
   # ---------------------------------------------------------------------------
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.19.1
@@ -37,6 +43,12 @@ repos:
         args: [--strict]
         additional_dependencies:
           - mypy==1.19.1
+          - fastapi>=0.115.0
+          - starlette>=0.41.0
+          - redis>=5.0.0
+          - opentelemetry-sdk>=1.28.0
+          - opentelemetry-instrumentation-fastapi>=0.49b0
+          - opentelemetry-exporter-otlp-proto-grpc>=1.28.0
         files: ^src/
 
   # ---------------------------------------------------------------------------

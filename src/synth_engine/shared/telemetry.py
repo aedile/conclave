@@ -1,12 +1,16 @@
 """OpenTelemetry setup for the Conclave Engine.
 
 Provides a thin, air-gap-safe wrapper around OTEL tracing. When the
-OTLP endpoint environment variable is absent, a NoOpSpanExporter is used
-so the application starts cleanly in fully offline environments.
+OTLP endpoint environment variable is absent, an InMemorySpanExporter is
+used so the application starts cleanly in fully offline environments.
+The InMemorySpanExporter accumulates spans in memory and is intended for
+development and testing only — it does not export spans to any backend.
 """
 
 import logging
 import os
+from typing import cast
+from urllib.parse import urlparse
 
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -19,12 +23,42 @@ _OTLP_ENDPOINT_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
 logger = logging.getLogger(__name__)
 
 
+def _redact_url(endpoint: str) -> str:
+    """Return the endpoint URL with any userinfo (credentials) stripped.
+
+    Parses the URL and reconstructs it using only scheme, host, port, and
+    path.  Any username or password embedded in the URL is discarded before
+    the value reaches a log sink.  For example, a URL of the form
+    ``grpc://<user>:<token>@jaeger.internal:4317`` would be returned as
+    ``grpc://jaeger.internal:4317``.
+
+    Args:
+        endpoint: Raw endpoint URL that may contain credentials in the
+            userinfo component.
+
+    Returns:
+        The URL with scheme, host, optional port, and path only.
+    """
+    try:
+        parsed = urlparse(endpoint)
+        # Reconstruct without userinfo: netloc without credentials
+        host_part = parsed.hostname or ""
+        if parsed.port:
+            host_part = f"{host_part}:{parsed.port}"
+        redacted = parsed._replace(netloc=host_part)
+        return redacted.geturl()
+    except Exception:  # best-effort: never let logging crash the app
+        return "<unparseable endpoint>"
+
+
 def _build_exporter() -> SpanExporter:
     """Build a span exporter based on the runtime environment.
 
     Returns an OTLP gRPC exporter when OTEL_EXPORTER_OTLP_ENDPOINT is set,
-    otherwise falls back to a no-op in-memory exporter for air-gapped and
-    local environments.
+    otherwise falls back to an InMemorySpanExporter for air-gapped and
+    local environments.  The InMemorySpanExporter accumulates spans in
+    memory; it is suitable for development and testing but does not forward
+    spans to any external backend.
 
     Returns:
         A configured SpanExporter instance.
@@ -38,14 +72,18 @@ def _build_exporter() -> SpanExporter:
                 OTLPSpanExporter,
             )
 
-            logger.info("OTEL: using OTLP exporter at %s", endpoint)
-            return OTLPSpanExporter(endpoint=endpoint)
+            logger.info("OTEL: using OTLP exporter at %s", _redact_url(endpoint))
+            # cast: OTLPSpanExporter implements SpanExporter but mypy cannot
+            # resolve the type from the lazy import without the optional package
+            # installed in the type-checking environment.
+            return cast(SpanExporter, OTLPSpanExporter(endpoint=endpoint))
         except ImportError:
             logger.warning(
-                "OTEL: opentelemetry-exporter-otlp not installed; falling back to no-op exporter"
+                "OTEL: opentelemetry-exporter-otlp not installed; "
+                "falling back to InMemorySpanExporter"
             )
 
-    logger.info("OTEL: %s not set — using no-op exporter", _OTLP_ENDPOINT_ENV)
+    logger.info("OTEL: %s not set — using InMemorySpanExporter (dev/test only)", _OTLP_ENDPOINT_ENV)
     return InMemorySpanExporter()
 
 
@@ -53,8 +91,10 @@ def configure_telemetry(service_name: str) -> None:
     """Configure the global OpenTelemetry TracerProvider.
 
     Sets up a BatchSpanProcessor wired to an OTLP exporter if
-    OTEL_EXPORTER_OTLP_ENDPOINT is present, otherwise a no-op exporter is
-    used so the application starts cleanly in air-gapped deployments.
+    OTEL_EXPORTER_OTLP_ENDPOINT is present, otherwise an
+    InMemorySpanExporter is used so the application starts cleanly in
+    air-gapped deployments.  The InMemorySpanExporter accumulates spans in
+    memory; it is intended for development and testing only.
 
     Args:
         service_name: Logical name of this service, embedded in every span.

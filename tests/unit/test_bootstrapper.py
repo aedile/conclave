@@ -19,7 +19,7 @@ async def test_health_endpoint_returns_200() -> None:
     The health endpoint is the minimal liveness probe for the service.
     It must return a 200 with a JSON body containing {"status": "ok"}.
     """
-    from synth_engine.main import create_app
+    from synth_engine.bootstrapper.main import create_app
 
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -35,7 +35,7 @@ def test_app_is_fastapi_instance() -> None:
     The factory pattern allows test isolation — each call creates a
     fresh application with no shared state.
     """
-    from synth_engine.main import create_app
+    from synth_engine.bootstrapper.main import create_app
 
     assert isinstance(create_app(), FastAPI)
 
@@ -46,7 +46,7 @@ def test_create_app_returns_new_instance_each_call() -> None:
     This ensures test isolation and prevents shared state between
     different call sites.
     """
-    from synth_engine.main import create_app
+    from synth_engine.bootstrapper.main import create_app
 
     app1 = create_app()
     app2 = create_app()

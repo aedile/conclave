@@ -56,3 +56,8 @@ def _register_routes(app: FastAPI) -> None:
             JSON body ``{"status": "ok"}`` with HTTP 200.
         """
         return JSONResponse(content={"status": "ok"})
+
+
+#: Module-level application instance for use by uvicorn.
+#: ``uvicorn synth_engine.bootstrapper.main:app`` picks up this singleton.
+app = create_app()

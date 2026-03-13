@@ -8,7 +8,7 @@ operators via structured logging.
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -87,16 +87,27 @@ class OrphanTaskReaper:
     def reap(self) -> int:
         """Find all stale tasks and mark them as FAILED.
 
-        Returns:
-            The number of tasks that were reaped in this invocation.
-        """
-        from datetime import timedelta
+        Iterates over every stale task returned by the repository.  If
+        ``fail_task`` raises for a given task, the error is logged and
+        processing continues with the next task — a single failure must
+        not abort the entire reap cycle.
 
+        Returns:
+            The number of stale tasks that were identified in this invocation
+            (regardless of whether individual ``fail_task`` calls succeeded).
+        """
         cutoff = datetime.now(tz=UTC) - timedelta(minutes=self._threshold_minutes)
         stale_tasks = self._repo.get_stale_tasks(older_than=cutoff)
 
         for task in stale_tasks:
-            self._repo.fail_task(task.id)
+            try:
+                self._repo.fail_task(task.id)
+            except Exception as exc:  # per-task isolation: log and continue
+                logger.error(
+                    "Reaper: failed to mark task '%s' as FAILED: %s",
+                    task.id,
+                    exc,
+                )
 
         count = len(stale_tasks)
         logger.info("Reaped %d orphaned tasks", count)
