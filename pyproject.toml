@@ -9,10 +9,18 @@ packages = [{ include = "synth_engine", from = "src" }]
 [tool.poetry.dependencies]
 python = "^3.14"
 chromadb = "^1.5.5"
+fastapi = ">=0.115.0,<1.0.0"
+uvicorn = {version = ">=0.32.0,<1.0.0", extras = ["standard"]}
+huey = {version = ">=2.5.0,<3.0.0", extras = ["redis"]}
+redis = ">=5.0.0,<6.0.0"
+opentelemetry-sdk = ">=1.28.0,<2.0.0"
+opentelemetry-instrumentation-fastapi = ">=0.49b0,<1.0.0"
+httpx = ">=0.27.0,<1.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
 pytest-cov = "^6.1"
+pytest-asyncio = ">=0.24.0,<1.0.0"
 ruff = "^0.11"
 mypy = "^1.15"
 bandit = { version = "^1.8", extras = ["toml"] }
@@ -81,11 +89,16 @@ skips = ["B101"]
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 addopts = [
     "--cov=src/synth_engine",
     "--cov-report=term-missing",
     "--cov-fail-under=90",
     "--tb=short",
+    # Disable pytest-postgresql plugin when libpq is not installed (unit-test
+    # environments without the integration group). Integration tests that need
+    # PostgreSQL must be run explicitly with `pytest -m integration`.
+    "-p", "no:pytest_postgresql",
 ]
 markers = [
     "unit: Fast, isolated unit tests with no external dependencies",
@@ -138,3 +151,6 @@ forbidden_modules = ["synth_engine.bootstrapper"]
 [tool.vulture]
 min_confidence = 80
 paths = ["src"]
+# Abstract method parameters in ABCs are intentionally unused in the stub body.
+# These names are suppressed to avoid false positives.
+ignore_names = ["older_than", "task_id"]

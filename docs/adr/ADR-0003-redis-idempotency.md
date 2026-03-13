@@ -1,0 +1,60 @@
+# ADR-0003: Redis SET NX EX for Atomic Idempotency Key Management
+
+**Status:** Accepted
+**Date:** 2026-03-13
+**Deciders:** Project team
+
+## Context
+
+The Conclave Engine API must protect mutating endpoints (POST, PATCH, PUT) from
+duplicate submissions — a common failure mode in unreliable networks or when
+clients retry after a timeout.  The idempotency mechanism requires that the
+first request for a given key is processed exactly once; subsequent requests
+with the same key within the TTL window are rejected with HTTP 409 Conflict.
+
+A naive implementation would perform two separate Redis operations:
+1. `GET key` — check whether the key exists.
+2. `SETEX key ttl value` — store the key if it did not exist.
+
+This two-step pattern introduces a Time-Of-Check / Time-Of-Use (TOCTOU) race
+condition: two concurrent requests with the same key can both observe the
+key as absent in step 1, then both proceed to step 2, resulting in duplicate
+processing.
+
+## Decision
+
+Use a single atomic `SET key value NX EX ttl` call for all idempotency key
+operations:
+
+- `NX` — only set the key if it does **not** already exist.
+- `EX ttl` — set the key's expiry atomically in the same command.
+- Return value: `True` if the key was freshly set (new request); `None` if
+  the key already existed (duplicate request).
+
+Additional constraints applied to the implementation:
+
+- **Async-only:** The middleware uses `redis.asyncio.Redis` (aioredis) so that
+  all Redis I/O is non-blocking inside FastAPI's async event loop.
+- **Error degradation:** If Redis raises `RedisError` (connection lost, timeout),
+  the middleware logs a warning and passes the request through rather than
+  returning 500 or blocking service.
+- **Key length cap:** Keys exceeding 128 characters are rejected with HTTP 400
+  before any Redis interaction to prevent memory bloat.
+- **Key namespace:** All keys are stored under the `idempotency:` prefix to
+  prevent collisions with other Redis consumers on the same instance.
+- **Retry safety:** If the downstream handler raises an exception, the middleware
+  deletes the key (best-effort) so the caller can retry with the same key.
+
+## Consequences
+
+- **Positive:** Eliminates the TOCTOU race condition inherent in check-then-set
+  patterns without requiring Lua scripts or distributed locks.
+- **Positive:** A single round-trip to Redis per request reduces latency compared
+  to the two-call pattern.
+- **Positive:** Degraded-mode pass-through keeps the API available when Redis is
+  temporarily unreachable, consistent with the air-gapped BYOC deployment model
+  where Redis may be cold-started.
+- **Negative:** If Redis is unavailable, idempotency is not enforced during the
+  outage window.  Operators must monitor Redis health to detect this condition.
+- **Negative:** The 128-character key length cap may require client adjustment if
+  existing keys are longer (unlikely for UUIDs and short tokens).
