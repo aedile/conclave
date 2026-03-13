@@ -11,6 +11,7 @@ Task: 0.6.2 — Memory Seeding (Governance)
 CONSTITUTION Priority 0: No PII or secrets are handled by this script.
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -23,6 +24,8 @@ except ImportError:
     print("chromadb module is not installed. Please install it to continue.")
     sys.exit(1)
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -57,10 +60,20 @@ def chunk_document(text: str, chunk_size: int = 600, overlap: int = 100) -> List
         text: Raw document text.
         chunk_size: Maximum characters per chunk.
         overlap: Characters of overlap between consecutive chunks.
+            Must be strictly less than chunk_size to prevent infinite looping.
 
     Returns:
         List of non-empty string chunks.
+
+    Raises:
+        ValueError: If overlap is greater than or equal to chunk_size.
     """
+    if overlap >= chunk_size:
+        raise ValueError(
+            f"overlap ({overlap}) must be strictly less than chunk_size ({chunk_size}) "
+            "to prevent an infinite loop."
+        )
+
     chunks: List[str] = []
     start = 0
     while start < len(text):
@@ -88,10 +101,10 @@ def seed_collection(
         Number of chunks upserted.
 
     Raises:
-        SystemExit: If the source file cannot be read.
+        SystemExit: If the source file does not exist at source_path.
     """
     if not source_path.exists():
-        print(f"ERROR: Source file not found: {source_path}")
+        logger.error("Source file not found: %s", source_path)
         sys.exit(1)
 
     text = source_path.read_text(encoding="utf-8")
@@ -101,27 +114,23 @@ def seed_collection(
     metadatas = [{"source": str(source_path.name), "chunk_index": i} for i in range(len(chunks))]
 
     collection.upsert(documents=chunks, ids=ids, metadatas=metadatas)
-    print(f"  Upserted {len(chunks)} chunks into '{collection_name}'.")
+    logger.info("Upserted %d chunks into '%s'.", len(chunks), collection_name)
     return len(chunks)
 
 
 def verify_retrieval(collection: Collection, collection_name: str, query: str) -> None:
-    """Execute a semantic query and print the top result for manual verification.
+    """Execute a semantic query and log the top result for manual verification.
 
     Args:
         collection: Target ChromaDB collection object.
         collection_name: Human-readable name for log messages.
         query: Natural language query string.
-
-    Returns:
-        None
     """
     results = collection.query(query_texts=[query], n_results=1)
     documents = results.get("documents", [[]])
     top_hit = documents[0][0] if documents and documents[0] else "<no results>"
-    print(f"  Verification query: '{query}'")
-    print(f"  Top result preview: {top_hit[:200].replace(chr(10), ' ')}...")
-    print()
+    logger.info("Verification query for '%s': '%s'", collection_name, query)
+    logger.info("Top result preview: %s...", top_hit[:200].replace("\n", " "))
 
 
 # ---------------------------------------------------------------------------
@@ -131,15 +140,14 @@ def verify_retrieval(collection: Collection, collection_name: str, query: str) -
 
 def main() -> None:
     """Seed ChromaDB with governance documents and verify retrieval."""
-    # Resolve repo root (two levels up from this script: scripts/ -> repo root)
     repo_root = Path(__file__).resolve().parent.parent
 
-    print(f"Connecting to ChromaDB at {DB_PATH}...")
+    logger.info("Connecting to ChromaDB at %s...", DB_PATH)
     client = chromadb.PersistentClient(path=DB_PATH)
 
     for relative_path, collection_name in SEEDING_MANIFEST.items():
         source_path = repo_root / relative_path
-        print(f"\nSeeding '{collection_name}' from {relative_path}...")
+        logger.info("Seeding '%s' from %s...", collection_name, relative_path)
 
         collection = client.get_or_create_collection(name=collection_name)
         seed_collection(collection, source_path, collection_name)
@@ -147,7 +155,7 @@ def main() -> None:
         query = VERIFICATION_QUERIES[collection_name]
         verify_retrieval(collection, collection_name, query)
 
-    print("Memory seeding complete. Governance context is now queryable by all agent streams.")
+    logger.info("Memory seeding complete. Governance context is now queryable by all agent streams.")
 
 
 if __name__ == "__main__":

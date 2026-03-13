@@ -15,12 +15,13 @@
 #   WORKTREE_PATH       - Absolute path to the active worktree (if in a worktree)
 #
 # Behaviour:
-#   - If WORKTREE_PATH is set and .env.local exists → source it, then exec the command
+#   - If WORKTREE_PATH is set and .env.local exists → validate and source it
 #   - If no worktree context → pass through unchanged (main workspace is unaffected)
 #   - Intercept patterns: pytest, uvicorn, npm run, yarn, pnpm, python -m http.server
 #
 # Exit codes:
 #   0 - Command may proceed (with or without env injection)
+#   1 - .env.local contains unsafe content (non KEY=VALUE lines)
 
 set -euo pipefail
 
@@ -59,6 +60,40 @@ if [[ ! -f "${ENV_FILE}" ]]; then
     echo "WARNING: Worktree detected (${WORKTREE_PATH}) but .env.local not found." \
          "Run worktree_create.sh to allocate ports." >&2
     exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Validate .env.local contents before sourcing.
+# Only KEY=VALUE lines (and comments/blanks) are permitted.
+# Reject any line containing command substitution or subshell syntax.
+# ---------------------------------------------------------------------------
+
+validate_env_file() {
+    local file="$1"
+    local line_num=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_num=$((line_num + 1))
+        # Allow blank lines and comment lines
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        # Allow KEY=VALUE (KEY may contain alphanumerics and underscores)
+        if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            # Reject values containing $( ... ) or ` ... ` (command substitution)
+            local value="${line#*=}"
+            if [[ "$value" == *'$('* || "$value" == *'`'* ]]; then
+                echo "ERROR: Unsafe command substitution detected in ${file} line ${line_num}: ${line}" >&2
+                return 1
+            fi
+            continue
+        fi
+        echo "ERROR: Non KEY=VALUE line in ${file} line ${line_num}: ${line}" >&2
+        return 1
+    done < "$file"
+    return 0
+}
+
+if ! validate_env_file "${ENV_FILE}"; then
+    echo "ERROR: ${ENV_FILE} failed safety validation. Refusing to source." >&2
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------

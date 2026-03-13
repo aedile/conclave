@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
-
-set -e
-
+# scripts/setup_agile_env.sh
+#
 # Task 0.6.1: Host Initialization & MCP Setup
+#
+# NOTE: This is a pre-Poetry bootstrap script. It runs before pyproject.toml
+# and the Poetry virtual environment exist, so python3 is used directly
+# (system Python). Once the Poetry project is initialized (Phase 1), all
+# subsequent Python invocations must use `poetry run python3`.
+
+set -euo pipefail
 
 echo "Starting Autonomous Agile Environment Provisioning..."
 
-# 1. Update Profile
+# ---------------------------------------------------------------------------
+# 1. Update shell profile with Agent Teams feature flag
+# ---------------------------------------------------------------------------
+
 PROFILE_FILE=""
 if [ -f "$HOME/.zshrc" ]; then
     PROFILE_FILE="$HOME/.zshrc"
@@ -24,11 +33,13 @@ else
     echo "Flag already present in profile."
 fi
 
-# 2 & 3. Install ChromaDB MCP Server & Configure Claude
+# ---------------------------------------------------------------------------
+# 2 & 3. Configure ChromaDB MCP Server in Claude config
+# ---------------------------------------------------------------------------
+
 echo "Configuring MCP Server..."
 mkdir -p "$HOME/.claude"
 
-# We write the claude_mcp.json directly to ensure the MCP is registered
 cat <<EOF > "$HOME/.claude/claude_mcp.json"
 {
   "mcpServers": {
@@ -44,18 +55,21 @@ cat <<EOF > "$HOME/.claude/claude_mcp.json"
 EOF
 echo "ChromaDB MCP configured in claude_mcp.json"
 
-# 4. PM Executes chroma_create_collection
-# We establish the persistent memory using python chromadb natively to emulate the required setup state.
+# ---------------------------------------------------------------------------
+# 4. Initialize ChromaDB namespaces
+# ---------------------------------------------------------------------------
+
 echo "Establishing ADRs, Retrospectives, and Constitution namespaces..."
 
-# Check if chromadb is installed in the python env to seed the collections
-if ! python -c "import chromadb" &> /dev/null; then
-    echo "Installing chromadb via pip to initialize memory..."
-    python -m pip install -q chromadb
+if ! python3 -c "import chromadb" &> /dev/null; then
+    echo "Installing chromadb via pip (pre-Poetry bootstrap)..."
+    python3 -m pip install -q chromadb
 fi
 
-# Execute the constitutionally-compliant explicit python script
-python -m mypy scripts/init_chroma.py || echo "Warning: mypy not installed or failed, proceeding anyway"
-python scripts/init_chroma.py
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "${SCRIPT_DIR}/init_chroma.py"
 
 echo "Environment Provisioning Complete."
+echo ""
+echo "NEXT STEP: Run 'python3 scripts/seed_chroma.py' to seed governance memory."
+echo "Once pyproject.toml is initialized, use 'poetry run python3' for all commands."
