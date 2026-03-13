@@ -12,15 +12,28 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Advisory |
 |----|--------|-------------|----------|
-| ADV-001 | QA R4 | Task 1.1 — CI/CD Pipeline | Coverage gate (`--cov-fail-under=90`) is not enforced in the bootstrap CI pipeline because `pytest-cov` requires Poetry. Must be added to CI in Task 1.1 when `pyproject.toml` is initialized. |
-| ADV-002 | QA R3 | Task 1.1 — CI/CD Pipeline | `VERIFICATION_QUERIES[collection_name]` in `seed_chroma.py` is an unguarded dict key lookup. If `SEEDING_MANIFEST` and `VERIFICATION_QUERIES` diverge, a `KeyError` surfaces at runtime with no test coverage. Recommend a shared data structure or startup assertion in Task 1.1 refactor. |
-| ADV-003 | DevOps R2/R3 | Task 1.1 — CI/CD Pipeline | `chromadb` is installed ad-hoc via `pip` in the bootstrap phase. Once `pyproject.toml` is created in Task 1.1, `chromadb` must be declared with a pinned version range and `pip-audit` added to the CI pipeline. |
-| ADV-004 | DevOps R3 | Task 1.1 — CI/CD Pipeline | `bandit` cannot scan `scripts/` because `pyproject.toml` does not exist. Once Poetry is initialized, extend `bandit` scan scope to include `scripts/*.py` alongside `src/`. |
-| ADV-005 | DevOps R5 | Task 1.1 — CI/CD Pipeline | `pytest` is unpinned in `.github/workflows/ci.yml` line 74 (`pip install "pytest"`). A breaking pytest release could silently fail CI. Pin to a specific version alongside `chromadb==1.5.5`, and consolidate both into `pyproject.toml` dev dependencies in Task 1.1. |
+| ADV-006 | Arch R2 | Before Task 2.2 | `docs/ARCHITECTURAL_REQUIREMENTS.md` is referenced in `scripts/seed_chroma.py` (SEEDING_MANIFEST) and `docs/adr/ADR-0002` but does not exist in the repo. If absent at runtime, `seed_chroma.py` will `sys.exit(1)` when trying to seed the ADRs collection. Create this file (or update the manifest path) before Phase 2 seeding work begins. |
+| ADV-007 | DevOps R1/R3 | Standalone CI hardening task | GitHub Actions in `ci.yml` are pinned to mutable version tags (`@v4`, `@v2`) not commit SHAs. Third-party actions (`gitleaks-action@v2`, `snok/install-poetry`) carry supply-chain risk. SHA-pin all actions in a dedicated CI hardening pass. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-13] P1-T1.1/1.2 — CI/CD Pipeline, Quality Gates & TDD Framework (3 rounds)
+
+**QA** (Round 3 — PASS):
+Clean sweep across all 11 checklist items. chunk_document now has 10 tests covering all boundary conditions including the new negative-chunk_size and negative-overlap guards added in the R1 fix pass. The .secrets.baseline false-positive handling is correct standard detect-secrets practice. The gitleaks.toml allowlist is surgical — path-scoped to .secrets.baseline only, no broad bypasses. 27/27 tests, 100% coverage. Forward watch: as `src/synth_engine/` gains real production code, the 100% figure will become harder to defend; enforce test-file parity from the first production commit rather than retrofitting under deadline pressure. The `importlib.reload()` pattern in scripts/ tests is pragmatic but should not migrate to `src/synth_engine/` proper.
+
+**UI/UX** (Round 3 — SKIP):
+No templates, routes, forms, or interactive elements across all three rounds. Infrastructure-only branch. When the dashboard UI lands, establish a `base.html` with landmark regions, skip-link, and CSS custom-property palette as the first commit — retrofitting WCAG across a grown template tree is significantly more expensive than starting from a correct skeleton. Add `pa11y` or `axe-core` to CI at that point.
+
+**DevOps** (Round 3 — PASS):
+The .gitleaks.toml path-allowlist is correctly scoped and documented. `gitleaks detect` confirms 34 commits scanned, no leaks. Top-level `permissions: contents: read` in ci.yml closes the default-write-scope gap. Bandit now covers `scripts/` in both pre-commit and CI, eliminating the R1 coverage split. Full gate stack confirmed: gitleaks → lint (ruff+mypy+bandit+vulture+pip-audit+import-linter) → test (poetry run pytest --cov-fail-under=90) → sbom (cyclonedx) → shellcheck. Zero pip-audit vulnerabilities across 135 installed components.
+
+**Architecture** (Round 2 — PASS; Round 3 — SKIP):
+All six topology stubs (ingestion, profiler, masking, synthesizer, privacy, shared) present and correctly registered in both import-linter contracts. ADR-0001 accurately describes the modular monolith topology and import-linter enforcement. ADR-0002 accurately describes chromadb as a runtime dependency with air-gap procurement guidance. One standing watch: ADR-0002 references `docs/ARCHITECTURAL_REQUIREMENTS.md` which does not yet exist — tracked as ADV-006. ADRs were written to match code that actually exists, which is the correct practice.
 
 ---
 
