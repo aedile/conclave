@@ -16,13 +16,20 @@ files) and ``synth_engine.shared``.  Cross-module imports from masking,
 profiler, synthesizer, privacy, or bootstrapper are forbidden by import-linter
 contracts.
 
+The optional ``row_transformer`` parameter allows callers (bootstrapper, tests)
+to inject a masking callback **without** this module importing from masking.
+This is the inversion-of-control pattern that preserves the module boundary.
+
 CONSTITUTION Priority 0: Security — no PII exposure, no external calls.
 Task: P3-T3.4 -- Subsetting & Materialization Core
+Task: P3-T3.5 -- Execute E2E Subsetting Subsystem Tests
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy import Engine
 
@@ -49,9 +56,17 @@ class SubsettingEngine:
     """Orchestrates topological DAG traversal and Saga-pattern egress.
 
     The engine validates its inputs, drives :class:`DagTraversal` to fetch
-    rows from the source database, and writes them to the target via
+    rows from the source database, optionally transforms each row via a
+    caller-injected ``row_transformer``, and writes them to the target via
     :class:`EgressWriter`.  If any step fails, ``egress.rollback()`` is called
     to restore the target to a clean (empty) state.
+
+    The ``row_transformer`` callback is the inversion-of-control hook that
+    allows the bootstrapper (or a test) to wire in masking, hashing, or any
+    other per-row transformation **without** this module importing from
+    ``modules/masking`` or any other sibling module.  The contract is strict:
+    the callback MUST be a pure function of ``(table_name, row)`` → ``row``
+    and MUST NOT modify the input dict in place.
 
     Args:
         source_engine: A SQLAlchemy :class:`~sqlalchemy.Engine` for the source
@@ -59,6 +74,12 @@ class SubsettingEngine:
         topology: Bootstrapper-injected :class:`~synth_engine.shared.schema_topology.SchemaTopology`
             describing table order, columns, and FK relationships.
         egress: An :class:`EgressWriter` targeting the destination database.
+        row_transformer: Optional callback applied to each row before it is
+            written to the target.  Signature::
+
+                def transformer(table_name: str, row: dict[str, Any]) -> dict[str, Any]: ...
+
+            If ``None`` (the default), rows are written as-is from the source.
 
     Example::
 
@@ -66,6 +87,7 @@ class SubsettingEngine:
             source_engine=src_engine,
             topology=topology,
             egress=EgressWriter(target_engine=tgt_engine),
+            row_transformer=my_masking_fn,
         )
         result = engine.run(
             seed_table="departments",
@@ -78,6 +100,7 @@ class SubsettingEngine:
         source_engine: Engine,
         topology: SchemaTopology,
         egress: EgressWriter,
+        row_transformer: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
         """Initialise with bootstrapper-injected dependencies.
 
@@ -85,16 +108,31 @@ class SubsettingEngine:
             source_engine: Source database engine (read-only).
             topology: Schema topology value object from the bootstrapper.
             egress: Egress writer for the target database.
+            row_transformer: Optional per-row transformation callback.  If
+                provided, it is called as ``row_transformer(table_name, row)``
+                for every row before the row is passed to the egress writer.
+                The callback MUST return a new dict (or the same dict) with the
+                same column keys; it MUST NOT raise.  Violations will propagate
+                as unhandled exceptions and trigger the Saga rollback.
         """
         self._engine = source_engine
         self._topology = topology
         self._egress = egress
+        self._row_transformer = row_transformer
 
     def run(self, seed_table: str, seed_query: str) -> SubsetResult:
         """Execute the subset pipeline.
 
-        Validates inputs, traverses the DAG from the seed table, writes rows
+        Validates inputs, traverses the DAG from the seed table, optionally
+        transforms each row via the injected ``row_transformer``, writes rows
         to the target, and returns a :class:`SubsetResult`.
+
+        **row_transformer contract**: when a transformer is provided it is
+        called once per row as ``transformer(table_name, row_dict)`` and its
+        return value is written to the target.  The transformer is responsible
+        for returning a dict with the same column keys as the source row.  Any
+        exception raised by the transformer is treated as a pipeline failure:
+        ``egress.rollback()`` is called and the exception is re-raised.
 
         **Synchronous method** — backed by the blocking psycopg2 driver.
         Callers in async contexts (e.g., FastAPI route handlers or bootstrapper
@@ -118,8 +156,8 @@ class SubsettingEngine:
             ValueError: If ``seed_query`` is empty/whitespace, if
                 ``seed_query`` does not start with ``SELECT``, or if
                 ``seed_table`` is not in the topology.
-            Exception: Any exception from traversal or egress is re-raised
-                after calling ``egress.rollback()``.
+            Exception: Any exception from traversal, the row_transformer, or
+                egress is re-raised after calling ``egress.rollback()``.
         """
         # --- Input validation ---
         if not seed_query or not seed_query.strip():
@@ -141,6 +179,8 @@ class SubsettingEngine:
 
         try:
             for table, rows in traversal.traverse(seed_table, seed_query):
+                if self._row_transformer is not None:
+                    rows = [self._row_transformer(table, row) for row in rows]
                 self._egress.write(table, rows)
                 result.tables_written.append(table)
                 result.row_counts[table] = len(rows)

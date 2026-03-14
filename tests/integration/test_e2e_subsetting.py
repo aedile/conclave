@@ -176,8 +176,7 @@ def _drop_database(
             (dbname,),
         )
         cur.execute(
-            "DROP DATABASE IF EXISTS "
-            + psycopg2.extensions.quote_ident(dbname, cur)  # nosec B608
+            "DROP DATABASE IF EXISTS " + psycopg2.extensions.quote_ident(dbname, cur)  # nosec B608
         )
     conn.close()
 
@@ -307,9 +306,7 @@ def _make_pii_topology() -> SchemaTopology:
             "accounts": (
                 ColumnInfo(name="id", type="integer", primary_key=1, nullable=False),
                 ColumnInfo(name="person_id", type="integer", primary_key=0, nullable=False),
-                ColumnInfo(
-                    name="account_number", type="varchar", primary_key=0, nullable=False
-                ),
+                ColumnInfo(name="account_number", type="varchar", primary_key=0, nullable=False),
             ),
             "transactions": (
                 ColumnInfo(name="id", type="integer", primary_key=1, nullable=False),
@@ -549,15 +546,12 @@ def test_e2e_subset_applies_masking(
         }
 
     names_differ = any(
-        tgt_persons[pid]["full_name"] != src_persons[pid]["full_name"]
-        for pid in tgt_persons
+        tgt_persons[pid]["full_name"] != src_persons[pid]["full_name"] for pid in tgt_persons
     )
     emails_differ = any(
         tgt_persons[pid]["email"] != src_persons[pid]["email"] for pid in tgt_persons
     )
-    ssns_differ = any(
-        tgt_persons[pid]["ssn"] != src_persons[pid]["ssn"] for pid in tgt_persons
-    )
+    ssns_differ = any(tgt_persons[pid]["ssn"] != src_persons[pid]["ssn"] for pid in tgt_persons)
 
     assert names_differ, "No full_name values were masked — transformer may not have run"
     assert emails_differ, "No email values were masked — transformer may not have run"
@@ -624,7 +618,7 @@ def test_e2e_masking_is_deterministic(
 
     assert len(first_run) == len(second_run) == 5
 
-    for first, second in zip(first_run, second_run):
+    for first, second in zip(first_run, second_run, strict=True):
         assert first["full_name"] == second["full_name"], (
             f"Non-deterministic full_name for id={first['id']}: "
             f"{first['full_name']!r} vs {second['full_name']!r}"
@@ -634,8 +628,7 @@ def test_e2e_masking_is_deterministic(
             f"{first['email']!r} vs {second['email']!r}"
         )
         assert first["ssn"] == second["ssn"], (
-            f"Non-deterministic ssn for id={first['id']}: "
-            f"{first['ssn']!r} vs {second['ssn']!r}"
+            f"Non-deterministic ssn for id={first['id']}: {first['ssn']!r} vs {second['ssn']!r}"
         )
 
     src_engine.dispose()
@@ -671,7 +664,7 @@ def test_e2e_non_pii_columns_unchanged(
         seed_query="SELECT * FROM persons ORDER BY id LIMIT 5",  # nosec B608
     )
 
-    # Fetch account_number from source (first 10 accounts belonging to persons 1–5)
+    # Fetch account_number from source (first 10 accounts belonging to persons 1-5)
     with src_engine.connect() as conn:
         src_account_numbers = sorted(
             row["account_number"]
