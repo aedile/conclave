@@ -93,6 +93,28 @@ class TestSubsettingEngineValidation:
         with pytest.raises(ValueError, match="departments"):
             se.run(seed_table="departments", seed_query="SELECT * FROM departments LIMIT 1")
 
+    def test_run_rejects_non_select_seed_query(self) -> None:
+        """run() raises ValueError when seed_query is a DELETE statement."""
+        topology = _make_topology(["foo"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+
+        with pytest.raises(ValueError, match="SELECT"):
+            se.run(seed_table="foo", seed_query="DELETE FROM foo")
+
+    def test_run_rejects_insert_seed_query(self) -> None:
+        """run() raises ValueError when seed_query is an INSERT statement."""
+        topology = _make_topology(["foo"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+
+        with pytest.raises(ValueError, match="SELECT"):
+            se.run(seed_table="foo", seed_query="INSERT INTO foo VALUES (1)")
+
 
 class TestSubsettingEngineOrchestration:
     """Orchestration tests — SubsettingEngine coordinates traversal and egress."""

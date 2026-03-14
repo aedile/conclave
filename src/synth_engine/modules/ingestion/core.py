@@ -109,12 +109,14 @@ class SubsettingEngine:
             seed_table: Starting table name.  Must be present in
                 ``topology.table_order``.
             seed_query: Non-empty SQL SELECT that returns the seed rows.
+                Must begin with the keyword ``SELECT`` (case-insensitive).
 
         Returns:
             A :class:`SubsetResult` with tables written and row counts.
 
         Raises:
-            ValueError: If ``seed_query`` is empty/whitespace, or if
+            ValueError: If ``seed_query`` is empty/whitespace, if
+                ``seed_query`` does not start with ``SELECT``, or if
                 ``seed_table`` is not in the topology.
             Exception: Any exception from traversal or egress is re-raised
                 after calling ``egress.rollback()``.
@@ -122,6 +124,10 @@ class SubsettingEngine:
         # --- Input validation ---
         if not seed_query or not seed_query.strip():
             raise ValueError("seed_query must be a non-empty SQL string.")
+
+        normalized = seed_query.strip().upper()
+        if not normalized.startswith("SELECT"):
+            raise ValueError(f"seed_query must be a SELECT statement; got: {seed_query[:80]!r}")
 
         if seed_table not in self._topology.table_order:
             raise ValueError(

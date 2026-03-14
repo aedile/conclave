@@ -40,12 +40,15 @@ class EgressWriter:
     constraints are satisfied.  The target database is left empty after a
     failed subset run.
 
+    Note: each ``write()`` call commits immediately; the context manager
+    provides rollback safety on failure, not deferred transactional commit.
+
     Usage::
 
         with EgressWriter(target_engine=engine) as writer:
             writer.write("departments", dept_rows)
             writer.write("employees", emp_rows)
-        # clean exit → commit() called automatically
+        # clean exit → commit() called automatically (no-op)
 
     Args:
         target_engine: A SQLAlchemy :class:`~sqlalchemy.Engine` connected to
@@ -170,8 +173,10 @@ class EgressWriter:
     ) -> Literal[False]:
         """Exit the context manager.
 
-        Calls :meth:`commit` on clean exit or :meth:`rollback` if an
-        exception occurred.  Always re-raises the exception (returns False).
+        Calls :meth:`commit` on clean exit (currently a no-op — each
+        ``write()`` call commits its own batch immediately). Calls
+        :meth:`rollback` and re-raises on exception. Returns ``False`` to
+        allow exceptions to propagate.
 
         Args:
             exc_type: Exception type, or None.
