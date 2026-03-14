@@ -51,16 +51,16 @@ RUN pip install --no-cache-dir --prefix=/install --no-deps .
 # =============================================================================
 # Stage 3: Final production image
 #   Minimal python:3.14-slim surface; no dev tools, no build caches, no secrets.
-#   Runs as non-root user appuser (UID 1000) via su-exec + tini.
+#   Runs as non-root user appuser (UID 1000) via gosu + tini.
 # =============================================================================
 FROM python:3.14-slim AS final
 
-# ---- Security: install tini (PID-1 init) and su-exec (privilege drop) ------
-# tini reaps zombie processes; su-exec drops from root to appuser before exec.
+# ---- Security: install tini (PID-1 init) and gosu (privilege drop) ---------
+# tini reaps zombie processes; gosu drops from root to appuser before exec.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         tini \
-        su-exec \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # ---- Create a non-root user and group (UID/GID 1000) -----------------------
@@ -103,7 +103,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# tini as PID-1; entrypoint drops to appuser via su-exec before executing CMD
+# tini as PID-1; entrypoint drops to appuser via gosu before executing CMD
 # Poetry is not present in the final image — invoke uvicorn directly.
 ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
 CMD ["uvicorn", "synth_engine.bootstrapper.main:app", "--host", "0.0.0.0", "--port", "8000"]
