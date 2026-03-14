@@ -12,8 +12,7 @@ Task: P3-T3.1 — Target Ingestion Engine
 
 from __future__ import annotations
 
-from collections.abc import Generator
-from typing import Any
+import inspect
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,7 +22,6 @@ from synth_engine.modules.ingestion.postgres_adapter import (
     PrivilegeEscalationError,
     SchemaInspector,
 )
-
 
 # ---------------------------------------------------------------------------
 # PrivilegeEscalationError
@@ -183,15 +181,11 @@ class TestStreamTable:
 
     def test_stream_table_validates_table_name(self) -> None:
         """stream_table raises ValueError for a table not in the schema (ADV-013)."""
-        with patch(
-            "synth_engine.modules.ingestion.postgres_adapter.create_engine"
-        ) as mock_create:
+        with patch("synth_engine.modules.ingestion.postgres_adapter.create_engine") as mock_create:
             mock_engine = MagicMock()
             mock_create.return_value = mock_engine
 
-            adapter = PostgresIngestionAdapter(
-                "postgresql+psycopg2://user:pass@localhost:5432/db"
-            )
+            adapter = PostgresIngestionAdapter("postgresql+psycopg2://user:pass@localhost:5432/db")
 
             mock_inspector = MagicMock(spec=SchemaInspector)
             mock_inspector.get_tables.return_value = ["users"]
@@ -202,15 +196,11 @@ class TestStreamTable:
 
     def test_stream_table_yields_batches(self) -> None:
         """stream_table yields list[dict] batches from the server-side cursor."""
-        with patch(
-            "synth_engine.modules.ingestion.postgres_adapter.create_engine"
-        ) as mock_create:
+        with patch("synth_engine.modules.ingestion.postgres_adapter.create_engine") as mock_create:
             mock_engine = MagicMock()
             mock_create.return_value = mock_engine
 
-            adapter = PostgresIngestionAdapter(
-                "postgresql+psycopg2://user:pass@localhost:5432/db"
-            )
+            adapter = PostgresIngestionAdapter("postgresql+psycopg2://user:pass@localhost:5432/db")
 
             # Patch schema inspector to allow the table
             mock_inspector = MagicMock(spec=SchemaInspector)
@@ -251,14 +241,10 @@ class TestPreflightCheck:
 
     def _make_adapter(self) -> tuple[PostgresIngestionAdapter, MagicMock]:
         """Create an adapter with a mocked engine, returning (adapter, mock_engine)."""
-        with patch(
-            "synth_engine.modules.ingestion.postgres_adapter.create_engine"
-        ) as mock_create:
+        with patch("synth_engine.modules.ingestion.postgres_adapter.create_engine") as mock_create:
             mock_engine = MagicMock()
             mock_create.return_value = mock_engine
-            adapter = PostgresIngestionAdapter(
-                "postgresql+psycopg2://user:pass@localhost:5432/db"
-            )
+            adapter = PostgresIngestionAdapter("postgresql+psycopg2://user:pass@localhost:5432/db")
         return adapter, mock_engine
 
     def _build_conn_mock(
@@ -317,9 +303,7 @@ class TestPreflightCheck:
     def test_preflight_raises_when_write_grants_exist(self) -> None:
         """preflight_check raises PrivilegeEscalationError when INSERT grant is present."""
         adapter, mock_engine = self._make_adapter()
-        mock_conn = self._build_conn_mock(
-            is_superuser="off", write_grants=["INSERT"]
-        )
+        mock_conn = self._build_conn_mock(is_superuser="off", write_grants=["INSERT"])
         mock_engine.connect.return_value = mock_conn
 
         with pytest.raises(PrivilegeEscalationError, match="INSERT"):
@@ -345,12 +329,8 @@ class TestGetSchemaInspector:
 
     def test_get_schema_inspector_returns_schema_inspector(self) -> None:
         """get_schema_inspector() returns a SchemaInspector instance."""
-        with patch(
-            "synth_engine.modules.ingestion.postgres_adapter.create_engine"
-        ):
-            adapter = PostgresIngestionAdapter(
-                "postgresql+psycopg2://user:pass@localhost:5432/db"
-            )
+        with patch("synth_engine.modules.ingestion.postgres_adapter.create_engine"):
+            adapter = PostgresIngestionAdapter("postgresql+psycopg2://user:pass@localhost:5432/db")
             inspector = adapter.get_schema_inspector()
 
         assert isinstance(inspector, SchemaInspector)
@@ -363,12 +343,8 @@ class TestGetSchemaInspector:
 
 def test_stream_table_is_generator() -> None:
     """stream_table return type is a Generator (structural check)."""
-    import inspect
-
     with patch("synth_engine.modules.ingestion.postgres_adapter.create_engine"):
-        adapter = PostgresIngestionAdapter(
-            "postgresql+psycopg2://user:pass@localhost:5432/db"
-        )
+        adapter = PostgresIngestionAdapter("postgresql+psycopg2://user:pass@localhost:5432/db")
 
     mock_inspector = MagicMock(spec=SchemaInspector)
     mock_inspector.get_tables.return_value = ["users"]
