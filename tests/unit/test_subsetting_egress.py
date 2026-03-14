@@ -10,7 +10,7 @@ Saga invariant: if ANY write fails, rollback() wipes all written tables.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import sqlalchemy.exc
@@ -156,6 +156,31 @@ class TestEgressWriterRollback:
         writer.rollback()  # Must not raise or connect
 
         engine.connect.assert_not_called()
+
+    def test_rollback_logs_warning_with_table_names(self) -> None:
+        """rollback() logs at WARNING level including the names of written tables.
+
+        The Saga compensating action should be visible in logs so that
+        operators can diagnose partial subset failures without inspecting
+        the database.  The log message must name both tables written.
+        """
+        engine = _make_engine()
+        _make_conn_ctx(engine)
+
+        writer = EgressWriter(target_engine=engine)
+        writer.write("departments", [{"id": 1}])
+        writer.write("employees", [{"id": 10, "dept_id": 1}])
+
+        with patch("synth_engine.modules.subsetting.egress.logger") as mock_logger:
+            writer.rollback()
+
+        mock_logger.warning.assert_called_once()
+        warning_args = mock_logger.warning.call_args
+        # The message (first positional arg after the format string) or the
+        # formatted string must reference both table names.
+        all_args = " ".join(str(a) for a in warning_args.args)
+        assert "departments" in all_args, f"'departments' not found in warning: {warning_args}"
+        assert "employees" in all_args, f"'employees' not found in warning: {warning_args}"
 
 
 class TestEgressWriterNoCommitMethod:
