@@ -1,8 +1,8 @@
 """Unit tests for the SchemaReflector class.
 
-All tests use mocked SQLAlchemy inspect() calls — no database required.
+All tests use mocked SQLAlchemy inspect() calls -- no database required.
 
-Task: P3-T3.2 — Relational Mapping & Topological Sort
+Task: P3-T3.2 -- Relational Mapping & Topological Sort
 """
 
 from __future__ import annotations
@@ -10,11 +10,12 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 from sqlalchemy import Engine
 
 from synth_engine.modules.ingestion.graph import DirectedAcyclicGraph
 from synth_engine.modules.ingestion.reflection import SchemaReflector
+
+_INSPECT = "synth_engine.modules.ingestion.reflection.inspect"
 
 
 def _make_engine() -> Engine:
@@ -63,7 +64,7 @@ class TestSchemaReflectorReflect:
         tables = ["users", "orders", "products"]
         mock_inspector = _make_inspector(tables)
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             dag = reflector.reflect()
 
@@ -74,7 +75,7 @@ class TestSchemaReflectorReflect:
         """reflect() adds DAG edges for each explicit foreign key relationship."""
         engine = _make_engine()
         tables = ["users", "orders"]
-        # orders.user_id → users.id
+        # orders.user_id -> users.id
         fks_by_table = {
             "orders": [
                 {
@@ -86,11 +87,11 @@ class TestSchemaReflectorReflect:
         }
         mock_inspector = _make_inspector(tables, fks_by_table=fks_by_table)
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             dag = reflector.reflect()
 
-        # Edge: users (parent) → orders (child, holds FK)
+        # Edge: users (parent) -> orders (child, holds FK)
         assert ("users", "orders") in dag.edges()
 
     def test_reflect_multiple_fk_edges(self) -> None:
@@ -115,7 +116,7 @@ class TestSchemaReflectorReflect:
         }
         mock_inspector = _make_inspector(tables, fks_by_table=fks_by_table)
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             dag = reflector.reflect()
 
@@ -127,7 +128,7 @@ class TestSchemaReflectorReflect:
         engine = _make_engine()
         mock_inspector = _make_inspector([])
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             dag = reflector.reflect()
 
@@ -138,11 +139,11 @@ class TestSchemaReflectorReflect:
     def test_reflect_uses_only_explicit_fk_edges(self) -> None:
         """reflect() uses only FK-defined edges; virtual FKs are not inferred."""
         engine = _make_engine()
-        # Tables exist but no FKs defined — no edges should be created
+        # Tables exist but no FKs defined -- no edges should be created
         tables = ["table_a", "table_b"]
         mock_inspector = _make_inspector(tables)
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             dag = reflector.reflect()
 
@@ -159,7 +160,7 @@ class TestSchemaReflectorGetTables:
         tables = ["alpha", "beta", "gamma"]
         mock_inspector = _make_inspector(tables)
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             result = reflector.get_tables()
 
@@ -171,7 +172,7 @@ class TestSchemaReflectorGetTables:
         engine = _make_engine()
         mock_inspector = _make_inspector([])
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             assert reflector.get_tables() == []
 
@@ -188,7 +189,7 @@ class TestSchemaReflectorGetColumns:
         ]
         mock_inspector = _make_inspector(["users"], columns_by_table={"users": columns})
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             result = reflector.get_columns("users")
 
@@ -208,11 +209,9 @@ class TestSchemaReflectorGetColumns:
             {"name": "product_id", "type": "INTEGER", "nullable": False, "primary_key": 2},
             {"name": "quantity", "type": "INTEGER", "nullable": False, "primary_key": 0},
         ]
-        mock_inspector = _make_inspector(
-            ["order_items"], columns_by_table={"order_items": columns}
-        )
+        mock_inspector = _make_inspector(["order_items"], columns_by_table={"order_items": columns})
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             result = reflector.get_columns("order_items")
 
@@ -231,7 +230,7 @@ class TestSchemaReflectorGetColumns:
         ]
         mock_inspector = _make_inspector(["accounts"], columns_by_table={"accounts": columns})
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             result = reflector.get_columns("accounts")
 
@@ -252,11 +251,9 @@ class TestSchemaReflectorGetForeignKeys:
                 "referred_columns": ["id"],
             }
         ]
-        mock_inspector = _make_inspector(
-            ["orders"], fks_by_table={"orders": fks}
-        )
+        mock_inspector = _make_inspector(["orders"], fks_by_table={"orders": fks})
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             result = reflector.get_foreign_keys("orders")
 
@@ -269,7 +266,7 @@ class TestSchemaReflectorGetForeignKeys:
         engine = _make_engine()
         mock_inspector = _make_inspector(["standalone"])
 
-        with patch("synth_engine.modules.ingestion.reflection.inspect", return_value=mock_inspector):
+        with patch(_INSPECT, return_value=mock_inspector):
             reflector = SchemaReflector(engine)
             result = reflector.get_foreign_keys("standalone")
 
