@@ -60,6 +60,28 @@ types-psutil = ">=5.9.0,<8.0.0"
 [tool.poetry.group.integration.dependencies]
 pytest-postgresql = "^7.0"
 
+# ---------------------------------------------------------------------------
+# Synthesizer group — T4.1 (GPU Passthrough & Ephemeral Storage)
+# Install with: poetry install --with dev,synthesizer
+#
+# Rationale for each dependency:
+#   torch    — GPU/CPU device detection via torch.cuda.is_available(); CTGAN/TVAE
+#              training backend (ADR-0017). FORCE_CPU=true provides CI fallback.
+#   pandas   — DataFrame I/O between subsetting output and synthesizer input.
+#              Parquet round-trips use pandas as the serialisation layer.
+#   pyarrow  — Parquet serialisation engine used by pandas.to_parquet() /
+#              pd.read_parquet(). Preferred over fastparquet for broader type
+#              coverage and NumPy 2.x compatibility.
+#   boto3    — S3-compatible client for the concrete MinIO backend
+#              (EphemeralStorageClient's MinioStorageBackend). Unit tests use
+#              InMemoryBackend and never instantiate this class.
+# ---------------------------------------------------------------------------
+[tool.poetry.group.synthesizer.dependencies]
+torch = {version = ">=2.10.0,<3.0.0", python = ">=3.14,<3.15"}
+pandas = ">=2.2.0,<3.0.0"
+pyarrow = ">=23.0.0,<24.0.0"
+boto3 = ">=1.35.0,<2.0.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
