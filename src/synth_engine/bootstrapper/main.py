@@ -11,6 +11,10 @@ Task 2.4 additions:
   - /unseal POST endpoint: accepts operator passphrase, derives the KEK,
     and transitions the vault to the UNSEALED state.
   - Prometheus metrics mounted at /metrics via prometheus_client.
+
+Task 3.5.4 additions:
+  - CycleDetectionError exception handler: returns HTTP 422 RFC 7807
+    Problem Details (ADV-022).
 """
 
 from __future__ import annotations
@@ -18,13 +22,14 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
 from synth_engine.bootstrapper.dependencies.vault import SealGateMiddleware
+from synth_engine.modules.mapping import CycleDetectionError
 from synth_engine.shared.security.vault import VaultState
 from synth_engine.shared.telemetry import configure_telemetry
 
@@ -49,6 +54,7 @@ def create_app() -> FastAPI:
     - OpenTelemetry instrumentation
     - SealGateMiddleware (blocks sealed-state access)
     - Prometheus metrics at /metrics
+    - CycleDetectionError exception handler (ADV-022)
 
     Then registers the /health liveness probe, /unseal ops endpoint,
     and mounts the Prometheus ASGI app.
@@ -78,9 +84,51 @@ def create_app() -> FastAPI:
     metrics_app = make_asgi_app()
     app.mount("/metrics", metrics_app)
 
+    _register_exception_handlers(app)
     _register_routes(app)
 
     return app
+
+
+def _register_exception_handlers(app: FastAPI) -> None:
+    """Register application-level exception handlers.
+
+    Handlers convert known domain exceptions to structured HTTP responses
+    before FastAPI's default 500 handler fires.
+
+    ADV-022: CycleDetectionError -> HTTP 422 RFC 7807 Problem Details.
+
+    Args:
+        app: The FastAPI instance to register handlers on.
+    """
+
+    @app.exception_handler(CycleDetectionError)
+    async def _cycle_detection_error_handler(
+        request: Request, exc: CycleDetectionError
+    ) -> JSONResponse:
+        """Handle CycleDetectionError with HTTP 422 RFC 7807 Problem Details.
+
+        A cycle in the schema FK graph is a client-side data error (the schema
+        is malformed), not a server-side failure.  HTTP 422 Unprocessable
+        Entity is the correct status code.  The RFC 7807 response body gives
+        operators a structured, machine-readable error description.
+
+        Args:
+            request: The incoming HTTP request (required by FastAPI signature).
+            exc: The CycleDetectionError raised by the subsetting engine.
+
+        Returns:
+            JSONResponse with HTTP 422 and RFC 7807 Problem Details body.
+        """
+        return JSONResponse(
+            status_code=422,
+            content={
+                "type": "about:blank",
+                "title": "Cycle Detected in Schema Graph",
+                "status": 422,
+                "detail": str(exc),
+            },
+        )
 
 
 def _register_routes(app: FastAPI) -> None:

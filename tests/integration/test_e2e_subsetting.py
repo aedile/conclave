@@ -16,6 +16,7 @@ Marks: ``integration``
 CONSTITUTION Priority 0: Security — no PII, parameterised SQL only.
 CONSTITUTION Priority 3: TDD — E2E integration gate for P3-T3.5.
 Task: P3-T3.5 -- Execute E2E Subsetting Subsystem Tests
+Task: P3.5-T3.5.4 -- CLI-based E2E tests via CliRunner (closes T3.5 AC2)
 """
 
 from __future__ import annotations
@@ -23,12 +24,15 @@ from __future__ import annotations
 import shutil
 from collections.abc import Generator
 from typing import Any
+from unittest.mock import patch
 
 import psycopg2
 import pytest
+from click.testing import CliRunner
 from pytest_postgresql import factories
 from sqlalchemy import create_engine, text
 
+from synth_engine.bootstrapper.cli import subset
 from synth_engine.modules.masking.algorithms import mask_email, mask_name, mask_ssn
 from synth_engine.modules.subsetting.core import SubsettingEngine
 from synth_engine.modules.subsetting.egress import EgressWriter
@@ -110,6 +114,8 @@ _E2E_DETERM_SOURCE_DBNAME = "conclave_e2e_determ_source"
 _E2E_DETERM_TARGET_DBNAME = "conclave_e2e_determ_target"
 _E2E_PASSTHRU_SOURCE_DBNAME = "conclave_e2e_passthru_source"
 _E2E_PASSTHRU_TARGET_DBNAME = "conclave_e2e_passthru_target"
+_E2E_CLI_SOURCE_DBNAME = "conclave_e2e_cli_source"
+_E2E_CLI_TARGET_DBNAME = "conclave_e2e_cli_target"
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +456,45 @@ def e2e_passthru_dbs(
     _drop_database(proc, _E2E_PASSTHRU_TARGET_DBNAME)
 
 
+@pytest.fixture(scope="module")
+def e2e_cli_dbs(
+    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+) -> Generator[tuple[str, str]]:
+    """Create isolated source + target databases for the CLI-based E2E test.
+
+    Source DB seeded with 20 persons / 40 accounts / 120 transactions.
+    Used by tests that invoke the CLI via CliRunner rather than the Python API.
+
+    Args:
+        postgresql_proc: The running PostgreSQL process executor.
+
+    Yields:
+        Tuple of (source_url, target_url) as SQLAlchemy connection strings.
+    """
+    proc = postgresql_proc
+
+    _create_database(proc, _E2E_CLI_SOURCE_DBNAME)
+    _create_database(proc, _E2E_CLI_TARGET_DBNAME)
+
+    src_url = (
+        f"postgresql+psycopg2://{proc.user}:{proc.password or ''}"
+        f"@{proc.host}:{proc.port}/{_E2E_CLI_SOURCE_DBNAME}"
+    )
+    tgt_url = (
+        f"postgresql+psycopg2://{proc.user}:{proc.password or ''}"
+        f"@{proc.host}:{proc.port}/{_E2E_CLI_TARGET_DBNAME}"
+    )
+
+    _create_pii_schema(proc, _E2E_CLI_SOURCE_DBNAME, with_serial=True)
+    _populate_pii_source(proc, _E2E_CLI_SOURCE_DBNAME)
+    _create_pii_schema(proc, _E2E_CLI_TARGET_DBNAME, with_serial=False)
+
+    yield src_url, tgt_url
+
+    _drop_database(proc, _E2E_CLI_SOURCE_DBNAME)
+    _drop_database(proc, _E2E_CLI_TARGET_DBNAME)
+
+
 # ---------------------------------------------------------------------------
 # Integration tests
 # ---------------------------------------------------------------------------
@@ -714,6 +759,101 @@ def test_e2e_non_pii_columns_unchanged(
     assert tgt_amounts == src_amounts, (
         "transaction.amount values changed — non-PII passthrough broken"
     )
+
+    src_engine.dispose()
+    tgt_engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# CLI-based E2E integration tests (T3.5.4 — closes T3.5 AC2)
+#
+# These tests invoke the `subset` CLI command via click.testing.CliRunner
+# rather than calling SubsettingEngine.run() directly.  This is the
+# "complete user job" pattern required by T3.5 AC2.
+#
+# _load_topology is patched to return the pre-built PII topology so these
+# tests exercise the CLI's wiring (argument parsing, validation, engine
+# construction, masking transformer injection) against a real PostgreSQL
+# instance, without depending on SchemaReflector being wired in this suite.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_e2e_cli_subset_with_masking_exits_zero_and_writes_rows(
+    e2e_cli_dbs: tuple[str, str],
+) -> None:
+    """CLI subset via CliRunner writes rows with masking; exits 0.
+
+    Invokes ``conclave-subset --mask`` via CliRunner against the real
+    PostgreSQL test instance.  Asserts:
+    - Exit code is 0.
+    - Target persons table has exactly 5 rows.
+    - Target accounts table has exactly 10 rows.
+    - Target transactions table has exactly 30 rows.
+    - At least one full_name differs from source (CLI masking transformer ran).
+
+    This satisfies T3.5 AC2: the E2E test invokes the CLI entrypoint.
+    """
+    src_url, tgt_url = e2e_cli_dbs
+    topology = _make_pii_topology()
+
+    runner = CliRunner()
+
+    with patch("synth_engine.bootstrapper.cli._load_topology", return_value=topology):
+        result = runner.invoke(
+            subset,
+            [
+                "--source",
+                src_url,
+                "--target",
+                tgt_url,
+                "--seed-table",
+                "persons",
+                "--seed-query",
+                "SELECT * FROM persons ORDER BY id LIMIT 5",  # nosec B608
+                "--mask",
+            ],
+        )
+
+    assert result.exit_code == 0, (
+        f"CLI exited with code {result.exit_code}. Output:\n{result.output}"
+    )
+    assert "Subset complete" in result.output
+
+    # Verify target DB state
+    tgt_engine = create_engine(tgt_url)
+    with tgt_engine.connect() as conn:
+        persons_count = conn.execute(text("SELECT COUNT(*) FROM persons")).scalar()  # nosec B608
+        accounts_count = conn.execute(
+            text("SELECT COUNT(*) FROM accounts")  # nosec B608
+        ).scalar()
+        txn_count = conn.execute(
+            text("SELECT COUNT(*) FROM transactions")  # nosec B608
+        ).scalar()
+
+    assert persons_count == 5, f"Expected 5 persons, got {persons_count}"
+    assert accounts_count == 10, f"Expected 10 accounts, got {accounts_count}"
+    assert txn_count == 30, f"Expected 30 transactions, got {txn_count}"
+
+    # Verify masking was applied
+    src_engine = create_engine(src_url)
+    with src_engine.connect() as conn:
+        src_names = [
+            row["full_name"]
+            for row in conn.execute(
+                text("SELECT full_name FROM persons ORDER BY id LIMIT 5")  # nosec B608
+            ).mappings()
+        ]
+    with tgt_engine.connect() as conn:
+        tgt_names = [
+            row["full_name"]
+            for row in conn.execute(
+                text("SELECT full_name FROM persons ORDER BY id")  # nosec B608
+            ).mappings()
+        ]
+
+    names_differ = any(s != t for s, t in zip(src_names, tgt_names, strict=True))
+    assert names_differ, "CLI masking transformer did not modify any full_name values"
 
     src_engine.dispose()
     tgt_engine.dispose()

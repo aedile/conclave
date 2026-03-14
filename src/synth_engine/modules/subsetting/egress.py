@@ -21,6 +21,7 @@ INSERT interface.
 Per ADR-0015: Subsetting Traversal and Saga Rollback Design.
 CONSTITUTION Priority 0: Security — parameterised SQL only, no PII exposure.
 Task: P3-T3.4 -- Subsetting & Materialization Core
+Task: P3.5-T3.5.4 -- Remove EgressWriter.commit() no-op (semantic trap)
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ class EgressWriter:
         with EgressWriter(target_engine=engine) as writer:
             writer.write("departments", dept_rows)
             writer.write("employees", emp_rows)
-        # clean exit → commit() called automatically (no-op)
+        # clean exit — all writes already committed per-batch
 
     Args:
         target_engine: A SQLAlchemy :class:`~sqlalchemy.Engine` connected to
@@ -145,14 +146,6 @@ class EgressWriter:
                 )
             conn.commit()
 
-    def commit(self) -> None:
-        """Finalise a successful subset run.
-
-        Currently a no-op because individual ``write()`` calls commit per
-        batch.  Provided as an explicit hook for the context manager and for
-        future transactional extension.
-        """
-
     # ------------------------------------------------------------------
     # Context manager
     # ------------------------------------------------------------------
@@ -173,10 +166,15 @@ class EgressWriter:
     ) -> Literal[False]:
         """Exit the context manager.
 
-        Calls :meth:`commit` on clean exit (currently a no-op — each
-        ``write()`` call commits its own batch immediately). Calls
-        :meth:`rollback` and re-raises on exception. Returns ``False`` to
-        allow exceptions to propagate.
+        On clean exit, does nothing — each ``write()`` call already commits
+        its own batch immediately, so there is no deferred work to finalise.
+        On exception, calls :meth:`rollback` to restore the target to a clean
+        state.  Returns ``False`` to allow exceptions to propagate.
+
+        Note: the previous ``commit()`` no-op has been removed because it was
+        a semantic trap — a public method named ``commit()`` on a
+        database-facing class implies transactional semantics that do not exist
+        here.  Writes are auto-committed per-batch in :meth:`write`.
 
         Args:
             exc_type: Exception type, or None.
@@ -186,8 +184,6 @@ class EgressWriter:
         Returns:
             ``False`` — exceptions are never suppressed.
         """
-        if exc_type is None:
-            self.commit()
-        else:
+        if exc_type is not None:
             self.rollback()
         return False

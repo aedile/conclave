@@ -3,6 +3,7 @@
 All tests mock the SQLAlchemy engine; no live PostgreSQL required.
 
 Task: P3-T3.4 -- Subsetting & Materialization Core
+Task: P3.5-T3.5.4 -- Remove EgressWriter.commit() no-op (semantic trap)
 Security: TRUNCATE with CASCADE is the rollback strategy (ADR-0015).
 Saga invariant: if ANY write fails, rollback() wipes all written tables.
 """
@@ -157,46 +158,49 @@ class TestEgressWriterRollback:
         engine.connect.assert_not_called()
 
 
-class TestEgressWriterCommit:
-    """EgressWriter.commit() — no-op finalisation hook."""
+class TestEgressWriterNoCommitMethod:
+    """EgressWriter.commit() was removed — it was a semantic trap.
 
-    def test_commit_is_noop(self) -> None:
-        """commit() on a fresh writer does not call engine.connect() and raises no exception.
+    The method was a public no-op on a database-facing class, implying
+    transactional semantics that do not exist.  Each write() call
+    auto-commits its own batch.  The context manager no longer calls
+    commit() on clean exit.
+    """
 
-        commit() is an intentional no-op (individual write() calls commit per
-        batch).  It exists as an explicit hook for the context manager and for
-        future transactional extension.  Callers must be able to invoke it
-        safely without any side-effects.
+    def test_commit_method_does_not_exist(self) -> None:
+        """EgressWriter must NOT have a commit() method (it was removed).
+
+        A public commit() on a DB-facing class is a semantic trap: callers
+        may believe uncommitted writes exist and that calling commit() is
+        required to persist them.  Writes are auto-committed per-batch in
+        write(); no commit hook is needed or correct.
         """
         engine = _make_engine()
         writer = EgressWriter(target_engine=engine)
-
-        writer.commit()  # Must not raise
-
-        engine.connect.assert_not_called()
+        assert not hasattr(writer, "commit"), (
+            "EgressWriter.commit() was removed (T3.5.4). "
+            "Do not re-add it — writes auto-commit in write()."
+        )
 
 
 class TestEgressWriterContextManager:
-    """EgressWriter as a context manager — commit on success, rollback on failure."""
+    """EgressWriter as a context manager — clean on success, rollback on failure."""
 
-    def test_context_manager_commits_on_success(self) -> None:
-        """Clean exit from 'with EgressWriter()' calls commit, not rollback."""
+    def test_context_manager_does_not_call_rollback_on_success(self) -> None:
+        """Clean exit from 'with EgressWriter()' does NOT call rollback."""
         engine = _make_engine()
         writer = EgressWriter(target_engine=engine)
-        writer.commit = MagicMock()
         writer.rollback = MagicMock()
 
         with writer:
             pass
 
-        writer.commit.assert_called_once()
         writer.rollback.assert_not_called()
 
     def test_context_manager_calls_rollback_on_exception(self) -> None:
         """Exception raised inside 'with EgressWriter()' triggers rollback."""
         engine = _make_engine()
         writer = EgressWriter(target_engine=engine)
-        writer.commit = MagicMock()
         writer.rollback = MagicMock()
 
         with pytest.raises(RuntimeError, match="test error"):
@@ -204,7 +208,6 @@ class TestEgressWriterContextManager:
                 raise RuntimeError("test error")
 
         writer.rollback.assert_called_once()
-        writer.commit.assert_not_called()
 
     def test_context_manager_reraises_exception(self) -> None:
         """The original exception propagates out of the context manager."""
