@@ -6,7 +6,7 @@
 # request. Jobs are chained so a security failure short-circuits all downstream
 # work.
 #
-# Job order: security → lint → test → integration-test → sbom → trivy-scan
+# Job order: security → lint → test → {integration-test | sbom | trivy-scan} (parallel)
 # shellcheck runs independently (no Python deps required).
 #
 # Supply-chain hardening (T3.5.1): all `uses:` lines are pinned to immutable
@@ -175,12 +175,18 @@ jobs:
           python-version: "3.14"
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
+        with:
+          version: "2.2.1"
+          virtualenvs-create: true
+          virtualenvs-in-project: true
       - name: Install PostgreSQL 16 (provides pg_ctl for pytest-postgresql)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-16 postgresql-client-16 libpq-dev
           echo "PG_BIN=/usr/lib/postgresql/16/bin" >> $GITHUB_ENV
           echo "/usr/lib/postgresql/16/bin" >> $GITHUB_PATH
+      - name: Validate pg_ctl is on PATH
+        run: pg_ctl --version
       - name: Install dependencies (dev + integration)
         run: poetry install --with dev,integration
       - name: Run integration tests
@@ -245,7 +251,6 @@ jobs:
     needs: test
     permissions:
       contents: read
-      security-events: write  # Required to upload SARIF results (future use)
 
     steps:
       - name: Checkout
