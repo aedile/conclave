@@ -1,3 +1,4 @@
+# ruff: noqa — vulture whitelist uses bare name expressions which ruff cannot parse as normal Python
 """Vulture whitelist — suppress known false positives at --min-confidence 60.
 
 All entries here are genuine public API, framework-registered hooks, or

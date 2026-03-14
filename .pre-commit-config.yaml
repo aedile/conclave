@@ -1,5 +1,16 @@
 repos:
   # ---------------------------------------------------------------------------
+  # Poetry lock file consistency — catch pyproject.toml/poetry.lock drift
+  # before it reaches CI. Uses the locally installed Poetry binary so the
+  # check version always matches the project's pinned Poetry version.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/python-poetry/poetry
+    rev: 2.2.1
+    hooks:
+      - id: poetry-check
+        args: ["--lock"]
+
+  # ---------------------------------------------------------------------------
   # Security — gitleaks: detect secrets and credentials in commits
   # ---------------------------------------------------------------------------
   - repo: https://github.com/gitleaks/gitleaks
