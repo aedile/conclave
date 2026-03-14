@@ -69,13 +69,12 @@ def test_mask_value_none_salt_still_deterministic() -> None:
 
 
 def test_mask_value_different_inputs_differ() -> None:
-    """Different (value, salt) pairs should generally produce different masked values."""
+    """Different inputs produce different masked values across a range of samples.
 
-    def name_fn(faker: Faker) -> str:
-        return faker.name()
-
-    result_a = mask_value("Alice Smith", "users.name", name_fn)
-    result_b = mask_value("Bob Jones", "users.name", name_fn)
-    # Different seeds → almost certainly different names
-    # (not a strict guarantee, but a strong heuristic check)
-    assert result_a != result_b or True  # Allow collision, but document intent
+    Verifies that the deterministic hash produces distinct seeds for distinct
+    inputs, resulting in distinct Faker outputs.  Uses 10 distinct inputs to
+    make a false-positive collision astronomically unlikely.
+    """
+    results = {mask_value(f"input_{i}", "users.name", lambda f: f.name()) for i in range(10)}
+    # All 10 distinct inputs must produce 10 distinct outputs.
+    assert len(results) == 10

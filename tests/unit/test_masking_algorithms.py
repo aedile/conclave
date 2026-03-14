@@ -40,6 +40,12 @@ def test_mask_name_returns_string() -> None:
     assert len(result) > 0
 
 
+def test_mask_name_max_length_zero_returns_empty_string() -> None:
+    """When max_length=0, output is truncated to an empty string."""
+    result = mask_name("Alice Smith", _SALT, max_length=0)
+    assert result == ""
+
+
 # ---------------------------------------------------------------------------
 # mask_email
 # ---------------------------------------------------------------------------
@@ -135,6 +141,16 @@ def test_luhn_check_with_spaces() -> None:
     """luhn_check handles numbers with spaces stripped correctly."""
     # The standard Visa test card with spaces
     assert luhn_check("4111 1111 1111 1111".replace(" ", "")) is True
+
+
+def test_luhn_check_empty_string() -> None:
+    """luhn_check returns False for an empty string (no digits to validate)."""
+    assert luhn_check("") is False
+
+
+def test_luhn_check_non_digit_input() -> None:
+    """luhn_check returns False when input contains no digits at all."""
+    assert luhn_check("abcdefghijk") is False
 
 
 # ---------------------------------------------------------------------------

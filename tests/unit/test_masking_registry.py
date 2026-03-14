@@ -176,6 +176,25 @@ def test_registry_unknown_column_type_raises() -> None:
         ColumnType("not-a-type")
 
 
+def test_registry_apply_raises_for_unregistered_column_type() -> None:
+    """_apply() raises ValueError when called with a non-member ColumnType value.
+
+    This tests the `case _:` default arm added to guarantee -> str annotation
+    correctness and prevent silent None returns for future ColumnType additions.
+
+    ColumnType inherits from str, so a plain str subclass with an unknown value
+    will not match any named case arm and will fall to `case _:`.
+    """
+    registry = MaskingRegistry()
+
+    class _UnknownType(str):
+        """A str subclass that does not equal any declared ColumnType member."""
+
+    fake_type = _UnknownType("totally_unknown")
+    with pytest.raises(ValueError, match="No masking algorithm registered for"):
+        registry._apply(fake_type, "test-value", "t.col", None)  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------------------
 # reset() clears seen set
 # ---------------------------------------------------------------------------

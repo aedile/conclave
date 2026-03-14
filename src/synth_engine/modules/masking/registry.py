@@ -114,7 +114,11 @@ class MaskingRegistry:
         suffixed = f"{base_masked}_{occurrence}"
 
         # Defensive guard — should be unreachable given unique suffixes.
-        if suffixed in seen_for_salt:
+        if suffixed in seen_for_salt:  # pragma: no cover
+            # This branch is a defensive guard against implementation bugs in
+            # the suffix-counter logic above. It cannot be triggered via the
+            # public API because each suffixed value is unique by construction
+            # (occurrence counter increments monotonically per base_masked key).
             raise CollisionError(
                 f"Unexpected collision on suffixed value '{suffixed}' "
                 f"for salt='{salt}'.  This is an implementation bug."
@@ -148,6 +152,9 @@ class MaskingRegistry:
 
         Returns:
             The masked string from the appropriate algorithm.
+
+        Raises:
+            ValueError: If column_type is not a registered ColumnType member.
         """
         match column_type:
             case ColumnType.NAME:
@@ -160,3 +167,5 @@ class MaskingRegistry:
                 return mask_credit_card(value, salt)
             case ColumnType.PHONE:
                 return mask_phone(value, salt, max_length=max_length)
+            case _:
+                raise ValueError(f"No masking algorithm registered for {column_type!r}")
