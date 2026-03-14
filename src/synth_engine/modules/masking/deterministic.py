@@ -86,8 +86,10 @@ def deterministic_hash(
         or a hex string truncated to ``max_length`` characters otherwise.
 
     Raises:
-        ValueError: If ``length`` > 32 (exceeds HMAC-SHA256 digest size).
+        ValueError: If ``length`` < 1 or > 32 (out of valid range for HMAC-SHA256).
     """
+    if length < 1:
+        raise ValueError(f"length {length} must be >= 1")
     if length > _HMAC_SHA256_DIGEST_BYTES:
         raise ValueError(
             f"length {length} exceeds HMAC-SHA256 digest size ({_HMAC_SHA256_DIGEST_BYTES} bytes)"

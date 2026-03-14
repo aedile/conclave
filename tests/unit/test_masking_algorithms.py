@@ -215,3 +215,15 @@ def test_deterministic_hash_max_length_none_no_truncation() -> None:
     """deterministic_hash with max_length=None (default) returns an int, no truncation."""
     result = deterministic_hash("x", "y", max_length=None)
     assert isinstance(result, int), "Without max_length, return type must be int"
+
+
+def test_deterministic_hash_length_zero_raises_value_error() -> None:
+    """deterministic_hash raises ValueError when length=0 (must be >= 1).
+
+    A length of zero would result in int.from_bytes of an empty byte slice,
+    yielding a constant 0 for all inputs and silently breaking determinism.
+    The lower-bound guard makes this constraint explicit and symmetric with
+    the upper-bound guard for length > 32.
+    """
+    with pytest.raises(ValueError, match="length"):
+        deterministic_hash("x", "y", length=0)
