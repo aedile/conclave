@@ -26,10 +26,29 @@ Drain (delete) rows when their target task is completed.
 | ADV-017 | DevOps P2-T2.4 | Before Phase 5 (T5.3 React SPA) | `details: dict[str,str]` on `AuditEvent` is an open PII sink — any key/value can be written to the WORM log without validation. Add a Pydantic validator or key allowlist to `AuditEvent` before the event surface area grows beyond its one current call site. |
 | ADV-018 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | `POST /unseal` returns undifferentiated `400` for both wrong-passphrase and missing-VAULT_SEAL_SALT config errors. Phase 5 UI needs a structured error code (e.g. `{"detail": "...", "code": "WRONG_PASSPHRASE" \| "CONFIG_ERROR"}`) to route operators to correct remediation. Add structured error codes before the first template renders `/unseal` responses. |
 | ADV-019 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | `POST /unseal` triggers 600k-iteration PBKDF2 (~0.5–1s CPU). The Phase 5 form must disable the submit button immediately on POST and show a loading indicator to prevent double-submit. Establish this UI contract before the React SPA is built. |
+| ADV-020 | DevOps P2-D2 | Standalone CI hardening task (bundle with ADV-007/ADV-015) | CI pipeline has no `services: postgres:` job. The ALE PII-never-plaintext invariant is verified locally only (integration tests skip in CI via `_require_postgresql` guard). Add a `test-integration` job with `services: postgres:` to `ci.yml` so the encryption guarantee is machine-checked on every PR. |
+| ADV-021 | QA P2-D2 | Before Phase 3/4 TypeDecorator usage | `EncryptedString` NULL passthrough, empty-string, and unicode/multi-byte PII paths are not exercised at the integration level (only unit-tested). Also: `Fernet.InvalidToken` propagation through SQLAlchemy on a live connection is untested. Write targeted integration tests for these edge cases before additional TypeDecorators are added in Phase 3/4. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-14] P2 Debt — D2: pytest-postgresql ALE integration test (closes T2.2 backlog gap)
+
+**QA** (Round 1 — PASS):
+Both T2.2 AC items satisfied: (1) `test_raw_sql_returns_ciphertext` inserts via ORM then queries via `engine.connect() + text()`, asserting raw value ≠ plaintext and starts with `gAAAAA`; (2) `test_orm_query_returns_plaintext` asserts `loaded.pii_value == original_plaintext`. Tests live in `tests/integration/`, use a real ephemeral PostgreSQL 17 instance, and ran in 2.47s. Two advisory gaps noted: NULL/empty/unicode PII paths not exercised at integration level; `Fernet.InvalidToken` propagation through SQLAlchemy on live connection untested. Neither required by T2.2 AC. Tracked as ADV-021.
+
+**UI/UX** (Round 1 — SKIP):
+Test-only PR, no UI surface. One forward note: ALE error states (key rotation failures, decryption errors) will need to meet error-messages criteria if surfaced in Phase 5 UI; test fixture plaintext strings could inform copy for those states.
+
+**DevOps** (Round 1 — PASS):
+All secrets hygiene clean — `Fernet.generate_key()` at runtime, `pragma: allowlist secret` annotated, no literal credentials. SQL injection: all parameterised via `text()` + named dicts; `DROP DATABASE` uses `psycopg2.extensions.quote_ident` on a compile-time constant with inline reasoning comment. Bandit 0 findings. Advisory: CI has no `services: postgres:` job — ALE encryption invariant is never CI-verified. Tracked as ADV-020; bundle with ADV-007/ADV-015 CI hardening pass.
+
+**Architecture**: SKIP — no `models/`, `agents/`, `api/`, or new `src/` files touched.
+
+**Phase 2 status**: All debt items resolved (D1/D3/D4 code fixes + D2 integration test). Phase 2 is fully closed. ADV-020 and ADV-021 tracked in Open Advisory Items above.
 
 ---
 
