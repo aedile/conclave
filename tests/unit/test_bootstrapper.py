@@ -8,6 +8,8 @@ Task: P2-T2.1 — Module Bootstrapper, OTEL, Idempotency, Orphan Task Reaper
 Task: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
 """
 
+from unittest.mock import patch
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -68,6 +70,9 @@ async def test_cycle_detection_error_returns_422_rfc7807() -> None:
     return an RFC 7807 Problem Details response with status 422, not 500.
 
     RFC 7807 required fields: type, title, status, detail.
+
+    The vault is patched to the unsealed state so the SealGateMiddleware
+    does not intercept the test route with a 423.
     """
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.modules.mapping import CycleDetectionError
@@ -76,12 +81,18 @@ async def test_cycle_detection_error_returns_422_rfc7807() -> None:
 
     # Register a test route that raises CycleDetectionError so we can verify
     # the exception handler is wired correctly.
+    # CycleDetectionError takes a list[str] cycle path — not a bare string.
     @app.get("/test-cycle-error")
     async def _trigger_cycle_error() -> None:
-        raise CycleDetectionError("a → b → a creates a cycle")
+        raise CycleDetectionError(["table_a", "table_b", "table_a"])
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/test-cycle-error")
+    # Patch the vault seal check so SealGateMiddleware allows the request.
+    with patch(
+        "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+        return_value=False,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/test-cycle-error")
 
     assert response.status_code == 422
     body = response.json()
@@ -91,8 +102,8 @@ async def test_cycle_detection_error_returns_422_rfc7807() -> None:
     assert "title" in body
     assert "detail" in body
     assert "type" in body
-    # The detail must carry the original exception message
-    assert "a → b → a creates a cycle" in body["detail"]
+    # The detail must carry a meaningful cycle description
+    assert "table_a" in body["detail"]
 
 
 @pytest.mark.asyncio
@@ -110,10 +121,14 @@ async def test_cycle_detection_error_not_a_500() -> None:
 
     @app.get("/test-cycle-not-500")
     async def _raise_cycle() -> None:
-        raise CycleDetectionError("cycle detected")
+        raise CycleDetectionError(["orders", "line_items", "orders"])
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/test-cycle-not-500")
+    with patch(
+        "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+        return_value=False,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/test-cycle-not-500")
 
     assert response.status_code != 500
 
