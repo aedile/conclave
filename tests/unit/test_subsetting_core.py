@@ -3,6 +3,7 @@
 All tests use mocked dependencies; no database required.
 
 Task: P3-T3.4 -- Subsetting & Materialization Core
+Task: P3.5-T3.5.3 -- SchemaTopology immutability (MappingProxyType)
 Architecture: SubsettingEngine receives SchemaTopology via constructor injection
 per ADR-0001, ADR-0012 §Cross-module, and ADR-0013 §5.  It must NOT import
 SchemaReflector, DirectedAcyclicGraph, or PostgresIngestionAdapter directly.
@@ -18,6 +19,7 @@ from synth_engine.modules.subsetting.core import SubsetResult, SubsettingEngine
 from synth_engine.modules.subsetting.egress import EgressWriter
 from synth_engine.shared.schema_topology import (
     ColumnInfo,
+    ForeignKeyInfo,
     SchemaTopology,
 )
 
@@ -292,3 +294,86 @@ class TestSubsettingEngineOrchestration:
                 )
 
         egress.rollback.assert_called_once()
+
+
+class TestSchemaTopologyImmutability:
+    """Tests for SchemaTopology MappingProxyType runtime immutability.
+
+    Task: P3.5-T3.5.3 -- SchemaTopology immutability fix.
+    Verifies that the frozen=True dataclass combined with MappingProxyType
+    wrapping in __post_init__ prevents nested dict mutation at runtime.
+    """
+
+    def test_columns_is_mapping_proxy(self) -> None:
+        """SchemaTopology.columns is a MappingProxyType — not a plain dict."""
+        import types
+
+        topology = _make_topology(["users"])
+        assert isinstance(topology.columns, types.MappingProxyType)
+
+    def test_foreign_keys_is_mapping_proxy(self) -> None:
+        """SchemaTopology.foreign_keys is a MappingProxyType — not a plain dict."""
+        import types
+
+        topology = _make_topology(["users"])
+        assert isinstance(topology.foreign_keys, types.MappingProxyType)
+
+    def test_columns_append_raises_type_error(self) -> None:
+        """topology.columns['t'].append('x') raises TypeError.
+
+        MappingProxyType prevents item assignment on the outer mapping.
+        Assigning a new key to the proxy itself raises TypeError.
+        """
+        topology = _make_topology(["users"])
+        with pytest.raises(TypeError):
+            topology.columns["evil_table"] = ()  # type: ignore[index]
+
+    def test_foreign_keys_mutation_raises_type_error(self) -> None:
+        """topology.foreign_keys mutation attempt raises TypeError.
+
+        MappingProxyType prevents item assignment on the outer mapping.
+        """
+        topology = _make_topology(["users"])
+        with pytest.raises(TypeError):
+            topology.foreign_keys["evil_table"] = ()  # type: ignore[index]
+
+    def test_columns_read_access_works(self) -> None:
+        """MappingProxyType does not break existing read access patterns."""
+        topology = _make_topology(["users", "orders"])
+        # Key lookup
+        assert "users" in topology.columns
+        # Iteration
+        keys = list(topology.columns.keys())
+        assert set(keys) == {"users", "orders"}
+        # Value access
+        user_cols = topology.columns["users"]
+        assert len(user_cols) == 1
+        assert user_cols[0].name == "id"
+
+    def test_foreign_keys_read_access_works(self) -> None:
+        """MappingProxyType foreign_keys allows all read operations."""
+        topology = SchemaTopology(
+            table_order=("accounts", "transactions"),
+            columns={
+                "accounts": (ColumnInfo(name="id", type="INTEGER", primary_key=1, nullable=False),),
+                "transactions": (
+                    ColumnInfo(name="id", type="INTEGER", primary_key=1, nullable=False),
+                    ColumnInfo(name="account_id", type="INTEGER", primary_key=0, nullable=False),
+                ),
+            },
+            foreign_keys={
+                "accounts": (),
+                "transactions": (
+                    ForeignKeyInfo(
+                        constrained_columns=("account_id",),
+                        referred_table="accounts",
+                        referred_columns=("id",),
+                    ),
+                ),
+            },
+        )
+        # Read access must work
+        assert "transactions" in topology.foreign_keys
+        fks = topology.foreign_keys["transactions"]
+        assert len(fks) == 1
+        assert fks[0].referred_table == "accounts"
