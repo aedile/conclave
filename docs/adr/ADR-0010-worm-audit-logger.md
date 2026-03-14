@@ -3,6 +3,7 @@
 **Date:** 2026-03-13
 **Status:** Accepted
 **Task:** P2-T2.4 — Vault Observability
+**Amended:** 2026-03-14 — P2-D3: Singleton design, threading.Lock, restart caveat
 **Deciders:** Engineering Team
 
 ---
@@ -65,13 +66,42 @@ guarantees.
 expected and actual signatures.  This prevents timing-oracle attacks that could
 leak partial information about `AUDIT_KEY`.
 
-### Per-Call Chain Isolation
+### Module-Level Singleton (P2-D3)
 
-`get_audit_logger()` is a factory: each call returns a **new** `AuditLogger`
-instance whose hash chain begins at genesis (`prev_hash = "0" * 64`).  Callers
-that require a single continuous chain across multiple operations must hold the
-returned instance for the lifetime of that chain and must not call the factory
-again on each operation.
+`get_audit_logger()` now returns a **module-level singleton** rather than a
+new `AuditLogger` instance on every call.  This fixes an architectural debt
+item where the hash chain was silently reset on each HTTP request, allowing an
+attacker to delete 99 audit events without any chain-integrity failure being
+detectable.
+
+**Design:**
+- A module-level `_audit_logger_instance: AuditLogger | None` is guarded by
+  `_audit_logger_lock: threading.Lock`.
+- The singleton is created on first call to `get_audit_logger()` using the
+  `AUDIT_KEY` read at that time.  All subsequent calls return the same object.
+- `AuditLogger.log_event()` acquires an instance-level `threading.Lock` before
+  reading or advancing `_prev_hash`.  This serialises concurrent callers (e.g.
+  async FastAPI route handlers that call the logger directly or via
+  `asyncio.to_thread`) and guarantees that the chain is gapless even under
+  high concurrency.
+
+**Chain scope:**
+- The hash chain is continuous for the **lifetime of the process**.  All events
+  emitted by any callsite during a process run form a single unbroken chain.
+- On **process restart**, `_audit_logger_instance` is `None` and the chain
+  begins at genesis again (`prev_hash = "0" * 64`).
+
+**Test isolation:**
+- `reset_audit_logger()` sets `_audit_logger_instance = None` under
+  `_audit_logger_lock`.  It exists **solely for test isolation** and MUST NOT
+  be called in production code.
+
+**Phase 6 future work:**
+On process restart, the previous chain tail (`prev_hash`) is lost from memory.
+An auditor performing cross-restart integrity verification must stitch chains
+manually.  Phase 6 should persist the latest `prev_hash` to the audit database
+table so that new process instances can continue from where the previous one
+left off, making the chain truly continuous across restarts.
 
 ### PII Constraint on `details` Field
 
@@ -91,20 +121,27 @@ constraint to a code constraint.
 ## Consequences
 
 **Positive:**
-- Stdlib only (`hmac`, `hashlib`, `logging`) — no new dependencies.
+- Stdlib only (`hmac`, `hashlib`, `logging`, `threading`) — no new dependencies.
 - Hash chain + HMAC signatures give both integrity (no tampering) and
   authenticity (only the keyholder can produce valid events).
 - Pydantic `BaseModel` ensures all events are schema-validated and trivially
   JSON-serialisable.
-- The `AuditLogger` instance is stateful (tracks `_prev_hash`); the factory
-  `get_audit_logger()` returns a fresh instance, so callers own their chain.
+- The singleton `AuditLogger` maintains `_prev_hash` for the full process
+  lifetime; `threading.Lock` makes `log_event()` safe under concurrency.
+- Chain integrity now holds across all HTTP requests, not just within a single
+  request — deleting any event is detectable.
 
 **Negative / Mitigations:**
 - The hash chain is only as strong as its first link.  If an attacker can
   truncate the log before the genesis event, they can start a new chain.
   Mitigation: replicate logs to an independent append-only store immediately.
+- On process restart, the chain begins at genesis.  Cross-restart chain
+  continuity is deferred to Phase 6 (persist `prev_hash` to the audit table).
 - `AUDIT_KEY` must be rotated carefully: rotating the key breaks verification
   of old events unless the old key is retained.  Rotation procedure is out of
   scope for this ADR.
 - `details` is an open-ended PII sink until a key allowlist is added (planned
   before Phase 3).
+- `reset_audit_logger()` destroys chain continuity.  It is guarded by a
+  docstring warning but not a runtime guard.  Callers in production code MUST
+  NOT call it.
