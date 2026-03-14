@@ -3,6 +3,7 @@
 **Status**: Accepted
 **Date**: 2026-03-14
 **Task**: P3-T3.4 — Subsetting & Materialization Core
+**Updated**: P3.5-T3.5.2 — Module Cohesion Refactor (file paths updated)
 **Supersedes**: N/A
 **Related**: ADR-0001, ADR-0012 §Cross-Module, ADR-0013 §5
 
@@ -22,10 +23,10 @@ concerns must be balanced:
 3. **Memory safety**: Source databases may be large; no module may load an
    entire table into memory.
 4. **Cross-module isolation**: The `SubsettingEngine` lives in
-   `modules/ingestion/` and must not import `SchemaReflector` or
-   `DirectedAcyclicGraph` from the same package directly.  Downstream modules
+   `modules/subsetting/` and must not import `SchemaReflector` or
+   `DirectedAcyclicGraph` directly.  Downstream modules
    (Profiler, Synthesizer) must similarly receive schema information without
-   importing ingestion-internal types.
+   importing subsetting-internal types.
 5. **Security**: All SQL must use parameterised queries; no f-string
    interpolation of user-controlled values.
 
@@ -104,9 +105,9 @@ injects it into downstream modules.  This preserves import-linter contract
 compliance across all module boundaries.
 
 `SchemaTopology` is frozen (`@dataclass(frozen=True)`) to prevent mutation
-after construction.  It lives in `shared/` (not `modules/ingestion/`) so that
+after construction.  It lives in `shared/` (not `modules/subsetting/`) so that
 all downstream modules (Profiler, Synthesizer) can import it without violating
-the ingestion independence contract.
+the subsetting independence contract.
 
 ### 5. Why TRUNCATE Rather Than DELETE
 
@@ -145,7 +146,7 @@ Canonical usage pattern:
 ```python
 # In an async FastAPI handler or bootstrapper orchestrator:
 import asyncio
-from synth_engine.modules.ingestion.core import SubsettingEngine
+from synth_engine.modules.subsetting.core import SubsettingEngine
 
 result = await asyncio.to_thread(engine.run, seed_table, seed_query)
 ```
@@ -155,13 +156,13 @@ Contract, T2.1 Redis sync/async boundary, T2.4 PBKDF2 sync/async boundary.
 
 ### 7. row_transformer Injection Contract
 
-**Rationale for IoC over direct import**: `modules/ingestion` and
+**Rationale for IoC over direct import**: `modules/subsetting` and
 `modules/masking` are independence-contracted by import-linter.  A direct
 import of any masking callable from `core.py` would cause import-linter to
 fail CI.  The solution is inversion of control: the bootstrapper constructs a
 masking callable (using `MaskingRegistry` or equivalent) and injects it into
 `SubsettingEngine` at construction time via the `row_transformer` parameter.
-The ingestion module never acquires a dependency on masking; the module
+The subsetting module never acquires a dependency on masking; the module
 boundary is preserved entirely.
 
 **Callback signature and purity contract**:
@@ -193,13 +194,28 @@ via `SubsettingEngine.__init__()`.  The test file
 `tests/integration/test_e2e_subsetting.py` contains the canonical reference
 implementation of this pattern: the `_mask_row` function demonstrates how the
 bootstrapper should construct a table-aware, column-dispatching transformer
-that calls masking algorithms without the ingestion module ever importing from
+that calls masking algorithms without the subsetting module ever importing from
 `modules/masking`.
 
 **Cross-reference**: ADR-0014 (`docs/adr/ADR-0014-masking-engine.md`) is the
 canonical source of the masking algorithm callable implementations
 (`mask_email`, `mask_name`, `mask_ssn`, etc.) that the bootstrapper wires into
 the transformer.
+
+---
+
+## File Locations (updated T3.5.2)
+
+| Class | File |
+|---|---|
+| `DagTraversal` | `src/synth_engine/modules/subsetting/traversal.py` |
+| `SubsettingEngine` | `src/synth_engine/modules/subsetting/core.py` |
+| `SubsetResult` | `src/synth_engine/modules/subsetting/core.py` |
+| `EgressWriter` | `src/synth_engine/modules/subsetting/egress.py` |
+
+These files were originally in `src/synth_engine/modules/ingestion/` and were moved to
+`src/synth_engine/modules/subsetting/` in Task P3.5-T3.5.2 (Module Cohesion Refactor) to give
+each module a single coherent responsibility.
 
 ---
 
@@ -236,4 +252,5 @@ the transformer.
 | Loading full tables then filtering | Exceeds memory constraints for large schemas |
 | Importing `SchemaReflector` directly in `SubsettingEngine` | Violates import-linter independence contract |
 | Storing SchemaTopology as a dict/TypedDict | Mutable and harder to type strictly; frozen dataclass provides stronger safety guarantees |
-| Direct import of masking callables in `core.py` | Violates import-linter ingestion↔masking independence contract; IoC via `row_transformer` is the correct pattern |
+| Direct import of masking callables in `core.py` | Violates import-linter subsetting↔masking independence contract; IoC via `row_transformer` is the correct pattern |
+| Keeping traversal.py/core.py/egress.py in modules/ingestion/ | Violates single-responsibility principle; ingestion should only ingest (connect, privilege-check, stream rows). The subsetting concern is distinct. Separated in T3.5.2. |

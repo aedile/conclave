@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from synth_engine.modules.ingestion.graph import CycleDetectionError, DirectedAcyclicGraph
+from synth_engine.modules.mapping.graph import CycleDetectionError, DirectedAcyclicGraph
 
 
 class TestEmptyAndSingleNode:

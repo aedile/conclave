@@ -29,9 +29,9 @@ import pytest
 from pytest_postgresql import factories
 from sqlalchemy import create_engine, text
 
-from synth_engine.modules.ingestion.core import SubsettingEngine
-from synth_engine.modules.ingestion.egress import EgressWriter
 from synth_engine.modules.masking.algorithms import mask_email, mask_name, mask_ssn
+from synth_engine.modules.subsetting.core import SubsettingEngine
+from synth_engine.modules.subsetting.egress import EgressWriter
 from synth_engine.shared.schema_topology import (
     ColumnInfo,
     ForeignKeyInfo,

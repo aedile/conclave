@@ -15,7 +15,7 @@ import pytest
 import sqlalchemy.exc
 from sqlalchemy import Engine
 
-from synth_engine.modules.ingestion.egress import EgressWriter
+from synth_engine.modules.subsetting.egress import EgressWriter
 
 # ---------------------------------------------------------------------------
 # Helpers

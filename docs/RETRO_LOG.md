@@ -32,10 +32,24 @@ Drain (delete) rows when their target task is completed.
 | ADV-027 | DevOps P3-T3.3 | Before any export of masked data outside air-gapped environment | The HMAC "key" in `deterministic_hash()` is a predictable schema-derived string (e.g. `"users.email"`), not a secret. The real-to-fake PII mapping is reversible by anyone with schema knowledge and the Faker version. Acceptable within the air-gapped engine; if masked data is ever exported to a less-trusted context, add a threat-model entry to ADR-0014. Also: the module-level `_FAKER` singleton is not thread-safe; re-evaluation required before any async or multi-threaded pipeline is introduced. |
 | ADV-032 | DevOps T3.5.1 | devops-reviewer agent update (T3.5.5 or standalone) | CI job permissions must be added in the same commit as the step that requires them, not speculatively for "future use." `security-events: write` was granted in the trivy-scan job before a SARIF upload step existed (caught and removed in this PR). Add a checklist item to `.claude/agents/devops-reviewer.md`: "no-speculative-permissions: Does any job hold a permission that no current step in that job uses? If yes, FINDING." |
 | ADV-033 | QA T3.5.1 | devops-reviewer agent update (T3.5.5 or standalone) | CI job-level consistency check gap: the `integration-test` job's `snok/install-poetry` step was missing the `version: "2.2.1"` pin present in all other jobs (caught and fixed in this PR). The devops-reviewer checklist has no item for cross-job consistency of shared setup steps. Add: "job-consistency: Do all jobs that install Poetry/Node/Python pin the same version? Divergence = FINDING." |
+| ADV-034 | QA T3.5.2 | T3.5.5 advisory sweep | `vulture --min-confidence 60` produces ~10 false positives from the `__init__.py` re-export pattern (e.g., `nodes`, `edges`, `reflect`, `run` appearing "unused"). These are pre-existing; 80%-confidence gate is clean. Add a `whitelist.py` or inline `# noqa` annotations to suppress known false positives before they accumulate enough to mask a real dead-code finding. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-14] P3.5-T3.5.2 — Module Cohesion Refactor
+
+**Architecture** (PASS, one fix applied):
+file-placement PASS — all files exactly where backlog spec requires. naming-conventions FINDING (fixed) — `test_subsetting_transversal.py` misspelled; renamed to `test_subsetting_traversal.py`. dependency-direction PASS — mapping imports only sqlalchemy/stdlib; subsetting imports only shared/ (receives SchemaTopology via constructor injection, no import-level dependency on mapping); ingestion does not import from either; no module imports bootstrapper. abstraction-level PASS — bootstrapper-as-value-courier pattern correctly applied. interface-contracts advisory — EgressWriter.commit() no-op is inherited T3.4 debt; explicitly in T3.5.4 scope. adr-compliance PASS — ADR-0013 and ADR-0015 updated; subsetting→mapping exception documented in both. Retrospective: textbook cohesion decomposition; dependency direction is clean; test file naming should receive same rigor as production naming.
+
+**QA** (PASS):
+All 6 AC items verified. 287 tests, 97.90% coverage. Vulture 80% clean; 60% produces 10 false positives from `__init__.py` re-export pattern — all confirmed reachable. Edge-cases, error-paths, public-api-coverage, meaningful-asserts all PASS. New advisory ADV-034: add vulture whitelist before false positives mask real findings. Retrospective: test suite is adversarially strong for a refactor ticket; no new debt introduced.
+
+**DevOps** (PASS):
+gitleaks clean (124 commits). B608 nosec annotations travel intact through renames (100% similarity) — correct pattern. pyproject.toml changes confined to import-linter contracts only; no new packages; pip-audit clean. Forward advisory: if logging is added to traversal/egress in Phase 4 (both handle raw row data), PIIFilter wiring will be required. Retrospective: import-linter contracts are the right CI leverage point; subsetting→mapping exception is intentionally narrow — watch for scope creep in future PRs.
 
 ---
 

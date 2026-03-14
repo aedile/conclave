@@ -152,15 +152,35 @@ source = ["src/synth_engine", "*/synth_engine"]
 [tool.importlinter]
 root_packages = ["synth_engine"]
 
+# ingestion, mapping, masking, profiler, synthesizer, privacy are all mutually
+# independent EXCEPT that subsetting may import from mapping (it needs the DAG
+# structure).  subsetting is therefore excluded from this independence contract
+# and handled by a dedicated allowed-import contract below.
 [[tool.importlinter.contracts]]
-name = "Module independence: ingestion, profiler, masking, synthesizer, privacy are independent"
+name = "Module independence: ingestion, mapping, profiler, masking, synthesizer, privacy are independent"
 type = "independence"
 modules = [
     "synth_engine.modules.ingestion",
+    "synth_engine.modules.mapping",
     "synth_engine.modules.profiler",
     "synth_engine.modules.masking",
     "synth_engine.modules.synthesizer",
     "synth_engine.modules.privacy",
+]
+
+# subsetting may import from mapping (DagTraversal needs the topology types);
+# it must not import from any other module or from bootstrapper.
+[[tool.importlinter.contracts]]
+name = "subsetting may only import from mapping (not other modules or bootstrapper)"
+type = "forbidden"
+source_modules = ["synth_engine.modules.subsetting"]
+forbidden_modules = [
+    "synth_engine.modules.ingestion",
+    "synth_engine.modules.masking",
+    "synth_engine.modules.profiler",
+    "synth_engine.modules.synthesizer",
+    "synth_engine.modules.privacy",
+    "synth_engine.bootstrapper",
 ]
 
 [[tool.importlinter.contracts]]
@@ -168,6 +188,8 @@ name = "Modules must not import from bootstrapper"
 type = "forbidden"
 source_modules = [
     "synth_engine.modules.ingestion",
+    "synth_engine.modules.mapping",
+    "synth_engine.modules.subsetting",
     "synth_engine.modules.profiler",
     "synth_engine.modules.masking",
     "synth_engine.modules.synthesizer",
@@ -182,6 +204,8 @@ type = "forbidden"
 source_modules = ["synth_engine.shared"]
 forbidden_modules = [
     "synth_engine.modules.ingestion",
+    "synth_engine.modules.mapping",
+    "synth_engine.modules.subsetting",
     "synth_engine.modules.profiler",
     "synth_engine.modules.synthesizer",
     "synth_engine.modules.masking",

@@ -1,4 +1,4 @@
-"""Schema reflection module for the Conclave Engine ingestion pipeline.
+"""Schema reflection module for the Conclave Engine mapping pipeline.
 
 Reflects a PostgreSQL database schema into a :class:`DirectedAcyclicGraph`
 using SQLAlchemy's ``inspect()`` API.  Only explicit foreign-key relationships
@@ -7,9 +7,10 @@ user-inferred FK mappings are deferred (see ADR-0013).
 
 Architecture note
 -----------------
-This module may only import from ``synth_engine.modules.ingestion`` (sibling
-files) and the Python standard library.  Cross-module imports are forbidden by
-import-linter contracts defined in ``pyproject.toml``.
+This module lives in ``synth_engine.modules.mapping`` and may only import from
+sibling files within that package and the Python standard library.
+Cross-module imports are forbidden by import-linter contracts defined in
+``pyproject.toml``.
 
 ADV-012 compliance:
 - ``get_columns()`` passes SQLAlchemy's ``primary_key`` integer values through
@@ -25,6 +26,7 @@ than creating a new inspector on each invocation.
 ADR-0013: Relational Mapping DAG and Topological Sort Design.
 CONSTITUTION Priority 0: Security -- no external calls, no PII exposure.
 Task: P3-T3.2 -- Relational Mapping & Topological Sort
+Task: P3.5-T3.5.2 -- Module Cohesion Refactor (moved from modules/ingestion/)
 ADV-023, ADV-024: Inspector caching and type-ignore justifications (T3.4).
 """
 
@@ -35,7 +37,7 @@ from typing import Any
 from sqlalchemy import Engine, inspect
 from sqlalchemy.engine import Inspector
 
-from synth_engine.modules.ingestion.graph import DirectedAcyclicGraph
+from synth_engine.modules.mapping.graph import DirectedAcyclicGraph
 
 
 class SchemaReflector:

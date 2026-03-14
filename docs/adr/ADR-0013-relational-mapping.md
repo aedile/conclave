@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-03-13
 **Task:** P3-T3.2 -- Relational Mapping & Topological Sort
+**Updated:** P3.5-T3.5.2 -- Module Cohesion Refactor (file paths updated)
 **Author:** Conclave Engine Development Team
 
 ---
@@ -13,7 +14,7 @@ The synthetic data generation pipeline must process database tables in dependenc
 holding a foreign key referencing another table (the "parent") cannot be synthesised before the
 parent has been processed -- doing so would violate referential integrity in the output dataset.
 
-The ingestion module needs a mechanism to:
+The mapping module needs a mechanism to:
 
 1. Extract the schema topology from the connected source database (tables, columns, FKs).
 2. Represent that topology as a directed graph.
@@ -26,8 +27,8 @@ The ingestion module needs a mechanism to:
 
 ### 1. Schema Reflection via SQLAlchemy `inspect()`
 
-`SchemaReflector` (in `reflection.py`) wraps SQLAlchemy's `inspect()` facade to expose three
-discrete methods:
+`SchemaReflector` (in `src/synth_engine/modules/mapping/reflection.py`) wraps SQLAlchemy's
+`inspect()` facade to expose three discrete methods:
 
 | Method | Returns |
 |---|---|
@@ -41,7 +42,7 @@ Callers MUST use `>= 1` (not `== 1`) to correctly identify composite PK members 
 
 ### 2. DirectedAcyclicGraph with Explicit FK Edges Only
 
-`DirectedAcyclicGraph` (in `graph.py`) stores:
+`DirectedAcyclicGraph` (in `src/synth_engine/modules/mapping/graph.py`) stores:
 
 - `_nodes: set[str]` -- all table names.
 - `_adjacency: dict[str, list[str]]` -- parent -> [children] mapping.
@@ -93,7 +94,7 @@ performs DFS with a recursion stack to identify the actual participating nodes a
 cycle. The exception message includes the full cycle representation so that the user can
 identify which tables need cycle-breaking rules.
 
-`CycleDetectionError` is defined in `graph.py` (not in `shared/`): it is an ingestion-domain
+`CycleDetectionError` is defined in `graph.py` (not in `shared/`): it is a mapping-domain
 concept and should not leak into cross-cutting utilities.
 
 Common cycle sources:
@@ -106,23 +107,41 @@ can proceed.
 
 ### 5. Inter-Module Data Handoff
 
-`SchemaReflector` lives inside `synth_engine.modules.ingestion`. Per [ADR-0001], only
-`bootstrapper` may orchestrate across modules; no module may import from another module directly.
+`SchemaReflector` lives inside `synth_engine.modules.mapping`. Per [ADR-0001], only
+`bootstrapper` may orchestrate across modules; no module may import from another module
+directly (with the narrow exception: `subsetting` may import from `mapping`).
 
-When downstream modules (T3.4 Subsetting Core, Phase 4 Synthesizer, Profiler) need the
+When downstream modules (Subsetting, Phase 4 Synthesizer, Profiler) need the
 topological ordering or column metadata produced by this module, the following pattern MUST
 be used:
 
 1. **Bootstrapper calls** `SchemaReflector.reflect()` and
    `DirectedAcyclicGraph.topological_sort()` at job-initialization time.
 2. **Bootstrapper packages** the result into a neutral, stdlib-only data structure (dataclass or
-   `TypedDict`) defined in `synth_engine/shared/` -- NOT in `modules/ingestion/`.
+   `TypedDict`) defined in `synth_engine/shared/` -- NOT in `modules/mapping/`.
 3. **Downstream modules receive** the packaged schema topology via constructor injection from
-   bootstrapper. They MUST NOT import from `synth_engine.modules.ingestion` directly.
+   bootstrapper. They MUST NOT import from `synth_engine.modules.mapping` directly
+   (exception: `modules/subsetting` is explicitly allowed to import from `modules/mapping`
+   per the import-linter contract added in T3.5.2).
 
 This is the same pattern documented in [ADR-0012] (PostgresIngestionAdapter cross-module gap).
 Direct import of `SchemaReflector`, `DirectedAcyclicGraph`, or `CycleDetectionError` by any
-module outside `synth_engine.modules.ingestion` will fail the import-linter CI gate.
+module outside `synth_engine.modules.mapping` (other than `synth_engine.modules.subsetting`)
+will fail the import-linter CI gate.
+
+---
+
+## File Locations (updated T3.5.2)
+
+| Class | File |
+|---|---|
+| `DirectedAcyclicGraph` | `src/synth_engine/modules/mapping/graph.py` |
+| `CycleDetectionError` | `src/synth_engine/modules/mapping/graph.py` |
+| `SchemaReflector` | `src/synth_engine/modules/mapping/reflection.py` |
+
+These files were originally in `src/synth_engine/modules/ingestion/` and were moved to
+`src/synth_engine/modules/mapping/` in Task P3.5-T3.5.2 (Module Cohesion Refactor) to give
+each module a single coherent responsibility.
 
 ---
 
@@ -140,7 +159,7 @@ module outside `synth_engine.modules.ingestion` will fail the import-linter CI g
   SQLAlchemy's reflection API via the engine, which has already been validated by T3.1's
   privilege pre-flight check.
 - **Boundary compliance:** `graph.py` imports only from the standard library.
-  `reflection.py` imports from `sqlalchemy` and `synth_engine.modules.ingestion.graph`.
+  `reflection.py` imports from `sqlalchemy` and `synth_engine.modules.mapping.graph`.
   Neither module violates import-linter contracts.
 - **API symmetry:** Both `add_node()` and `add_edge()` are idempotent, eliminating a class of
   silent correctness bugs in callers that process schemas with redundant FK constraints.
@@ -150,7 +169,7 @@ module outside `synth_engine.modules.ingestion` will fail the import-linter CI g
 - **No virtual FK support:** Schemas relying on application-enforced FKs (no DB constraints)
   will produce a DAG with no edges between logically related tables. Processing order will be
   arbitrary for those table pairs. This is acceptable for Phase 3; virtual FK support is a
-  Phase 4 enhancement.
+  Phase 4 enhancement (T3.5.3).
 - **Cycle-breaking is manual:** The engine raises `CycleDetectionError` but does not suggest
   or apply a resolution. Users must supply explicit rules. This is intentional: automatic
   cycle-breaking could produce incorrect output silently.
@@ -167,5 +186,6 @@ module outside `synth_engine.modules.ingestion` will fail the import-linter CI g
 | NetworkX library for DAG | External dependency with no air-gap approval; stdlib `collections.deque` suffices for Kahn's Algorithm. |
 | DFS-only topological sort | Kahn's Algorithm directly integrates cycle detection via in-degree residual check, making it simpler and more readable than DFS with coloring. |
 | Inferring virtual FKs from column names | Ambiguous in real-world schemas; deferred to explicit user configuration. |
-| Storing `CycleDetectionError` in `shared/` | It is ingestion-specific; placing it in `shared/` would violate the principle of minimal shared surface area. |
+| Storing `CycleDetectionError` in `shared/` | It is mapping-domain-specific; placing it in `shared/` would violate the principle of minimal shared surface area. |
 | Non-idempotent add_edge() (original) | Produces silent duplicate edges and double-counted in-degrees on composite FK schemas; asymmetric API contract vs. idempotent add_node(). |
+| Keeping graph.py/reflection.py in modules/ingestion/ | Violates single-responsibility principle; ingestion should only ingest (connect, privilege-check, stream rows). The mapping concern is distinct. Separated in T3.5.2. |

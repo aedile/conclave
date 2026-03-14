@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from synth_engine.modules.ingestion.core import SubsetResult, SubsettingEngine
-from synth_engine.modules.ingestion.egress import EgressWriter
+from synth_engine.modules.subsetting.core import SubsetResult, SubsettingEngine
+from synth_engine.modules.subsetting.egress import EgressWriter
 from synth_engine.shared.schema_topology import (
     ColumnInfo,
     SchemaTopology,
@@ -129,7 +129,7 @@ class TestSubsettingEngineOrchestration:
         mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}])])
 
         with patch(
-            "synth_engine.modules.ingestion.core.DagTraversal",
+            "synth_engine.modules.subsetting.core.DagTraversal",
             return_value=mock_traversal,
         ) as mock_cls:
             se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
@@ -155,7 +155,7 @@ class TestSubsettingEngineOrchestration:
         )
 
         with patch(
-            "synth_engine.modules.ingestion.core.DagTraversal",
+            "synth_engine.modules.subsetting.core.DagTraversal",
             return_value=mock_traversal,
         ):
             se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
@@ -184,7 +184,7 @@ class TestSubsettingEngineOrchestration:
         mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}])])
 
         with patch(
-            "synth_engine.modules.ingestion.core.DagTraversal",
+            "synth_engine.modules.subsetting.core.DagTraversal",
             return_value=mock_traversal,
         ):
             se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
@@ -207,7 +207,7 @@ class TestSubsettingEngineOrchestration:
         mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}, {"id": 2}])])
 
         with patch(
-            "synth_engine.modules.ingestion.core.DagTraversal",
+            "synth_engine.modules.subsetting.core.DagTraversal",
             return_value=mock_traversal,
         ):
             se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
@@ -239,7 +239,7 @@ class TestSubsettingEngineOrchestration:
             return None
 
         with patch(
-            "synth_engine.modules.ingestion.core.DagTraversal",
+            "synth_engine.modules.subsetting.core.DagTraversal",
             return_value=mock_traversal,
         ):
             se = SubsettingEngine(
@@ -275,7 +275,7 @@ class TestSubsettingEngineOrchestration:
             raise RuntimeError("transform failed")
 
         with patch(
-            "synth_engine.modules.ingestion.core.DagTraversal",
+            "synth_engine.modules.subsetting.core.DagTraversal",
             return_value=mock_traversal,
         ):
             se = SubsettingEngine(

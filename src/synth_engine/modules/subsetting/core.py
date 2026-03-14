@@ -3,15 +3,15 @@
 The SubsettingEngine is the primary entry point for the subsetting pipeline.
 It receives a :class:`~synth_engine.shared.schema_topology.SchemaTopology`
 value object (bootstrapper-injected) rather than importing
-:class:`~synth_engine.modules.ingestion.reflection.SchemaReflector` or
-:class:`~synth_engine.modules.ingestion.graph.DirectedAcyclicGraph` directly.
+:class:`~synth_engine.modules.mapping.reflection.SchemaReflector` or
+:class:`~synth_engine.modules.mapping.graph.DirectedAcyclicGraph` directly.
 
 This satisfies the bootstrapper-as-value-courier pattern mandated by
 ADR-0001, ADR-0012 §Cross-module, and ADR-0013 §5.
 
 Architecture note
 -----------------
-This module may only import from ``synth_engine.modules.ingestion`` (sibling
+This module may only import from ``synth_engine.modules.subsetting`` (sibling
 files) and ``synth_engine.shared``.  Cross-module imports from masking,
 profiler, synthesizer, privacy, or bootstrapper are forbidden by import-linter
 contracts.
@@ -33,8 +33,8 @@ from typing import Any
 
 from sqlalchemy import Engine
 
-from synth_engine.modules.ingestion.egress import EgressWriter
-from synth_engine.modules.ingestion.traversal import DagTraversal
+from synth_engine.modules.subsetting.egress import EgressWriter
+from synth_engine.modules.subsetting.traversal import DagTraversal
 from synth_engine.shared.schema_topology import SchemaTopology
 
 

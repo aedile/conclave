@@ -12,10 +12,10 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy import Engine
 
-from synth_engine.modules.ingestion.graph import DirectedAcyclicGraph
-from synth_engine.modules.ingestion.reflection import SchemaReflector
+from synth_engine.modules.mapping.graph import DirectedAcyclicGraph
+from synth_engine.modules.mapping.reflection import SchemaReflector
 
-_INSPECT = "synth_engine.modules.ingestion.reflection.inspect"
+_INSPECT = "synth_engine.modules.mapping.reflection.inspect"
 
 
 def _make_engine() -> Engine:

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 from sqlalchemy import Engine
 
-from synth_engine.modules.ingestion.traversal import DagTraversal
+from synth_engine.modules.subsetting.traversal import DagTraversal
 from synth_engine.shared.schema_topology import (
     ColumnInfo,
     ForeignKeyInfo,
