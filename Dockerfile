@@ -30,7 +30,8 @@ RUN apt-get update \
     && pip install --no-cache-dir poetry poetry-plugin-export
 
 # Copy dependency manifests only — invalidate this layer only when they change
-COPY pyproject.toml poetry.lock ./
+# README.md is required by pyproject.toml (readme = "README.md") for package metadata
+COPY pyproject.toml poetry.lock README.md ./
 
 # Export production deps to requirements.txt (no hashes for air-gap compat)
 RUN poetry export \
