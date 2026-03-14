@@ -18,16 +18,16 @@ Security notes
 
 Architecture note
 -----------------
-This module lives at the top of ``synth_engine`` (not inside a sub-module)
-because it is the application's CLI entry point — analogous to
-``bootstrapper/main.py`` for the HTTP layer.  It wires the masking
+This module lives in ``bootstrapper/`` as the CLI entry point — analogous
+to ``bootstrapper/main.py`` for the HTTP layer.  It wires the masking
 registry into the subsetting engine via the ``row_transformer`` IoC hook,
-the same pattern used in the bootstrapper.
+the same pattern used in the HTTP bootstrapper.
 
 This module imports from ``modules/masking`` intentionally: ``cli.py`` is
-a top-level wiring layer equivalent in rank to ``bootstrapper/``, not a
-module peer.  The import-linter contracts do not apply to ``cli.py`` because
-it is not under ``modules/``.
+inside ``bootstrapper/``, which is the wiring layer responsible for
+composing modules together.  The import-linter contracts apply only to the
+``modules/`` and ``shared/`` namespaces; ``bootstrapper/`` is explicitly
+allowed to import from any module.
 
 CONSTITUTION Priority 0: Security — no credential echo, SELECT-only validation.
 Task: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
@@ -46,6 +46,7 @@ from synth_engine.modules.ingestion.validators import validate_connection_string
 from synth_engine.modules.masking.algorithms import mask_email, mask_name, mask_ssn
 from synth_engine.modules.subsetting.core import SubsettingEngine
 from synth_engine.modules.subsetting.egress import EgressWriter
+from synth_engine.shared.schema_topology import ColumnInfo, ForeignKeyInfo, SchemaTopology
 
 # ---------------------------------------------------------------------------
 # Masking transformer factory
@@ -111,12 +112,16 @@ def _build_masking_transformer() -> Callable[[str, dict[str, Any]], dict[str, An
 # ---------------------------------------------------------------------------
 
 
-def _load_topology(source_dsn: str) -> Any:
+def _load_topology(source_dsn: str) -> SchemaTopology:
     """Reflect the schema topology from the source database.
 
     Uses :class:`~synth_engine.modules.mapping.reflection.SchemaReflector`
     to build a :class:`~synth_engine.shared.schema_topology.SchemaTopology`
-    value object from the live source schema.
+    value object from the live source schema.  The bootstrapper is the sole
+    layer permitted to call ``SchemaReflector.reflect()`` and convert the
+    resulting :class:`~synth_engine.modules.mapping.graph.DirectedAcyclicGraph`
+    into the :class:`~synth_engine.shared.schema_topology.SchemaTopology`
+    that downstream modules (SubsettingEngine) consume.
 
     Args:
         source_dsn: The validated source PostgreSQL connection string.
@@ -134,7 +139,38 @@ def _load_topology(source_dsn: str) -> Any:
 
     engine = create_engine(source_dsn)
     reflector = SchemaReflector(engine=engine)
-    return reflector.reflect()
+    dag = reflector.reflect()
+    table_order = tuple(dag.topological_sort())
+
+    columns: dict[str, tuple[ColumnInfo, ...]] = {}
+    foreign_keys: dict[str, tuple[ForeignKeyInfo, ...]] = {}
+
+    for table in table_order:
+        raw_cols = reflector.get_columns(table)
+        columns[table] = tuple(
+            ColumnInfo(
+                name=str(col["name"]),
+                type=str(col.get("type", "")),
+                primary_key=int(col.get("primary_key", 0)),
+                nullable=bool(col.get("nullable", True)),
+            )
+            for col in raw_cols
+        )
+        raw_fks = reflector.get_foreign_keys(table)
+        foreign_keys[table] = tuple(
+            ForeignKeyInfo(
+                constrained_columns=tuple(str(c) for c in fk.get("constrained_columns", [])),
+                referred_table=str(fk["referred_table"]),
+                referred_columns=tuple(str(c) for c in fk.get("referred_columns", [])),
+            )
+            for fk in raw_fks
+        )
+
+    return SchemaTopology(
+        table_order=table_order,
+        columns=columns,
+        foreign_keys=foreign_keys,
+    )
 
 
 # ---------------------------------------------------------------------------
