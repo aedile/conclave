@@ -12,6 +12,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+import sqlalchemy.exc
 from sqlalchemy import Engine
 
 from synth_engine.modules.ingestion.egress import EgressWriter
@@ -51,7 +52,7 @@ class TestEgressWriterWrite:
     """EgressWriter.write() — row insertion into target database."""
 
     def test_write_rows_inserts_to_target(self) -> None:
-        """write() executes an INSERT for each row batch."""
+        """write() executes an INSERT for each row in the batch."""
         engine = _make_engine()
         conn = _make_conn_ctx(engine)
 
@@ -60,8 +61,8 @@ class TestEgressWriterWrite:
 
         writer.write("departments", rows)
 
-        # The connection's execute should have been called (insert logic)
-        assert conn.execute.call_count >= 1
+        # One execute() call per row (INSERT executed row-by-row)
+        assert conn.execute.call_count == len(rows)
 
     def test_write_empty_rows_is_noop(self) -> None:
         """write() with an empty row list does not call execute."""
@@ -94,6 +95,22 @@ class TestEgressWriterWrite:
         writer.write("departments", [{"id": 2}])
 
         assert writer.written_tables.count("departments") == 1
+
+    def test_write_propagates_sqlalchemy_error(self) -> None:
+        """write() does not swallow SQLAlchemyError — it propagates to the caller.
+
+        The Saga contract requires that any write failure be visible to
+        SubsettingEngine so it can invoke rollback().  Silencing the exception
+        here would break the Saga invariant.
+        """
+        engine = _make_engine()
+        conn = _make_conn_ctx(engine)
+        conn.execute.side_effect = sqlalchemy.exc.SQLAlchemyError("DB write failed")
+
+        writer = EgressWriter(target_engine=engine)
+
+        with pytest.raises(sqlalchemy.exc.SQLAlchemyError, match="DB write failed"):
+            writer.write("departments", [{"id": 1, "name": "Engineering"}])
 
 
 class TestEgressWriterRollback:
@@ -136,6 +153,25 @@ class TestEgressWriterRollback:
         writer = EgressWriter(target_engine=engine)
 
         writer.rollback()  # Must not raise or connect
+
+        engine.connect.assert_not_called()
+
+
+class TestEgressWriterCommit:
+    """EgressWriter.commit() — no-op finalisation hook."""
+
+    def test_commit_is_noop(self) -> None:
+        """commit() on a fresh writer does not call engine.connect() and raises no exception.
+
+        commit() is an intentional no-op (individual write() calls commit per
+        batch).  It exists as an explicit hook for the context manager and for
+        future transactional extension.  Callers must be able to invoke it
+        safely without any side-effects.
+        """
+        engine = _make_engine()
+        writer = EgressWriter(target_engine=engine)
+
+        writer.commit()  # Must not raise
 
         engine.connect.assert_not_called()
 

@@ -128,6 +128,31 @@ the ingestion independence contract.
 This is acceptable because the target database is used exclusively by the
 subsetting pipeline during a run.
 
+### 6. Async Call-Site Contract
+
+`SubsettingEngine.run()` is **synchronous** — it is backed by the blocking
+psycopg2 driver (consistent with the precedent established in ADR-0012 for
+`PostgresIngestionAdapter`, and the sync/async boundaries in T2.1 and T2.4).
+
+**Mandatory call-site contract:** Any caller invoking `SubsettingEngine.run()`
+from an async context (e.g., a FastAPI route handler or an async bootstrapper
+orchestrator) **MUST** wrap the call via `asyncio.to_thread()` to avoid
+blocking the event loop.  Calling `run()` directly from a coroutine will block
+all concurrent requests and violate the async-first mandate in ADR-0001.
+
+Canonical usage pattern:
+
+```python
+# In an async FastAPI handler or bootstrapper orchestrator:
+import asyncio
+from synth_engine.modules.ingestion.core import SubsettingEngine
+
+result = await asyncio.to_thread(engine.run, seed_table, seed_query)
+```
+
+Cross-reference: ADR-0001 (async-first mandate), ADR-0012 §Async Call-Site
+Contract, T2.1 Redis sync/async boundary, T2.4 PBKDF2 sync/async boundary.
+
 ---
 
 ## Consequences

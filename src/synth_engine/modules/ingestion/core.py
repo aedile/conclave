@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import Engine
 
 from synth_engine.modules.ingestion.egress import EgressWriter
-from synth_engine.modules.ingestion.transversal import DagTraversal
+from synth_engine.modules.ingestion.traversal import DagTraversal
 from synth_engine.shared.schema_topology import SchemaTopology
 
 
@@ -95,6 +95,15 @@ class SubsettingEngine:
 
         Validates inputs, traverses the DAG from the seed table, writes rows
         to the target, and returns a :class:`SubsetResult`.
+
+        **Synchronous method** — backed by the blocking psycopg2 driver.
+        Callers in async contexts (e.g., FastAPI route handlers or bootstrapper
+        orchestrators) **MUST** wrap this call via ``asyncio.to_thread()`` to
+        avoid blocking the event loop::
+
+            result = await asyncio.to_thread(engine.run, seed_table, seed_query)
+
+        See ADR-0015 §Async Call-Site Contract and ADR-0012 §Sync/Async Boundary.
 
         Args:
             seed_table: Starting table name.  Must be present in
