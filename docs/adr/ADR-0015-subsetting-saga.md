@@ -153,6 +153,54 @@ result = await asyncio.to_thread(engine.run, seed_table, seed_query)
 Cross-reference: ADR-0001 (async-first mandate), ADR-0012 §Async Call-Site
 Contract, T2.1 Redis sync/async boundary, T2.4 PBKDF2 sync/async boundary.
 
+### 7. row_transformer Injection Contract
+
+**Rationale for IoC over direct import**: `modules/ingestion` and
+`modules/masking` are independence-contracted by import-linter.  A direct
+import of any masking callable from `core.py` would cause import-linter to
+fail CI.  The solution is inversion of control: the bootstrapper constructs a
+masking callable (using `MaskingRegistry` or equivalent) and injects it into
+`SubsettingEngine` at construction time via the `row_transformer` parameter.
+The ingestion module never acquires a dependency on masking; the module
+boundary is preserved entirely.
+
+**Callback signature and purity contract**:
+
+```python
+Callable[[str, dict[str, Any]], dict[str, Any]]
+```
+
+- First argument — `table_name: str`: the name of the table currently being
+  processed.  The transformer uses this to look up which columns require
+  masking in that table.
+- Second argument — `row: dict[str, Any]`: a single source row as a plain
+  Python dict (column name → value).
+- Return value — `dict[str, Any]`: the transformed row.  **MUST NOT return
+  `None`.**  Returning `None` causes `SubsettingEngine.run()` to raise
+  `TypeError` immediately and trigger the Saga rollback.
+- **Purity**: the transformer MUST be a pure function with no observable side
+  effects (no I/O, no mutation of shared state, no modification of the input
+  dict in place).
+- **Error contract**: the transformer MUST NOT raise unless the row is
+  genuinely unprocessable.  Any exception raised by the transformer propagates
+  to `SubsettingEngine.run()`'s `except` block, which calls
+  `egress.rollback()` and re-raises.  This ensures the Saga invariant (target
+  left clean) is preserved even on transformer failures.
+
+**Bootstrapper responsibility**: The Phase 4/5 bootstrapper is responsible for
+constructing the transformer callable using `MaskingRegistry` and injecting it
+via `SubsettingEngine.__init__()`.  The test file
+`tests/integration/test_e2e_subsetting.py` contains the canonical reference
+implementation of this pattern: the `_mask_row` function demonstrates how the
+bootstrapper should construct a table-aware, column-dispatching transformer
+that calls masking algorithms without the ingestion module ever importing from
+`modules/masking`.
+
+**Cross-reference**: ADR-0014 (`docs/adr/ADR-0014-masking-engine.md`) is the
+canonical source of the masking algorithm callable implementations
+(`mask_email`, `mask_name`, `mask_ssn`, etc.) that the bootstrapper wires into
+the transformer.
+
 ---
 
 ## Consequences
@@ -188,3 +236,4 @@ Contract, T2.1 Redis sync/async boundary, T2.4 PBKDF2 sync/async boundary.
 | Loading full tables then filtering | Exceeds memory constraints for large schemas |
 | Importing `SchemaReflector` directly in `SubsettingEngine` | Violates import-linter independence contract |
 | Storing SchemaTopology as a dict/TypedDict | Mutable and harder to type strictly; frozen dataclass provides stronger safety guarantees |
+| Direct import of masking callables in `core.py` | Violates import-linter ingestion↔masking independence contract; IoC via `row_transformer` is the correct pattern |
