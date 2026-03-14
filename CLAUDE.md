@@ -392,6 +392,54 @@ def score_match(synthetic dataset: synthetic dataset, job: JobDescription) -> Ma
 
 ---
 
+## Spike-to-Production Promotion Checklist
+(ADV-011 — Added Phase 4 Kickoff 2026-03-14; supersedes reference to retired AUTONOMOUS_DEVELOPMENT_PROMPT.md)
+
+Before any code from `spikes/` is promoted into `src/synth_engine/`, the promoting developer
+MUST verify ALL of the following. This checklist is mandatory — partial promotion is not permitted.
+
+### Pre-Promotion Gates
+
+1. **Silent failure audit** — Search for all `except ...: pass` blocks. Each must be replaced
+   with `logger.warning(...)` or `logger.error(...)` before promotion. No silent swallows in
+   production code.
+
+2. **PRNG seeding** — All random number generation must use seeded, reproducible RNGs
+   (`np.random.default_rng(seed)`, not `np.random.normal(...)`). Unseeded PRNG is forbidden
+   in production (non-deterministic behavior; reproducibility failure).
+
+3. **Unguarded edge cases** — Review spike code for missing guards on:
+   - Zero/empty inputs (e.g., `rounds=0` in FPE is an identity transformation — no encryption)
+   - Overflow or unbounded input values
+   - Division-by-zero in statistical calculations
+   Each unguarded path must either be guarded or raise `ValueError` with a clear message.
+
+4. **Type annotations** — All promoted functions must have full type annotations. Spike code
+   routinely uses untyped helpers; these must be typed before promotion.
+
+5. **Security scan** — Run `bandit -r <new_src_path>` on the promoted file. Zero HIGH/MEDIUM
+   findings permitted. `# nosec` suppressions require written justification in a comment on
+   the same line.
+
+6. **Import boundary compliance** — The promoted code must live in the correct module per
+   CLAUDE.md File Placement Rules. Run `poetry run lint-imports` after promotion to confirm
+   no contract violations.
+
+7. **Test coverage** — The promoted code must have unit tests that bring total coverage back
+   to ≥ 90%. Spike code is not tested; tests must be written as part of promotion.
+
+8. **ADR alignment** — If the spike explored multiple approaches and the ADR chose one, the
+   promoted code must implement only the ADR-chosen approach. No "just in case" paths.
+
+### Known Spike Promotion Candidates
+
+| Spike File | Candidate Code | Known Issues Before Promotion |
+|-----------|----------------|-------------------------------|
+| `spikes/spike_ml_memory.py` | `_process_chunk()`, memory estimation logic | ADV-009: unseeded PRNG (fixed T3.5.5); ADV-011: `FeistelFPE rounds=0` unguarded (spike_fpe_luhn.py) |
+| `spikes/spike_fpe_luhn.py` | `FeistelFPE` class | `rounds=0` is identity transformation (no encryption); must add guard before promotion |
+
+---
+
 ## Task Execution Protocol
 
 When working on a task from BACKLOG.md:
