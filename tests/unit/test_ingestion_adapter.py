@@ -176,6 +176,33 @@ class TestValidateTableName:
 # ---------------------------------------------------------------------------
 
 
+def _make_stream_conn_mock(rows: list[MagicMock], batch_size: int) -> MagicMock:
+    """Build a mock connection whose execute returns ``rows`` in batches.
+
+    Args:
+        rows: The row mocks to be returned across batches.
+        batch_size: Simulated batch size for fetchmany calls.
+
+    Returns:
+        A context-manager-compatible MagicMock connection.
+    """
+    # Split rows into batches plus a trailing empty list to signal end of stream.
+    batches: list[list[MagicMock]] = []
+    for i in range(0, len(rows), batch_size):
+        batches.append(rows[i : i + batch_size])
+    batches.append([])  # end sentinel
+
+    mock_result = MagicMock()
+    mock_result.fetchmany.side_effect = batches
+
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.execution_options.return_value = mock_conn
+    mock_conn.execute.return_value = mock_result
+    return mock_conn
+
+
 class TestStreamTable:
     """Tests for :meth:`PostgresIngestionAdapter.stream_table`."""
 
@@ -195,34 +222,37 @@ class TestStreamTable:
                 list(adapter.stream_table("non_existent_table"))
 
     def test_stream_table_yields_batches(self) -> None:
-        """stream_table yields list[dict] batches from the server-side cursor."""
-        with patch("synth_engine.modules.ingestion.postgres_adapter.create_engine") as mock_create:
+        """stream_table yields list[dict] batches from the server-side cursor.
+
+        Table reflection (MetaData/Table) is patched so that stream_table
+        never tries to connect to a real database during unit testing.
+        """
+        with (
+            patch("synth_engine.modules.ingestion.postgres_adapter.create_engine") as mock_create,
+            patch("synth_engine.modules.ingestion.postgres_adapter.Table") as mock_table_cls,
+            patch("synth_engine.modules.ingestion.postgres_adapter.MetaData"),
+        ):
             mock_engine = MagicMock()
             mock_create.return_value = mock_engine
 
+            # Make Table(...).select() return a sentinel statement object.
+            mock_tbl = MagicMock()
+            mock_stmt = MagicMock()
+            mock_tbl.select.return_value = mock_stmt
+            mock_table_cls.return_value = mock_tbl
+
             adapter = PostgresIngestionAdapter("postgresql+psycopg2://user:pass@localhost:5432/db")
 
-            # Patch schema inspector to allow the table
             mock_inspector = MagicMock(spec=SchemaInspector)
             mock_inspector.get_tables.return_value = ["users"]
             adapter._schema_inspector = mock_inspector  # type: ignore[attr-defined]
 
-            # Mock the connection and result
             row1 = MagicMock()
             row1._mapping = {"id": 1, "name": "Alice"}
             row2 = MagicMock()
             row2._mapping = {"id": 2, "name": "Bob"}
 
-            mock_result = MagicMock()
-            # fetchmany returns one batch then empty list (end of stream)
-            mock_result.fetchmany.side_effect = [[row1, row2], []]
-
-            mock_conn = MagicMock()
-            mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-            mock_conn.__exit__ = MagicMock(return_value=False)
-            mock_conn.execution_options.return_value = mock_conn
-            mock_conn.execute.return_value = mock_result
-
+            mock_conn = _make_stream_conn_mock([row1, row2], batch_size=2)
             mock_engine.connect.return_value = mock_conn
 
             batches = list(adapter.stream_table("users", batch_size=2))
@@ -342,8 +372,21 @@ class TestGetSchemaInspector:
 
 
 def test_stream_table_is_generator() -> None:
-    """stream_table return type is a Generator (structural check)."""
-    with patch("synth_engine.modules.ingestion.postgres_adapter.create_engine"):
+    """stream_table return type is a Generator (structural check).
+
+    Table reflection (MetaData/Table) is patched so that stream_table
+    never tries to connect to a real database during unit testing.
+    """
+    with (
+        patch("synth_engine.modules.ingestion.postgres_adapter.create_engine"),
+        patch("synth_engine.modules.ingestion.postgres_adapter.Table") as mock_table_cls,
+        patch("synth_engine.modules.ingestion.postgres_adapter.MetaData"),
+    ):
+        mock_tbl = MagicMock()
+        mock_stmt = MagicMock()
+        mock_tbl.select.return_value = mock_stmt
+        mock_table_cls.return_value = mock_tbl
+
         adapter = PostgresIngestionAdapter("postgresql+psycopg2://user:pass@localhost:5432/db")
 
     mock_inspector = MagicMock(spec=SchemaInspector)
@@ -352,14 +395,7 @@ def test_stream_table_is_generator() -> None:
 
     row = MagicMock()
     row._mapping = {"id": 1}
-    mock_result = MagicMock()
-    mock_result.fetchmany.side_effect = [[row], []]
-
-    mock_conn = MagicMock()
-    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-    mock_conn.__exit__ = MagicMock(return_value=False)
-    mock_conn.execution_options.return_value = mock_conn
-    mock_conn.execute.return_value = mock_result
+    mock_conn = _make_stream_conn_mock([row], batch_size=1)
     adapter._engine.connect.return_value = mock_conn  # type: ignore[attr-defined]
 
     result = adapter.stream_table("users")

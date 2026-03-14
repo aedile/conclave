@@ -12,8 +12,8 @@ Key security guarantees:
   is guarded by :meth:`PostgresIngestionAdapter._validate_table_name`, which
   checks the name against ``SchemaInspector.get_tables()`` before any SQL is
   constructed (ADV-013 compliance).
-- **No f-string SQL**: All dynamic identifiers use
-  ``sqlalchemy.sql.expression.table`` so the SQL layer handles quoting correctly.
+- **No f-string SQL**: Streaming uses reflected ``Table`` objects so that
+  SQLAlchemy generates all SQL with correctly quoted identifiers.
 
 Architecture note
 -----------------
@@ -30,8 +30,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, inspect, text
-from sqlalchemy.sql.expression import table as sa_table
+from sqlalchemy import Engine, MetaData, Table, create_engine, inspect, text
 
 from synth_engine.modules.ingestion.validators import validate_connection_string
 
@@ -205,8 +204,8 @@ class PostgresIngestionAdapter:
         ``dict`` objects mapping column name → value.
 
         Table name is validated against :meth:`get_schema_inspector` before
-        any SQL is constructed (ADV-013 compliance). The table reference uses
-        ``sqlalchemy.sql.expression.table`` to avoid f-string SQL.
+        any SQL is constructed (ADV-013 compliance). The reflected ``Table``
+        object lets SQLAlchemy generate correctly quoted identifier SQL.
 
         Args:
             table_name: The table to stream. Must exist in ``schema``.
@@ -222,8 +221,11 @@ class PostgresIngestionAdapter:
         """
         self._validate_table_name(table_name, schema=schema)
 
-        # Use sqlalchemy table expression to safely quote the identifier.
-        tbl = sa_table(table_name, schema=schema)
+        # Reflect the table so SQLAlchemy knows its columns and generates
+        # a correct SELECT * with properly quoted identifiers.  The table
+        # name is already validated against the allowlist (ADV-013).
+        metadata = MetaData()
+        tbl = Table(table_name, metadata, autoload_with=self._engine, schema=schema)
         stmt = tbl.select()
 
         with self._engine.connect() as conn:

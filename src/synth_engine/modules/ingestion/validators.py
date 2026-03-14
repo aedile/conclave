@@ -41,7 +41,7 @@ def validate_connection_string(url: str) -> None:
 
     Args:
         url: A SQLAlchemy-style PostgreSQL connection URL, e.g.
-            ``postgresql+psycopg2://user:pass@host:5432/db?sslmode=require``.
+            ``postgresql+psycopg2://<user>:<password>@host:5432/db?sslmode=require``.
 
     Raises:
         ValueError: If the URL is malformed, uses an unsupported scheme, or
