@@ -202,9 +202,7 @@ def test_generate_ale_key_produces_valid_fernet_key() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_fernet_uses_vault_kek_when_unsealed(
-    unsealed_vault: None, ale_key: str
-) -> None:
+def test_get_fernet_uses_vault_kek_when_unsealed(unsealed_vault: None, ale_key: str) -> None:
     """get_fernet() must use the vault KEK (not ALE_KEY) when vault is unsealed.
 
     The returned Fernet must be functional (can encrypt and decrypt data).
