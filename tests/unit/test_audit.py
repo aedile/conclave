@@ -397,27 +397,18 @@ def test_concurrent_log_events_maintain_chain_order() -> None:
     assert len(emitted) == 10
 
     # Reconstruct the chain in emission order by following prev_hash links.
-    # Build a map from hash(event JSON) -> event for chaining.
-    hash_to_event: dict[str, AuditEvent] = {
-        hashlib.sha256(e.model_dump_json().encode()).hexdigest(): e for e in emitted
-    }
-    # The genesis event has prev_hash == "0" * 64
-    genesis_events = [e for e in emitted if e.prev_hash == "0" * 64]
-    assert len(genesis_events) == 1, (
-        f"Expected exactly one genesis event; found {len(genesis_events)}"
-    )
+    # Map: prev_hash_value -> event whose prev_hash is that value (O(1) chain walk).
+    prev_hash_to_event: dict[str, AuditEvent] = {e.prev_hash: e for e in emitted}
 
-    # Walk the chain
-    chain: list[AuditEvent] = [genesis_events[0]]
-    current_hash = hashlib.sha256(genesis_events[0].model_dump_json().encode()).hexdigest()
-    for _ in range(9):
-        # Find the event whose prev_hash == current_hash
-        next_events = [e for e in emitted if e.prev_hash == current_hash]
-        assert len(next_events) == 1, (
-            f"Expected exactly one successor for hash {current_hash[:8]}...; "
-            f"found {len(next_events)}"
-        )
-        chain.append(next_events[0])
-        current_hash = hashlib.sha256(next_events[0].model_dump_json().encode()).hexdigest()
+    # The genesis event is the one whose prev_hash is the genesis sentinel.
+    assert "0" * 64 in prev_hash_to_event, "No genesis event found in emitted events"
+
+    # Walk the chain from genesis to tail.
+    chain: list[AuditEvent] = []
+    current_prev = "0" * 64
+    for _ in range(10):
+        event = prev_hash_to_event[current_prev]
+        chain.append(event)
+        current_prev = hashlib.sha256(event.model_dump_json().encode()).hexdigest()
 
     assert len(chain) == 10
