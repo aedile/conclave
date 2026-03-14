@@ -14,6 +14,7 @@ speed in the generation phase; otherwise stdlib is used throughout.
 from __future__ import annotations
 
 import csv
+import logging
 import math
 import random
 import resource
@@ -21,6 +22,12 @@ import sys
 import tempfile
 import tracemalloc
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Logger
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -243,7 +250,7 @@ class ChunkedGaussianSynthesizer:
     distribution and sampling from it proportionally.
 
     This implementation deliberately avoids numpy to prove stdlib-only
-    viability. If numpy is importable, generation uses np.random.normal
+    viability. If numpy is importable, generation uses np.random.default_rng
     for speed but the fitting phase remains pure stdlib.
     """
 
@@ -319,8 +326,13 @@ class ChunkedGaussianSynthesizer:
                     raw = row.get(col, "0")
                     try:
                         self._numeric_accumulators[col].update(float(raw))
-                    except ValueError:
-                        pass
+                    except ValueError as exc:
+                        logger.warning(
+                            "Skipping non-numeric value in column %r (row %d): %s",
+                            col,
+                            self._rows_seen,
+                            exc,
+                        )
                 elif col_type == "categorical":
                     val = row.get(col, "")
                     counts = self._categorical_counts[col]
@@ -348,7 +360,9 @@ class ChunkedGaussianSynthesizer:
                 return val
         return next(iter(counts))  # Fallback for floating-point edge
 
-    def generate(self, n: int, rng: random.Random | None = None) -> list[list[str]]:
+    def generate(
+        self, n: int, rng: random.Random | None = None, numpy_seed: int = RANDOM_SEED + 1
+    ) -> list[list[str]]:
         """Generate n synthetic records from the fitted model.
 
         Each numeric column is sampled from N(mu, sigma^2) using the
@@ -356,13 +370,15 @@ class ChunkedGaussianSynthesizer:
         their empirical frequency distributions.
 
         Column order in output matches the original CSV schema order.
-        If numpy is importable, uses np.random.normal for vectorised
-        numeric generation. Otherwise falls back to random.gauss.
+        If numpy is importable, uses np.random.default_rng(numpy_seed) for
+        vectorised numeric generation. Otherwise falls back to random.gauss.
 
         Args:
             n: Number of synthetic records to generate.
             rng: Optional Random instance for reproducibility. If None,
                 a new Random seeded with RANDOM_SEED + 1 is created.
+            numpy_seed: Integer seed for the numpy default_rng instance
+                used in the numpy generation path. Defaults to RANDOM_SEED + 1.
 
         Returns:
             List of n rows, each a list of string-encoded values with id
@@ -392,12 +408,17 @@ class ChunkedGaussianSynthesizer:
         if numpy_available:
             import numpy as np  # type: ignore[import-not-found]
 
+            # Use a seeded Generator (not the global numpy RNG) for reproducibility.
+            # ADV-008: np.random.default_rng(seed) replaces the legacy np.random.normal
+            # which used the unseeded global RNG state.
+            np_rng = np.random.default_rng(numpy_seed)
+
             # Pre-generate all numeric columns at once (n x NUM_NUMERIC_COLS)
             numeric_samples: dict[str, list[float]] = {}
             for col in self._column_order:
                 if self._column_types[col] == "numeric":
                     acc = self._numeric_accumulators[col]
-                    numeric_samples[col] = np.random.normal(acc.mean, acc.std, n).tolist()
+                    numeric_samples[col] = np_rng.normal(acc.mean, acc.std, n).tolist()
 
             for i in range(n):
                 row: list[str] = [str(i)]
@@ -516,6 +537,8 @@ def main() -> None:
         5. Print the first 5 rows and a findings table.
         6. Validate peak allocation stayed under ceiling.
     """
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
     random.seed(RANDOM_SEED)
     # nosec B311 — PRNG is intentional; synthetic data generation is not
     # a security/cryptographic use case.
