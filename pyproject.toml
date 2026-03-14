@@ -6,9 +6,16 @@ authors = []
 readme = "README.md"
 packages = [{ include = "synth_engine", from = "src" }]
 
+# ---------------------------------------------------------------------------
+# CLI entrypoints
+# ---------------------------------------------------------------------------
+[tool.poetry.scripts]
+conclave-subset = "synth_engine.cli:subset"
+
 [tool.poetry.dependencies]
 python = "^3.14"
 chromadb = "^1.5.5"
+click = ">=8.0.0,<9.0.0"
 fastapi = ">=0.115.0,<1.0.0"
 uvicorn = {version = ">=0.32.0,<1.0.0", extras = ["standard"]}
 huey = {version = ">=2.5.0,<3.0.0", extras = ["redis"]}
@@ -84,6 +91,9 @@ ignore = ["S101"]
 # B008: same rationale as auth.py — Depends() calls in route argument defaults are
 # intentional FastAPI DI usage, not eager function calls.
 "src/synth_engine/bootstrapper/main.py" = ["B008"]
+# BLE001: cli.py catches broad Exception intentionally — it is the top-level error
+# boundary for the CLI; tracebacks must never reach the operator.
+"src/synth_engine/cli.py" = ["BLE001"]
 
 # ---------------------------------------------------------------------------
 # Mypy — Strict Type Checking (src/synth_engine only; scripts/ pre-date this)
@@ -222,4 +232,3 @@ paths = ["src"]
 # Abstract method parameters in ABCs are intentionally unused in the stub body.
 # These names are suppressed to avoid false positives.
 ignore_names = ["older_than", "task_id"]
-
