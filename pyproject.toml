@@ -82,8 +82,10 @@ ignore = ["S101"]
 "scripts/**" = ["S603", "S607", "UP006", "UP035"]
 # S311: PRNG intentional — spike code uses random for synthetic data, not cryptography
 # S608: SQL injection — spike code uses schema identifiers from sqlite_master, not user input
+# RUF100: noqa S311 directives are intentionally co-located with nosec B311 for dual-tool
+#         suppression documentation; the file-level S311 ignore makes them technically unused.
 # These are exploratory spikes, not production code.
-"spikes/**" = ["S311", "S608"]
+"spikes/**" = ["S311", "S608", "RUF100"]
 # B008: FastAPI Depends() in argument defaults is the canonical FastAPI DI pattern.
 # The inner `dependency` function is only invoked by the FastAPI framework, never
 # called directly as plain Python, so this is intentional and safe.
@@ -108,7 +110,7 @@ packages = ["synth_engine"]
 # Bandit — Security Scanner (src/ and scripts/)
 # ---------------------------------------------------------------------------
 [tool.bandit]
-targets = ["src", "scripts"]
+targets = ["src", "scripts", "spikes"]
 skips = ["B101"]
 
 # ---------------------------------------------------------------------------

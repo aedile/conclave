@@ -392,7 +392,7 @@ class ChunkedGaussianSynthesizer:
         if rng is None:
             # nosec B311 — PRNG is intentional; synthetic data generation is not
             # a security/cryptographic use case.
-            rng = random.Random(RANDOM_SEED + 1)  # nosec B311
+            rng = random.Random(RANDOM_SEED + 1)  # nosec B311  # noqa: S311
 
         # Attempt numpy import for fast vectorised generation
         numpy_available = False
@@ -542,7 +542,7 @@ def main() -> None:
     random.seed(RANDOM_SEED)
     # nosec B311 — PRNG is intentional; synthetic data generation is not
     # a security/cryptographic use case.
-    rng = random.Random(RANDOM_SEED)  # nosec B311
+    rng = random.Random(RANDOM_SEED)  # nosec B311  # noqa: S311
 
     tracemalloc.start()
     ceiling_mb = MEMORY_CEILING_BYTES / _MB
