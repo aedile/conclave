@@ -26,10 +26,13 @@ Task: P3.5-T3.5.4 -- Remove EgressWriter.commit() no-op (semantic trap)
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from sqlalchemy import Engine, text
 from sqlalchemy.sql.expression import quoted_name
+
+logger = logging.getLogger(__name__)
 
 
 class EgressWriter:
@@ -124,6 +127,10 @@ class EgressWriter:
         the written-tables tracking list so subsequent rollback calls are
         idempotent.
 
+        Logs a WARNING before truncation so that operators can diagnose
+        partial subset failures from logs alone, without inspecting the
+        database.
+
         This is the Saga compensating action: after any failure, the target DB
         is left in a clean (empty) state.
         """
@@ -133,6 +140,11 @@ class EgressWriter:
         # Reverse order: children (written last) are truncated first so that
         # FK constraints referencing parent tables are already gone.
         tables_to_truncate = list(reversed(self._written_tables))
+        logger.warning(
+            "Saga rollback: truncating %d tables: %s",
+            len(tables_to_truncate),
+            tables_to_truncate,
+        )
         self._written_tables = []
 
         with self._engine.connect() as conn:
