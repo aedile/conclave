@@ -141,9 +141,13 @@ def test_luhn_check_invalid_number() -> None:
 
 
 def test_luhn_check_with_spaces() -> None:
-    """luhn_check handles numbers with spaces stripped correctly."""
-    # The standard Visa test card with spaces
-    assert luhn_check("4111 1111 1111 1111".replace(" ", "")) is True
+    """luhn_check passes the raw spaced input without pre-stripping.
+
+    luhn_check must handle spaces itself by filtering non-digit characters
+    internally (via str.isdigit()), so callers should NOT pre-strip spaces.
+    """
+    # Pass the raw spaced string — luhn_check must handle spaces itself.
+    assert luhn_check("4111 1111 1111 1111") is True
 
 
 def test_luhn_check_empty_string() -> None:
