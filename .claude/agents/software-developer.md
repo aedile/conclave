@@ -36,12 +36,37 @@ You are the primary agent responsible for executing tasks from the backlog and d
 For every task, you MUST follow this sequence:
 
 ### 1. Planning & Verification
-- Read the specific task requirements.
-- Identify the correct module in `src/synth_engine/` for your changes. Ensure you are not violating boundary lines.
+
+- Read the specific task requirements — ALL sections: User Story, Context & Constraints, Acceptance Criteria, Testing & Quality Gates. Do not skip Context & Constraints; it contains requirements that may not be repeated in the AC items.
+- Cross-reference every bullet in "Context & Constraints" against the AC items. If a constraint is stated in Context but absent from the AC checklist, flag it to the PM before proceeding — it is in scope.
+- Identify the correct module in `src/synth_engine/` for your changes. Ensure you are not violating boundary lines. Ask: "does this class's responsibility match the module name?" If not, raise it with the PM.
+- If the task spec names a specific technology (e.g., `asyncpg`, `redis-py`), you must either use that technology or flag the substitution to the PM for an ADR decision before implementing. Silent substitutions are not allowed.
 - Ensure you are operating on a feature branch (`feat/P#-T##-...`).
+- Check `docs/RETRO_LOG.md` Open Advisory Items for any rows targeting this task — address them during implementation.
 
 ### 2. TDD Implementation (Red/Green/Refactor)
-- **RED**: Write failing tests in `tests/unit/` or `tests/integration/` FIRST.
+
+#### Before Writing a Single Test — Pre-RED Checklist
+
+Read `.claude/agents/qa-reviewer.md` in full. Before writing any code, answer each item for the task at hand:
+
+| QA Check | My Plan |
+|----------|---------|
+| dead-code | Will every new function be called by at least one test? |
+| edge-cases | What are the None inputs, empty collections, boundary values for each public method? |
+| error-paths | What exceptions can each function raise? Is each exception path tested? |
+| public-api-coverage | List every public method (no leading `_`) — each needs ≥1 test. |
+| meaningful-asserts | Are asserts checking specific values, not just `is not None`? |
+
+Do not commit RED until this table is mentally filled. Tests must cover:
+1. **Happy path** — at minimum one per AC item
+2. **Error paths** — at minimum one per `Raises:` in the docstring
+3. **Edge cases** — None inputs, empty collections, zero/max boundary values, malformed inputs
+4. **Security-critical inputs** — for any parameter that reaches SQL, subprocess, or file I/O: at minimum one misuse/injection test
+
+If the backlog says "integration test" or names a specific tool (`pytest-postgresql`, `real Redis`, `raw SQL`) — write that integration test in `tests/integration/`. A unit test with mocks does NOT satisfy an integration test requirement. Do not substitute.
+
+- **RED**: Write failing tests in `tests/unit/` or `tests/integration/` FIRST. Run them to confirm they fail for the right reason (import error or assertion error, not syntax error).
 - **GREEN**: Write the minimal elegant code required to make the tests pass.
 - **REFACTOR**: Clean up the code, optimize imports, ensure strict typing (`mypy` strict mode), and add Google-style docstrings.
 

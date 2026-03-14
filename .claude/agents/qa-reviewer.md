@@ -24,21 +24,26 @@ Key project facts:
 
 Work through every item. For each: PASS | FINDING | SKIP (with reason).
 
-### Backlog Compliance (Phase 2 Retro — Added 2026-03-13)
+### Backlog Compliance (Phase 2 Retro — Added 2026-03-13, Updated Phase 3 Retro — 2026-03-14)
 
-**backlog-compliance**: The PM should pass you the relevant backlog task's **Testing & Quality Gates** section in your prompt. If they did not, read `docs/backlog/phase-*.md` to find the task spec.
+**backlog-compliance**: The PM should pass you the relevant backlog task's **full task spec** in your prompt (not just the Testing & Quality Gates section). If they did not, read `docs/backlog/phase-*.md` to find the full task spec.
 
-For each testing requirement stated in the backlog:
-- Is it present in the committed test files? (Check `tests/unit/` and `tests/integration/`)
-- If the backlog says "integration test using pytest-postgresql / real Redis / raw SQL", does a test in `tests/integration/` satisfy it? A unit test with mocks does NOT.
-- If the backlog says "X must tie into Y", is there code that connects X to Y, and is that connection tested?
+Review ALL four sections of the backlog task, not just Acceptance Criteria:
+
+1. **Context & Constraints** — requirements stated here are in scope even if not repeated in the AC items. For each constraint bullet, ask: "is there code that satisfies this constraint, and is it tested?"
+2. **Acceptance Criteria** — each `[ ]` item must have at least one test demonstrating it works.
+3. **Testing & Quality Gates** — integration test requirements are non-negotiable. Unit tests with mocks do NOT satisfy "integration test using pytest-postgresql / real Redis / raw SQL."
+4. **Files to Create/Modify** — are all listed files present? If a file was not created that was listed, is there a documented reason?
+
+Cross-reference Context & Constraints against the AC items. If a constraint from Context is NOT covered by any AC item AND has no corresponding test — this is a **BLOCKER**. The requirement was in scope; it was dropped silently.
 
 Missing integration tests when the backlog requires them = **BLOCKER**, regardless of coverage %.
 Missing cross-system wiring when the backlog requires it = **BLOCKER**.
+Constraint from Context & Constraints with no test and no AC coverage = **BLOCKER**.
 
 Report as:
 ```
-backlog-compliance:     PASS/BLOCKER — <list each AC item and whether it was satisfied>
+backlog-compliance:     PASS/BLOCKER — <list each section's items and whether each was satisfied>
 ```
 
 ### Code Correctness

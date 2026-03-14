@@ -14,14 +14,15 @@ Before starting your review, read:
 1. `CONSTITUTION.md` — particularly Priority 2 (Architecture) and Priority 6 (Clean Code)
 2. `CLAUDE.md` — the Architecture Constraints and File Placement Rules sections
 3. `docs/adr/` — read any ADR files to understand decisions already made
+4. `docs/ARCHITECTURAL_REQUIREMENTS.md` — the full system architecture document
 
 Key project facts:
-- **Modular Monolith** — a singular deployable unit with strict internal boundaries, not a distributed microservices mess
-- No LangChain — native Claude `tool_use` only (ADR-0002)
-- Async-first design — `async def` throughout pipeline (ADR-0002)
-- Package topology: `pipeline/` → `ingress/`, `budget/`, `trimmer/`, `security/` (ADR-0001)
-- Dependency direction: Epic packages depend on `pipeline/` (lowest-level foundation), never the reverse
-- No `models/`, `agents/`, `parsers/`, `generators/`, `api/` directories — these are from a prior project context and do not apply
+- **Modular Monolith** — a singular deployable unit with strict internal boundaries
+- No LangChain — native Claude `tool_use` only
+- Async-first design for API/bootstrapper layer; sync I/O in module internals must be wrapped via `asyncio.to_thread()` at call sites
+- Package topology: `bootstrapper/` (API + DI), `modules/ingestion/`, `modules/masking/`, `modules/profiler/`, `modules/synthesizer/`, `modules/privacy/`, `shared/` (cross-cutting)
+- Dependency direction: modules depend on `shared/`; bootstrapper depends on modules; modules NEVER depend on bootstrapper or each other
+- Import-linter contracts enforce these boundaries — do not propose changes that would break them
 
 ## Scope Gate — Answer This First
 
@@ -43,29 +44,35 @@ Work through every applicable item. For each: PASS | FINDING | SKIP (with reason
 
 ### Placement & Naming
 
-**file-placement**: Is each new file in the correct directory per `CLAUDE.md` File Placement Rules? Pipeline/middleware logic in `pipeline/`, ingress validators in `ingress/`, budget/execution in `budget/`, trimmer strategies in `trimmer/`, security validators in `security/`, shared utilities (2+ epics) in `utils/`. A trimmer class in `pipeline/` would be a finding.
+**file-placement**: Is each new file in the correct directory per `CLAUDE.md` File Placement Rules? Bootstrapper logic in `bootstrapper/`, cross-cutting utilities shared by 2+ modules in `shared/`, module-specific logic inside its module subpackage. A subsetting class in `modules/ingestion/` when it belongs in `modules/subsetting/` is a FINDING.
 
-**naming-conventions**: Do module names use `snake_case`, classes use `PascalCase`, functions use `snake_case`, constants use `SCREAMING_SNAKE`? Per `CLAUDE.md` naming table.
+**intra-module-cohesion**: For every new file added to `modules/X/`, does the class/function responsibility strictly fall within X's domain? Ask: "if someone reads only the module name `X`, would they expect to find this class there?" If no — it's a cohesion FINDING. Specifically check: does ingestion do only ingestion? Does masking do only masking? A traversal engine, egress writer, or subsetting orchestrator living inside `modules/ingestion/` is a cohesion violation requiring a dedicated subpackage.
+
+**naming-conventions**: Do module names use `snake_case`, classes use `PascalCase`, functions use `snake_case`, constants use `SCREAMING_SNAKE`? Does the file name match the primary class name it contains (e.g., `traversal.py` → `DagTraversal`, not `transversal.py`)? Per `CLAUDE.md` naming table.
 
 ### Dependency Direction
 
-**dependency-direction**: Does data flow in the correct direction? Epic packages (`ingress/`, `budget/`, `trimmer/`, `security/`) may import from `pipeline/`. `pipeline/` must NOT import from any epic package (it is the lowest-level foundation — ADR-0001). Epic packages must not import from each other unless a shared utility in `utils/` is warranted. A violation here creates circular dependencies or tight coupling.
+**dependency-direction**: Do modules depend only on `shared/`? Does bootstrapper depend on modules (not the reverse)? Do modules never import from each other? Any cross-module import not through `shared/` or IoC injection is an immediate FINDING. Check import-linter contracts in `pyproject.toml` — any new import pattern must be compatible with existing contracts.
 
-**no-langchain**: Does the diff introduce any LangChain imports or abstractions? Any `from langchain` is an immediate FINDING — ADR-0002 prohibits this.
+**no-langchain**: Does the diff introduce any LangChain imports? Any `from langchain` is an immediate FINDING.
 
-**async-correctness**: Are new middleware callables `async def`? Does async code `await` coroutines rather than calling them synchronously? Synchronous tools wrapped via `run_in_executor` are correct — verify timeout enforcement via `asyncio.wait_for`. Per ADR-0002.
+**async-correctness**: Are synchronous methods that will be called from async FastAPI routes documented with an explicit `asyncio.to_thread()` call-site contract? Check both directions: (1) async code must not call blocking I/O directly; (2) sync code intended for async call sites must be documented as requiring `to_thread()` wrapping. A synchronous method on a class that will be registered with FastAPI DI without `to_thread()` is a FINDING.
+
+**tech-decision-compliance**: If the backlog task spec names a specific technology (e.g., `asyncpg`, `aiohttp`, `redis-py`) and the implementation uses a different one, this is a FINDING unless: (a) an ADR in `docs/adr/` documents the substitution with rationale, or (b) the PR description explicitly calls out the change. Silent technology substitutions without documentation are not acceptable — the backlog spec represents a deliberate architectural decision by the system designer.
 
 ### Abstraction Quality
 
-**abstraction-level**: Are new abstractions justified? Does each new class/function have a single clear responsibility? Is there premature abstraction (complex base class with one subclass, strategy pattern for a single case)?
+**abstraction-level**: Are new abstractions justified? Does each new class/function have a single clear responsibility? Is there premature abstraction? Is there a public method that is a no-op (only `pass` or a comment saying "retained for compatibility")? No-op public methods that could mislead callers (e.g., a `commit()` method that does nothing on a database-facing class) are a FINDING unless justified with explicit documentation of *why* they must exist as no-ops.
 
-**interface-contracts**: Do new public methods have type annotations and docstrings that accurately describe the contract? `-> Any` return types are a finding unless genuinely unavoidable.
+**interface-contracts**: Do new public methods have type annotations and docstrings that accurately describe the contract? `-> Any` return types are a finding unless genuinely unavoidable. Do docstrings document what the method does, its arguments, return value, and exceptions?
 
-**model-integrity**: SKIP for most ARG changes (no Pydantic models in this codebase — ARG uses stdlib dataclasses). If `dataclasses.dataclass` is used, verify: optional fields use `field(default=...)`, immutability guards are preserved, `__setattr__` overrides are intentional.
+**bootstrapper-wiring**: For any new IoC hook, injectable abstraction, or callback parameter introduced in this PR — is there either: (a) a concrete wiring in `bootstrapper/`, (b) a `TODO(T-#):` comment in bootstrapper pointing to the task that will wire it, or (c) an explicit ADR note deferring the wiring with rationale? An abstraction that exists only in theory and is only exercised in tests — with no path to production wiring — is a FINDING. The reviewer must verify the wiring exists or is explicitly planned.
+
+**model-integrity**: If `dataclasses.dataclass` or `@dataclass(frozen=True)` is used, verify: optional fields use `field(default=...)`, immutability guarantees are real (frozen=True does NOT deep-freeze nested dicts/lists — mutable containers inside frozen dataclasses are a correctness risk), `MappingProxyType` is used for any dict field that must be truly immutable.
 
 ### ADR Compliance
 
-**adr-compliance**: Does this diff conflict with any existing ADR in `docs/adr/`? Does this diff introduce a new architectural decision that should be captured in an ADR? (New external dependency, new design pattern, departure from established conventions all warrant an ADR.)
+**adr-compliance**: Does this diff conflict with any existing ADR in `docs/adr/`? Does this diff introduce a new architectural decision that should be captured in an ADR? (New external dependency, new design pattern, departure from established conventions, technology substitution, or new cross-module wiring pattern all warrant an ADR.)
 
 ## Output Format
 
@@ -77,15 +84,18 @@ Files checked: <list>
 
 **If in scope:**
 ```
-file-placement:       PASS/FINDING — <detail>
-naming-conventions:   PASS/FINDING — <detail>
-dependency-direction: PASS/FINDING — <detail>
-no-langchain:         PASS/FINDING — <detail>
-async-correctness:    PASS/FINDING/SKIP — <detail>
-abstraction-level:    PASS/FINDING — <detail>
-interface-contracts:  PASS/FINDING — <detail>
-model-integrity:      PASS/FINDING/SKIP — <detail>
-adr-compliance:       PASS/FINDING — <detail>
+file-placement:            PASS/FINDING — <detail>
+intra-module-cohesion:     PASS/FINDING — <detail>
+naming-conventions:        PASS/FINDING — <detail>
+dependency-direction:      PASS/FINDING — <detail>
+no-langchain:              PASS/FINDING — <detail>
+async-correctness:         PASS/FINDING/SKIP — <detail>
+tech-decision-compliance:  PASS/FINDING/SKIP — <detail>
+abstraction-level:         PASS/FINDING — <detail>
+interface-contracts:       PASS/FINDING — <detail>
+bootstrapper-wiring:       PASS/FINDING/SKIP — <detail>
+model-integrity:           PASS/FINDING/SKIP — <detail>
+adr-compliance:            PASS/FINDING — <detail>
 
 Overall: PASS/FINDING — <brief summary>
 ```
