@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from synth_engine.cli import subset
+from synth_engine.bootstrapper.cli import subset
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,11 +77,13 @@ class TestCLIValidInvocations:
         mock_result = _make_subset_result()
 
         with (
-            patch("synth_engine.cli.create_engine"),
-            patch("synth_engine.cli.EgressWriter"),
-            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
-            patch("synth_engine.cli.SubsettingEngine") as mock_engine_cls,
-            patch("synth_engine.cli._build_masking_transformer") as mock_transformer_builder,
+            patch("synth_engine.bootstrapper.cli.create_engine"),
+            patch("synth_engine.bootstrapper.cli.EgressWriter"),
+            patch("synth_engine.bootstrapper.cli._load_topology", return_value=_mock_topology()),
+            patch("synth_engine.bootstrapper.cli.SubsettingEngine") as mock_engine_cls,
+            patch(
+                "synth_engine.bootstrapper.cli._build_masking_transformer"
+            ) as mock_transformer_builder,
         ):
             mock_engine_instance = MagicMock()
             mock_engine_instance.run.return_value = mock_result
@@ -118,11 +120,13 @@ class TestCLIValidInvocations:
         mock_result = _make_subset_result()
 
         with (
-            patch("synth_engine.cli.create_engine"),
-            patch("synth_engine.cli.EgressWriter"),
-            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
-            patch("synth_engine.cli.SubsettingEngine") as mock_engine_cls,
-            patch("synth_engine.cli._build_masking_transformer") as mock_transformer_builder,
+            patch("synth_engine.bootstrapper.cli.create_engine"),
+            patch("synth_engine.bootstrapper.cli.EgressWriter"),
+            patch("synth_engine.bootstrapper.cli._load_topology", return_value=_mock_topology()),
+            patch("synth_engine.bootstrapper.cli.SubsettingEngine") as mock_engine_cls,
+            patch(
+                "synth_engine.bootstrapper.cli._build_masking_transformer"
+            ) as mock_transformer_builder,
         ):
             mock_engine_instance = MagicMock()
             mock_engine_instance.run.return_value = mock_result
@@ -159,11 +163,11 @@ class TestCLIValidInvocations:
         )
 
         with (
-            patch("synth_engine.cli.create_engine"),
-            patch("synth_engine.cli.EgressWriter"),
-            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
-            patch("synth_engine.cli.SubsettingEngine") as mock_engine_cls,
-            patch("synth_engine.cli._build_masking_transformer"),
+            patch("synth_engine.bootstrapper.cli.create_engine"),
+            patch("synth_engine.bootstrapper.cli.EgressWriter"),
+            patch("synth_engine.bootstrapper.cli._load_topology", return_value=_mock_topology()),
+            patch("synth_engine.bootstrapper.cli.SubsettingEngine") as mock_engine_cls,
+            patch("synth_engine.bootstrapper.cli._build_masking_transformer"),
         ):
             mock_engine_instance = MagicMock()
             mock_engine_instance.run.return_value = mock_result
@@ -328,11 +332,11 @@ class TestCLIErrorPaths:
         runner = CliRunner()
 
         with (
-            patch("synth_engine.cli.create_engine"),
-            patch("synth_engine.cli.EgressWriter"),
-            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
-            patch("synth_engine.cli.SubsettingEngine") as mock_engine_cls,
-            patch("synth_engine.cli._build_masking_transformer"),
+            patch("synth_engine.bootstrapper.cli.create_engine"),
+            patch("synth_engine.bootstrapper.cli.EgressWriter"),
+            patch("synth_engine.bootstrapper.cli._load_topology", return_value=_mock_topology()),
+            patch("synth_engine.bootstrapper.cli.SubsettingEngine") as mock_engine_cls,
+            patch("synth_engine.bootstrapper.cli._build_masking_transformer"),
         ):
             mock_engine_instance = MagicMock()
             mock_engine_instance.run.side_effect = RuntimeError("DB connection refused")
@@ -388,14 +392,14 @@ class TestBuildMaskingTransformer:
 
     def test_build_masking_transformer_returns_callable(self) -> None:
         """_build_masking_transformer() returns a callable."""
-        from synth_engine.cli import _build_masking_transformer
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
 
         transformer = _build_masking_transformer()
         assert callable(transformer)
 
     def test_masking_transformer_passthrough_for_unknown_table(self) -> None:
         """Transformer returns row unchanged for tables not in masking config."""
-        from synth_engine.cli import _build_masking_transformer
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
 
         transformer = _build_masking_transformer()
         row = {"id": 1, "amount": 100}
@@ -404,13 +408,46 @@ class TestBuildMaskingTransformer:
 
     def test_masking_transformer_does_not_modify_input_dict(self) -> None:
         """Transformer must not mutate the input row dict (pure function contract)."""
-        from synth_engine.cli import _build_masking_transformer
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
 
         transformer = _build_masking_transformer()
         original_row = {"id": 1, "amount": 100}
         original_copy = dict(original_row)
         transformer("transactions", original_row)
         assert original_row == original_copy
+
+    def test_masking_transformer_masks_pii_columns_for_persons_table(self) -> None:
+        """Transformer replaces PII column values for the 'persons' table."""
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        row: dict[str, Any] = {
+            "id": 1,
+            "full_name": "Alice Smith",
+            "email": "alice@example.com",
+            "ssn": "123-45-6789",
+        }
+        result = transformer("persons", row)
+        assert result["full_name"] != "Alice Smith"
+        assert result["email"] != "alice@example.com"
+        assert result["ssn"] != "123-45-6789"
+        assert result["id"] == 1  # non-PII column unchanged
+
+    def test_masking_transformer_passthrough_for_none_pii_values(self) -> None:
+        """Transformer passes through None-valued PII columns unchanged."""
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        row: dict[str, Any] = {
+            "id": 1,
+            "full_name": None,
+            "email": None,
+            "ssn": None,
+        }
+        result = transformer("persons", row)
+        assert result["full_name"] is None
+        assert result["email"] is None
+        assert result["ssn"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -435,11 +472,11 @@ class TestCLIDefaultMaskFlag:
             return instance
 
         with (
-            patch("synth_engine.cli.create_engine"),
-            patch("synth_engine.cli.EgressWriter"),
-            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
-            patch("synth_engine.cli.SubsettingEngine", side_effect=capture_init),
-            patch("synth_engine.cli._build_masking_transformer") as mock_builder,
+            patch("synth_engine.bootstrapper.cli.create_engine"),
+            patch("synth_engine.bootstrapper.cli.EgressWriter"),
+            patch("synth_engine.bootstrapper.cli._load_topology", return_value=_mock_topology()),
+            patch("synth_engine.bootstrapper.cli.SubsettingEngine", side_effect=capture_init),
+            patch("synth_engine.bootstrapper.cli._build_masking_transformer") as mock_builder,
         ):
             mock_builder.return_value = lambda t, r: r
 

@@ -10,7 +10,7 @@ packages = [{ include = "synth_engine", from = "src" }]
 # CLI entrypoints
 # ---------------------------------------------------------------------------
 [tool.poetry.scripts]
-conclave-subset = "synth_engine.cli:subset"
+conclave-subset = "synth_engine.bootstrapper.cli:subset"
 
 [tool.poetry.dependencies]
 python = "^3.14"
@@ -93,7 +93,7 @@ ignore = ["S101"]
 "src/synth_engine/bootstrapper/main.py" = ["B008"]
 # BLE001: cli.py catches broad Exception intentionally — it is the top-level error
 # boundary for the CLI; tracebacks must never reach the operator.
-"src/synth_engine/cli.py" = ["BLE001"]
+"src/synth_engine/bootstrapper/cli.py" = ["BLE001"]
 
 # ---------------------------------------------------------------------------
 # Mypy — Strict Type Checking (src/synth_engine only; scripts/ pre-date this)

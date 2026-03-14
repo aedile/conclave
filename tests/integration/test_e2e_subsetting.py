@@ -32,7 +32,7 @@ from click.testing import CliRunner
 from pytest_postgresql import factories
 from sqlalchemy import create_engine, text
 
-from synth_engine.cli import subset
+from synth_engine.bootstrapper.cli import subset
 from synth_engine.modules.masking.algorithms import mask_email, mask_name, mask_ssn
 from synth_engine.modules.subsetting.core import SubsettingEngine
 from synth_engine.modules.subsetting.egress import EgressWriter
@@ -799,7 +799,7 @@ def test_e2e_cli_subset_with_masking_exits_zero_and_writes_rows(
 
     runner = CliRunner()
 
-    with patch("synth_engine.cli._load_topology", return_value=topology):
+    with patch("synth_engine.bootstrapper.cli._load_topology", return_value=topology):
         result = runner.invoke(
             subset,
             [
