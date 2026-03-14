@@ -388,7 +388,16 @@ class TestCLIErrorPaths:
 
 
 class TestBuildMaskingTransformer:
-    """Tests for the _build_masking_transformer() factory function."""
+    """Tests for the _build_masking_transformer() factory function.
+
+    Covers:
+    - Factory returns a callable (smoke test).
+    - Non-PII tables pass through unchanged (no-mask path).
+    - Input dict is never mutated (pure function contract).
+    - PII columns in the 'persons' table are replaced with masked values
+      (QA finding: lines 100-104 of cli.py had zero coverage before this).
+    - None-valued PII columns pass through unchanged (null guard branch).
+    """
 
     def test_build_masking_transformer_returns_callable(self) -> None:
         """_build_masking_transformer() returns a callable."""
