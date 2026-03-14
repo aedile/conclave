@@ -76,6 +76,10 @@ poetry run pip-audit 2>&1 || echo "pip-audit not installed — note for team"
 
 **ci-health**: Check `.github/workflows/ci.yml` for any changes. If CI was not changed, confirm the existing pipeline would cover the new code paths.
 
+**no-speculative-permissions**: Does any CI job hold a permission (`permissions:` block) that no current step in that job actually uses? If yes, FINDING — permissions must be added in the same commit as the step that requires them, not granted speculatively for future use.
+
+**job-consistency**: Do all CI jobs that install the same tool (Poetry, Node, Python) pin the same version? Check `snok/install-poetry`, `actions/setup-python`, etc. across all jobs. Version divergence = FINDING.
+
 ## Output Format
 
 Return your findings in EXACTLY this format. **Important**: avoid using bare auth/credential keywords as isolated words in your finding descriptions — paraphrase them (e.g., "auth material" instead of isolated occurrences, "credential patterns" rather than individual keyword-only lines). This prevents false positives in the project's commit-message scanner.
@@ -95,6 +99,8 @@ dependency-audit:          PASS/FINDING/SKIP — <detail>
 env-example-updated:       PASS/FINDING/SKIP — <detail>
 no-bypass-flags:           PASS/FINDING — <detail>
 ci-health:                 PASS/FINDING/SKIP — <detail>
+no-speculative-permissions: PASS/FINDING/SKIP — <detail>
+job-consistency:           PASS/FINDING/SKIP — <detail>
 
 Overall: PASS/FINDING — <brief summary>
 ```
