@@ -8,6 +8,8 @@ Test coverage targets:
 - compare() detecting drift on significantly different profiles
 - profile() handling None/NaN values with correct null rates
 - all-null column handled gracefully (no division-by-zero)
+- compare() all-null numeric column uses dtype-based discriminator
+- ColumnDelta and ProfileDelta round-trip serialisation (from_dict symmetry)
 """
 
 from __future__ import annotations
@@ -18,7 +20,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from synth_engine.modules.profiler.models import ColumnProfile, ProfileDelta, TableProfile
+from synth_engine.modules.profiler.models import (
+    ColumnDelta,
+    ColumnProfile,
+    ProfileDelta,
+    TableProfile,
+)
 from synth_engine.modules.profiler.profiler import StatisticalProfiler
 
 # ---------------------------------------------------------------------------
@@ -494,3 +501,110 @@ class TestEmptyDataFrame:
         assert result.columns["x"].null_count == 0
         null_rate = result.columns["x"].null_rate
         assert math.isnan(null_rate or 0.0) or null_rate == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# T4.2a-11: compare() all-null numeric column — dtype-based discriminator (Fix 3)
+# ---------------------------------------------------------------------------
+
+
+class TestCompareAllNullNumericColumns:
+    """compare() must use is_numeric flag, not mean, to classify all-null numeric columns."""
+
+    def test_compare_all_null_numeric_columns(self) -> None:
+        """All-null numeric columns (mean=None) must produce numeric drift, not categorical.
+
+        Regression test for the bug where compare() used ``mean is not None`` as the
+        numeric discriminator, causing all-null numeric columns to fall through to the
+        categorical branch.  The correct behaviour is mean_drift=None and
+        stddev_drift=None (numeric path, no stats to diff), not cardinality_drift.
+        """
+        profiler = StatisticalProfiler()
+        # Build two profiles with an all-null float64 column — mean will be None.
+        baseline_df = pd.DataFrame({"score": pd.array([None, None, None], dtype="Float64")})
+        synthetic_df = pd.DataFrame({"score": pd.array([None, None, None], dtype="Float64")})
+        baseline = profiler.profile("t", baseline_df)
+        synthetic = profiler.profile("t", synthetic_df)
+
+        # The column must be classified as numeric (is_numeric=True).
+        assert baseline.columns["score"].is_numeric is True
+
+        delta = profiler.compare(baseline, synthetic)
+        col_delta = delta.column_deltas["score"]
+
+        # Numeric path: mean_drift and stddev_drift must be present (possibly None),
+        # and cardinality_drift must NOT be set.
+        assert col_delta.cardinality_drift is None, (
+            "All-null numeric column was misclassified as categorical by compare()"
+        )
+        assert col_delta.mean_drift is None
+        assert col_delta.stddev_drift is None
+
+
+# ---------------------------------------------------------------------------
+# T4.2a-12: ColumnDelta round-trip serialisation (Fix 6)
+# ---------------------------------------------------------------------------
+
+
+class TestColumnDeltaRoundTrip:
+    """ColumnDelta.to_dict() -> from_dict() must reproduce the original object."""
+
+    def test_column_delta_round_trip_numeric(self) -> None:
+        original = ColumnDelta(
+            column_name="age",
+            mean_drift=5.0,
+            stddev_drift=-1.5,
+            cardinality_drift=None,
+        )
+        restored = ColumnDelta.from_dict(original.to_dict())
+        assert restored == original
+
+    def test_column_delta_round_trip_categorical(self) -> None:
+        original = ColumnDelta(
+            column_name="cat",
+            mean_drift=None,
+            stddev_drift=None,
+            cardinality_drift=3,
+        )
+        restored = ColumnDelta.from_dict(original.to_dict())
+        assert restored == original
+
+    def test_column_delta_round_trip_missing_only(self) -> None:
+        """Column present in only one profile — all drift fields are None."""
+        original = ColumnDelta(column_name="ghost")
+        restored = ColumnDelta.from_dict(original.to_dict())
+        assert restored == original
+
+
+# ---------------------------------------------------------------------------
+# T4.2a-13: ProfileDelta round-trip serialisation (Fix 6)
+# ---------------------------------------------------------------------------
+
+
+class TestProfileDeltaRoundTrip:
+    """ProfileDelta.to_dict() -> from_dict() must reproduce the original object."""
+
+    def test_profile_delta_round_trip(self) -> None:
+        profiler = StatisticalProfiler()
+        df = _make_known_df()
+        baseline = profiler.profile("base", df)
+        synth_df = pd.DataFrame(
+            {
+                "age": [11, 21, 31, 41, 51, 61, 71, 81, 91, 101],
+                "score": [1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1],
+                "weight": [110.0, 210.0, 310.0, 410.0, 510.0, 610.0, 710.0, 810.0, 910.0, 1010.0],
+                "category": ["A", "B", "A", "C", "B", "A", "C", "A", "B", "A"],
+                "label": ["X", "Y", "X", "X", "Y", "Z", "X", "Y", "Z", "X"],
+            }
+        )
+        synthetic = profiler.profile("synth", synth_df)
+        original_delta = profiler.compare(baseline, synthetic)
+
+        restored_delta = ProfileDelta.from_dict(original_delta.to_dict())
+
+        assert restored_delta.baseline_table == original_delta.baseline_table
+        assert restored_delta.synthetic_table == original_delta.synthetic_table
+        assert set(restored_delta.column_deltas.keys()) == set(original_delta.column_deltas.keys())
+        for col_name, orig_cd in original_delta.column_deltas.items():
+            rest_cd = restored_delta.column_deltas[col_name]
+            assert rest_cd == orig_cd, f"ColumnDelta mismatch for column '{col_name}'"

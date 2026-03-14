@@ -26,6 +26,11 @@ class ColumnProfile:
         dtype: Pandas dtype string (e.g. ``"int64"``, ``"object"``).
         null_count: Number of null/NaN values.
         null_rate: Fraction of rows that are null (0.0-1.0).
+        is_numeric: ``True`` when the column was profiled as numeric (integer
+            or float dtype).  ``False`` for categorical columns.  Used by
+            :meth:`~synth_engine.modules.profiler.profiler.StatisticalProfiler.compare`
+            to classify all-null numeric columns correctly even when
+            ``mean`` is ``None``.
         mean: Arithmetic mean; ``None`` for categorical or all-null columns.
         stddev: Sample standard deviation (ddof=1); ``None`` for categorical
             or all-null columns.
@@ -45,6 +50,7 @@ class ColumnProfile:
     dtype: str
     null_count: int
     null_rate: float
+    is_numeric: bool = False
     mean: float | None = None
     stddev: float | None = None
     min: float | None = None
@@ -67,6 +73,7 @@ class ColumnProfile:
             "dtype": self.dtype,
             "null_count": self.null_count,
             "null_rate": self.null_rate,
+            "is_numeric": self.is_numeric,
             "mean": self.mean,
             "stddev": self.stddev,
             "min": self.min,
@@ -93,6 +100,7 @@ class ColumnProfile:
             dtype=data["dtype"],
             null_count=data["null_count"],
             null_rate=data["null_rate"],
+            is_numeric=data.get("is_numeric", False),
             mean=data.get("mean"),
             stddev=data.get("stddev"),
             min=data.get("min"),
@@ -184,6 +192,8 @@ class ColumnDelta:
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary.
 
+        See :meth:`from_dict` for the inverse operation.
+
         Returns:
             Dictionary representation with all drift fields.
         """
@@ -193,6 +203,26 @@ class ColumnDelta:
             "stddev_drift": self.stddev_drift,
             "cardinality_drift": self.cardinality_drift,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ColumnDelta:
+        """Deserialise from a plain dictionary.
+
+        Args:
+            data: Dictionary as produced by :meth:`to_dict`.
+
+        Returns:
+            A new :class:`ColumnDelta` instance.
+        """
+        mean_drift = data.get("mean_drift")
+        stddev_drift = data.get("stddev_drift")
+        cardinality_drift = data.get("cardinality_drift")
+        return cls(
+            column_name=str(data["column_name"]),
+            mean_drift=float(mean_drift) if mean_drift is not None else None,
+            stddev_drift=float(stddev_drift) if stddev_drift is not None else None,
+            cardinality_drift=int(cardinality_drift) if cardinality_drift is not None else None,
+        )
 
 
 @dataclass(frozen=True)
@@ -212,6 +242,8 @@ class ProfileDelta:
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary suitable for JSON export.
 
+        See :meth:`from_dict` for the inverse operation.
+
         Returns:
             Dictionary representation with all column deltas.
         """
@@ -220,3 +252,25 @@ class ProfileDelta:
             "synthetic_table": self.synthetic_table,
             "column_deltas": {name: delta.to_dict() for name, delta in self.column_deltas.items()},
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ProfileDelta:
+        """Deserialise from a plain dictionary.
+
+        Args:
+            data: Dictionary as produced by :meth:`to_dict`.
+
+        Returns:
+            A new :class:`ProfileDelta` instance.
+        """
+        raw_deltas: dict[str, Any] = data.get("column_deltas", {})
+        if not isinstance(raw_deltas, dict):
+            raise TypeError(f"column_deltas must be a dict, got {type(raw_deltas)}")
+        column_deltas: dict[str, ColumnDelta] = {
+            name: ColumnDelta.from_dict(cd) for name, cd in raw_deltas.items()
+        }
+        return cls(
+            baseline_table=str(data["baseline_table"]),
+            synthetic_table=str(data["synthetic_table"]),
+            column_deltas=column_deltas,
+        )

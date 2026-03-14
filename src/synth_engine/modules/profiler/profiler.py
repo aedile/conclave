@@ -74,7 +74,8 @@ def _profile_numeric_column(name: str, series: pd.Series[Any]) -> ColumnProfile:
         series: Pandas Series with a numeric dtype.
 
     Returns:
-        A :class:`ColumnProfile` with all numeric fields populated.
+        A :class:`ColumnProfile` with all numeric fields populated and
+        ``is_numeric=True``.
     """
     total = len(series)
     null_count = int(series.isna().sum())
@@ -88,9 +89,10 @@ def _profile_numeric_column(name: str, series: pd.Series[Any]) -> ColumnProfile:
             dtype=str(series.dtype),
             null_count=null_count,
             null_rate=null_rate,
+            is_numeric=True,
         )
 
-    q25, q50, q75 = non_null.quantile([0.25, 0.50, 0.75]).tolist()
+    q25, q50, q75 = non_null.quantile(list(_QUANTILES)).tolist()
 
     # ddof=1 -> sample standard deviation (pandas default).
     std_val = non_null.std(ddof=1)
@@ -100,6 +102,7 @@ def _profile_numeric_column(name: str, series: pd.Series[Any]) -> ColumnProfile:
         dtype=str(series.dtype),
         null_count=null_count,
         null_rate=null_rate,
+        is_numeric=True,
         mean=_safe_float(non_null.mean()),
         stddev=_safe_float(std_val),
         min=_safe_float(non_null.min()),
@@ -246,6 +249,11 @@ class StatisticalProfiler:
         cardinality.  Columns present only in baseline or only in synthetic
         are included with ``None`` drift values.
 
+        The numeric/categorical classification uses the ``is_numeric`` field
+        on :class:`ColumnProfile` rather than checking whether ``mean`` is
+        non-``None``.  This ensures that all-null numeric columns (where
+        ``mean=None``) are still treated as numeric.
+
         Args:
             baseline: Statistical profile of the original source data.
             synthetic: Statistical profile of the synthesised data.
@@ -265,16 +273,29 @@ class StatisticalProfiler:
                 deltas[col_name] = ColumnDelta(column_name=col_name)
                 continue
 
-            # Numeric column -- compute mean and stddev drift.
-            if base_col.mean is not None or synth_col.mean is not None:
+            # Use the is_numeric flag — not mean — so that all-null numeric
+            # columns (mean=None) are still routed to the numeric branch.
+            if base_col.is_numeric or synth_col.is_numeric:
                 base_mean = base_col.mean if base_col.mean is not None else 0.0
                 synth_mean = synth_col.mean if synth_col.mean is not None else 0.0
                 base_std = base_col.stddev if base_col.stddev is not None else 0.0
                 synth_std = synth_col.stddev if synth_col.stddev is not None else 0.0
+
+                # When both means are None the column is all-null on both sides;
+                # report None drift rather than a spurious 0.0.
+                mean_drift: float | None
+                stddev_drift: float | None
+                if base_col.mean is None and synth_col.mean is None:
+                    mean_drift = None
+                    stddev_drift = None
+                else:
+                    mean_drift = synth_mean - base_mean
+                    stddev_drift = synth_std - base_std
+
                 deltas[col_name] = ColumnDelta(
                     column_name=col_name,
-                    mean_drift=synth_mean - base_mean,
-                    stddev_drift=synth_std - base_std,
+                    mean_drift=mean_drift,
+                    stddev_drift=stddev_drift,
                 )
             else:
                 # Categorical column -- compute cardinality drift.
