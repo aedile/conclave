@@ -6,7 +6,7 @@
 # request. Jobs are chained so a security failure short-circuits all downstream
 # work.
 #
-# Job order: security → lint → test → integration-test → sbom
+# Job order: security → lint → test → integration-test → sbom → trivy-scan
 # shellcheck runs independently (no Python deps required).
 #
 # Supply-chain hardening (T3.5.1): all `uses:` lines are pinned to immutable
@@ -229,6 +229,39 @@ jobs:
           name: sbom
           path: sbom.json
           retention-days: 90
+
+  # ---------------------------------------------------------------------------
+  # Trivy scan — container image vulnerability scan
+  #
+  # Scans the production Docker image for HIGH and CRITICAL CVEs. Runs after
+  # unit tests pass to avoid wasting build time on a broken codebase. This job
+  # does NOT block integration-test or sbom — it runs in parallel with them.
+  # Fails the pipeline if any HIGH or CRITICAL severity CVE is found, ensuring
+  # container vulnerabilities are caught before deployment.
+  # ---------------------------------------------------------------------------
+  trivy-scan:
+    name: Trivy Container Scan
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      security-events: write  # Required to upload SARIF results (future use)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Build Docker image
+        run: docker build -t conclave-engine:ci-scan .
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: "conclave-engine:ci-scan"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "HIGH,CRITICAL"
 
   # ---------------------------------------------------------------------------
   # Shell lint — shellcheck on all hook and script .sh files
