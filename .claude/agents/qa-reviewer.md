@@ -24,6 +24,23 @@ Key project facts:
 
 Work through every item. For each: PASS | FINDING | SKIP (with reason).
 
+### Backlog Compliance (Phase 2 Retro — Added 2026-03-13)
+
+**backlog-compliance**: The PM should pass you the relevant backlog task's **Testing & Quality Gates** section in your prompt. If they did not, read `docs/backlog/phase-*.md` to find the task spec.
+
+For each testing requirement stated in the backlog:
+- Is it present in the committed test files? (Check `tests/unit/` and `tests/integration/`)
+- If the backlog says "integration test using pytest-postgresql / real Redis / raw SQL", does a test in `tests/integration/` satisfy it? A unit test with mocks does NOT.
+- If the backlog says "X must tie into Y", is there code that connects X to Y, and is that connection tested?
+
+Missing integration tests when the backlog requires them = **BLOCKER**, regardless of coverage %.
+Missing cross-system wiring when the backlog requires it = **BLOCKER**.
+
+Report as:
+```
+backlog-compliance:     PASS/BLOCKER — <list each AC item and whether it was satisfied>
+```
+
 ### Code Correctness
 
 **dead-code**: Run `poetry run python -m vulture src/ --min-confidence 80`. Any output is a finding. Also run `poetry run python -m vulture src/ --min-confidence 60` for advisory depth — manually verify each result before calling it a finding.
@@ -74,6 +91,7 @@ poetry run python -m ruff check src/ tests/
 Return your findings in EXACTLY this format so the main agent can use it verbatim as a `review(qa):` commit body:
 
 ```
+backlog-compliance:     PASS/BLOCKER — <per AC item: satisfied/missing>
 dead-code:              PASS/FINDING — <detail if finding>
 reachable-handlers:     PASS/FINDING/SKIP — <detail if finding>
 exception-specificity:  PASS/FINDING — <detail if finding>

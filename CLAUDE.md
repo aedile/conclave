@@ -41,6 +41,38 @@ The only files the PM may edit directly are:
 Per AUTONOMOUS_DEVELOPMENT_PROMPT Phase 1: present a plan, list files to create/modify,
 list tests to write, estimated commits. **Do not proceed until the user approves.**
 
+### PM Planning Rules (Phase 2 Retro — Added 2026-03-13)
+
+These rules correct failures identified in the Phase 2 end-of-phase retrospective.
+
+**Rule 1 — Backlog fidelity in agent prompts.**
+When writing the implementation brief for a `software-developer` subagent, the PM MUST
+copy the backlog task's **Testing & Quality Gates** section verbatim into the prompt.
+Do not paraphrase. Do not summarise. Paste it word-for-word so the agent cannot
+miss an explicit test type (e.g., `pytest-postgresql`, integration, contract).
+
+**Rule 2 — Cross-task integration matrix.**
+Before presenting a plan for any task that involves a new dependency, new shared
+module, or new infrastructure component, the PM MUST explicitly check whether any
+*already-completed* task has a stated integration requirement with this task.
+If so, the plan MUST include wiring those systems together — not defer it.
+Pattern to check: search backlog for "tie into", "integrate with", "must use",
+"wired to" targeting the current component. If found, it is in scope.
+
+**Rule 3 — Integration tests are a separate gate.**
+Unit tests with mocks or SQLite do NOT satisfy acceptance criteria that specify
+integration tests (pytest-postgresql, real Redis, real HTTP server, etc.).
+The PM must verify — by inspecting the test files committed — that integration
+tests actually exist when the backlog requires them. If they are absent, the
+task is NOT done regardless of coverage percentage.
+
+**Rule 4 — Phase-end cross-task integration review.**
+After the final task of any phase merges, the PM MUST audit every task in that
+phase against its backlog acceptance criteria before declaring the phase complete.
+Specifically check: (a) are all stated integration tests present? (b) are all
+"tie into" integration requirements wired? Failures become P0 debt tasks that
+block the next phase from starting.
+
 ---
 
 ## Core Philosophy
@@ -117,7 +149,8 @@ Every code change follows this exact sequence - no exceptions:
 poetry run ruff check src/ tests/                              # Linting
 poetry run ruff format --check src/ tests/                     # Formatting
 poetry run mypy src/                                           # Type checking
-poetry run pytest --cov=src/synth_engine --cov-fail-under=90 # Tests + 90% coverage
+poetry run pytest tests/unit/ --cov=src/synth_engine --cov-fail-under=90 -W error  # Unit tests + 90% coverage, zero warnings
+poetry run pytest tests/integration/ -v                        # Integration tests (separate gate — must pass independently)
 poetry run bandit -c pyproject.toml -r src/                    # Security scan
 vulture src/                                                   # Dead code (80% confidence)
 vulture src/ --min-confidence 60                               # Advisory: deeper scan
@@ -127,6 +160,15 @@ pre-commit run --all-files                                     # All hooks
 poetry run python3 script.py       # CORRECT
 python3 script.py                  # WRONG - bypasses Poetry environment
 ```
+
+**Two-gate test policy (Phase 2 Retro — Added 2026-03-13):**
+- Unit tests (`tests/unit/`) run with `-W error`. Zero warnings tolerated. Mocks and in-memory
+  databases are acceptable here.
+- Integration tests (`tests/integration/`) run separately without coverage requirement but MUST
+  pass. These use real infrastructure (PostgreSQL via pytest-postgresql, real Redis via
+  pytest-redis). If `tests/integration/` is empty, that is a finding — not a pass.
+- An acceptance criterion that says "integration test using X" is NOT satisfied by a unit test
+  using mocks. The PM enforces this at plan review time; the QA reviewer enforces it at review time.
 
 ### Git Workflow
 
