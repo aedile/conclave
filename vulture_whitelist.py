@@ -54,6 +54,12 @@ MaskingRegistry  # Public masking registry class (masking/registry.py)
 _.reset  # Test-support reset on MaskingRegistry and VaultClient (masking/registry.py, vault.py)
 
 # ---------------------------------------------------------------------------
+# profiler — public StatisticalProfiler API (wired in Phase 4 bootstrapper)
+# ---------------------------------------------------------------------------
+_.profile  # Public profile method on StatisticalProfiler (profiler/profiler.py)
+_.compare  # Public compare method on StatisticalProfiler (profiler/profiler.py)
+
+# ---------------------------------------------------------------------------
 # subsetting — public EgressWriter property
 # ---------------------------------------------------------------------------
 _.written_tables  # Public property on EgressWriter (subsetting/egress.py)

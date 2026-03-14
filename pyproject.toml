@@ -53,6 +53,7 @@ detect-secrets = "^1.5"
 # Install with: poetry install --with dev,integration
 # Requires libpq (PostgreSQL client library) to be present on the host.
 # ---------------------------------------------------------------------------
+pandas-stubs = ">=2.2.0,<3.0.0"
 [tool.poetry.group.integration.dependencies]
 pytest-postgresql = "^7.0"
 

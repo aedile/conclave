@@ -21,18 +21,19 @@ import pytest
 from synth_engine.modules.profiler.models import ColumnProfile, ProfileDelta, TableProfile
 from synth_engine.modules.profiler.profiler import StatisticalProfiler
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_known_df() -> pd.DataFrame:
     """Return a 10-row DataFrame with 3 numeric and 2 categorical columns.
 
-    Hand-calculated ground truths (used in assertions below):
+    Ground truths (computed via pandas linear-interpolation quartiles):
 
     age:  [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-      mean=55.0, std=30.276..., min=10, max=100, q25=27.5, q50=55.0, q75=82.5
+      mean=55.0, std=30.276..., min=10, max=100
+      q25=32.5, q50=55.0, q75=77.5  (pandas default linear interpolation)
     score:  [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
       mean=5.5, std=3.027..., min=1.0, max=10.0
     weight: [100.0, 200.0, ..., 1000.0] (steps of 100)
@@ -56,8 +57,9 @@ def _make_known_df() -> pd.DataFrame:
 # T4.2a-01: profile() on known DataFrame — numeric columns
 # ---------------------------------------------------------------------------
 
+
 class TestProfileKnownNumericColumns:
-    """Verify per-column statistics for numeric columns match hand-calculated values."""
+    """Verify per-column statistics for numeric columns match ground-truth values."""
 
     def setup_method(self) -> None:
         self.profiler = StatisticalProfiler()
@@ -104,10 +106,16 @@ class TestProfileKnownNumericColumns:
         assert col.stddev == pytest.approx(expected_std, rel=1e-5)
 
     def test_numeric_column_age_quartiles(self) -> None:
+        # pandas linear-interpolation quartiles for [10..100 step 10]:
+        # q25=32.5, q50=55.0, q75=77.5
         col = self.result.columns["age"]
-        assert col.q25 == pytest.approx(27.5, rel=1e-5)
-        assert col.q50 == pytest.approx(55.0, rel=1e-5)
-        assert col.q75 == pytest.approx(82.5, rel=1e-5)
+        series = pd.Series([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+        expected_q25 = float(series.quantile(0.25))
+        expected_q50 = float(series.quantile(0.50))
+        expected_q75 = float(series.quantile(0.75))
+        assert col.q25 == pytest.approx(expected_q25, rel=1e-5)
+        assert col.q50 == pytest.approx(expected_q50, rel=1e-5)
+        assert col.q75 == pytest.approx(expected_q75, rel=1e-5)
 
     def test_numeric_column_score_mean(self) -> None:
         col = self.result.columns["score"]
@@ -121,6 +129,7 @@ class TestProfileKnownNumericColumns:
 # ---------------------------------------------------------------------------
 # T4.2a-02: profile() on known DataFrame — categorical columns
 # ---------------------------------------------------------------------------
+
 
 class TestProfileKnownCategoricalColumns:
     """Verify value_counts, cardinality, and null rates for categorical columns."""
@@ -178,6 +187,7 @@ class TestProfileKnownCategoricalColumns:
 # T4.2a-03: profile() — covariance matrix
 # ---------------------------------------------------------------------------
 
+
 class TestProfileCovarianceMatrix:
     """Verify the covariance matrix is computed for all numeric pairs."""
 
@@ -202,9 +212,11 @@ class TestProfileCovarianceMatrix:
         # Cov(age, score) = Cov(10*score, score) = 10 * Var(score)
         # Var(score, ddof=1) = 9.166... → Cov = 91.666...
         cov = self.result.covariance_matrix
-        expected = float(pd.DataFrame({"age": [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
-                                       "score": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]})
-                         .cov().loc["age", "score"])
+        age_vals = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        score_vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        expected = float(
+            pd.DataFrame({"age": age_vals, "score": score_vals}).cov().loc["age", "score"]
+        )
         assert cov["age"]["score"] == pytest.approx(expected, rel=1e-5)
 
     def test_single_numeric_column_empty_covariance(self) -> None:
@@ -217,6 +229,7 @@ class TestProfileCovarianceMatrix:
 # ---------------------------------------------------------------------------
 # T4.2a-04: profile() with None/NaN values — null rates
 # ---------------------------------------------------------------------------
+
 
 class TestProfileWithNulls:
     """Verify null counts and null rates are correct when values are missing."""
@@ -249,6 +262,7 @@ class TestProfileWithNulls:
 # ---------------------------------------------------------------------------
 # T4.2a-05: all-null column — no division-by-zero
 # ---------------------------------------------------------------------------
+
 
 class TestAllNullColumn:
     """An all-null column must not raise ZeroDivisionError; stats default to None."""
@@ -285,6 +299,7 @@ class TestAllNullColumn:
 # ---------------------------------------------------------------------------
 # T4.2a-06: compare() — zero drift on identical profiles
 # ---------------------------------------------------------------------------
+
 
 class TestCompareIdenticalProfiles:
     """compare() on identical profiles must return zero drift on all columns."""
@@ -324,6 +339,7 @@ class TestCompareIdenticalProfiles:
 # T4.2a-07: compare() — drift detected on significantly different profiles
 # ---------------------------------------------------------------------------
 
+
 class TestCompareDriftingProfiles:
     """compare() must identify the drifting columns when profiles differ significantly."""
 
@@ -349,14 +365,18 @@ class TestCompareDriftingProfiles:
         assert delta.column_deltas["x"].stddev_drift == pytest.approx(synth_std - 0.0, rel=1e-5)
 
     def test_compare_drifting_columns_listed(self) -> None:
-        baseline_df = pd.DataFrame({
-            "stable": [1.0, 2.0, 3.0, 4.0, 5.0],
-            "drifted": [1.0, 2.0, 3.0, 4.0, 5.0],
-        })
-        synthetic_df = pd.DataFrame({
-            "stable": [1.0, 2.0, 3.0, 4.0, 5.0],
-            "drifted": [100.0, 200.0, 300.0, 400.0, 500.0],
-        })
+        baseline_df = pd.DataFrame(
+            {
+                "stable": [1.0, 2.0, 3.0, 4.0, 5.0],
+                "drifted": [1.0, 2.0, 3.0, 4.0, 5.0],
+            }
+        )
+        synthetic_df = pd.DataFrame(
+            {
+                "stable": [1.0, 2.0, 3.0, 4.0, 5.0],
+                "drifted": [100.0, 200.0, 300.0, 400.0, 500.0],
+            }
+        )
         baseline = self.profiler.profile("t", baseline_df)
         synthetic = self.profiler.profile("t", synthetic_df)
         delta = self.profiler.compare(baseline, synthetic)
@@ -376,6 +396,7 @@ class TestCompareDriftingProfiles:
 # ---------------------------------------------------------------------------
 # T4.2a-08: serialization — to_dict / from_dict round-trip
 # ---------------------------------------------------------------------------
+
 
 class TestSerialisation:
     """TableProfile, ColumnProfile, and ProfileDelta must serialise to/from dict."""
@@ -437,6 +458,7 @@ class TestSerialisation:
 # T4.2a-09: ProfileDelta is a frozen dataclass
 # ---------------------------------------------------------------------------
 
+
 class TestFrozenDataclasses:
     """Models must be frozen (immutable) dataclasses."""
 
@@ -460,6 +482,7 @@ class TestFrozenDataclasses:
 # T4.2a-10: empty DataFrame edge case
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyDataFrame:
     """profile() on an empty DataFrame should not raise."""
 
@@ -469,4 +492,5 @@ class TestEmptyDataFrame:
         result = profiler.profile("empty", df)
         assert result.row_count == 0
         assert result.columns["x"].null_count == 0
-        assert math.isnan(result.columns["x"].null_rate or 0.0) or result.columns["x"].null_rate == pytest.approx(0.0)
+        null_rate = result.columns["x"].null_rate
+        assert math.isnan(null_rate or 0.0) or null_rate == pytest.approx(0.0)
