@@ -14,14 +14,12 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from synth_engine.modules.ingestion.core import SubsettingEngine, SubsetResult
+from synth_engine.modules.ingestion.core import SubsetResult, SubsettingEngine
 from synth_engine.modules.ingestion.egress import EgressWriter
 from synth_engine.shared.schema_topology import (
     ColumnInfo,
-    ForeignKeyInfo,
     SchemaTopology,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -38,13 +36,12 @@ def _make_topology(tables: list[str]) -> SchemaTopology:
         A frozen SchemaTopology value object.
     """
     columns: dict[str, tuple[ColumnInfo, ...]] = {
-        t: (ColumnInfo(name="id", type="INTEGER", primary_key=1, nullable=False),)
-        for t in tables
+        t: (ColumnInfo(name="id", type="INTEGER", primary_key=1, nullable=False),) for t in tables
     }
     return SchemaTopology(
         table_order=tuple(tables),
         columns=columns,
-        foreign_keys={t: () for t in tables},
+        foreign_keys=dict.fromkeys(tables, ()),
     )
 
 
@@ -107,9 +104,7 @@ class TestSubsettingEngineOrchestration:
         engine = _make_engine()
 
         mock_traversal = MagicMock()
-        mock_traversal.traverse.return_value = iter(
-            [("departments", [{"id": 1}])]
-        )
+        mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}])])
 
         with patch(
             "synth_engine.modules.ingestion.core.DagTraversal",
@@ -164,9 +159,7 @@ class TestSubsettingEngineOrchestration:
         engine = _make_engine()
 
         mock_traversal = MagicMock()
-        mock_traversal.traverse.return_value = iter(
-            [("departments", [{"id": 1}])]
-        )
+        mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}])])
 
         with patch(
             "synth_engine.modules.ingestion.core.DagTraversal",
@@ -189,9 +182,7 @@ class TestSubsettingEngineOrchestration:
         engine = _make_engine()
 
         mock_traversal = MagicMock()
-        mock_traversal.traverse.return_value = iter(
-            [("departments", [{"id": 1}, {"id": 2}])]
-        )
+        mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}, {"id": 2}])])
 
         with patch(
             "synth_engine.modules.ingestion.core.DagTraversal",

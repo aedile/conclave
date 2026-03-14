@@ -17,9 +17,15 @@ ADV-012 compliance:
   incrementing integers (1, 2, ...).  Callers MUST use ``>= 1``, not ``== 1``,
   to identify PK membership.
 
+ADV-023 fix: The SQLAlchemy inspector is now cached in ``__init__`` via a
+single ``inspect(engine)`` call.  The three methods ``get_tables()``,
+``get_columns()``, and ``get_foreign_keys()`` share ``self._inspector`` rather
+than creating a new inspector on each invocation.
+
 ADR-0013: Relational Mapping DAG and Topological Sort Design.
 CONSTITUTION Priority 0: Security -- no external calls, no PII exposure.
 Task: P3-T3.2 -- Relational Mapping & Topological Sort
+ADV-023, ADV-024: Inspector caching and type-ignore justifications (T3.4).
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import Engine, inspect
+from sqlalchemy.engine import Inspector
 
 from synth_engine.modules.ingestion.graph import DirectedAcyclicGraph
 
@@ -43,6 +50,10 @@ class SchemaReflector:
     represented as DAG edges.  Virtual FK support (user-defined mappings) is
     deferred -- see ADR-0013.
 
+    The SQLAlchemy inspector is cached in ``__init__`` (ADV-023 fix) to avoid
+    redundant round-trips when all three reflection methods are called across
+    many tables in a tight loop.
+
     Args:
         engine: A connected SQLAlchemy :class:`~sqlalchemy.Engine`.
 
@@ -55,12 +66,15 @@ class SchemaReflector:
     """
 
     def __init__(self, engine: Engine) -> None:
-        """Initialise with a SQLAlchemy engine.
+        """Initialise with a SQLAlchemy engine and cache its inspector.
+
+        The inspector is created once here rather than per-method call
+        (ADV-023: caching reduces redundant round-trips on large schemas).
 
         Args:
             engine: A connected SQLAlchemy :class:`~sqlalchemy.Engine`.
         """
-        self._engine = engine
+        self._inspector: Inspector = inspect(engine)
 
     def reflect(self, schema: str = "public") -> DirectedAcyclicGraph:
         """Build and return a DAG from the connected database schema.
@@ -100,8 +114,7 @@ class SchemaReflector:
         Returns:
             List of table name strings visible to the current user.
         """
-        inspector = inspect(self._engine)
-        return inspector.get_table_names(schema=schema)
+        return self._inspector.get_table_names(schema=schema)
 
     def get_columns(self, table: str, schema: str = "public") -> list[dict[str, Any]]:
         """Return column metadata for the given table.
@@ -118,8 +131,12 @@ class SchemaReflector:
         Returns:
             List of column descriptor dicts from SQLAlchemy reflection.
         """
-        inspector = inspect(self._engine)
-        return inspector.get_columns(table, schema=schema)  # type: ignore[return-value]
+        # ADV-024: ignore[return-value] is required because SQLAlchemy's
+        # Inspector.get_columns() returns a list of ReflectedColumn TypedDicts
+        # (a private type in sqlalchemy.engine.interfaces).  Our public
+        # contract uses dict[str, Any] — the documented stable shape — to
+        # avoid coupling to a private API that changes across minor versions.
+        return self._inspector.get_columns(table, schema=schema)  # type: ignore[return-value]
 
     def get_foreign_keys(self, table: str, schema: str = "public") -> list[dict[str, Any]]:
         """Return foreign key metadata for the given table.
@@ -133,5 +150,10 @@ class SchemaReflector:
             Each dict contains ``constrained_columns``, ``referred_table``,
             and ``referred_columns`` keys at minimum.
         """
-        inspector = inspect(self._engine)
-        return inspector.get_foreign_keys(table, schema=schema)  # type: ignore[return-value]
+        # ADV-024: ignore[return-value] is required because SQLAlchemy's
+        # Inspector.get_foreign_keys() returns a list of
+        # ReflectedForeignKeyConstraint TypedDicts (a private type in
+        # sqlalchemy.engine.interfaces).  Our public contract uses
+        # dict[str, Any] — the documented stable shape — to avoid coupling
+        # to a private API that changes across minor versions.
+        return self._inspector.get_foreign_keys(table, schema=schema)  # type: ignore[return-value]

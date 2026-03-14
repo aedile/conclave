@@ -9,13 +9,12 @@ Saga invariant: if ANY write fails, rollback() wipes all written tables.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import Engine
 
 from synth_engine.modules.ingestion.egress import EgressWriter
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -125,12 +124,8 @@ class TestEgressWriterRollback:
         writer.rollback()
 
         # employees (child) must be truncated before departments (parent)
-        dept_idx = next(
-            (i for i, s in enumerate(truncate_calls) if "departments" in s), None
-        )
-        emp_idx = next(
-            (i for i, s in enumerate(truncate_calls) if "employees" in s), None
-        )
+        dept_idx = next((i for i, s in enumerate(truncate_calls) if "departments" in s), None)
+        emp_idx = next((i for i, s in enumerate(truncate_calls) if "employees" in s), None)
         assert emp_idx is not None, "employees not truncated"
         assert dept_idx is not None, "departments not truncated"
         assert emp_idx < dept_idx, "employees must be truncated before departments"

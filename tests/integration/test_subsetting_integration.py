@@ -105,7 +105,7 @@ def _create_database(proc: factories.postgresql_proc, dbname: str) -> None:  # t
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
         if not cur.fetchone():
-            cur.execute(f'CREATE DATABASE "{dbname}"')  # nosec B608  # noqa: S608
+            cur.execute(f'CREATE DATABASE "{dbname}"')  # nosec B608
     conn.close()
 
 
@@ -123,8 +123,7 @@ def _drop_database(proc: factories.postgresql_proc, dbname: str) -> None:  # typ
             (dbname,),
         )
         cur.execute(
-            "DROP DATABASE IF EXISTS "
-            + psycopg2.extensions.quote_ident(dbname, cur)  # nosec B608  # noqa: S608
+            "DROP DATABASE IF EXISTS " + psycopg2.extensions.quote_ident(dbname, cur)  # nosec B608
         )
     conn.close()
 
@@ -135,9 +134,9 @@ def _drop_database(proc: factories.postgresql_proc, dbname: str) -> None:  # typ
 
 
 @pytest.fixture(scope="module")
-def _provision_dbs(
+def subsetting_dbs(
     postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
-) -> Generator[tuple[str, str], None, None]:
+) -> Generator[tuple[str, str]]:
     """Create source and target databases; yield their connection URLs.
 
     The source database is seeded with a 3-table hierarchy:
@@ -267,7 +266,7 @@ def _provision_dbs(
 
 @pytest.mark.integration
 def test_full_10_percent_subset_no_orphaned_fks(
-    _provision_dbs: tuple[str, str],
+    subsetting_dbs: tuple[str, str],
 ) -> None:
     """Subset 1 department and verify referential integrity in target DB.
 
@@ -283,7 +282,7 @@ def test_full_10_percent_subset_no_orphaned_fks(
     - target DB has exactly 6 salaries (those belonging to those employees)
     - all FK constraints in the target DB remain valid (no orphaned records)
     """
-    src_url, tgt_url = _provision_dbs
+    src_url, tgt_url = subsetting_dbs
 
     # Build SchemaTopology (bootstrapper would normally build this from SchemaReflector)
     topology = SchemaTopology(
@@ -335,7 +334,7 @@ def test_full_10_percent_subset_no_orphaned_fks(
 
     result = se.run(
         seed_table="departments",
-        seed_query="SELECT * FROM departments ORDER BY id LIMIT 1",  # nosec B608  # noqa: S608
+        seed_query="SELECT * FROM departments ORDER BY id LIMIT 1",  # nosec B608
     )
 
     # Verify SubsetResult

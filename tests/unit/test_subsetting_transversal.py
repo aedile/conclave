@@ -9,9 +9,8 @@ Security: All SQL uses parameterised text() queries — no f-string interpolatio
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
-import pytest
 from sqlalchemy import Engine
 
 from synth_engine.modules.ingestion.transversal import DagTraversal
@@ -20,7 +19,6 @@ from synth_engine.shared.schema_topology import (
     ForeignKeyInfo,
     SchemaTopology,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -146,9 +144,7 @@ class TestDagTraversalWithForeignKeys:
             },
             foreign_keys={
                 "departments": (),
-                "employees": (
-                    _fk(["dept_id"], "departments", ["id"]),
-                ),
+                "employees": (_fk(["dept_id"], "departments", ["id"]),),
             },
         )
         engine = _make_engine()
@@ -174,9 +170,7 @@ class TestDagTraversalWithForeignKeys:
         engine.connect.side_effect = connect_side_effect
 
         traversal = DagTraversal(engine=engine, topology=topology)
-        results = list(
-            traversal.traverse("employees", "SELECT * FROM employees LIMIT 1")
-        )
+        results = list(traversal.traverse("employees", "SELECT * FROM employees LIMIT 1"))
 
         # departments fetched (parent), employees is seed
         table_names = [t for t, _ in results]
@@ -196,9 +190,7 @@ class TestDagTraversalWithForeignKeys:
             },
             foreign_keys={
                 "departments": (),
-                "employees": (
-                    _fk(["dept_id"], "departments", ["id"]),
-                ),
+                "employees": (_fk(["dept_id"], "departments", ["id"]),),
             },
         )
         engine = _make_engine()
@@ -223,9 +215,7 @@ class TestDagTraversalWithForeignKeys:
         engine.connect.side_effect = connect_side_effect
 
         traversal = DagTraversal(engine=engine, topology=topology)
-        results = list(
-            traversal.traverse("departments", "SELECT * FROM departments LIMIT 1")
-        )
+        results = list(traversal.traverse("departments", "SELECT * FROM departments LIMIT 1"))
 
         table_names = [t for t, _ in results]
         assert "departments" in table_names
@@ -273,9 +263,7 @@ class TestDagTraversalWithForeignKeys:
         engine.connect.side_effect = connect_side_effect
 
         traversal = DagTraversal(engine=engine, topology=topology)
-        results = list(
-            traversal.traverse("departments", "SELECT * FROM departments LIMIT 1")
-        )
+        results = list(traversal.traverse("departments", "SELECT * FROM departments LIMIT 1"))
 
         table_names = [t for t, _ in results]
         # Verify topological order: each parent appears before its child
