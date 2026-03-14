@@ -21,7 +21,6 @@ from click.testing import CliRunner
 
 from synth_engine.cli import subset
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -44,6 +43,13 @@ def _make_subset_result(
     result.tables_written = tables or ["persons", "accounts", "transactions"]
     result.row_counts = row_counts or {"persons": 5, "accounts": 10, "transactions": 30}
     return result
+
+
+def _mock_topology() -> MagicMock:
+    """Return a minimal mock topology accepted by SubsettingEngine."""
+    topology = MagicMock()
+    topology.table_order = ("persons", "accounts", "transactions")
+    return topology
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +77,9 @@ class TestCLIValidInvocations:
         mock_result = _make_subset_result()
 
         with (
-            patch("synth_engine.cli.create_engine") as mock_create_engine,
-            patch("synth_engine.cli.EgressWriter") as mock_egress_cls,
+            patch("synth_engine.cli.create_engine"),
+            patch("synth_engine.cli.EgressWriter"),
+            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
             patch("synth_engine.cli.SubsettingEngine") as mock_engine_cls,
             patch("synth_engine.cli._build_masking_transformer") as mock_transformer_builder,
         ):
@@ -87,9 +94,9 @@ class TestCLIValidInvocations:
                 subset,
                 [
                     "--source",
-                    "postgresql+psycopg2://user:pass@localhost/src",
+                    "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                     "--target",
-                    "postgresql+psycopg2://user:pass@localhost/tgt",
+                    "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                     "--seed-table",
                     "persons",
                     "--seed-query",
@@ -113,6 +120,7 @@ class TestCLIValidInvocations:
         with (
             patch("synth_engine.cli.create_engine"),
             patch("synth_engine.cli.EgressWriter"),
+            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
             patch("synth_engine.cli.SubsettingEngine") as mock_engine_cls,
             patch("synth_engine.cli._build_masking_transformer") as mock_transformer_builder,
         ):
@@ -124,9 +132,9 @@ class TestCLIValidInvocations:
                 subset,
                 [
                     "--source",
-                    "postgresql+psycopg2://user:pass@localhost/src",
+                    "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                     "--target",
-                    "postgresql+psycopg2://user:pass@localhost/tgt",
+                    "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                     "--seed-table",
                     "persons",
                     "--seed-query",
@@ -153,6 +161,7 @@ class TestCLIValidInvocations:
         with (
             patch("synth_engine.cli.create_engine"),
             patch("synth_engine.cli.EgressWriter"),
+            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
             patch("synth_engine.cli.SubsettingEngine") as mock_engine_cls,
             patch("synth_engine.cli._build_masking_transformer"),
         ):
@@ -164,9 +173,9 @@ class TestCLIValidInvocations:
                 subset,
                 [
                     "--source",
-                    "postgresql+psycopg2://user:pass@localhost/src",
+                    "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                     "--target",
-                    "postgresql+psycopg2://user:pass@localhost/tgt",
+                    "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                     "--seed-table",
                     "persons",
                     "--seed-query",
@@ -194,9 +203,9 @@ class TestCLIValidationErrors:
             subset,
             [
                 "--source",
-                "postgresql+psycopg2://user:pass@localhost/src",
+                "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                 "--target",
-                "postgresql+psycopg2://user:pass@localhost/tgt",
+                "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                 "--seed-table",
                 "persons",
                 "--seed-query",
@@ -205,8 +214,7 @@ class TestCLIValidationErrors:
         )
 
         assert result.exit_code == 1
-        # Error message must be informative but must NOT echo the query verbatim
-        # in a way that leaks dangerous SQL — just a clear description.
+        # Error message must mention SELECT clearly
         assert "SELECT" in result.output.upper()
 
     def test_delete_query_exits_one(self) -> None:
@@ -216,9 +224,9 @@ class TestCLIValidationErrors:
             subset,
             [
                 "--source",
-                "postgresql+psycopg2://user:pass@localhost/src",
+                "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                 "--target",
-                "postgresql+psycopg2://user:pass@localhost/tgt",
+                "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                 "--seed-table",
                 "persons",
                 "--seed-query",
@@ -237,7 +245,7 @@ class TestCLIValidationErrors:
                 "--source",
                 "not-a-valid-dsn",
                 "--target",
-                "postgresql+psycopg2://user:pass@localhost/tgt",
+                "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                 "--seed-table",
                 "persons",
                 "--seed-query",
@@ -246,8 +254,7 @@ class TestCLIValidationErrors:
         )
 
         assert result.exit_code == 1
-        # The invalid DSN must NOT appear verbatim in the error output
-        # (connection strings may contain credentials)
+        # The error must mention "source" to guide the operator
         assert "source" in result.output.lower()
 
     def test_invalid_target_connection_string_exits_one(self) -> None:
@@ -257,7 +264,7 @@ class TestCLIValidationErrors:
             subset,
             [
                 "--source",
-                "postgresql+psycopg2://user:pass@localhost/src",
+                "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                 "--target",
                 "mysql://localhost/tgt",
                 "--seed-table",
@@ -277,7 +284,7 @@ class TestCLIValidationErrors:
             subset,
             [
                 "--target",
-                "postgresql+psycopg2://user:pass@localhost/tgt",
+                "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                 "--seed-table",
                 "persons",
                 "--seed-query",
@@ -295,9 +302,9 @@ class TestCLIValidationErrors:
             subset,
             [
                 "--source",
-                "postgresql+psycopg2://user:pass@localhost/src",
+                "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                 "--target",
-                "postgresql+psycopg2://user:pass@localhost/tgt",
+                "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                 "--seed-table",
                 "persons",
                 "--seed-query",
@@ -323,6 +330,7 @@ class TestCLIErrorPaths:
         with (
             patch("synth_engine.cli.create_engine"),
             patch("synth_engine.cli.EgressWriter"),
+            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
             patch("synth_engine.cli.SubsettingEngine") as mock_engine_cls,
             patch("synth_engine.cli._build_masking_transformer"),
         ):
@@ -334,9 +342,9 @@ class TestCLIErrorPaths:
                 subset,
                 [
                     "--source",
-                    "postgresql+psycopg2://user:pass@localhost/src",
+                    "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                     "--target",
-                    "postgresql+psycopg2://user:pass@localhost/tgt",
+                    "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                     "--seed-table",
                     "persons",
                     "--seed-query",
@@ -356,9 +364,9 @@ class TestCLIErrorPaths:
             subset,
             [
                 "--source",
-                "postgresql+psycopg2://admin:s3cr3t@localhost/src",
+                "postgresql+psycopg2://admin:s3cr3t@localhost/src",  # pragma: allowlist secret
                 "--target",
-                "postgresql+psycopg2://user:pass@localhost/tgt",
+                "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                 "--seed-table",
                 "persons",
                 "--seed-query",
@@ -429,6 +437,7 @@ class TestCLIDefaultMaskFlag:
         with (
             patch("synth_engine.cli.create_engine"),
             patch("synth_engine.cli.EgressWriter"),
+            patch("synth_engine.cli._load_topology", return_value=_mock_topology()),
             patch("synth_engine.cli.SubsettingEngine", side_effect=capture_init),
             patch("synth_engine.cli._build_masking_transformer") as mock_builder,
         ):
@@ -438,9 +447,9 @@ class TestCLIDefaultMaskFlag:
                 subset,
                 [
                     "--source",
-                    "postgresql+psycopg2://user:pass@localhost/src",
+                    "postgresql+psycopg2://user:pass@localhost/src",  # pragma: allowlist secret
                     "--target",
-                    "postgresql+psycopg2://user:pass@localhost/tgt",
+                    "postgresql+psycopg2://user:pass@localhost/tgt",  # pragma: allowlist secret
                     "--seed-table",
                     "persons",
                     "--seed-query",
