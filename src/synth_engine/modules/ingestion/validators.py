@@ -10,6 +10,8 @@ Security context
 - All remote hosts MUST specify ``sslmode=require`` in the connection URL
   query parameters.
 - Malformed or non-PostgreSQL URLs are rejected immediately.
+- Error messages NEVER expose embedded credentials; ``_sanitize_url`` strips
+  userinfo before interpolation (CONSTITUTION Priority 0).
 
 CONSTITUTION Priority 0: Security — SSL enforcement is mandatory for remote connections.
 Task: P3-T3.1 — Target Ingestion Engine
@@ -32,6 +34,31 @@ _VALID_SCHEMES: frozenset[str] = frozenset(
 )
 
 
+def _sanitize_url(url: str) -> str:
+    """Return the URL with credentials stripped for safe inclusion in error messages.
+
+    Replaces the userinfo component (user:password@) with an empty string so
+    that exception messages never expose auth material.
+
+    Args:
+        url: A raw connection URL, potentially containing credentials.
+
+    Returns:
+        A credential-free representation suitable for log output, e.g.
+        ``postgresql+psycopg2://host:5432/db``.
+    """
+    try:
+        parsed = urlparse(url)
+        # Reconstruct netloc without userinfo: just hostname[:port]
+        host_part = parsed.hostname or ""
+        if parsed.port:
+            host_part = f"{host_part}:{parsed.port}"
+        sanitized = parsed._replace(netloc=host_part)
+        return sanitized.geturl()
+    except Exception:  # Broad catch: urlparse internals may raise on exotic inputs
+        return "<unparseable URL>"
+
+
 def validate_connection_string(url: str) -> None:
     """Raise ValueError if the connection string is not safe for ingestion.
 
@@ -50,10 +77,14 @@ def validate_connection_string(url: str) -> None:
     parsed = urlparse(url)
 
     if not parsed.scheme or not parsed.hostname:
-        raise ValueError(f"Invalid connection URL — missing scheme or hostname: {url!r}")
+        raise ValueError(
+            f"Invalid connection URL — missing scheme or hostname: {_sanitize_url(url)!r}"
+        )
 
     if parsed.scheme not in _VALID_SCHEMES:
-        raise ValueError(f"Invalid connection URL — unsupported scheme {parsed.scheme!r}: {url!r}")
+        raise ValueError(
+            f"Invalid connection URL — unsupported scheme {parsed.scheme!r}: {_sanitize_url(url)!r}"
+        )
 
     host = parsed.hostname.lower()
     if host in _LOCAL_HOSTS:

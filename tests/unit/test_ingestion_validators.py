@@ -4,7 +4,8 @@ These tests verify that ``validate_connection_string`` enforces SSL requirements
 for non-local connections and accepts valid local or SSL-equipped remote URLs.
 
 CONSTITUTION Priority 0: Security — SSL enforcement is mandatory for remote connections.
-CONSTITUTION Priority 3: TDD — RED phase for P3-T3.1.
+  Error messages MUST NOT expose embedded credentials from connection URLs.
+CONSTITUTION Priority 3: TDD — tests updated for DevOps security finding (P3-T3.1).
 Task: P3-T3.1 — Target Ingestion Engine
 """
 
@@ -12,7 +13,46 @@ from __future__ import annotations
 
 import pytest
 
-from synth_engine.modules.ingestion.validators import validate_connection_string
+from synth_engine.modules.ingestion.validators import (
+    _sanitize_url,
+    validate_connection_string,
+)
+
+
+class TestSanitizeUrl:
+    """Tests for the private :func:`_sanitize_url` helper."""
+
+    def test_strips_password_from_url(self) -> None:
+        """Credentials (user:password) are removed from the URL representation.
+
+        This prevents auth material from leaking into exception messages or logs.
+        """
+        result = _sanitize_url("postgresql+psycopg2://admin:s3cr3t@db.example.com:5432/prod")
+        assert "s3cr3t" not in result
+        assert "admin" not in result
+
+    def test_strips_password_preserves_host_and_port(self) -> None:
+        """Host and port are retained after stripping credentials."""
+        result = _sanitize_url("postgresql+psycopg2://user:pass@db.example.com:5432/mydb")
+        assert "db.example.com" in result
+        assert "5432" in result
+
+    def test_strips_password_preserves_scheme(self) -> None:
+        """Scheme is retained after stripping credentials."""
+        result = _sanitize_url("postgresql+psycopg2://user:pass@db.example.com/mydb")
+        assert "postgresql+psycopg2" in result
+
+    def test_url_without_credentials_unchanged_content(self) -> None:
+        """URL without credentials returns equivalent host/scheme content."""
+        url = "postgresql://db.example.com:5432/mydb"
+        result = _sanitize_url(url)
+        assert "db.example.com" in result
+        assert "postgresql" in result
+
+    def test_unparseable_url_returns_safe_string(self) -> None:
+        """Completely unparseable input returns a safe string without raising."""
+        result = _sanitize_url("")
+        assert isinstance(result, str)
 
 
 class TestValidateConnectionString:
@@ -76,3 +116,26 @@ class TestValidateConnectionString:
             validate_connection_string(
                 "mysql+mysqldb://user:pass@db.example.com:3306/prod?sslmode=require"
             )
+
+    def test_invalid_url_error_excludes_credentials(self) -> None:
+        """ValueError for a malformed URL MUST NOT expose embedded credentials.
+
+        CONSTITUTION Priority 0 — auth material must never appear in exception
+        messages where they can be captured by upstream loggers.
+        """
+        url = "://s3cr3tpassword@"
+        with pytest.raises(ValueError, match="Invalid"):
+            validate_connection_string(url)
+
+    def test_unsupported_scheme_error_excludes_credentials(self) -> None:
+        """ValueError for unsupported scheme MUST NOT expose embedded credentials.
+
+        CONSTITUTION Priority 0 — auth material must never appear in exception
+        messages where they can be captured by upstream loggers.
+        """
+        # Fictional test credential — not a real secret.
+        url = "mysql+mysqldb://adm:s3cr3t@db.test/db?sslmode=require"  # pragma: allowlist secret
+        with pytest.raises(ValueError, match="unsupported scheme") as exc_info:
+            validate_connection_string(url)
+        assert "s3cr3t" not in str(exc_info.value)
+        assert "adm" not in str(exc_info.value)
