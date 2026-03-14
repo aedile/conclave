@@ -22,6 +22,7 @@ Per ADR-0015: Subsetting Traversal and Saga Rollback Design.
 CONSTITUTION Priority 0: Security — parameterised SQL only, no PII exposure.
 Task: P3-T3.4 -- Subsetting & Materialization Core
 Task: P3.5-T3.5.4 -- Remove EgressWriter.commit() no-op (semantic trap)
+Task: P3.5-T3.5.5 -- Advisory sweep (ADV-029: track row counts per table)
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ class EgressWriter:
             target_engine: A connected SQLAlchemy :class:`~sqlalchemy.Engine`.
         """
         self._engine = target_engine
-        self._written_tables: list[str] = []
+        self._written_tables: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -79,13 +80,14 @@ class EgressWriter:
         Returns:
             Ordered list of table names; each unique table appears once.
         """
-        return list(self._written_tables)
+        return list(self._written_tables.keys())
 
     def write(self, table: str, rows: list[dict[str, Any]]) -> None:
         """Insert rows into the target table.
 
         If ``rows`` is empty the method is a no-op.  Each call that inserts at
-        least one row tracks the table name for potential rollback.
+        least one row accumulates the row count for that table for potential
+        rollback reporting.
 
         Args:
             table: Unquoted target table name.
@@ -99,9 +101,8 @@ class EgressWriter:
         if not rows:
             return
 
-        # Track table for rollback (idempotent — add only once)
-        if table not in self._written_tables:
-            self._written_tables.append(table)
+        # Accumulate row counts for rollback diagnostics (ADV-029).
+        self._written_tables[table] = self._written_tables.get(table, 0) + len(rows)
 
         columns = list(rows[0].keys())
         # Build column list using quoted identifiers to prevent SQL injection
@@ -124,10 +125,11 @@ class EgressWriter:
         """TRUNCATE all written tables in reverse order (children before parents).
 
         Uses ``CASCADE`` to satisfy FK constraints during truncation.  Clears
-        the written-tables tracking list so subsequent rollback calls are
+        the written-tables tracking dict so subsequent rollback calls are
         idempotent.
 
-        Logs a WARNING before truncation so that operators can diagnose
+        Logs a WARNING before truncation that includes both table names and
+        the number of rows written to each, so that operators can diagnose
         partial subset failures from logs alone, without inspecting the
         database.
 
@@ -139,13 +141,13 @@ class EgressWriter:
 
         # Reverse order: children (written last) are truncated first so that
         # FK constraints referencing parent tables are already gone.
-        tables_to_truncate = list(reversed(self._written_tables))
+        tables_to_truncate = dict(reversed(list(self._written_tables.items())))
         logger.warning(
             "Saga rollback: truncating %d tables: %s",
             len(tables_to_truncate),
-            tables_to_truncate,
+            {t: c for t, c in tables_to_truncate.items()},
         )
-        self._written_tables = []
+        self._written_tables = {}
 
         with self._engine.connect() as conn:
             for table in tables_to_truncate:

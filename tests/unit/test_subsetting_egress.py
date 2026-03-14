@@ -4,6 +4,7 @@ All tests mock the SQLAlchemy engine; no live PostgreSQL required.
 
 Task: P3-T3.4 -- Subsetting & Materialization Core
 Task: P3.5-T3.5.4 -- Remove EgressWriter.commit() no-op (semantic trap)
+Task: P3.5-T3.5.5 -- Advisory sweep (ADV-029: rollback logs table names AND row counts)
 Security: TRUNCATE with CASCADE is the rollback strategy (ADR-0015).
 Saga invariant: if ANY write fails, rollback() wipes all written tables.
 """
@@ -86,8 +87,8 @@ class TestEgressWriterWrite:
 
         assert writer.written_tables == ["departments", "employees"]
 
-    def test_write_does_not_duplicate_table_tracking(self) -> None:
-        """write() called twice for the same table tracks the table only once."""
+    def test_write_accumulates_row_counts_across_batches(self) -> None:
+        """write() called twice for the same table accumulates total row count."""
         engine = _make_engine()
         _make_conn_ctx(engine)
 
@@ -95,7 +96,9 @@ class TestEgressWriterWrite:
         writer.write("departments", [{"id": 1}])
         writer.write("departments", [{"id": 2}])
 
+        # Table appears once in the list but its count accumulates
         assert writer.written_tables.count("departments") == 1
+        assert writer._written_tables["departments"] == 2
 
     def test_write_propagates_sqlalchemy_error(self) -> None:
         """write() does not swallow SQLAlchemyError — it propagates to the caller.
@@ -137,7 +140,7 @@ class TestEgressWriterRollback:
 
         writer = EgressWriter(target_engine=engine)
         # Simulate writing departments (parent) first, then employees (child)
-        writer._written_tables = ["departments", "employees"]
+        writer._written_tables = {"departments": 3, "employees": 7}
 
         writer.rollback()
 
@@ -157,30 +160,33 @@ class TestEgressWriterRollback:
 
         engine.connect.assert_not_called()
 
-    def test_rollback_logs_warning_with_table_names(self) -> None:
-        """rollback() logs at WARNING level including the names of written tables.
+    def test_rollback_logs_warning_with_table_names_and_row_counts(self) -> None:
+        """rollback() logs at WARNING level including table names AND row counts.
 
         The Saga compensating action should be visible in logs so that
         operators can diagnose partial subset failures without inspecting
-        the database.  The log message must name both tables written.
+        the database.  The log message must name both tables written and
+        include their respective row counts (ADV-029).
         """
         engine = _make_engine()
         _make_conn_ctx(engine)
 
         writer = EgressWriter(target_engine=engine)
         writer.write("departments", [{"id": 1}])
-        writer.write("employees", [{"id": 10, "dept_id": 1}])
+        writer.write("employees", [{"id": 10, "dept_id": 1}, {"id": 11, "dept_id": 1}])
 
         with patch("synth_engine.modules.subsetting.egress.logger") as mock_logger:
             writer.rollback()
 
         mock_logger.warning.assert_called_once()
         warning_args = mock_logger.warning.call_args
-        # The message (first positional arg after the format string) or the
-        # formatted string must reference both table names.
+        # The format args must reference both table names and their row counts.
         all_args = " ".join(str(a) for a in warning_args.args)
         assert "departments" in all_args, f"'departments' not found in warning: {warning_args}"
         assert "employees" in all_args, f"'employees' not found in warning: {warning_args}"
+        # Row counts must appear in the warning message arguments.
+        assert "1" in all_args, f"row count '1' not found in warning: {warning_args}"
+        assert "2" in all_args, f"row count '2' not found in warning: {warning_args}"
 
 
 class TestEgressWriterNoCommitMethod:
