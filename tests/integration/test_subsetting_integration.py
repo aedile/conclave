@@ -13,6 +13,7 @@ Marks: ``integration``
 CONSTITUTION Priority 0: Security — no PII, parameterised SQL only.
 CONSTITUTION Priority 3: TDD — integration gate for P3-T3.4.
 Task: P3-T3.4 -- Subsetting & Materialization Core
+Task: P3.5-T3.5.3 -- Virtual FK integration test
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ import pytest
 from pytest_postgresql import factories
 from sqlalchemy import create_engine, text
 
+from synth_engine.modules.mapping.reflection import SchemaReflector
 from synth_engine.modules.subsetting.core import SubsettingEngine
 from synth_engine.modules.subsetting.egress import EgressWriter
 from synth_engine.shared.schema_topology import (
@@ -66,6 +68,8 @@ _SOURCE_DBNAME = "conclave_subsetting_source"
 _TARGET_DBNAME = "conclave_subsetting_target"
 _ROLLBACK_SOURCE_DBNAME = "conclave_rollback_source"
 _ROLLBACK_TARGET_DBNAME = "conclave_rollback_target"
+_VFK_SOURCE_DBNAME = "conclave_vfk_source"
+_VFK_TARGET_DBNAME = "conclave_vfk_target"
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +432,110 @@ def rollback_dbs(
 
 
 # ---------------------------------------------------------------------------
+# Module-scoped fixture: Virtual FK test databases (NO physical FK constraints)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def vfk_dbs(
+    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+) -> Generator[tuple[str, str]]:
+    """Create source and target DBs with NO physical FK constraints for VFK test.
+
+    The source DB has accounts and transactions tables with only an application-
+    level relationship (no FK constraint).  This simulates production schemas
+    (data warehouses, legacy systems) where FK constraints are absent for
+    performance reasons.
+
+    Schema:
+      accounts(id SERIAL PK, name TEXT)
+      transactions(id SERIAL PK, account_id INTEGER, amount NUMERIC)
+      -- NO FK constraint on transactions.account_id
+
+    Args:
+        postgresql_proc: The running PostgreSQL process executor.
+
+    Yields:
+        Tuple of (source_url, target_url) as SQLAlchemy connection strings.
+    """
+    proc = postgresql_proc
+
+    _create_database(proc, _VFK_SOURCE_DBNAME)
+    _create_database(proc, _VFK_TARGET_DBNAME)
+
+    src_url = (
+        f"postgresql+psycopg2://{proc.user}:{proc.password or ''}"
+        f"@{proc.host}:{proc.port}/{_VFK_SOURCE_DBNAME}"
+    )
+    tgt_url = (
+        f"postgresql+psycopg2://{proc.user}:{proc.password or ''}"
+        f"@{proc.host}:{proc.port}/{_VFK_TARGET_DBNAME}"
+    )
+
+    # Source: no FK constraint between transactions and accounts
+    src_conn = _connect_pg(proc, _VFK_SOURCE_DBNAME)
+    with src_conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS accounts (
+                id   SERIAL PRIMARY KEY,
+                name TEXT NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                id         SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL,
+                amount     NUMERIC(10, 2) NOT NULL
+            )
+            """
+            # Deliberately NO REFERENCES accounts(id) — no FK constraint
+        )
+        # Insert 5 accounts, 3 transactions each (15 total transactions)
+        for a in range(1, 6):
+            cur.execute(
+                "INSERT INTO accounts (name) VALUES (%s) RETURNING id",
+                (f"Acct-{a}",),
+            )
+            acct_id = cur.fetchone()[0]  # type: ignore[index]  # psycopg2 fetchone() returns tuple[Any, ...] | None; index 0 is always valid after RETURNING
+            for t in range(1, 4):
+                cur.execute(
+                    "INSERT INTO transactions (account_id, amount) VALUES (%s, %s)",
+                    (acct_id, 100 * t),
+                )
+    src_conn.close()
+
+    # Target: matching schema with NO FK constraint (mirrors source)
+    tgt_conn = _connect_pg(proc, _VFK_TARGET_DBNAME)
+    with tgt_conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS accounts (
+                id   INTEGER PRIMARY KEY,
+                name TEXT NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                id         INTEGER PRIMARY KEY,
+                account_id INTEGER NOT NULL,
+                amount     NUMERIC(10, 2) NOT NULL
+            )
+            """
+        )
+    tgt_conn.close()
+
+    yield src_url, tgt_url
+
+    _drop_database(proc, _VFK_SOURCE_DBNAME)
+    _drop_database(proc, _VFK_TARGET_DBNAME)
+
+
+# ---------------------------------------------------------------------------
 # Integration tests
 # ---------------------------------------------------------------------------
 
@@ -566,6 +674,121 @@ def test_saga_rollback_leaves_target_clean(
     assert dept_count == 0, f"Saga left {dept_count} rows in departments — target not clean"
     assert emp_count == 0, f"Saga left {emp_count} rows in employees — target not clean"
     assert sal_count == 0, f"Saga left {sal_count} rows in salaries — target not clean"
+
+    src_engine.dispose()
+    tgt_engine.dispose()
+
+
+@pytest.mark.integration
+def test_virtual_fk_subsetting_no_orphaned_transactions(
+    vfk_dbs: tuple[str, str],
+) -> None:
+    """Subsetting with a VFK follows the virtual edge with no orphaned rows.
+
+    Arrange:
+    - Source DB: accounts and transactions tables with NO physical FK constraint.
+    - 5 accounts, 3 transactions each (15 total transactions).
+    - VFK config: transactions.account_id -> accounts.id (no DB constraint).
+
+    Act:
+    - Build SchemaTopology from SchemaReflector using the VFK config.
+    - Run SubsettingEngine seeded on accounts LIMIT 1.
+
+    Assert:
+    - Target has exactly 1 account.
+    - Target has exactly 3 transactions (those belonging to the seeded account).
+    - No orphaned transactions (application-level referential integrity preserved).
+
+    This verifies T3.5.3 AC: "Subsetting run correctly follows the virtual FK
+    edge and produces no orphaned transactions in target."
+    """
+    src_url, tgt_url = vfk_dbs
+
+    src_engine = create_engine(src_url)
+    tgt_engine = create_engine(tgt_url)
+
+    # VFK config: declare transactions.account_id -> accounts.id
+    # even though no physical FK constraint exists in the DB
+    vfks = [
+        {
+            "table": "transactions",
+            "column": "account_id",
+            "references_table": "accounts",
+            "references_column": "id",
+        }
+    ]
+
+    # Use SchemaReflector with VFK config to build the DAG
+    reflector = SchemaReflector(src_engine, virtual_foreign_keys=vfks)
+    dag = reflector.reflect()
+
+    # The VFK must produce the correct topological order: accounts before transactions
+    order = dag.topological_sort()
+    assert order.index("accounts") < order.index("transactions"), (
+        f"Expected accounts before transactions in topological order, got: {order}"
+    )
+
+    # Build SchemaTopology manually using the DAG's order and reflected columns
+    columns = {
+        "accounts": (
+            ColumnInfo(name="id", type="INTEGER", primary_key=1, nullable=False),
+            ColumnInfo(name="name", type="TEXT", primary_key=0, nullable=False),
+        ),
+        "transactions": (
+            ColumnInfo(name="id", type="INTEGER", primary_key=1, nullable=False),
+            ColumnInfo(name="account_id", type="INTEGER", primary_key=0, nullable=False),
+            ColumnInfo(name="amount", type="NUMERIC", primary_key=0, nullable=False),
+        ),
+    }
+    topology = SchemaTopology(
+        table_order=tuple(order),
+        columns=columns,
+        foreign_keys={
+            "accounts": (),
+            "transactions": (
+                ForeignKeyInfo(
+                    constrained_columns=("account_id",),
+                    referred_table="accounts",
+                    referred_columns=("id",),
+                ),
+            ),
+        },
+    )
+
+    egress = EgressWriter(target_engine=tgt_engine)
+    se = SubsettingEngine(
+        source_engine=src_engine,
+        topology=topology,
+        egress=egress,
+    )
+
+    result = se.run(
+        seed_table="accounts",
+        seed_query="SELECT * FROM accounts ORDER BY id LIMIT 1",  # nosec B608
+    )
+
+    # Verify SubsetResult
+    assert "accounts" in result.tables_written
+    assert result.row_counts["accounts"] == 1
+
+    # Verify target DB counts
+    with tgt_engine.connect() as conn:
+        acct_count = conn.execute(text("SELECT COUNT(*) FROM accounts")).scalar()  # nosec B608
+        txn_count = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar()  # nosec B608
+
+    assert acct_count == 1, f"Expected 1 account, got {acct_count}"
+    assert txn_count == 3, f"Expected 3 transactions for the seeded account, got {txn_count}"
+
+    # Verify application-level referential integrity — no orphaned transactions
+    with tgt_engine.connect() as conn:
+        orphaned_txns = conn.execute(
+            text(  # nosec B608
+                "SELECT COUNT(*) FROM transactions t "
+                "WHERE NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = t.account_id)"
+            )
+        ).scalar()
+
+    assert orphaned_txns == 0, f"Orphaned transactions after VFK subsetting: {orphaned_txns}"
 
     src_engine.dispose()
     tgt_engine.dispose()

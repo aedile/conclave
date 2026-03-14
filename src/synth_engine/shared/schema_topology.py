@@ -4,17 +4,20 @@ Produced by the bootstrapper from SchemaReflector output and injected into
 downstream modules (SubsettingEngine, Profiler, Synthesizer) via constructor.
 
 Direct import of SchemaReflector or DirectedAcyclicGraph by any module other
-than modules/ingestion/ is forbidden (import-linter enforcement).
+than modules/mapping/ is forbidden (import-linter enforcement).
 
 Per ADR-0001 (bootstrapper-as-orchestrator), ADR-0012 §Cross-module,
 ADR-0013 §5.
 
 CONSTITUTION Priority 0: Security — no external calls, no PII stored.
 Task: P3-T3.4 -- Subsetting & Materialization Core
+Task: P3.5-T3.5.3 -- SchemaTopology immutability (MappingProxyType)
 """
 
 from __future__ import annotations
 
+import types
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 
@@ -60,19 +63,48 @@ class SchemaTopology:
     This value object is the only legal way for downstream modules
     (SubsettingEngine, Profiler, Synthesizer) to consume schema information.
     The bootstrapper constructs it from ``SchemaReflector`` output and injects
-    it via constructor — direct import of ingestion-module types by other
+    it via constructor — direct import of mapping-module types by other
     modules is forbidden by import-linter contracts.
+
+    The ``columns`` and ``foreign_keys`` fields are wrapped in
+    ``types.MappingProxyType`` during ``__post_init__`` to prevent nested
+    dict mutation at runtime.  This closes the gap where ``frozen=True``
+    prevents field reassignment but NOT mutation of nested mutable containers
+    (e.g. ``topology.columns["t"].append("evil")`` would succeed silently
+    without this guard).  See T3.5.3 / ADV-028.
 
     Attributes:
         table_order: Tables in topological (parent-before-child) processing
             order, as produced by ``DirectedAcyclicGraph.topological_sort()``.
-        columns: Mapping of table name to a tuple of :class:`ColumnInfo`
-            descriptors for all columns in that table.
-        foreign_keys: Mapping of table name to a tuple of
+        columns: Read-only mapping of table name to a tuple of
+            :class:`ColumnInfo` descriptors for all columns in that table.
+        foreign_keys: Read-only mapping of table name to a tuple of
             :class:`ForeignKeyInfo` descriptors for FK constraints where that
             table is the child (constrained) side.
     """
 
     table_order: tuple[str, ...]
-    columns: dict[str, tuple[ColumnInfo, ...]] = field(default_factory=dict)
-    foreign_keys: dict[str, tuple[ForeignKeyInfo, ...]] = field(default_factory=dict)
+    columns: Mapping[str, tuple[ColumnInfo, ...]] = field(default_factory=dict)
+    foreign_keys: Mapping[str, tuple[ForeignKeyInfo, ...]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Wrap columns and foreign_keys in MappingProxyType after construction.
+
+        ``frozen=True`` prevents field reassignment but does NOT prevent
+        mutation of nested mutable containers.  Wrapping in
+        ``types.MappingProxyType`` makes the outer dicts truly read-only at
+        runtime — any mutation attempt raises ``TypeError``.
+
+        ``object.__setattr__`` must be used here because the dataclass is
+        ``frozen=True``; the normal attribute-assignment path is blocked.
+        """
+        object.__setattr__(
+            self,
+            "columns",
+            types.MappingProxyType(dict(self.columns)),
+        )
+        object.__setattr__(
+            self,
+            "foreign_keys",
+            types.MappingProxyType(dict(self.foreign_keys)),
+        )
