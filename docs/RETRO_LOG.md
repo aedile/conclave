@@ -28,6 +28,22 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-14] P4-T4.2a — Statistical Profiler
+
+**Architecture** (FINDING, 2 fixed):
+file-placement PASS. naming-conventions FINDING (fixed) — `_QUANTILES` constant defined but unused; replaced inline literal with `list(_QUANTILES)`. dependency-direction PASS — no cross-module imports; import-linter 4/4 kept. abstraction-level PASS — stateless class, models.py/profiler.py split appropriate. interface-contracts FINDING (fixed) — `ProfileDelta`/`ColumnDelta` had `to_dict()` but no `from_dict()`; asymmetric contract breaks consumer round-trips; `from_dict()` added to both with round-trip tests. model-integrity PASS — frozen=True on all four models. adr-compliance PASS. Advisory: no ADR covers the profiler's role as drift oracle — when bootstrapper wiring lands, the DataFrame-in/ProfileDelta-out protocol deserves a brief ADR. Retrospective: cleanest module boundary implementation in the codebase; models.py/profiler.py separation is textbook dependency inversion.
+
+**QA** (FINDING, 2 blockers + 3 advisories fixed):
+backlog-compliance PASS. dead-code PASS. reachable-handlers PASS. exception-specificity PASS. silent-failures PASS. coverage-gate FINDING (fixed) — editable install `.pth` pointed to wrong worktree; fixed by re-running `poetry install`; 385 tests, 96.69% coverage. edge-cases FINDING (fixed) — `compare()` misclassified all-null numeric columns as categorical; discriminator changed from `mean is not None` to `is_numeric` flag on `ColumnProfile`; regression test added. error-paths PASS. public-api-coverage PASS. meaningful-asserts PASS. docstring-accuracy FINDING (fixed) — module docstring referenced non-existent class `ProfileReport`; corrected to `TableProfile`. numpy-dep FINDING (fixed) — `numpy` used in tests but not declared; added `numpy>=1.26.0,<3.0.0` to `pyproject.toml`. pandas-stubs-placement FINDING (fixed) — visually ambiguous placement; relocated above integration-group comment. Retrospective: editable install `.pth` pointing to wrong worktree silenced the test suite while lint passed — environment hygiene failure; each worktree must run `poetry install` independently. `compare()` all-null misclassification shows that computed-statistics-as-type-proxy breaks on degenerate inputs — `dtype` or an explicit `is_numeric` flag is the correct discriminator.
+
+**DevOps** (PASS):
+hardcoded-credentials PASS. no-pii-in-code PASS. no-auth-material-in-logs PASS. input-validation SKIP (no external inputs). exception-exposure PASS. bandit PASS (0 issues, 3,690 lines). logging-level-appropriate SKIP. dependency-audit PASS (pandas 2.3.3; no CVEs). ci-health PASS. no-speculative-permissions PASS. job-consistency PASS. Advisory: numpy mypy hook lower bound (`>=1.22.0`) is looser than runtime (2.4.3 via pandas); cleanup before Phase 4 integration deps arrive. Retrospective: profiler sets strong precedent — stateless, no I/O, purely synchronous, no infrastructure concerns.
+
+**UI/UX** (SKIP):
+Backend-only diff. Forward-looking Phase 5 notes: (1) `ColumnDelta` raw floats need semantic severity tiers at the data layer before Phase 5 dashboard renders them; (2) `value_counts` is unbounded — high-cardinality columns need pagination/top_n hint before template authors see WCAG SC 1.3.1 violations.
+
+---
+
 ### [2026-03-14] Phase 3.5 End-of-Phase Retrospective
 
 **Phase:** 3.5 — Technical Debt Sprint ("Back to Solid Ground")
