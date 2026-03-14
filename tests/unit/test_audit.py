@@ -4,6 +4,7 @@ RED Phase — all tests must fail before implementation exists.
 
 CONSTITUTION Priority 3: TDD
 Task: P2-T2.4 — Vault Observability
+Task: P2-D3 — AuditLogger singleton & cross-request chain integrity
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 
 import pytest
 
@@ -37,6 +39,20 @@ def logger_instance(audit_key_bytes: bytes) -> AuditLogger:  # noqa: F821
     from synth_engine.shared.security.audit import AuditLogger
 
     return AuditLogger(audit_key_bytes)
+
+
+@pytest.fixture(autouse=True)
+def reset_logger(monkeypatch: pytest.MonkeyPatch, audit_key_hex: str) -> None:
+    """Reset the module-level singleton after each test for isolation.
+
+    Also ensures AUDIT_KEY is set for tests that exercise get_audit_logger()
+    via the singleton path.
+    """
+    monkeypatch.setenv("AUDIT_KEY", audit_key_hex)
+    yield  # type: ignore[misc]
+    from synth_engine.shared.security.audit import reset_audit_logger
+
+    reset_audit_logger()
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +181,10 @@ def test_get_audit_logger_missing_key_raises(monkeypatch: pytest.MonkeyPatch) ->
     """get_audit_logger() raises ValueError when AUDIT_KEY is not set."""
     monkeypatch.delenv("AUDIT_KEY", raising=False)
 
+    from synth_engine.shared.security.audit import reset_audit_logger
+
+    reset_audit_logger()
+
     from synth_engine.shared.security.audit import get_audit_logger
 
     with pytest.raises(ValueError, match="AUDIT_KEY"):
@@ -175,6 +195,10 @@ def test_get_audit_logger_wrong_length_key_raises(monkeypatch: pytest.MonkeyPatc
     """get_audit_logger() raises ValueError when AUDIT_KEY length is not 64 chars."""
     # 10 hex chars = 5 bytes (too short)
     monkeypatch.setenv("AUDIT_KEY", "deadbeef12")
+
+    from synth_engine.shared.security.audit import reset_audit_logger
+
+    reset_audit_logger()
 
     from synth_engine.shared.security.audit import get_audit_logger
 
@@ -191,6 +215,10 @@ def test_get_audit_logger_malformed_key_raises(monkeypatch: pytest.MonkeyPatch) 
     # 64 chars, correct length, but 'z' and 'g' are not valid hex digits
     bad_key = "z" * 32 + "g" * 32
     monkeypatch.setenv("AUDIT_KEY", bad_key)
+
+    from synth_engine.shared.security.audit import reset_audit_logger
+
+    reset_audit_logger()
 
     from synth_engine.shared.security.audit import get_audit_logger
 
@@ -235,3 +263,152 @@ def test_audit_logger_name_follows_convention() -> None:
     from synth_engine.shared.security.audit import _AUDIT_LOGGER_NAME
 
     assert _AUDIT_LOGGER_NAME == "synth_engine.security.audit"
+
+
+# ---------------------------------------------------------------------------
+# Singleton and cross-request chain integrity tests (P2-D3)
+# ---------------------------------------------------------------------------
+
+
+def test_get_audit_logger_returns_singleton() -> None:
+    """Two calls to get_audit_logger() must return the identical object.
+
+    The module-level singleton ensures the hash chain is never silently reset
+    between HTTP requests for the lifetime of the process.
+    """
+    from synth_engine.shared.security.audit import get_audit_logger
+
+    first = get_audit_logger()
+    second = get_audit_logger()
+    assert first is second
+
+
+def test_chain_persists_across_calls() -> None:
+    """The hash chain must span two separate get_audit_logger() calls.
+
+    Simulates two distinct callsites (e.g., two HTTP request handlers) both
+    obtaining the logger via the factory.  The second event's prev_hash must
+    equal the SHA-256 of the first event's JSON — proving the chain is
+    continuous across requests.
+    """
+    from synth_engine.shared.security.audit import get_audit_logger
+
+    logger_a = get_audit_logger()
+    event1 = logger_a.log_event(
+        event_type="REQUEST_ONE",
+        actor="handler_a",
+        resource="resource",
+        action="read",
+        details={},
+    )
+
+    logger_b = get_audit_logger()
+    event2 = logger_b.log_event(
+        event_type="REQUEST_TWO",
+        actor="handler_b",
+        resource="resource",
+        action="read",
+        details={},
+    )
+
+    expected_prev_hash = hashlib.sha256(event1.model_dump_json().encode()).hexdigest()
+    assert event2.prev_hash == expected_prev_hash
+
+
+def test_reset_audit_logger_breaks_singleton() -> None:
+    """After reset_audit_logger(), get_audit_logger() must return a new object.
+
+    reset_audit_logger() is provided solely for test isolation so that each
+    test starts with a clean chain.
+    """
+    from synth_engine.shared.security.audit import get_audit_logger, reset_audit_logger
+
+    first = get_audit_logger()
+    reset_audit_logger()
+    second = get_audit_logger()
+    assert first is not second
+
+
+def test_reset_audit_logger_restarts_chain() -> None:
+    """After reset_audit_logger(), the new instance's first event has genesis prev_hash.
+
+    Verifies that reset truly clears state — the new singleton begins a fresh
+    chain rather than inheriting the old chain head.
+    """
+    from synth_engine.shared.security.audit import get_audit_logger, reset_audit_logger
+
+    logger_old = get_audit_logger()
+    logger_old.log_event(
+        event_type="OLD_EVENT",
+        actor="system",
+        resource="vault",
+        action="boot",
+        details={},
+    )
+
+    reset_audit_logger()
+
+    logger_new = get_audit_logger()
+    event_new = logger_new.log_event(
+        event_type="NEW_EVENT",
+        actor="system",
+        resource="vault",
+        action="boot",
+        details={},
+    )
+
+    assert event_new.prev_hash == "0" * 64
+
+
+def test_concurrent_log_events_maintain_chain_order() -> None:
+    """Concurrent log_event() calls must produce an internally consistent chain.
+
+    Spawns 10 threads each calling log_event() on the shared singleton.
+    While emission order is non-deterministic, the resulting chain must be
+    internally valid: for every adjacent pair of events (in emission order as
+    determined by their prev_hash links), the later event's prev_hash must
+    equal the SHA-256 of the earlier event's JSON.
+
+    The threading.Lock inside log_event() is what enforces this invariant.
+    """
+    from synth_engine.shared.security.audit import AuditEvent, get_audit_logger
+
+    logger = get_audit_logger()
+    emitted: list[AuditEvent] = []
+    lock = threading.Lock()
+
+    def log_one(index: int) -> None:
+        event = logger.log_event(
+            event_type="CONCURRENT",
+            actor=f"thread-{index}",
+            resource="resource",
+            action="write",
+            details={"index": str(index)},
+        )
+        with lock:
+            emitted.append(event)
+
+    threads = [threading.Thread(target=log_one, args=(i,)) for i in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(emitted) == 10
+
+    # Reconstruct the chain in emission order by following prev_hash links.
+    # Map: prev_hash_value -> event whose prev_hash is that value (O(1) chain walk).
+    prev_hash_to_event: dict[str, AuditEvent] = {e.prev_hash: e for e in emitted}
+
+    # The genesis event is the one whose prev_hash is the genesis sentinel.
+    assert "0" * 64 in prev_hash_to_event, "No genesis event found in emitted events"
+
+    # Walk the chain from genesis to tail.
+    chain: list[AuditEvent] = []
+    current_prev = "0" * 64
+    for _ in range(10):
+        event = prev_hash_to_event[current_prev]
+        chain.append(event)
+        current_prev = hashlib.sha256(event.model_dump_json().encode()).hexdigest()
+
+    assert len(chain) == 10

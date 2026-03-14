@@ -19,9 +19,13 @@ Security properties
 - Events are emitted to ``logging.getLogger("synth_engine.security.audit")``
   at INFO level; log shipping to an append-only store (WORM) is an
   operational concern outside the scope of this module.
+- A module-level singleton (protected by ``threading.Lock``) ensures the
+  hash chain is continuous across all requests for the lifetime of the
+  process.  See ADR-0010 for full rationale.
 
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
+Task: P2-D3  — AuditLogger singleton & cross-request chain integrity
 """
 
 from __future__ import annotations
@@ -30,12 +34,20 @@ import hashlib
 import hmac
 import logging
 import os
+import threading
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
 _AUDIT_LOGGER_NAME = "synth_engine.security.audit"
 _GENESIS_HASH = "0" * 64
+
+# ---------------------------------------------------------------------------
+# Module-level singleton state
+# ---------------------------------------------------------------------------
+
+_audit_logger_instance: AuditLogger | None = None
+_audit_logger_lock: threading.Lock = threading.Lock()
 
 
 class AuditEvent(BaseModel):
@@ -68,6 +80,10 @@ class AuditEvent(BaseModel):
 class AuditLogger:
     """Stateful WORM audit logger with HMAC signatures and hash chaining.
 
+    Instances are normally obtained via :func:`get_audit_logger` which
+    returns the module-level singleton.  Direct instantiation is
+    reserved for unit tests that need an isolated chain.
+
     Args:
         audit_key: Raw 32-byte HMAC signing key.
     """
@@ -76,6 +92,7 @@ class AuditLogger:
         self._audit_key = audit_key
         self._prev_hash: str = _GENESIS_HASH
         self._log = logging.getLogger(_AUDIT_LOGGER_NAME)
+        self._lock: threading.Lock = threading.Lock()
 
     def _sign(
         self,
@@ -122,6 +139,10 @@ class AuditLogger:
         signs it, advances the chain, and logs the JSON representation
         to ``synth_engine.security.audit`` at INFO level.
 
+        This method is thread-safe: an instance-level ``threading.Lock``
+        serialises concurrent callers, preserving chain order even when
+        called from multiple async route handlers.
+
         Args:
             event_type: Short uppercase identifier for the event category.
             actor: Identity of the principal performing the action.
@@ -133,25 +154,26 @@ class AuditLogger:
         Returns:
             The constructed and signed :class:`AuditEvent`.
         """
-        timestamp = datetime.now(UTC).isoformat()
-        signature = self._sign(timestamp, event_type, actor, resource, action, self._prev_hash)
+        with self._lock:
+            timestamp = datetime.now(UTC).isoformat()
+            signature = self._sign(timestamp, event_type, actor, resource, action, self._prev_hash)
 
-        event = AuditEvent(
-            timestamp=timestamp,
-            event_type=event_type,
-            actor=actor,
-            resource=resource,
-            action=action,
-            details=details,
-            prev_hash=self._prev_hash,
-            signature=signature,
-        )
+            event = AuditEvent(
+                timestamp=timestamp,
+                event_type=event_type,
+                actor=actor,
+                resource=resource,
+                action=action,
+                details=details,
+                prev_hash=self._prev_hash,
+                signature=signature,
+            )
 
-        # Advance the chain: next event's prev_hash = SHA-256 of this event's JSON
-        self._prev_hash = hashlib.sha256(event.model_dump_json().encode()).hexdigest()
+            # Advance the chain: next event's prev_hash = SHA-256 of this event's JSON
+            self._prev_hash = hashlib.sha256(event.model_dump_json().encode()).hexdigest()
 
-        self._log.info(event.model_dump_json())
-        return event
+            self._log.info(event.model_dump_json())
+            return event
 
     def verify_event(self, event: AuditEvent) -> bool:
         """Verify that *event*'s signature was produced by this logger's key.
@@ -176,24 +198,15 @@ class AuditLogger:
         return hmac.compare_digest(expected, event.signature)
 
 
-def get_audit_logger() -> AuditLogger:
-    """Return an :class:`AuditLogger` backed by the ``AUDIT_KEY`` env var.
-
-    Reads ``AUDIT_KEY`` from the environment (hex-encoded 32 bytes).
-    A dedicated key separate from ``ALE_KEY`` and ``JWT_SECRET_KEY``
-    limits the blast radius of a single key compromise.
-
-    Each returned instance starts a new hash chain from genesis
-    (``prev_hash = '0' * 64``).  For a single continuous chain across
-    multiple calls, the caller must hold the returned instance for the
-    lifetime of the chain rather than calling this factory on each request.
+def _load_audit_key() -> bytes:
+    """Read and validate ``AUDIT_KEY`` from the environment.
 
     Returns:
-        A ready-to-use :class:`AuditLogger` instance.
+        Raw 32-byte HMAC signing key decoded from the hex env var.
 
     Raises:
-        ValueError: If ``AUDIT_KEY`` is not set, is not valid hexadecimal,
-            or does not encode exactly 32 bytes.
+        ValueError: If ``AUDIT_KEY`` is absent, wrong length, or not
+            valid hexadecimal.
     """
     raw = os.environ.get("AUDIT_KEY")
     if not raw:
@@ -206,9 +219,53 @@ def get_audit_logger() -> AuditLogger:
             f"AUDIT_KEY must be a 64-character hex string (32 bytes); got {len(raw)} characters."
         )
     try:
-        key_bytes = bytes.fromhex(raw)
+        return bytes.fromhex(raw)
     except ValueError as exc:
         raise ValueError(
             f"AUDIT_KEY must be a valid hex string (0-9, a-f); got invalid characters: {exc}"
         ) from exc
-    return AuditLogger(key_bytes)
+
+
+def get_audit_logger() -> AuditLogger:
+    """Return the module-level AuditLogger singleton.
+
+    The hash chain is maintained across **all** calls for the lifetime of
+    the process.  Each call to :meth:`~AuditLogger.log_event` links to the
+    previous event's hash, so deleting or reordering events across any number
+    of HTTP requests is detectable by a chain-integrity check.
+
+    The singleton is initialised on first call using :envvar:`AUDIT_KEY`.
+    Subsequent calls return the same object without re-reading the
+    environment.  Module-level creation is protected by a
+    :class:`threading.Lock` to be safe under concurrent first-call
+    scenarios.
+
+    Returns:
+        The process-wide :class:`AuditLogger` instance.
+
+    Raises:
+        ValueError: If ``AUDIT_KEY`` is not set, is not valid hexadecimal,
+            or does not encode exactly 32 bytes.  Only raised on the first
+            call that initialises the singleton.
+    """
+    global _audit_logger_instance
+    with _audit_logger_lock:
+        if _audit_logger_instance is None:
+            _audit_logger_instance = AuditLogger(_load_audit_key())
+        return _audit_logger_instance
+
+
+def reset_audit_logger() -> None:
+    """Reset the module-level AuditLogger singleton to ``None``.
+
+    The next call to :func:`get_audit_logger` will create a fresh instance
+    whose hash chain begins at genesis (``prev_hash = "0" * 64``).
+
+    Warning:
+        This function exists **solely for test isolation**.  Calling it in
+        production code destroys cross-request chain continuity and defeats
+        the tamper-evidence guarantee.
+    """
+    global _audit_logger_instance
+    with _audit_logger_lock:
+        _audit_logger_instance = None
