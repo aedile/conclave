@@ -6,6 +6,7 @@ Tests cover:
 - CycleDetectionError structure
 - Implicit node creation via add_edge
 - has_cycle predicate
+- add_edge idempotency (duplicate edge handling)
 
 Task: P3-T3.2 — Relational Mapping & Topological Sort
 """
@@ -50,7 +51,7 @@ class TestLinearAndSimpleSort:
     """Tests for linear chains and simple topological orderings."""
 
     def test_linear_chain_sort(self) -> None:
-        """A→B→C returns tables in dependency order: [A, B, C]."""
+        """A->B->C returns tables in dependency order: [A, B, C]."""
         dag = DirectedAcyclicGraph()
         dag.add_edge("A", "B")
         dag.add_edge("B", "C")
@@ -84,10 +85,10 @@ class TestComplexHierarchySort:
 
         Schema:
             organizations (root)
-            departments → organizations
-            users → organizations
-            projects → departments
-            projects → users   (diamond via both departments and users)
+            departments -> organizations
+            users -> organizations
+            projects -> departments
+            projects -> users   (diamond via both departments and users)
             audit_log (independent)
 
         Valid orderings must satisfy:
@@ -113,7 +114,7 @@ class TestComplexHierarchySort:
     def test_parent_always_precedes_child(self) -> None:
         """In a three-level hierarchy, all parents precede their children."""
         dag = DirectedAcyclicGraph()
-        # root → level1_a, root → level1_b, level1_a → leaf, level1_b → leaf
+        # root -> level1_a, root -> level1_b, level1_a -> leaf, level1_b -> leaf
         dag.add_edge("root", "level1_a")
         dag.add_edge("root", "level1_b")
         dag.add_edge("level1_a", "leaf")
@@ -130,7 +131,7 @@ class TestCycleDetection:
     """Tests for cycle detection in various configurations."""
 
     def test_cycle_detection_simple(self) -> None:
-        """A→B→A raises CycleDetectionError."""
+        """A->B->A raises CycleDetectionError."""
         dag = DirectedAcyclicGraph()
         dag.add_edge("A", "B")
         dag.add_edge("B", "A")
@@ -138,7 +139,7 @@ class TestCycleDetection:
             dag.topological_sort()
 
     def test_cycle_detection_self_referential(self) -> None:
-        """A self-referential edge A→A raises CycleDetectionError."""
+        """A self-referential edge A->A raises CycleDetectionError."""
         dag = DirectedAcyclicGraph()
         dag.add_node("employees")
         dag.add_edge("employees", "employees")
@@ -149,9 +150,9 @@ class TestCycleDetection:
         """5-table hierarchy with injected cycle raises CycleDetectionError.
 
         Valid hierarchy:
-            organizations → departments → employees → salaries
-            employees → timesheets
-        Injected cycle: timesheets → organizations (circular)
+            organizations -> departments -> employees -> salaries
+            employees -> timesheets
+        Injected cycle: timesheets -> organizations (circular)
         """
         dag = DirectedAcyclicGraph()
         dag.add_edge("organizations", "departments")
@@ -213,7 +214,7 @@ class TestCycleDetection:
         assert dag.has_cycle() is False
 
     def test_cycle_detection_three_node_loop(self) -> None:
-        """A→B→C→A raises CycleDetectionError with all three nodes in cycle."""
+        """A->B->C->A raises CycleDetectionError with all three nodes in cycle."""
         dag = DirectedAcyclicGraph()
         dag.add_edge("A", "B")
         dag.add_edge("B", "C")
@@ -225,3 +226,61 @@ class TestCycleDetection:
         # The cycle should reference the three participating nodes
         cycle_nodes = set(exc_info.value.cycle)
         assert len(cycle_nodes) >= 2
+
+
+class TestAddEdgeIdempotency:
+    """Tests for add_edge() idempotency contract.
+
+    Verifies that calling add_edge() with the same (parent, child) pair more than
+    once does not produce duplicate edges or corrupt the topological sort in-degree
+    computation. This contract is critical for SchemaReflector.reflect() callers
+    where composite or redundant FK constraints can produce the same logical
+    relationship more than once (e.g., created_by and updated_by both referencing
+    the users table).
+    """
+
+    def test_add_edge_is_idempotent_edges_list(self) -> None:
+        """Adding the same edge twice yields exactly one edge in edges()."""
+        dag = DirectedAcyclicGraph()
+        dag.add_edge("A", "B")
+        dag.add_edge("A", "B")  # duplicate
+        assert dag.edges() == [("A", "B")]
+
+    def test_add_edge_is_idempotent_sort_correctness(self) -> None:
+        """Duplicate add_edge calls do not corrupt topological sort ordering."""
+        dag = DirectedAcyclicGraph()
+        dag.add_edge("A", "B")
+        dag.add_edge("A", "B")  # duplicate must not double-count in-degree
+        result = dag.topological_sort()
+        assert result.index("A") < result.index("B")
+
+    def test_add_edge_idempotent_multiple_fks_same_parent(self) -> None:
+        """Simulate composite FKs where two columns both reference the same parent table.
+
+        Real-world example: an orders table with created_by and updated_by columns
+        that both hold a FK to users. SchemaReflector.reflect() will call
+        add_edge("users", "orders") once per FK constraint — this must be deduplicated.
+        """
+        dag = DirectedAcyclicGraph()
+        dag.add_edge("users", "orders")  # created_by FK
+        dag.add_edge("users", "orders")  # updated_by FK (same parent/child — duplicate)
+        assert dag.edges().count(("users", "orders")) == 1
+        result = dag.topological_sort()
+        assert result.index("users") < result.index("orders")
+
+    def test_add_edge_idempotent_node_count_unchanged(self) -> None:
+        """Duplicate add_edge does not create extra nodes."""
+        dag = DirectedAcyclicGraph()
+        dag.add_edge("parent", "child")
+        dag.add_edge("parent", "child")  # duplicate
+        assert dag.nodes() == {"parent", "child"}
+
+    def test_add_edge_distinct_edges_still_recorded(self) -> None:
+        """Non-duplicate edges are all recorded; only exact duplicates are skipped."""
+        dag = DirectedAcyclicGraph()
+        dag.add_edge("A", "B")
+        dag.add_edge("A", "C")  # different child — not a duplicate
+        dag.add_edge("A", "B")  # duplicate of first
+        assert len(dag.edges()) == 2
+        assert ("A", "B") in dag.edges()
+        assert ("A", "C") in dag.edges()
