@@ -7,11 +7,30 @@ pair always produces the same masked output.
 A single module-level Faker instance is reused across calls for performance;
 ``seed_instance()`` resets its state fully before each use, preserving
 determinism while avoiding per-call construction overhead (~7x speedup).
+
+HMAC key design rationale (ADV-027)
+-------------------------------------
+The ``salt`` parameter passed to ``deterministic_hash`` (and through it to
+HMAC) is a column-identity string such as ``"users.email"`` — **not** a secret.
+This is intentional:
+
+- The masking layer provides **determinism** and **format-preservation**:
+  the same real value in the same column always maps to the same masked value,
+  preserving referential integrity across tables.
+- **Confidentiality** of the mapping (i.e. preventing an attacker from
+  reversing masked values even if they have the code) is provided by a
+  deployment-level ``MASKING_SALT`` environment variable injected at the
+  CLI / bootstrapper layer (Phase 4, ADV-035).  That secret is combined
+  with the column-identity salt at the call site, not inside this module.
+
+Separating concerns this way keeps the masking layer stateless and testable
+without requiring secret-management infrastructure.
 """
 
 import hashlib
 import hmac
 from collections.abc import Callable
+from typing import overload
 
 from faker import Faker
 
@@ -20,23 +39,71 @@ from faker import Faker
 # instantiate their own if concurrency is required.
 _FAKER: Faker = Faker()
 
+_HMAC_SHA256_DIGEST_BYTES: int = 32
+"""Maximum bytes available from an HMAC-SHA256 digest."""
 
-def deterministic_hash(value: str, salt: str, length: int = 8) -> int:
-    """Produce a deterministic integer from value + salt using HMAC-SHA256.
+
+@overload
+def deterministic_hash(
+    value: str, salt: str, length: int = ..., *, max_length: None = ...
+) -> int: ...
+
+
+@overload
+def deterministic_hash(value: str, salt: str, length: int = ..., *, max_length: int) -> str: ...
+
+
+def deterministic_hash(
+    value: str,
+    salt: str,
+    length: int = 8,
+    *,
+    max_length: int | None = None,
+) -> int | str:
+    """Produce a deterministic hash from value + salt using HMAC-SHA256.
+
+    When called without ``max_length`` (the default), returns an integer
+    derived from the first ``length`` bytes of the HMAC digest — suitable
+    for seeding Faker.
+
+    When called with ``max_length``, returns a hexadecimal string of the
+    full digest truncated to ``max_length`` characters.  The result is
+    deterministic and format-safe for use as a column identifier or key.
 
     Args:
-        value: The plaintext value to mask.
-        salt: A per-table/column salt for domain separation.
-        length: Number of bytes to use from the digest (max 32).
+        value: The plaintext value to hash.
+        salt: A per-table/column salt for domain separation.  This is a
+            column-identity string (e.g. ``"users.email"``), not a secret.
+            See module docstring for the full design rationale.
+        length: Number of bytes to use from the digest (1-32 inclusive).
+            Ignored when ``max_length`` is provided.
+        max_length: When provided, the function returns a hex string of the
+            full digest truncated to the first ``max_length`` characters.
+            When ``None`` (default), returns an integer.
 
     Returns:
-        An integer derived from the HMAC digest, suitable for seeding Faker.
+        An integer derived from the HMAC digest when ``max_length`` is None,
+        or a hex string truncated to ``max_length`` characters otherwise.
+
+    Raises:
+        ValueError: If ``length`` < 1 or > 32 (out of valid range for HMAC-SHA256).
     """
+    if length < 1:
+        raise ValueError(f"length {length} must be >= 1")
+    if length > _HMAC_SHA256_DIGEST_BYTES:
+        raise ValueError(
+            f"length {length} exceeds HMAC-SHA256 digest size ({_HMAC_SHA256_DIGEST_BYTES} bytes)"
+        )
+
     digest = hmac.new(
         salt.encode("utf-8"),
         value.encode("utf-8"),
         hashlib.sha256,
     ).digest()
+
+    if max_length is not None:
+        return digest.hex()[:max_length]
+
     return int.from_bytes(digest[:length], "big")
 
 

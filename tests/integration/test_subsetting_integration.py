@@ -112,7 +112,7 @@ def _create_database(proc: factories.postgresql_proc, dbname: str) -> None:  # t
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
         if not cur.fetchone():
-            cur.execute(f'CREATE DATABASE "{dbname}"')  # nosec B608
+            cur.execute("CREATE DATABASE " + psycopg2.extensions.quote_ident(dbname, cur))  # nosec B608
     conn.close()
 
 
