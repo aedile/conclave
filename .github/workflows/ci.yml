@@ -103,7 +103,7 @@ jobs:
         run: poetry run bandit -c pyproject.toml -r src/ scripts/
 
       - name: Vulture dead code scan
-        run: poetry run vulture src/
+        run: poetry run vulture src/ vulture_whitelist.py
 
       - name: Import-linter boundary check
         run: poetry run lint-imports

@@ -228,7 +228,7 @@ forbidden_modules = [
 # ---------------------------------------------------------------------------
 [tool.vulture]
 min_confidence = 80
-paths = ["src"]
+paths = ["src", "vulture_whitelist.py"]
 # Abstract method parameters in ABCs are intentionally unused in the stub body.
 # These names are suppressed to avoid false positives.
 ignore_names = ["older_than", "task_id"]
