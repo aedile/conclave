@@ -3,6 +3,7 @@
 All tests use mocked SQLAlchemy inspect() calls -- no database required.
 
 Task: P3-T3.2 -- Relational Mapping & Topological Sort
+Task: P3.5-T3.5.3 -- Virtual Foreign Key (VFK) support
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import Engine
 
 from synth_engine.modules.mapping.graph import DirectedAcyclicGraph
@@ -271,3 +273,207 @@ class TestSchemaReflectorGetForeignKeys:
             result = reflector.get_foreign_keys("standalone")
 
         assert result == []
+
+
+class TestSchemaReflectorVirtualForeignKeys:
+    """Tests for SchemaReflector virtual_foreign_keys support.
+
+    Task: P3.5-T3.5.3 -- VFK support for production schemas without
+    physical FK constraints.
+
+    VFKs allow users to declare logical relationships not enforced in the DB
+    schema. They are merged with physical FKs before DAG construction so that
+    topological sort and traversal behave identically.
+    """
+
+    def test_virtual_fk_none_behaves_like_no_vfk(self) -> None:
+        """reflect() with virtual_foreign_keys=None is identical to no VFKs."""
+        engine = _make_engine()
+        tables = ["accounts", "transactions"]
+        mock_inspector = _make_inspector(tables)
+
+        with patch(_INSPECT, return_value=mock_inspector):
+            reflector = SchemaReflector(engine, virtual_foreign_keys=None)
+            dag = reflector.reflect()
+
+        assert dag.nodes() == {"accounts", "transactions"}
+        assert dag.edges() == []
+
+    def test_virtual_fk_empty_list_behaves_like_no_vfk(self) -> None:
+        """reflect() with virtual_foreign_keys=[] is identical to no VFKs."""
+        engine = _make_engine()
+        tables = ["accounts", "transactions"]
+        mock_inspector = _make_inspector(tables)
+
+        with patch(_INSPECT, return_value=mock_inspector):
+            reflector = SchemaReflector(engine, virtual_foreign_keys=[])
+            dag = reflector.reflect()
+
+        assert dag.nodes() == {"accounts", "transactions"}
+        assert dag.edges() == []
+
+    def test_virtual_fk_produces_dag_edge(self) -> None:
+        """reflect() with a VFK list produces a DAG edge for the virtual FK.
+
+        Source DB has NO physical FK constraint between transactions and accounts.
+        The VFK config produces a DAG edge accounts -> transactions.
+        """
+        engine = _make_engine()
+        tables = ["accounts", "transactions"]
+        # No physical FKs defined
+        mock_inspector = _make_inspector(tables)
+
+        vfks = [
+            {
+                "table": "transactions",
+                "column": "account_id",
+                "references_table": "accounts",
+                "references_column": "id",
+            }
+        ]
+
+        with patch(_INSPECT, return_value=mock_inspector):
+            reflector = SchemaReflector(engine, virtual_foreign_keys=vfks)
+            dag = reflector.reflect()
+
+        # accounts is the parent, transactions is the child
+        assert ("accounts", "transactions") in dag.edges()
+
+    def test_virtual_fk_merged_with_physical_fks(self) -> None:
+        """VFKs are merged with physical FKs; both edges appear in the DAG."""
+        engine = _make_engine()
+        tables = ["users", "orders", "payments"]
+        # Physical FK: orders.user_id -> users.id
+        fks_by_table = {
+            "orders": [
+                {
+                    "constrained_columns": ["user_id"],
+                    "referred_table": "users",
+                    "referred_columns": ["id"],
+                }
+            ]
+        }
+        mock_inspector = _make_inspector(tables, fks_by_table=fks_by_table)
+
+        # Virtual FK: payments.order_id -> orders.id (no physical constraint)
+        vfks = [
+            {
+                "table": "payments",
+                "column": "order_id",
+                "references_table": "orders",
+                "references_column": "id",
+            }
+        ]
+
+        with patch(_INSPECT, return_value=mock_inspector):
+            reflector = SchemaReflector(engine, virtual_foreign_keys=vfks)
+            dag = reflector.reflect()
+
+        # Physical FK edge
+        assert ("users", "orders") in dag.edges()
+        # Virtual FK edge
+        assert ("orders", "payments") in dag.edges()
+
+    def test_duplicate_vfk_is_deduplicated_silently(self) -> None:
+        """A VFK identical to an existing physical FK produces no duplicate edge.
+
+        No error is raised; the DAG edge count remains exactly 1.
+        """
+        engine = _make_engine()
+        tables = ["users", "orders"]
+        # Physical FK: orders.user_id -> users.id
+        fks_by_table = {
+            "orders": [
+                {
+                    "constrained_columns": ["user_id"],
+                    "referred_table": "users",
+                    "referred_columns": ["id"],
+                }
+            ]
+        }
+        mock_inspector = _make_inspector(tables, fks_by_table=fks_by_table)
+
+        # VFK that duplicates the physical FK exactly
+        vfks = [
+            {
+                "table": "orders",
+                "column": "user_id",
+                "references_table": "users",
+                "references_column": "id",
+            }
+        ]
+
+        with patch(_INSPECT, return_value=mock_inspector):
+            reflector = SchemaReflector(engine, virtual_foreign_keys=vfks)
+            dag = reflector.reflect()
+
+        # Exactly one edge, not two
+        edges = dag.edges()
+        assert edges.count(("users", "orders")) == 1
+        assert len(edges) == 1
+
+    def test_vfk_invalid_table_raises_value_error(self) -> None:
+        """VFK referencing a table not in the schema raises ValueError.
+
+        The error message must identify the invalid table name.
+        """
+        engine = _make_engine()
+        tables = ["accounts", "transactions"]
+        mock_inspector = _make_inspector(tables)
+
+        # VFK references a table that does not exist
+        vfks = [
+            {
+                "table": "transactions",
+                "column": "account_id",
+                "references_table": "nonexistent_table",
+                "references_column": "id",
+            }
+        ]
+
+        with patch(_INSPECT, return_value=mock_inspector):
+            reflector = SchemaReflector(engine, virtual_foreign_keys=vfks)
+            with pytest.raises(ValueError, match="nonexistent_table"):
+                reflector.reflect()
+
+    def test_vfk_invalid_child_table_raises_value_error(self) -> None:
+        """VFK where the child table (table field) is unknown raises ValueError."""
+        engine = _make_engine()
+        tables = ["accounts"]
+        mock_inspector = _make_inspector(tables)
+
+        vfks = [
+            {
+                "table": "ghost_table",
+                "column": "account_id",
+                "references_table": "accounts",
+                "references_column": "id",
+            }
+        ]
+
+        with patch(_INSPECT, return_value=mock_inspector):
+            reflector = SchemaReflector(engine, virtual_foreign_keys=vfks)
+            with pytest.raises(ValueError, match="ghost_table"):
+                reflector.reflect()
+
+    def test_virtual_fk_topological_order_correct(self) -> None:
+        """VFK edge produces correct topological ordering (parent before child)."""
+        engine = _make_engine()
+        tables = ["accounts", "transactions"]
+        mock_inspector = _make_inspector(tables)
+
+        vfks = [
+            {
+                "table": "transactions",
+                "column": "account_id",
+                "references_table": "accounts",
+                "references_column": "id",
+            }
+        ]
+
+        with patch(_INSPECT, return_value=mock_inspector):
+            reflector = SchemaReflector(engine, virtual_foreign_keys=vfks)
+            dag = reflector.reflect()
+
+        order = dag.topological_sort()
+        assert order.index("accounts") < order.index("transactions")
