@@ -18,7 +18,8 @@ perform any development work directly. Every one of those actions belongs to a s
 - Delegate ALL implementation to the `software-developer` subagent
 - Verify the subagent's output (git log, test summary) — do not re-implement
 - Spawn parallel review subagents: `qa-reviewer`, `ui-ux-reviewer`, `devops-reviewer`
-  (+ `architecture-reviewer` when diff touches `models/`, `agents/`, `api/`, or new `src/` files)
+  (+ `architecture-reviewer` when diff touches `models/`, `agents/`, `parsers/`, `generators/`,
+  `api/`, or new `src/` files — also always spawn for ANY new file under `src/synth_engine/`)
 - Commit review findings and update `docs/RETRO_LOG.md`
 - Spawn `pr-describer`, push branch, create PR via `gh pr create`
 - **Wait for the user to merge** — never self-merge
@@ -36,6 +37,7 @@ That action belongs to the `software-developer` subagent. Delegate it instead.
 The only files the PM may edit directly are:
 - `docs/RETRO_LOG.md` (review ledger commits)
 - `CLAUDE.md` (process amendments like this one)
+- `.claude/agents/*.md` (process amendments to agent prompts — these are meta-configuration, not source code)
 
 ### Approval Gate
 Per AUTONOMOUS_DEVELOPMENT_PROMPT Phase 1: present a plan, list files to create/modify,
@@ -72,6 +74,49 @@ phase against its backlog acceptance criteria before declaring the phase complet
 Specifically check: (a) are all stated integration tests present? (b) are all
 "tie into" integration requirements wired? Failures become P0 debt tasks that
 block the next phase from starting.
+
+**Rule 5 — Full backlog spec in agent prompts, not just Testing & Quality Gates.**
+(Phase 3 Retro — Added 2026-03-14)
+When writing the implementation brief for a `software-developer` subagent, the PM MUST
+copy the ENTIRE backlog task spec verbatim — including **Context & Constraints**, not just
+**Testing & Quality Gates**. Requirements in Context & Constraints are in scope even if
+not repeated in the AC items. The PM must explicitly cross-reference each Context &
+Constraints bullet against the AC list before writing the brief. Any gap must be resolved:
+either add a matching AC, or explicitly descope with written justification.
+
+**Rule 6 — Technology substitution requires PM approval and an ADR.**
+(Phase 3 Retro — Added 2026-03-14)
+If a backlog task spec names a specific technology (library, protocol, driver) and the
+software-developer subagent proposes using a different one, the PM MUST:
+1. Explicitly acknowledge the substitution in the plan review.
+2. Require an ADR (or ADR amendment) documenting the substitution and rationale BEFORE
+   approving implementation.
+Silent technology substitutions — where the backlog says X and the code uses Y with no
+documented decision — are a process violation. The spec represents a deliberate design
+decision; changing it requires the same rigor as making it.
+
+**Rule 7 — Intra-module cohesion gate.**
+(Phase 3 Retro — Added 2026-03-14)
+Before approving any plan that adds new files to an existing module (`modules/X/`), the
+PM MUST verify that each new file's responsibility matches the module's domain name.
+Ask: "would a reader of `modules/X/` expect to find this class there?" If not, the plan
+must propose a new subpackage or module. This gate applies at plan approval time — not
+at review time. The architecture reviewer will catch it at review, but the PM should
+prevent the issue from reaching code.
+Rule of thumb: ingestion ingests, masking masks, subsetting subsets, profiling profiles.
+A class doing X that lives in module Y is a planning failure.
+
+**Rule 8 — Operational wiring is a delivery requirement, not an advisory.**
+(Phase 3 Retro — Added 2026-03-14)
+Any IoC hook, injectable abstraction, or callback interface introduced in a task must be
+wired to a concrete implementation in `bootstrapper/` before the task is marked complete.
+"Theoretical correctness" (the abstraction exists, tests exercise it) is NOT sufficient.
+A `row_transformer` callback that is only exercised in integration tests but never wired
+through the bootstrapper is incomplete delivery. If the wiring cannot be done in the same
+task (e.g., it depends on Phase 4 work), the PM must:
+1. Create an explicit TODO in bootstrapper pointing to the target task.
+2. Log it as a BLOCKER advisory (not an informational advisory) in RETRO_LOG.
+3. Make it a Phase-entry gate for the phase that includes the wiring task.
 
 ---
 
