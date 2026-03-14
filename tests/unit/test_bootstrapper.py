@@ -5,6 +5,7 @@ basic application structure.
 
 CONSTITUTION Priority 3: TDD RED Phase
 Task: P2-T2.1 — Module Bootstrapper, OTEL, Idempotency, Orphan Task Reaper
+Task: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
 """
 
 import pytest
@@ -52,3 +53,73 @@ def test_create_app_returns_new_instance_each_call() -> None:
     app2 = create_app()
 
     assert app1 is not app2
+
+
+# ---------------------------------------------------------------------------
+# CycleDetectionError → 422 RFC 7807
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cycle_detection_error_returns_422_rfc7807() -> None:
+    """CycleDetectionError raised by a subsetting engine handler returns HTTP 422.
+
+    The bootstrapper must intercept CycleDetectionError (ADV-022) and
+    return an RFC 7807 Problem Details response with status 422, not 500.
+
+    RFC 7807 required fields: type, title, status, detail.
+    """
+    from synth_engine.bootstrapper.main import create_app
+    from synth_engine.modules.mapping import CycleDetectionError
+
+    app = create_app()
+
+    # Register a test route that raises CycleDetectionError so we can verify
+    # the exception handler is wired correctly.
+    @app.get("/test-cycle-error")
+    async def _trigger_cycle_error() -> None:
+        raise CycleDetectionError("a → b → a creates a cycle")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/test-cycle-error")
+
+    assert response.status_code == 422
+    body = response.json()
+
+    # RFC 7807 required fields
+    assert body.get("status") == 422
+    assert "title" in body
+    assert "detail" in body
+    assert "type" in body
+    # The detail must carry the original exception message
+    assert "a → b → a creates a cycle" in body["detail"]
+
+
+@pytest.mark.asyncio
+async def test_cycle_detection_error_not_a_500() -> None:
+    """CycleDetectionError must never produce HTTP 500.
+
+    A generic unhandled exception produces 500. This test verifies the
+    bootstrapper's exception handler intercepts CycleDetectionError before
+    FastAPI's default 500 handler fires.
+    """
+    from synth_engine.bootstrapper.main import create_app
+    from synth_engine.modules.mapping import CycleDetectionError
+
+    app = create_app()
+
+    @app.get("/test-cycle-not-500")
+    async def _raise_cycle() -> None:
+        raise CycleDetectionError("cycle detected")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/test-cycle-not-500")
+
+    assert response.status_code != 500
+
+
+# ---------------------------------------------------------------------------
+# Pytest mark
+# ---------------------------------------------------------------------------
+
+pytestmark = pytest.mark.unit
