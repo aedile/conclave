@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-03-13
-**Task:** P3-T3.2 — Relational Mapping & Topological Sort
+**Task:** P3-T3.2 -- Relational Mapping & Topological Sort
 **Author:** Conclave Engine Development Team
 
 ---
@@ -26,14 +26,14 @@ The ingestion module needs a mechanism to:
 
 ### 1. Schema Reflection via SQLAlchemy `inspect()`
 
-`SchemaReflector` (in `reflection.py`) wraps SQLAlchemy's `inspect()` façade to expose three
+`SchemaReflector` (in `reflection.py`) wraps SQLAlchemy's `inspect()` facade to expose three
 discrete methods:
 
 | Method | Returns |
 |---|---|
-| `get_tables(schema)` | `list[str]` — table names visible to the connected user |
-| `get_columns(table, schema)` | `list[dict]` — column metadata including `primary_key` position |
-| `get_foreign_keys(table, schema)` | `list[dict]` — FK constraints with `referred_table` and `constrained_columns` |
+| `get_tables(schema)` | `list[str]` -- table names visible to the connected user |
+| `get_columns(table, schema)` | `list[dict]` -- column metadata including `primary_key` position |
+| `get_foreign_keys(table, schema)` | `list[dict]` -- FK constraints with `referred_table` and `constrained_columns` |
 
 The `primary_key` integer field follows SQLAlchemy's convention: `0` = not a PK column;
 `>= 1` = PK membership, with the integer indicating position in composite PKs (1, 2, ...).
@@ -43,12 +43,19 @@ Callers MUST use `>= 1` (not `== 1`) to correctly identify composite PK members 
 
 `DirectedAcyclicGraph` (in `graph.py`) stores:
 
-- `_nodes: set[str]` — all table names.
-- `_adjacency: dict[str, list[str]]` — parent -> [children] mapping.
-- `_edges: list[tuple[str, str]]` — ordered (parent, child) edge list for introspection.
+- `_nodes: set[str]` -- all table names.
+- `_adjacency: dict[str, list[str]]` -- parent -> [children] mapping.
+- `_edge_set: set[tuple[str, str]]` -- O(1) duplicate detection for idempotent `add_edge()`.
+- `_edges: list[tuple[str, str]]` -- ordered (parent, child) edge list for introspection.
 
 **Edge direction:** An edge `(parent, child)` means the child table holds a FK referencing the
 parent. This represents the dependency: the parent must be processed first.
+
+**add_edge() is idempotent:** Calling `add_edge(parent, child)` with an already-present pair is
+a no-op. This matches `add_node()`'s idempotency contract and prevents duplicate edges when
+`SchemaReflector.reflect()` processes schemas with composite or redundant FK constraints (e.g.,
+`created_by` and `updated_by` columns that both reference the same parent table produce the same
+`(parent, child)` edge tuple).
 
 **Explicit FKs only:** Only relationships defined as database-level FK constraints are represented
 as graph edges. Implicit or virtual FK relationships (e.g., column-name conventions, user-defined
@@ -97,6 +104,26 @@ The engine does not automatically resolve cycles. Callers must provide explicit 
 rules (e.g., treat one FK as virtual and handle it in a post-processing pass) before ingestion
 can proceed.
 
+### 5. Inter-Module Data Handoff
+
+`SchemaReflector` lives inside `synth_engine.modules.ingestion`. Per [ADR-0001], only
+`bootstrapper` may orchestrate across modules; no module may import from another module directly.
+
+When downstream modules (T3.4 Subsetting Core, Phase 4 Synthesizer, Profiler) need the
+topological ordering or column metadata produced by this module, the following pattern MUST
+be used:
+
+1. **Bootstrapper calls** `SchemaReflector.reflect()` and
+   `DirectedAcyclicGraph.topological_sort()` at job-initialization time.
+2. **Bootstrapper packages** the result into a neutral, stdlib-only data structure (dataclass or
+   `TypedDict`) defined in `synth_engine/shared/` -- NOT in `modules/ingestion/`.
+3. **Downstream modules receive** the packaged schema topology via constructor injection from
+   bootstrapper. They MUST NOT import from `synth_engine.modules.ingestion` directly.
+
+This is the same pattern documented in [ADR-0012] (PostgresIngestionAdapter cross-module gap).
+Direct import of `SchemaReflector`, `DirectedAcyclicGraph`, or `CycleDetectionError` by any
+module outside `synth_engine.modules.ingestion` will fail the import-linter CI gate.
+
 ---
 
 ## Consequences
@@ -115,6 +142,8 @@ can proceed.
 - **Boundary compliance:** `graph.py` imports only from the standard library.
   `reflection.py` imports from `sqlalchemy` and `synth_engine.modules.ingestion.graph`.
   Neither module violates import-linter contracts.
+- **API symmetry:** Both `add_node()` and `add_edge()` are idempotent, eliminating a class of
+  silent correctness bugs in callers that process schemas with redundant FK constraints.
 
 ### Negative / Trade-offs
 
@@ -125,6 +154,9 @@ can proceed.
 - **Cycle-breaking is manual:** The engine raises `CycleDetectionError` but does not suggest
   or apply a resolution. Users must supply explicit rules. This is intentional: automatic
   cycle-breaking could produce incorrect output silently.
+- **Cross-module handoff requires bootstrapper coordination:** Downstream modules cannot import
+  DAG results directly; the bootstrapper must package and inject them. This is the correct
+  boundary enforcement but adds an orchestration step.
 
 ---
 
@@ -136,3 +168,4 @@ can proceed.
 | DFS-only topological sort | Kahn's Algorithm directly integrates cycle detection via in-degree residual check, making it simpler and more readable than DFS with coloring. |
 | Inferring virtual FKs from column names | Ambiguous in real-world schemas; deferred to explicit user configuration. |
 | Storing `CycleDetectionError` in `shared/` | It is ingestion-specific; placing it in `shared/` would violate the principle of minimal shared surface area. |
+| Non-idempotent add_edge() (original) | Produces silent duplicate edges and double-counted in-degrees on composite FK schemas; asymmetric API contract vs. idempotent add_node(). |

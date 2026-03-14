@@ -11,8 +11,8 @@ This module may only import from the Python standard library.
 Cross-module imports are forbidden by import-linter contracts in pyproject.toml.
 
 ADR-0013: Relational Mapping DAG and Topological Sort Design.
-CONSTITUTION Priority 0: Security — no external calls, no PII exposure.
-Task: P3-T3.2 — Relational Mapping & Topological Sort
+CONSTITUTION Priority 0: Security -- no external calls, no PII exposure.
+Task: P3-T3.2 -- Relational Mapping & Topological Sort
 """
 
 from __future__ import annotations
@@ -70,7 +70,8 @@ class DirectedAcyclicGraph:
         self._nodes: set[str] = set()
         # Adjacency list: parent -> list[child]
         self._adjacency: dict[str, list[str]] = {}
-        # Edge list preserved for introspection
+        # Edge set for O(1) duplicate detection; list for insertion-order introspection
+        self._edge_set: set[tuple[str, str]] = set()
         self._edges: list[tuple[str, str]] = []
 
     def add_node(self, table: str) -> None:
@@ -88,6 +89,12 @@ class DirectedAcyclicGraph:
     def add_edge(self, parent: str, child: str) -> None:
         """Add a directed edge: parent -> child (child holds FK to parent).
 
+        Idempotent -- calling with an already-present (parent, child) pair is a
+        no-op.  This matches :meth:`add_node`'s idempotency contract and prevents
+        duplicate edges when :class:`SchemaReflector` reflects schemas with composite
+        or redundant FK constraints (e.g., ``created_by`` and ``updated_by`` columns
+        that both reference the same parent table).
+
         Implicitly creates both nodes if they do not already exist.
 
         Args:
@@ -96,8 +103,12 @@ class DirectedAcyclicGraph:
         """
         self.add_node(parent)
         self.add_node(child)
+        edge = (parent, child)
+        if edge in self._edge_set:
+            return
+        self._edge_set.add(edge)
         self._adjacency[parent].append(child)
-        self._edges.append((parent, child))
+        self._edges.append(edge)
 
     def nodes(self) -> set[str]:
         """Return the set of all registered table names.
@@ -112,6 +123,8 @@ class DirectedAcyclicGraph:
 
         Returns:
             A list of ``(parent, child)`` tuples in insertion order.
+            Each unique edge appears exactly once; duplicate :meth:`add_edge`
+            calls for the same pair are silently deduplicated.
         """
         return list(self._edges)
 
@@ -156,8 +169,10 @@ class DirectedAcyclicGraph:
     def has_cycle(self) -> bool:
         """Return True if the graph contains at least one cycle.
 
-        Uses the same DFS approach as :meth:`_find_cycle` but suppresses the
-        exception, returning a simple boolean.
+        Calls :meth:`topological_sort` and returns ``False`` if no cycle is
+        detected, or ``True`` if :exc:`CycleDetectionError` is raised.  This
+        method does NOT use DFS directly; it relies on Kahn's Algorithm via
+        :meth:`topological_sort`.
 
         Returns:
             ``True`` if a cycle exists; ``False`` if the graph is a valid DAG.
@@ -175,10 +190,19 @@ class DirectedAcyclicGraph:
         current recursion stack.  When a back-edge is found (a node on the
         stack is encountered again), the cycle is extracted from the stack.
 
+        This method is only called when Kahn's Algorithm has confirmed that
+        a cycle exists (i.e., not all nodes were processed).  The DFS is
+        therefore guaranteed to find a back-edge.
+
         Returns:
             Ordered list of node names forming the cycle. The sequence
             starts at the re-entry point and ends at the node that closes
             the cycle.
+
+        Raises:
+            AssertionError: If called when no cycle exists -- indicates an
+                internal invariant violation in the caller (Kahn's residual
+                check produced a wrong result).
         """
         visited: set[str] = set()
         rec_stack: set[str] = set()
@@ -210,4 +234,10 @@ class DirectedAcyclicGraph:
                 if found is not None:
                     return found
 
-        return []
+        # Unreachable when called correctly: _find_cycle() is only invoked after
+        # Kahn's Algorithm confirms a cycle exists, so DFS must always find a
+        # back-edge above.  If reached, the caller's invariant is broken.
+        raise AssertionError(
+            "_find_cycle called when no cycle exists -- "
+            "Kahn's residual check produced a wrong result"
+        )
