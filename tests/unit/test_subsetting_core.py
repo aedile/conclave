@@ -319,7 +319,7 @@ class TestSchemaTopologyImmutability:
         assert isinstance(topology.foreign_keys, types.MappingProxyType)
 
     def test_columns_append_raises_type_error(self) -> None:
-        """topology.columns['t'].append('x') raises TypeError.
+        """Assigning a new outer key to topology.columns raises TypeError.
 
         MappingProxyType prevents item assignment on the outer mapping.
         Assigning a new key to the proxy itself raises TypeError.

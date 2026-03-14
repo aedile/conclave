@@ -4,6 +4,7 @@
 **Date:** 2026-03-13
 **Task:** P3-T3.2 -- Relational Mapping & Topological Sort
 **Updated:** P3.5-T3.5.2 -- Module Cohesion Refactor (file paths updated)
+**Updated:** P3.5-T3.5.3 -- Virtual FK support implemented
 **Author:** Conclave Engine Development Team
 
 ---
@@ -64,9 +65,16 @@ override mappings) are **not inferred** from the schema. This is a deliberate se
 correctness choice: inferring FKs from naming patterns would introduce ambiguity and risk
 incorrect processing order in customer schemas.
 
-**Virtual FK support is deferred.** A future task may introduce an override mechanism allowing
-users to declare virtual FK relationships via configuration. That mechanism will be implemented
-as a separate pass over the DAG after reflection, not by modifying `SchemaReflector`.
+**Virtual FK support (implemented T3.5.3):** `SchemaReflector.reflect()` accepts an optional
+`virtual_foreign_keys` keyword argument (a list of `_VfkDict` entries, each specifying
+`table`, `column`, `references_table`, and `references_column`). These are validated against
+the reflected table catalog before DAG edge construction — unknown table names raise
+`ValueError`. Valid VFK entries are merged with physical FK data in `SchemaTopology.foreign_keys`
+before any `add_edge()` calls, so the DAG treats them identically to database-level constraints.
+Duplicate (parent, child) edge pairs are deduplicated by `add_edge()`'s existing idempotency
+contract. This merge-inside-reflect design was chosen over the originally documented
+post-reflection pass because it eliminates a two-phase API and ensures topology consistency
+at a single call site.
 
 ### 3. Kahn's Algorithm for Topological Sort
 
@@ -166,10 +174,10 @@ each module a single coherent responsibility.
 
 ### Negative / Trade-offs
 
-- **No virtual FK support:** Schemas relying on application-enforced FKs (no DB constraints)
-  will produce a DAG with no edges between logically related tables. Processing order will be
-  arbitrary for those table pairs. This is acceptable for Phase 3; virtual FK support is a
-  Phase 4 enhancement (T3.5.3).
+- **Virtual FK support requires caller configuration:** Schemas relying on application-enforced
+  FKs (no DB constraints) must supply explicit `virtual_foreign_keys` entries to `reflect()`.
+  If no VFK config is supplied for a logically related table pair, processing order for those
+  tables remains undefined. Discovery of undeclared implicit FKs is not automated.
 - **Cycle-breaking is manual:** The engine raises `CycleDetectionError` but does not suggest
   or apply a resolution. Users must supply explicit rules. This is intentional: automatic
   cycle-breaking could produce incorrect output silently.
