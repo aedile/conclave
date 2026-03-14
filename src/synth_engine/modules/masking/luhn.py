@@ -7,9 +7,15 @@ This module is intentionally small and has zero dependencies outside the
 Python standard library.  It exists as its own file so that:
 
 - The masking engine's ``algorithms.py`` can import it clearly.
-- Future synthesizer or privacy modules that need LUHN validation can
-  import directly from here without taking on the full masking dependency tree.
 - Vulture and import-linter see a clear, named public API.
+
+Import boundary note
+--------------------
+``luhn_check`` is re-exported from ``algorithms.py`` for backward
+compatibility.  All consumers **must** import through the module's public
+API (``synth_engine.modules.masking``) — not directly from this submodule.
+Cross-module imports into synthesizer, privacy, or any other module are
+forbidden by the import-linter contracts defined in ``pyproject.toml``.
 """
 
 
