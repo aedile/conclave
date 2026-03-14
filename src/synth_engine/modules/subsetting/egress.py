@@ -145,7 +145,7 @@ class EgressWriter:
         logger.warning(
             "Saga rollback: truncating %d tables: %s",
             len(tables_to_truncate),
-            {t: c for t, c in tables_to_truncate.items()},
+            dict(tables_to_truncate),
         )
         self._written_tables = {}
 
