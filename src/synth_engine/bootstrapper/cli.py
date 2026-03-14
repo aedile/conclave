@@ -213,8 +213,8 @@ def subset(
     Example:\b
 
         conclave-subset \\
-          --source postgresql://user:pass@localhost/prod \\
-          --target postgresql://user:pass@localhost/dev \\
+          --source postgresql://user:pass@localhost/prod \\  # pragma: allowlist secret
+          --target postgresql://user:pass@localhost/dev \\  # pragma: allowlist secret
           --seed-table customers \\
           --seed-query "SELECT * FROM customers LIMIT 100"
     """
