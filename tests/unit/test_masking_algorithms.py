@@ -5,6 +5,8 @@ RED phase: these tests must fail before implementation exists.
 
 import re
 
+import pytest
+
 from synth_engine.modules.masking.algorithms import (
     luhn_check,
     mask_credit_card,
@@ -13,6 +15,7 @@ from synth_engine.modules.masking.algorithms import (
     mask_phone,
     mask_ssn,
 )
+from synth_engine.modules.masking.deterministic import deterministic_hash
 
 _SALT = "test_table.column"
 
@@ -174,3 +177,37 @@ def test_mask_phone_respects_max_length() -> None:
     """Masked phone is truncated to max_length when provided."""
     result = mask_phone("555-867-5309", _SALT, max_length=10)
     assert len(result) <= 10
+
+
+# ---------------------------------------------------------------------------
+# deterministic_hash — ADV-026 guard and max_length
+# ---------------------------------------------------------------------------
+
+
+def test_deterministic_hash_length_exceeds_32_raises_value_error() -> None:
+    """deterministic_hash raises ValueError when length > 32 (HMAC-SHA256 digest is 32 bytes).
+
+    Passing length=33 would silently produce an incorrect result by reading
+    beyond the digest boundary; this guard makes the constraint explicit.
+    """
+    with pytest.raises(ValueError, match="length"):
+        deterministic_hash("x", "y", length=33)
+
+
+def test_deterministic_hash_max_length_truncates_deterministically() -> None:
+    """deterministic_hash with max_length=10 returns a string of length <= 10.
+
+    The truncation must be deterministic: calling with the same arguments
+    a second time must return the identical string.
+    """
+    result_a = deterministic_hash("x", "y", max_length=10)
+    result_b = deterministic_hash("x", "y", max_length=10)
+    assert isinstance(result_a, str), "max_length variant must return str"
+    assert len(result_a) <= 10
+    assert result_a == result_b, "max_length variant must be deterministic"
+
+
+def test_deterministic_hash_max_length_none_no_truncation() -> None:
+    """deterministic_hash with max_length=None (default) returns an int, no truncation."""
+    result = deterministic_hash("x", "y", max_length=None)
+    assert isinstance(result, int), "Without max_length, return type must be int"
