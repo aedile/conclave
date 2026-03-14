@@ -135,3 +135,81 @@ where `primary_key` is an integer ordinal.  Callers MUST use `>= 1` (not
   The superuser check (Stage 1) handles the most dangerous case; role-inherited
   privileges are a known gap and should be addressed in a future task if
   role-based PostgreSQL deployments are required.
+
+### Async Call-Site Contract (arch-review finding — P3-T3.1)
+
+`stream_table()` and `preflight_check()` are **synchronous** methods backed by
+the blocking `psycopg2` driver.  This is a deliberate architectural decision
+(see Library decision above), consistent with the precedent established in:
+
+- **T2.1** (Redis client): synchronous Redis calls wrapped via `asyncio.to_thread()`
+- **T2.4** (PBKDF2 key derivation): synchronous crypto wrapped via `asyncio.to_thread()`
+
+**Mandatory call-site contract:** Any caller invoking `stream_table()` or
+`preflight_check()` from an async context (FastAPI route handler, async
+orchestrator in `bootstrapper/`) MUST wrap the call via `asyncio.to_thread()`.
+Calling these methods directly from a coroutine will block the event loop and
+violate the async-first mandate in ADR-0001.
+
+Canonical usage pattern:
+
+```python
+# In an async FastAPI handler or bootstrapper orchestrator:
+import asyncio
+from synth_engine.modules.ingestion.postgres_adapter import PostgresIngestionAdapter
+
+adapter = PostgresIngestionAdapter(connection_url)
+await asyncio.to_thread(adapter.preflight_check)
+rows = await asyncio.to_thread(adapter.stream_table, table_name)
+```
+
+Cross-reference: ADR-0001 (async-first mandate), T2.1 Redis sync/async boundary,
+T2.4 PBKDF2 sync/async boundary.
+
+### Cross-Module Schema Data Flow (arch-review finding — P3-T3.1)
+
+`SchemaInspector` and `PostgresIngestionAdapter` live in
+`synth_engine.modules.ingestion`.  Per ADR-0001, modules must not import
+directly from each other — the bootstrapper is the sole orchestrator.
+
+**Import-linter enforcement:** If any module outside
+`synth_engine.modules.ingestion` imports `SchemaInspector` directly, the
+import-linter CI contract defined in `pyproject.toml` will fail. This is not
+a soft guideline — it is a hard CI gate.
+
+**Required data-flow pattern for downstream consumers (e.g., T3.2 Relational
+Mapping Engine):**
+
+1. The **bootstrapper** calls `adapter.get_schema_inspector()` and invokes
+   `inspector.get_tables()`, `inspector.get_columns()`, and
+   `inspector.get_foreign_keys()` to extract schema data.
+2. The bootstrapper transforms that raw data into a **plain value object** —
+   a `dict`, `dataclass`, or `TypedDict` — containing only the information
+   the downstream module needs.
+3. The bootstrapper passes the **value object** to downstream modules. It
+   never passes the `SchemaInspector` instance itself.
+
+This pattern keeps the module boundary clean: T3.2 and all later modules
+receive plain Python data structures, not ingestion-layer objects. The
+`SchemaInspector` class is an implementation detail of the ingestion module
+and must not leak across the boundary.
+
+Concretely:
+
+```python
+# bootstrapper/orchestrator.py (sketch — not yet implemented)
+import asyncio
+from synth_engine.modules.ingestion.postgres_adapter import PostgresIngestionAdapter
+
+async def run_ingestion_phase(connection_url: str, table_name: str) -> dict:
+    adapter = PostgresIngestionAdapter(connection_url)
+    await asyncio.to_thread(adapter.preflight_check)
+    inspector = adapter.get_schema_inspector()
+    # Extract to a plain value object — do NOT pass inspector to other modules
+    schema_data = {
+        "tables": inspector.get_tables(),
+        "columns": inspector.get_columns(table_name),
+        "foreign_keys": inspector.get_foreign_keys(table_name),
+    }
+    return schema_data  # plain dict passed to downstream modules
+```

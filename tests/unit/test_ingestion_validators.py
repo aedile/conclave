@@ -105,6 +105,30 @@ class TestValidateConnectionString:
             "postgresql+psycopg2://user:pass@10.0.0.5:5432/prod?sslmode=require"
         )
 
+    def test_remote_host_sslmode_allow_raises(self) -> None:
+        """Remote host with sslmode=allow raises ValueError.
+
+        ``sslmode=allow`` permits unencrypted fallback connections and does NOT
+        satisfy the mandatory SSL requirement. Only ``sslmode=require`` (or
+        stronger) is acceptable for remote connections.
+        """
+        with pytest.raises(ValueError, match="sslmode=require"):
+            validate_connection_string(
+                "postgresql+psycopg2://user:pass@host.example.com/db?sslmode=allow"
+            )
+
+    def test_remote_host_sslmode_disable_raises(self) -> None:
+        """Remote host with sslmode=disable raises ValueError.
+
+        ``sslmode=disable`` explicitly disables SSL and sends all traffic in
+        plaintext. This is never acceptable for remote connections — the
+        validator must reject it.
+        """
+        with pytest.raises(ValueError, match="sslmode=require"):
+            validate_connection_string(
+                "postgresql+psycopg2://user:pass@host.example.com/db?sslmode=disable"
+            )
+
     def test_invalid_url_raises(self) -> None:
         """Malformed URL (no scheme or hostname) raises ValueError."""
         with pytest.raises(ValueError, match="Invalid"):

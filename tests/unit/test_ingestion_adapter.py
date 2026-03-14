@@ -260,6 +260,39 @@ class TestStreamTable:
         assert len(batches) == 1  # one non-empty batch
         assert batches[0] == [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
 
+    def test_stream_table_empty_table_yields_nothing(self) -> None:
+        """stream_table yields no batches when the table has zero rows.
+
+        An empty table (cursor returns no rows on the first fetchmany) must
+        produce an empty generator — not an empty-list batch.
+        """
+        with (
+            patch("synth_engine.modules.ingestion.postgres_adapter.create_engine") as mock_create,
+            patch("synth_engine.modules.ingestion.postgres_adapter.Table") as mock_table_cls,
+            patch("synth_engine.modules.ingestion.postgres_adapter.MetaData"),
+        ):
+            mock_engine = MagicMock()
+            mock_create.return_value = mock_engine
+
+            mock_tbl = MagicMock()
+            mock_stmt = MagicMock()
+            mock_tbl.select.return_value = mock_stmt
+            mock_table_cls.return_value = mock_tbl
+
+            adapter = PostgresIngestionAdapter("postgresql+psycopg2://user:pass@localhost:5432/db")
+
+            mock_inspector = MagicMock(spec=SchemaInspector)
+            mock_inspector.get_tables.return_value = ["empty_table"]
+            adapter._schema_inspector = mock_inspector  # type: ignore[attr-defined]
+
+            # Simulate a table with zero rows: fetchmany returns [] immediately.
+            mock_conn = _make_stream_conn_mock([], batch_size=1000)
+            mock_engine.connect.return_value = mock_conn
+
+            batches = list(adapter.stream_table("empty_table"))
+
+        assert batches == [], f"Expected no batches for empty table, got {batches}"
+
 
 # ---------------------------------------------------------------------------
 # PostgresIngestionAdapter.preflight_check
@@ -337,6 +370,32 @@ class TestPreflightCheck:
         mock_engine.connect.return_value = mock_conn
 
         with pytest.raises(PrivilegeEscalationError, match="INSERT"):
+            adapter.preflight_check()
+
+    def test_preflight_raises_when_update_grant_exists(self) -> None:
+        """preflight_check raises PrivilegeEscalationError when UPDATE grant is present.
+
+        UPDATE is a write privilege that must trigger the security gate
+        independently — not only when combined with INSERT.
+        """
+        adapter, mock_engine = self._make_adapter()
+        mock_conn = self._build_conn_mock(is_superuser="off", write_grants=["UPDATE"])
+        mock_engine.connect.return_value = mock_conn
+
+        with pytest.raises(PrivilegeEscalationError, match="UPDATE"):
+            adapter.preflight_check()
+
+    def test_preflight_raises_when_delete_grant_exists(self) -> None:
+        """preflight_check raises PrivilegeEscalationError when DELETE grant is present.
+
+        DELETE is a write privilege that must trigger the security gate
+        independently — not only when combined with INSERT or UPDATE.
+        """
+        adapter, mock_engine = self._make_adapter()
+        mock_conn = self._build_conn_mock(is_superuser="off", write_grants=["DELETE"])
+        mock_engine.connect.return_value = mock_conn
+
+        with pytest.raises(PrivilegeEscalationError, match="DELETE"):
             adapter.preflight_check()
 
     def test_preflight_passes_when_readonly(self) -> None:

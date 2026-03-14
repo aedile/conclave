@@ -26,6 +26,7 @@ Task: P3-T3.1 — Target Ingestion Engine
 from __future__ import annotations
 
 import shutil
+from collections.abc import Generator
 
 import psycopg2
 import pytest
@@ -48,7 +49,7 @@ postgresql_proc = factories.postgresql_proc()
 
 _TEST_DBNAME = "conclave_ingestion_integration"
 _READONLY_USER = "readonly_ingestion_tester"
-_READONLY_PASS = "readonly_pass_only"  # pragma: allowlist secret
+_READONLY_PASS = "readonly_pass_only"  # pragma: allowlist secret  # nosec B105
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +112,7 @@ def _create_database(proc: factories.postgresql_proc) -> None:  # type: ignore[v
 @pytest.fixture(scope="module")
 def _provision_test_db(
     postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
-) -> None:
+) -> Generator[None]:
     """Create the test database once per module.
 
     Also creates a read-only user that is used by the readonly test.

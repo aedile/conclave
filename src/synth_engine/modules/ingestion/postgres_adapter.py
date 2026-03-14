@@ -85,6 +85,11 @@ class SchemaInspector:
             List of column descriptor dicts from SQLAlchemy reflection.
         """
         inspector = inspect(self._engine)
+        # Justification for ignore[return-value] below: SQLAlchemy inspect()
+        # returns TypedDict-like ReflectedColumn structs; dict[str, Any] is the
+        # documented public shape callers rely on. Importing the private
+        # SQLAlchemy types would add an undocumented private API dependency
+        # that breaks across minor versions.
         return inspector.get_columns(table_name, schema=schema)  # type: ignore[return-value]
 
     def get_foreign_keys(self, table_name: str, schema: str = "public") -> list[dict[str, Any]]:
@@ -98,6 +103,11 @@ class SchemaInspector:
             List of FK descriptor dicts from SQLAlchemy reflection.
         """
         inspector = inspect(self._engine)
+        # Justification for ignore[return-value] below: SQLAlchemy inspect()
+        # returns TypedDict-like ReflectedForeignKeyConstraint structs;
+        # dict[str, Any] is the documented public shape callers rely on.
+        # Importing the private SQLAlchemy types would add an undocumented
+        # private API dependency that breaks across minor versions.
         return inspector.get_foreign_keys(table_name, schema=schema)  # type: ignore[return-value]
 
 
@@ -203,7 +213,7 @@ class PostgresIngestionAdapter:
         Never loads the full table into memory. Each batch is a list of
         ``dict`` objects mapping column name → value.
 
-        Table name is validated against :meth:`get_schema_inspector` before
+        Table name is validated against :meth:`_validate_table_name` before
         any SQL is constructed (ADV-013 compliance). The reflected ``Table``
         object lets SQLAlchemy generate correctly quoted identifier SQL.
 
