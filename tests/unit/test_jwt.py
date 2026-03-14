@@ -257,16 +257,21 @@ def test_mtls_san_takes_precedence_over_ip() -> None:
 def test_invalid_signature_raises_401() -> None:
     """A token with a tampered signature must raise TokenVerificationError 401."""
     config = _make_config()
-    token = create_access_token(
+    # Build a token signed with a different secret — guaranteed invalid signature
+    # regardless of payload length or base64url padding.  The last-character flip
+    # approach is flaky because padding-only tail bits leave decoded bytes unchanged.
+    wrong_config = JWTConfig(
+        secret_key="wrong-secret-key-that-will-never-match",  # nosec B105 # pragma: allowlist secret  # noqa: S106
+        algorithm=config.algorithm,
+        access_token_expire_minutes=config.access_token_expire_minutes,
+        trusted_proxy_header=config.trusted_proxy_header,
+    )
+    bad_token = create_access_token(
         subject="eve",
         scopes=[Scope.READ_RESULTS],
         client_identifier="192.168.1.1",
-        config=config,
+        config=wrong_config,
     )
-    # Tamper: flip one character in the signature (last segment)
-    parts = token.split(".")
-    tampered = parts[2][:-1] + ("A" if parts[2][-1] != "A" else "B")
-    bad_token = ".".join(parts[:2] + [tampered])
 
     request = _mock_request(client_host="192.168.1.1")
     with pytest.raises(TokenVerificationError) as exc_info:
