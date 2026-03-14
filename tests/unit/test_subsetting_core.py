@@ -1,0 +1,221 @@
+"""Unit tests for SubsettingEngine — orchestrator of DAG traversal and egress.
+
+All tests use mocked dependencies; no database required.
+
+Task: P3-T3.4 -- Subsetting & Materialization Core
+Architecture: SubsettingEngine receives SchemaTopology via constructor injection
+per ADR-0001, ADR-0012 §Cross-module, and ADR-0013 §5.  It must NOT import
+SchemaReflector, DirectedAcyclicGraph, or PostgresIngestionAdapter directly.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, call, patch
+
+import pytest
+
+from synth_engine.modules.ingestion.core import SubsetResult, SubsettingEngine
+from synth_engine.modules.ingestion.egress import EgressWriter
+from synth_engine.shared.schema_topology import (
+    ColumnInfo,
+    SchemaTopology,
+)
+
+# ---------------------------------------------------------------------------
+# Fixture helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_topology(tables: list[str]) -> SchemaTopology:
+    """Build a minimal SchemaTopology with the given table order and no FKs.
+
+    Args:
+        tables: Table names in topological order.
+
+    Returns:
+        A frozen SchemaTopology value object.
+    """
+    columns: dict[str, tuple[ColumnInfo, ...]] = {
+        t: (ColumnInfo(name="id", type="INTEGER", primary_key=1, nullable=False),) for t in tables
+    }
+    return SchemaTopology(
+        table_order=tuple(tables),
+        columns=columns,
+        foreign_keys=dict.fromkeys(tables, ()),
+    )
+
+
+def _make_engine() -> MagicMock:
+    """Return a MagicMock acting as a SQLAlchemy Engine."""
+    from sqlalchemy import Engine
+
+    return MagicMock(spec=Engine)
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubsettingEngineValidation:
+    """Validation tests — SubsettingEngine rejects bad inputs before traversal."""
+
+    def test_subset_empty_seed_raises_value_error(self) -> None:
+        """run() raises ValueError when seed_query is an empty string."""
+        topology = _make_topology(["departments"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+
+        with pytest.raises(ValueError, match="seed_query"):
+            se.run(seed_table="departments", seed_query="")
+
+    def test_subset_whitespace_only_seed_raises_value_error(self) -> None:
+        """run() raises ValueError when seed_query is whitespace-only."""
+        topology = _make_topology(["departments"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+
+        with pytest.raises(ValueError, match="seed_query"):
+            se.run(seed_table="departments", seed_query="   ")
+
+    def test_subset_table_not_in_topology_raises_value_error(self) -> None:
+        """run() raises ValueError when seed_table is not in topology.table_order."""
+        topology = _make_topology(["employees"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+
+        with pytest.raises(ValueError, match="departments"):
+            se.run(seed_table="departments", seed_query="SELECT * FROM departments LIMIT 1")
+
+    def test_run_rejects_non_select_seed_query(self) -> None:
+        """run() raises ValueError when seed_query is a DELETE statement."""
+        topology = _make_topology(["foo"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+
+        with pytest.raises(ValueError, match="SELECT"):
+            se.run(seed_table="foo", seed_query="DELETE FROM foo")
+
+    def test_run_rejects_insert_seed_query(self) -> None:
+        """run() raises ValueError when seed_query is an INSERT statement."""
+        topology = _make_topology(["foo"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+
+        with pytest.raises(ValueError, match="SELECT"):
+            se.run(seed_table="foo", seed_query="INSERT INTO foo VALUES (1)")
+
+
+class TestSubsettingEngineOrchestration:
+    """Orchestration tests — SubsettingEngine coordinates traversal and egress."""
+
+    def test_subset_calls_transversal_with_topology(self) -> None:
+        """run() instantiates DagTraversal and calls traverse() with the right args."""
+        topology = _make_topology(["departments"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        mock_traversal = MagicMock()
+        mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}])])
+
+        with patch(
+            "synth_engine.modules.ingestion.core.DagTraversal",
+            return_value=mock_traversal,
+        ) as mock_cls:
+            se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+            se.run(seed_table="departments", seed_query="SELECT * FROM departments LIMIT 1")
+
+        mock_cls.assert_called_once_with(engine=engine, topology=topology)
+        mock_traversal.traverse.assert_called_once_with(
+            "departments", "SELECT * FROM departments LIMIT 1"
+        )
+
+    def test_subset_calls_egress_with_rows(self) -> None:
+        """run() calls egress.write() for each (table, rows) pair from traversal."""
+        topology = _make_topology(["departments", "employees"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        dept_rows = [{"id": 1, "name": "Engineering"}]
+        emp_rows = [{"id": 10, "dept_id": 1}]
+
+        mock_traversal = MagicMock()
+        mock_traversal.traverse.return_value = iter(
+            [("departments", dept_rows), ("employees", emp_rows)]
+        )
+
+        with patch(
+            "synth_engine.modules.ingestion.core.DagTraversal",
+            return_value=mock_traversal,
+        ):
+            se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+            result = se.run(
+                seed_table="departments",
+                seed_query="SELECT * FROM departments LIMIT 1",
+            )
+
+        egress.write.assert_has_calls(
+            [
+                call("departments", dept_rows),
+                call("employees", emp_rows),
+            ]
+        )
+        assert result.tables_written == ["departments", "employees"]
+        assert result.row_counts == {"departments": 1, "employees": 1}
+
+    def test_subset_triggers_rollback_on_egress_failure(self) -> None:
+        """run() calls egress.rollback() and re-raises when egress.write() fails."""
+        topology = _make_topology(["departments"])
+        egress = MagicMock(spec=EgressWriter)
+        egress.write.side_effect = RuntimeError("disk full")
+        engine = _make_engine()
+
+        mock_traversal = MagicMock()
+        mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}])])
+
+        with patch(
+            "synth_engine.modules.ingestion.core.DagTraversal",
+            return_value=mock_traversal,
+        ):
+            se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+
+            with pytest.raises(RuntimeError, match="disk full"):
+                se.run(
+                    seed_table="departments",
+                    seed_query="SELECT * FROM departments LIMIT 1",
+                )
+
+        egress.rollback.assert_called_once()
+
+    def test_subset_returns_subset_result(self) -> None:
+        """run() returns a SubsetResult with tables_written and row_counts."""
+        topology = _make_topology(["departments"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        mock_traversal = MagicMock()
+        mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}, {"id": 2}])])
+
+        with patch(
+            "synth_engine.modules.ingestion.core.DagTraversal",
+            return_value=mock_traversal,
+        ):
+            se = SubsettingEngine(source_engine=engine, topology=topology, egress=egress)
+            result = se.run(
+                seed_table="departments",
+                seed_query="SELECT * FROM departments LIMIT 2",
+            )
+
+        assert isinstance(result, SubsetResult)
+        assert result.tables_written == ["departments"]
+        assert result.row_counts == {"departments": 2}
