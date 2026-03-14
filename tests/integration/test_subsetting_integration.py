@@ -74,7 +74,7 @@ _ROLLBACK_TARGET_DBNAME = "conclave_rollback_target"
 
 
 def _connect_pg(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str = "postgres",
 ) -> psycopg2.extensions.connection:
     """Open a psycopg2 superuser connection to the ephemeral PG instance.
@@ -97,7 +97,7 @@ def _connect_pg(
     return conn
 
 
-def _create_database(proc: factories.postgresql_proc, dbname: str) -> None:  # type: ignore[valid-type]
+def _create_database(proc: factories.postgresql_proc, dbname: str) -> None:  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     """Create a database if it does not already exist.
 
     Args:
@@ -112,7 +112,7 @@ def _create_database(proc: factories.postgresql_proc, dbname: str) -> None:  # t
     conn.close()
 
 
-def _drop_database(proc: factories.postgresql_proc, dbname: str) -> None:  # type: ignore[valid-type]
+def _drop_database(proc: factories.postgresql_proc, dbname: str) -> None:  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     """Terminate connections and drop a database.
 
     Args:
@@ -132,7 +132,7 @@ def _drop_database(proc: factories.postgresql_proc, dbname: str) -> None:  # typ
 
 
 def _create_three_table_schema(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str,
     with_serial: bool = False,
 ) -> None:
@@ -176,7 +176,7 @@ def _create_three_table_schema(
 
 
 def _populate_source(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str,
 ) -> None:
     """Populate a source database with 10 departments, 30 employees, 60 salaries.
@@ -192,13 +192,13 @@ def _populate_source(
                 "INSERT INTO departments (name) VALUES (%s) RETURNING id",
                 (f"Dept-{d}",),
             )
-            dept_id = cur.fetchone()[0]  # type: ignore[index]
+            dept_id = cur.fetchone()[0]  # type: ignore[index]  # psycopg2 fetchone() returns tuple[Any, ...] | None; index 0 is always valid after RETURNING
             for e in range(1, 4):
                 cur.execute(
                     "INSERT INTO employees (dept_id, name) VALUES (%s, %s) RETURNING id",
                     (dept_id, f"Emp-{d}-{e}"),
                 )
-                emp_id = cur.fetchone()[0]  # type: ignore[index]
+                emp_id = cur.fetchone()[0]  # type: ignore[index]  # psycopg2 fetchone() returns tuple[Any, ...] | None; index 0 is always valid after RETURNING
                 for s in range(1, 3):
                     cur.execute(
                         "INSERT INTO salaries (employee_id, amount) VALUES (%s, %s)",
@@ -258,7 +258,7 @@ def _make_three_table_topology() -> SchemaTopology:
 
 @pytest.fixture(scope="module")
 def subsetting_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
 ) -> Generator[tuple[str, str]]:
     """Create source and target databases; yield their connection URLs.
 
@@ -324,14 +324,14 @@ def subsetting_dbs(
                 "INSERT INTO departments (name) VALUES (%s) RETURNING id",
                 (f"Dept-{d}",),
             )
-            dept_id = cur.fetchone()[0]  # type: ignore[index]
+            dept_id = cur.fetchone()[0]  # type: ignore[index]  # psycopg2 fetchone() returns tuple[Any, ...] | None; index 0 is always valid after RETURNING
             # Insert 3 employees per department
             for e in range(1, 4):
                 cur.execute(
                     "INSERT INTO employees (dept_id, name) VALUES (%s, %s) RETURNING id",
                     (dept_id, f"Emp-{d}-{e}"),
                 )
-                emp_id = cur.fetchone()[0]  # type: ignore[index]
+                emp_id = cur.fetchone()[0]  # type: ignore[index]  # psycopg2 fetchone() returns tuple[Any, ...] | None; index 0 is always valid after RETURNING
                 # Insert 2 salaries per employee
                 for s in range(1, 3):
                     cur.execute(
@@ -389,7 +389,7 @@ def subsetting_dbs(
 
 @pytest.fixture(scope="module")
 def rollback_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
 ) -> Generator[tuple[str, str]]:
     """Create isolated source and target databases for the Saga rollback test.
 
@@ -537,7 +537,7 @@ def test_saga_rollback_leaves_target_clean(
     call_count: list[int] = [0]
     original_write = real_egress.write
 
-    def _failing_write(table: str, rows: list[dict]) -> None:  # type: ignore[type-arg]
+    def _failing_write(table: str, rows: list[dict]) -> None:  # type: ignore[type-arg]  # dict key/value types omitted intentionally; this is a test helper matching the real write signature
         """Succeed for the first table, raise RuntimeError on the second."""
         call_count[0] += 1
         if call_count[0] >= 2:

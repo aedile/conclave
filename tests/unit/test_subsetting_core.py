@@ -219,3 +219,76 @@ class TestSubsettingEngineOrchestration:
         assert isinstance(result, SubsetResult)
         assert result.tables_written == ["departments"]
         assert result.row_counts == {"departments": 2}
+
+    def test_transformer_none_return_raises_type_error(self) -> None:
+        """run() raises TypeError when row_transformer returns None for a row.
+
+        The engine must guard against a transformer that silently returns None
+        rather than passing it downstream to egress, which would corrupt the
+        target database.  rollback() must also be called.
+        """
+        topology = _make_topology(["departments"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        mock_traversal = MagicMock()
+        mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}])])
+
+        def _bad_transformer(table: str, row: dict) -> None:  # type: ignore[return]
+            """Transformer that returns None — violates the callback contract."""
+            return None
+
+        with patch(
+            "synth_engine.modules.ingestion.core.DagTraversal",
+            return_value=mock_traversal,
+        ):
+            se = SubsettingEngine(
+                source_engine=engine,
+                topology=topology,
+                egress=egress,
+                row_transformer=_bad_transformer,  # type: ignore[arg-type]
+            )
+
+            with pytest.raises(TypeError, match="None"):
+                se.run(
+                    seed_table="departments",
+                    seed_query="SELECT * FROM departments LIMIT 1",
+                )
+
+        egress.rollback.assert_called_once()
+
+    def test_transformer_failure_triggers_rollback(self) -> None:
+        """run() calls egress.rollback() and re-raises when row_transformer raises.
+
+        Any exception from the transformer must trigger the Saga rollback so
+        the target database is left clean.
+        """
+        topology = _make_topology(["departments"])
+        egress = MagicMock(spec=EgressWriter)
+        engine = _make_engine()
+
+        mock_traversal = MagicMock()
+        mock_traversal.traverse.return_value = iter([("departments", [{"id": 1}])])
+
+        def _exploding_transformer(table: str, row: dict) -> dict:  # type: ignore[type-arg]
+            """Transformer that raises — simulates a masking pipeline failure."""
+            raise RuntimeError("transform failed")
+
+        with patch(
+            "synth_engine.modules.ingestion.core.DagTraversal",
+            return_value=mock_traversal,
+        ):
+            se = SubsettingEngine(
+                source_engine=engine,
+                topology=topology,
+                egress=egress,
+                row_transformer=_exploding_transformer,
+            )
+
+            with pytest.raises(RuntimeError, match="transform failed"):
+                se.run(
+                    seed_table="departments",
+                    seed_query="SELECT * FROM departments LIMIT 1",
+                )
+
+        egress.rollback.assert_called_once()

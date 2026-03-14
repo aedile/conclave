@@ -112,8 +112,9 @@ class SubsettingEngine:
                 provided, it is called as ``row_transformer(table_name, row)``
                 for every row before the row is passed to the egress writer.
                 The callback MUST return a new dict (or the same dict) with the
-                same column keys; it MUST NOT raise.  Violations will propagate
-                as unhandled exceptions and trigger the Saga rollback.
+                same column keys; it MUST NOT return ``None`` or raise.
+                A ``None`` return raises ``TypeError`` immediately.  Any raise
+                triggers the Saga rollback.
         """
         self._engine = source_engine
         self._topology = topology
@@ -129,10 +130,11 @@ class SubsettingEngine:
 
         **row_transformer contract**: when a transformer is provided it is
         called once per row as ``transformer(table_name, row_dict)`` and its
-        return value is written to the target.  The transformer is responsible
-        for returning a dict with the same column keys as the source row.  Any
-        exception raised by the transformer is treated as a pipeline failure:
-        ``egress.rollback()`` is called and the exception is re-raised.
+        return value is written to the target.  The transformer MUST return a
+        ``dict[str, Any]`` — returning ``None`` raises ``TypeError`` and
+        triggers the Saga rollback.  Any other exception raised by the
+        transformer is treated as a pipeline failure: ``egress.rollback()`` is
+        called and the exception is re-raised.
 
         **Synchronous method** — backed by the blocking psycopg2 driver.
         Callers in async contexts (e.g., FastAPI route handlers or bootstrapper
@@ -156,6 +158,7 @@ class SubsettingEngine:
             ValueError: If ``seed_query`` is empty/whitespace, if
                 ``seed_query`` does not start with ``SELECT``, or if
                 ``seed_table`` is not in the topology.
+            TypeError: If the ``row_transformer`` returns ``None`` for any row.
             Exception: Any exception from traversal, the row_transformer, or
                 egress is re-raised after calling ``egress.rollback()``.
         """
@@ -180,7 +183,16 @@ class SubsettingEngine:
         try:
             for table, rows in traversal.traverse(seed_table, seed_query):
                 if self._row_transformer is not None:
-                    rows = [self._row_transformer(table, row) for row in rows]
+                    transformed: list[dict[str, Any]] = []
+                    for row in rows:
+                        result_row = self._row_transformer(table, row)
+                        if result_row is None:
+                            raise TypeError(
+                                f"row_transformer returned None for table {table!r}; "
+                                "transformer must return a dict[str, Any]"
+                            )
+                        transformed.append(result_row)
+                    rows = transformed
                 self._egress.write(table, rows)
                 result.tables_written.append(table)
                 result.row_counts[table] = len(rows)

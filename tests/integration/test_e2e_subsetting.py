@@ -118,7 +118,7 @@ _E2E_PASSTHRU_TARGET_DBNAME = "conclave_e2e_passthru_target"
 
 
 def _connect_pg(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str = "postgres",
 ) -> psycopg2.extensions.connection:
     """Open a psycopg2 superuser connection to the ephemeral PG instance.
@@ -142,7 +142,7 @@ def _connect_pg(
 
 
 def _create_database(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str,
 ) -> None:
     """Create a database if it does not already exist.
@@ -160,7 +160,7 @@ def _create_database(
 
 
 def _drop_database(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str,
 ) -> None:
     """Terminate connections and drop a database.
@@ -182,7 +182,7 @@ def _drop_database(
 
 
 def _create_pii_schema(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str,
     *,
     with_serial: bool = False,
@@ -230,7 +230,7 @@ def _create_pii_schema(
 
 
 def _populate_pii_source(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str,
     *,
     num_persons: int = 20,
@@ -256,13 +256,13 @@ def _populate_pii_source(
                     f"123-45-{n:04d}",
                 ),
             )
-            person_id = cur.fetchone()[0]  # type: ignore[index]
+            person_id = cur.fetchone()[0]  # type: ignore[index]  # psycopg2 fetchone() returns tuple[Any, ...] | None; index 0 is always valid after RETURNING
             for a in range(1, 3):
                 cur.execute(
                     "INSERT INTO accounts (person_id, account_number) VALUES (%s, %s) RETURNING id",
                     (person_id, f"ACCT-{person_id:04d}-{a:02d}"),
                 )
-                account_id = cur.fetchone()[0]  # type: ignore[index]
+                account_id = cur.fetchone()[0]  # type: ignore[index]  # psycopg2 fetchone() returns tuple[Any, ...] | None; index 0 is always valid after RETURNING
                 for t in range(1, 4):
                     cur.execute(
                         "INSERT INTO transactions (account_id, amount, description) "
@@ -273,7 +273,7 @@ def _populate_pii_source(
 
 
 def _truncate_target(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
     dbname: str,
 ) -> None:
     """Truncate all tables in the target database.
@@ -342,7 +342,7 @@ def _make_pii_topology() -> SchemaTopology:
 
 @pytest.fixture(scope="module")
 def e2e_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
 ) -> Generator[tuple[str, str]]:
     """Create source + target databases; yield their connection URLs.
 
@@ -380,7 +380,7 @@ def e2e_dbs(
 
 @pytest.fixture(scope="module")
 def e2e_determ_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
 ) -> Generator[tuple[str, str]]:
     """Create isolated source + target databases for the determinism test.
 
@@ -416,7 +416,7 @@ def e2e_determ_dbs(
 
 @pytest.fixture(scope="module")
 def e2e_passthru_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
 ) -> Generator[tuple[str, str]]:
     """Create isolated source + target databases for the passthrough test.
 
