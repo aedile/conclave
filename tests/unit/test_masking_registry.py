@@ -1,6 +1,11 @@
 """Unit tests for the MaskingRegistry with collision prevention.
 
-RED phase: these tests must fail before implementation exists.
+The registry uses a two-phase collision-prevention strategy:
+  Phase 1 — Retry (max 10 attempts): re-derive seed with counter-suffixed input.
+  Phase 2 — Suffix: append a numeric suffix to the output when retries are exhausted.
+
+This guarantees uniqueness for arbitrarily large datasets including the mandatory
+100 000-record backlog test.
 """
 
 import time
@@ -82,22 +87,23 @@ def test_registry_collision_prevention_triggers() -> None:
     """When a collision is detected, the registry retries and returns a unique value.
 
     We force two different inputs to produce the same initial masked value
-    by patching the underlying algorithm for the first two calls.
+    by patching the underlying algorithm.  The first call returns a colliding value
+    and the retry returns a unique value.
     """
     registry = MaskingRegistry()
     salt = "t.col"
 
-    # Patch mask_name to return "John Doe" for both inputs on first call,
-    # then a unique value on retry.
-    call_count = 0
     colliding_value = "John Doe"
     unique_value = "Jane Roe"
+    call_count = 0
 
     def patched_mask_name(value: str, salt_arg: str, max_length: int | None = None) -> str:
         nonlocal call_count
         call_count += 1
-        # First two calls return the colliding value; subsequent calls are unique
-        if call_count <= 2:
+        # First call (Alice): returns colliding_value → stored
+        # Second call (Bob attempt 0): returns colliding_value → collision detected
+        # Third call (Bob attempt 1, retry): returns unique_value → accepted
+        if call_count in {1, 2}:
             return colliding_value
         return unique_value
 
@@ -105,14 +111,18 @@ def test_registry_collision_prevention_triggers() -> None:
         first = registry.mask("Alice", ColumnType.NAME, salt)
         assert first == colliding_value
 
-        # Second mask with different input — will collide on first attempt, then recover
+        # Second mask — will collide on first attempt, then recover on retry
         second = registry.mask("Bob", ColumnType.NAME, salt)
-        assert second == unique_value
         assert second != first
+        assert second == unique_value
 
 
-def test_registry_collision_exhaustion_raises() -> None:
-    """CollisionError is raised when all 10 retry attempts produce collisions."""
+def test_registry_suffix_phase_triggers_when_retries_exhausted() -> None:
+    """When all retry attempts collide, the registry appends a numeric suffix.
+
+    This verifies Phase 2 of the collision-prevention strategy: suffix-based
+    disambiguation for large datasets where Faker's output space is exhausted.
+    """
     registry = MaskingRegistry()
     salt = "t.col"
     constant_value = "Always Same"
@@ -121,11 +131,19 @@ def test_registry_collision_exhaustion_raises() -> None:
         return constant_value
 
     with patch("synth_engine.modules.masking.registry.mask_name", always_same):
-        # First call succeeds (no prior collision)
-        registry.mask("Alice", ColumnType.NAME, salt)
-        # Second call exhausts all retries
-        with pytest.raises(CollisionError):
-            registry.mask("Bob", ColumnType.NAME, salt)
+        # First call succeeds — no collision yet
+        first = registry.mask("Alice", ColumnType.NAME, salt)
+        assert first == constant_value
+
+        # Second call — all 10 retries return constant_value, suffix phase kicks in
+        second = registry.mask("Bob", ColumnType.NAME, salt)
+        assert second != first
+        assert second.startswith(constant_value)  # Suffix appended to base
+
+
+def test_registry_collision_error_is_importable() -> None:
+    """CollisionError is importable (defensive guard class must exist)."""
+    assert issubclass(CollisionError, Exception)
 
 
 # ---------------------------------------------------------------------------
@@ -175,9 +193,9 @@ def test_registry_reset_clears_seen() -> None:
 
     with patch("synth_engine.modules.masking.registry.mask_name", always_same):
         registry.mask("Alice", ColumnType.NAME, salt)
-        # Without reset, this would collide and retry/fail
+        # Without reset, Phase 2 suffix would kick in
         registry.reset()
-        # After reset, the same masked value is allowed again
+        # After reset, the same masked value is allowed again (no collision)
         result = registry.mask("Bob", ColumnType.NAME, salt)
         assert result == constant_value
 
