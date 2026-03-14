@@ -7,9 +7,7 @@ Task: P4-T4.1 — GPU Passthrough & Ephemeral Storage
 
 from __future__ import annotations
 
-import io
 import logging
-from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
@@ -19,9 +17,10 @@ import pytest
 # Acceptance criteria:
 #   1. EphemeralStorageClient with mock backend: upload DataFrame → download
 #      back → assert equality.
-#   2. FORCE_CPU=true → logs CPU fallback at INFO level; no error raised.
-#   3. GPU detection path mocked (patch torch.cuda.is_available) — no hardware
-#      required in CI.
+#   2. FORCE_CPU=true → EphemeralStorageClient logs CPU fallback at INFO level;
+#      no error raised.
+#   3. GPU detection path is mocked (patch torch.cuda.is_available) — do not
+#      require hardware in CI.
 # ---------------------------------------------------------------------------
 
 
@@ -82,7 +81,10 @@ def test_upload_download_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     client.upload_parquet("table_customers.parquet", original_df)
     downloaded_df = client.download_parquet("table_customers.parquet")
 
-    pd.testing.assert_frame_equal(original_df.reset_index(drop=True), downloaded_df.reset_index(drop=True))
+    pd.testing.assert_frame_equal(
+        original_df.reset_index(drop=True),
+        downloaded_df.reset_index(drop=True),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -177,9 +179,7 @@ def test_force_cpu_overrides_gpu(
             device = storage._log_device_selection()  # type: ignore[attr-defined]
 
     assert device == "cpu"
-    assert any(
-        "cpu" in record.message.lower() for record in caplog.records
-    )
+    assert any("cpu" in record.message.lower() for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -226,8 +226,3 @@ def test_download_nonexistent_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 pytestmark = pytest.mark.unit
-
-
-def _make_any() -> Any:
-    """Helper to satisfy Any usage for mypy."""
-    return None

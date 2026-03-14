@@ -65,6 +65,15 @@ _.compare  # Public compare method on StatisticalProfiler (profiler/profiler.py)
 _.written_tables  # Public property on EgressWriter (subsetting/egress.py)
 
 # ---------------------------------------------------------------------------
+# synthesizer — public storage API (wired in Phase 4 bootstrapper; T4.1)
+# ---------------------------------------------------------------------------
+_log_device_selection  # Module-level GPU/CPU detection fn (synthesizer/storage.py)
+MinioStorageBackend  # Concrete MinIO backend (synthesizer/storage.py) — injected at runtime
+EphemeralStorageClient  # Public ephemeral storage client (synthesizer/storage.py)
+_.upload_parquet  # Public upload method on EphemeralStorageClient
+_.download_parquet  # Public download method on EphemeralStorageClient
+
+# ---------------------------------------------------------------------------
 # shared — auth, db, middleware, schema_topology, security, tasks
 # ---------------------------------------------------------------------------
 sub  # JWT payload field (shared/auth/jwt.py)

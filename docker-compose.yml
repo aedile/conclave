@@ -25,6 +25,11 @@
 #   - prometheus — Prometheus metrics scraper (scrapes /metrics from app:8000)
 #   - alertmanager — Alert routing (dev: null receiver, no external notifications)
 #   - grafana — Dashboard visualisation (admin password via Docker secret)
+#
+# Task T4.1 additions:
+#   - app: NVIDIA Container Toolkit GPU passthrough via deploy.resources.reservations
+#   - minio-ephemeral — dedicated MinIO bucket backed by tmpfs for synthesis artifacts
+#     Privacy mandate: all training artifacts evaporate on container stop.
 # =============================================================================
 
 services:
@@ -65,6 +70,23 @@ services:
     # --- Persistent named volumes --------------------------------------------
     volumes:
       - chroma_data:/app/.chroma_data
+
+    # --- NVIDIA Container Toolkit GPU passthrough (T4.1) ----------------------
+    # Uses the current `deploy.resources.reservations.devices` spec.
+    # The deprecated `runtime: nvidia` field is intentionally NOT used.
+    # FORCE_CPU=true in the environment bypasses GPU access for CI and
+    # development machines without NVIDIA hardware.
+    #
+    # To disable GPU passthrough entirely (e.g. CPU-only hosts), remove this
+    # `deploy` block or set FORCE_CPU=true in the app environment.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu
 
     # --- Log rotation (Task 1.6) ---------------------------------------------
     logging:
@@ -271,6 +293,54 @@ services:
         max-file: "3"
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # minio-ephemeral — Ephemeral MinIO bucket for synthesis artifacts (T4.1)
+  #
+  # Privacy mandate: training artifacts (Parquet files and checkpoints) MUST
+  # NOT survive container termination.  This service achieves that by:
+  #   1. Using tmpfs for the /data directory — data is stored only in RAM and
+  #      evaporates the moment the container stops.
+  #   2. NOT defining a named Docker volume for /data — no persistence path.
+  #
+  # The `synth-ephemeral` bucket is created automatically by the mc (MinIO
+  # client) init container or by EphemeralStorageClient on first use.
+  #
+  # Security notes:
+  #   - Credentials injected via Docker secrets, not environment variables
+  #     baked into the image.
+  #   - No external port exposure: only the app service reaches this endpoint
+  #     via the internal bridge network.
+  #   - tmpfs size is bounded at 4 GB to prevent runaway synthesis jobs from
+  #     exhausting host memory.
+  # ---------------------------------------------------------------------------
+  minio-ephemeral:
+    image: minio/minio:RELEASE.2024-01-28T22-35-53Z
+    command: server /data --console-address ":9091"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # /data is tmpfs-backed: all synthesis artifacts evaporate on container stop.
+    # size=4g: bounded ceiling to prevent OOM from runaway synthesis jobs.
+    tmpfs:
+      - /data:size=4g,mode=0700
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/minio_ephemeral_access_key
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_ephemeral_secret_key
+    secrets:
+      - minio_ephemeral_access_key
+      - minio_ephemeral_secret_key
+    # No ports: intentionally internal-only — the app service connects via
+    # the internal bridge network at http://minio-ephemeral:9000.
+    networks:
+      - internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    restart: unless-stopped
+
 # =============================================================================
 # Named volumes
 # =============================================================================
@@ -310,8 +380,12 @@ networks:
 #   openssl rand -hex 32 > secrets/postgres_password.txt
 #   openssl rand -hex 32 > secrets/grafana_admin_password.txt
 #   echo "conclave-admin" > secrets/grafana_admin_user.txt
+#   openssl rand -hex 16 > secrets/minio_ephemeral_access_key.txt
+#   openssl rand -hex 32 > secrets/minio_ephemeral_secret_key.txt
 #   chmod 600 secrets/app_secret_key.txt secrets/postgres_password.txt \
-#             secrets/grafana_admin_password.txt secrets/grafana_admin_user.txt
+#             secrets/grafana_admin_password.txt secrets/grafana_admin_user.txt \
+#             secrets/minio_ephemeral_access_key.txt \
+#             secrets/minio_ephemeral_secret_key.txt
 # =============================================================================
 secrets:
   app_secret_key:
@@ -322,3 +396,7 @@ secrets:
     file: ./secrets/grafana_admin_password.txt
   grafana_admin_user:
     file: ./secrets/grafana_admin_user.txt
+  minio_ephemeral_access_key:
+    file: ./secrets/minio_ephemeral_access_key.txt
+  minio_ephemeral_secret_key:
+    file: ./secrets/minio_ephemeral_secret_key.txt
