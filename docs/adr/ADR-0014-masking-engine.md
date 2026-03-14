@@ -87,7 +87,8 @@ first N-1 digits randomly and computes the check digit algorithmically.  No
 post-processing or verification step is needed in the masking layer — the
 property is guaranteed by Faker's implementation.
 
-A standalone `luhn_check()` function is provided in `algorithms.py` to:
+A standalone `luhn_check()` function is provided in `masking/luhn.py` and
+re-exported from `algorithms.py` to:
 (a) verify the guarantee in unit tests, and
 (b) provide a reusable primitive for any future downstream validation.
 
@@ -110,10 +111,56 @@ guaranteed to terminate and adds significant complexity.
 
 ---
 
+## Security Trade-offs (ADV-027)
+
+### HMAC key is a column identity, not a secret
+
+The `salt` parameter passed to `deterministic_hash()` (and through it to HMAC)
+is a **column-identity string** such as `"users.email"` — **not** a secret
+value.  This is intentional, and the reasoning is as follows:
+
+**What the masking layer provides:**
+- **Determinism**: the same real value in the same column always maps to the
+  same masked value, preserving referential integrity across tables regardless
+  of the order in which rows or tables are processed.
+- **Domain separation**: two columns with the same value but different
+  `"table.column"` salts produce different masked outputs, preventing
+  cross-column leakage.
+
+**What the masking layer does NOT provide:**
+- **Confidentiality of the mapping**: because the salt is public (it is the
+  column name), an attacker who knows the code and the masked value could
+  brute-force the original value for low-entropy columns (e.g., a boolean
+  stored as a name).
+
+**Why this is acceptable for this project:**
+Confidentiality of the real-to-masked mapping is provided by a
+deployment-level `MASKING_SALT` environment variable, which is combined with
+the column-identity salt at the CLI / bootstrapper call site (Phase 4,
+ADV-035).  The masking module itself has no access to deployment secrets —
+this is intentional to keep the module stateless and testable without
+secret-management infrastructure.
+
+**Summary of layered security:**
+```
+[Real PII value]
+    |
+    v
+[HMAC(key="MASKING_SALT + users.email", msg=value)]  ← deployment secret injected here
+    |
+    v
+[Faker seed → deterministic fake name]
+```
+
+The `MASKING_SALT` layer is out of scope for ADR-0014 and will be documented
+in the Phase 4 bootstrapper ADR.
+
+---
+
 ## Module boundaries
 
 `synth_engine.modules.masking` imports only:
-- stdlib: `hashlib`, `hmac`, `collections.abc`, `enum`
+- stdlib: `hashlib`, `hmac`, `collections.abc`, `enum`, `typing`
 - third-party: `faker` (production dependency)
 
 It does **not** import from `ingestion`, `profiler`, `synthesizer`, `privacy`,
@@ -143,3 +190,7 @@ defined in `pyproject.toml`.
   salt domain, Phase 2 suffix disambiguation activates, producing values like
   `"John Smith_42"` that are less realistic.  For most enterprise datasets this
   is acceptable.
+- **Low-entropy column risk**: for boolean-like columns masked as names, an
+  attacker with code access could enumerate the ~2-value space in O(1).  The
+  deployment-level `MASKING_SALT` (Phase 4) mitigates this for production
+  deployments.
