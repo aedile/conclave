@@ -29,6 +29,64 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-14] Phase 3.5 End-of-Phase Retrospective
+
+**Phase:** 3.5 — Technical Debt Sprint ("Back to Solid Ground")
+**Tasks completed:** T3.5.0 (process amendments), T3.5.1 (supply chain hardening), T3.5.2 (module cohesion refactor), T3.5.3 (SchemaTopology immutability + VFK), T3.5.4 (bootstrapper wiring + CLI), T3.5.5 (advisory sweep)
+**PRs merged:** #20, #21, #22, #23, #24, #25, #26
+**Phase status:** ✅ COMPLETE — all 8 exit criteria verified
+
+#### Exit Criteria Audit
+
+| # | Criterion | Result |
+|---|-----------|--------|
+| 1 | All GitHub Actions SHA-pinned; Trivy job running | ✅ PASS — all `uses:` lines pinned to full SHAs with version comments; `trivy-scan` job green |
+| 2 | `modules/mapping/` and `modules/subsetting/` exist; `modules/ingestion/` is clean | ✅ PASS — import-linter 4 contracts kept, 0 broken; `ingestion/` contains only `postgres_adapter.py` + `validators.py` |
+| 3 | `SchemaTopology` mutation raises `TypeError`; VFK support tested E2E | ✅ PASS — `MappingProxyType` wrapping verified; VFK integration test in `test_subsetting_integration.py` |
+| 4 | `poetry run conclave-subset --help` works; T3.5 E2E test calls CLI via `CliRunner` | ✅ PASS — CLI registered in `pyproject.toml` as `bootstrapper/cli.py:subset`; `test_e2e_subsetting.py` uses `CliRunner` |
+| 5 | RETRO_LOG Open Advisory Items table has zero rows (for Phase 3.5 scope) | ✅ PASS — ADV-006/008/025/026/027/028/029/030/031/032/033/034 all drained; ADV-035/036 intentionally deferred to T4.x/T5.1 |
+| 6 | All Phase 3.5 tasks have `review(qa):`, `review(arch):`, `review(devops):` commits | ✅ PASS — verified in git log; all 5 substantive tasks have all three review commits |
+| 7 | Unit test coverage ≥ 90% | ✅ PASS — 326 tests, 96.95% coverage |
+| 8 | Integration tests pass independently | ✅ PASS — CI integration-test job green (CliRunner E2E + VFK integration + ALE + ingestion) |
+
+#### What Went Well
+
+- **Module cohesion refactor (T3.5.2)** delivered cleanly — moving mapping and subsetting out of ingestion resolved the highest-impact architectural debt from Phase 3 with zero test-logic changes required. The import-linter contract expansion locked in the new topology.
+- **VFK support (T3.5.3)** was a missing acceptance criterion from T3.2 that had been open since Phase 3. Implementing it as a Phase 3.5 task rather than deferring again was the right call — it will directly unblock Phase 4 profiler work against production databases without physical FK constraints.
+- **96.95% unit test coverage** entering Phase 4 is a strong baseline. The coverage gate has held every phase; the 90% floor is credible.
+- **`vulture_whitelist.py`** was the right instrument for taming false positives at `--min-confidence 60` without disabling the scan. All 44 entries are manually verified — no blanket suppressions.
+
+#### What Did Not Go Well
+
+- **Three preventable CI failures** occurred during Phase 3.5, all due to known-fixable issues:
+  1. `poetry.lock` drift occurred twice (T3.5.1 Dockerfile deps; T3.5.4 click dependency). Pattern: `pyproject.toml` edited, `poetry lock` not run. Fixed by `poetry check --lock` in pre-commit + CI — this gate was added in T3.5.5, not T3.5.1. It should have been added in T3.5.1 when the first drift incident occurred.
+  2. Flaky `test_invalid_signature_raises_401` — base64 padding edge case caused non-deterministic failure on Python 3.14. Root cause was a fragile test design (character flip), not a production bug. Fixed by using wrong-key signature. Lesson: tamper tests must be cryptographically guaranteed, not string-manipulation tricks.
+  3. `cli.py` placed at package root (outside all import-linter contracts) — this was a planning failure, not a review failure. CLAUDE.md Rule 7 (intra-module cohesion gate at plan approval time) exists specifically to prevent this; the PM did not apply it to T3.5.4 planning.
+
+- **`_load_topology -> Any` latent type bug** (T3.5.4) — function was returning `DirectedAcyclicGraph` when callers expected `SchemaTopology`. This would have caused a runtime `AttributeError` on first real CLI invocation. The pattern: `-> Any` as an escape hatch concealing an unresolved type. Architecture reviewer caught it; but it should have been caught in the RED phase when tests were written against the function signature.
+
+- **Parallel task filesystem contamination** (T3.5.3 / T3.5.4) — both tasks were in flight simultaneously in the same working directory. The T3.5.3 QA reviewer saw false failures from T3.5.4's in-progress files. Worktrees exist for this purpose; they were not used. The PM must enforce worktree isolation for any parallel tasks touching shared files.
+
+#### Process Changes Triggered
+
+- `poetry check --lock` added to pre-commit + CI lint preflight (ADV-006, T3.5.5).
+- `no-speculative-permissions` and `job-consistency` checks added to devops-reviewer agent (ADV-032/033, T3.5.5).
+- CLAUDE.md Rule 7 (intra-module cohesion gate at plan approval) was in place — it was not applied. PM must explicitly state this check result in future plan approvals.
+
+#### Entering Phase 4 — Known Obligations
+
+| ID | Obligation | Gate |
+|----|------------|------|
+| ADV-009 | Add `spikes/` to bandit scan targets or document intentional exclusion | Before Phase 4 begins |
+| ADV-011 | Document spike-to-production promotion checklist before Phase 4 | Before Phase 4 begins |
+| ADV-035 | Wire `MASKING_SALT` from env/Vault into CLI; remove hardcoded fallback | T4.x (masking config task) — **BLOCKER per CLAUDE.md Rule 8** |
+| ADV-014 | Pin Dockerfile FROM lines to SHA-256 digests | Before production deployment |
+| ADV-021 | Integration tests for `EncryptedString` NULL, empty-string, unicode paths | Before Phase 3/4 TypeDecorator usage grows |
+
+ADV-009 and ADV-011 must be resolved or explicitly deferred with justification before the Phase 4 kickoff plan is approved.
+
+---
+
 ### [2026-03-14] P3.5-T3.5.5 — Advisory Sweep
 
 **Architecture** (PASS, 1 advisory fixed):
