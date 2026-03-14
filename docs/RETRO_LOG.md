@@ -23,10 +23,48 @@ Drain (delete) rows when their target task is completed.
 | ADV-014 | DevOps P1-T1.3–1.7 | Before Phase 2 ships | Dockerfile FROM lines for `node:20-alpine`, `python:3.14-slim`, and `redis:7-alpine` use floating minor-version tags. A silent tag update can introduce new packages or CVEs without triggering a dependency review. Pin all FROM lines to SHA-256 digests (e.g. `python:3.14-slim@sha256:<digest>`) before any production deployment. |
 | ADV-015 | DevOps P1-T1.3–1.7 | Standalone CI hardening task | No Trivy image-scan job in `ci.yml`. The Dockerfile comment notes a manual trivy scan but this is unenforced. Add `aquasecurity/trivy-action` to CI with `exit-code: 1` on CRITICAL/HIGH CVEs — makes the image-CVE gate as automatic as bandit and pip-audit. Bundle with ADV-007 (SHA-pin GitHub Actions) into a single CI hardening pass. |
 | ADV-016 | UI/UX P1-T1.3–1.7 | Before Phase 5 dashboard task | Three accessibility pre-conditions from the Docker topology: (1) CSP headers for React/Vite SPA must be established in FastAPI middleware before frontend build starts — restrictive `script-src 'self'` will block inline scripts used by accessibility polyfills; (2) any Jaeger iframe embed needs `<iframe title="...">` and documented third-party WCAG scope exclusion; (3) MinIO console must be treated as internal developer tool only — never surfaced to end users. |
+| ADV-017 | DevOps P2-T2.4 | Before Phase 5 (T5.3 React SPA) | `details: dict[str,str]` on `AuditEvent` is an open PII sink — any key/value can be written to the WORM log without validation. Add a Pydantic validator or key allowlist to `AuditEvent` before the event surface area grows beyond its one current call site. |
+| ADV-018 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | `POST /unseal` returns undifferentiated `400` for both wrong-passphrase and missing-VAULT_SEAL_SALT config errors. Phase 5 UI needs a structured error code (e.g. `{"detail": "...", "code": "WRONG_PASSPHRASE" \| "CONFIG_ERROR"}`) to route operators to correct remediation. Add structured error codes before the first template renders `/unseal` responses. |
+| ADV-019 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | `POST /unseal` triggers 600k-iteration PBKDF2 (~0.5–1s CPU). The Phase 5 form must disable the submit button immediately on POST and show a loading indicator to prevent double-submit. Establish this UI contract before the React SPA is built. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-14] P2 Debt — D1/D3/D4: ALE-Vault wiring, AuditLogger singleton, zero test warnings
+
+Three technical debt items identified in the Phase 2 end-of-phase retrospective, addressed before Phase 3.
+
+**D1 — ALE-Vault KEK wiring via HKDF (PR #11)**:
+`get_fernet()` now derives the ALE sub-key from the vault KEK via HKDF-SHA256 (`salt=b"conclave-ale-v1"`, `info=b"application-level-encryption"`) when the vault is unsealed, and falls back to `ALE_KEY` env var when sealed. `@lru_cache` removed — caching across vault state transitions was incorrect. ADR-0006 updated with HKDF parameter table and key rotation implications. Root cause: T2.2 and T2.4 developed in parallel with no cross-task integration matrix check; PM brief did not specify wiring requirement.
+
+**D3 — AuditLogger module-level singleton (PR #12)**:
+`get_audit_logger()` now returns a module-level singleton protected by `threading.Lock`. Each call previously returned a new instance, resetting the hash chain on every request — making the WORM property meaningless in any multi-request scenario. `reset_audit_logger()` added for test isolation (TEST USE ONLY). ADR-0010 updated with singleton design, threading.Lock rationale, and process-restart caveat. Root cause: original implementation tested in isolation; cross-request behavior never exercised.
+
+**D4 — Zero test suite warnings (PR #13)**:
+`filterwarnings = ["error"]` baseline added to `pyproject.toml`. 173 third-party warnings (pytest-asyncio 0.26.x + chromadb 1.5.x on Python 3.14) eliminated via targeted per-package suppression. Test suite now fails on any new warning, making warning regression impossible to miss silently.
+
+**Process fix**: Two constitutional amendments committed (`docs: amend CLAUDE.md and qa-reviewer`): (1) PM must paste backlog Testing & Quality Gates verbatim into every agent prompt; (2) QA reviewer now has a mandatory `backlog-compliance:` checklist that treats missing integration tests as BLOCKER regardless of coverage %.
+
+Retrospective: All three debt items trace to the same root cause — parallel task development without a cross-task integration matrix review. The process fix (explicit cross-task integration check before presenting any plan) directly addresses this. The one standing watch: D2 (pytest-postgresql integration test for ALE encryption round-trip) is still pending — it is the only item from the Phase 2 retro whose resolution requires new infrastructure (real PostgreSQL + raw SQL query), not just code fixes.
+
+---
+
+### [2026-03-13] P2-T2.4 — Vault Unseal API, WORM Audit Logger, Prometheus/Grafana Observability
+
+**QA** (Round 1 — FINDING, all resolved):
+Security primitives (PBKDF2-HMAC-SHA256 at 600k iterations, bytearray zeroing, HMAC-SHA256 chaining, `compare_digest`) correctly implemented. Two blockers resolved: (1) `except (ValueError, Exception)` narrowed to `except ValueError` — broad clause was treating `MemoryError`/programming errors as HTTP 400; (2) empty-passphrase guard and re-unseal guard added to `VaultState.unseal()` — state-boundary edge cases previously untested. `require_unsealed()` happy-path test added. Forward: future PRs touching `VaultState` should include a state-machine test table covering all `(initial_state, input) → (final_state, output)` combinations. Exception-scope drift in HTTP handlers is a recurring pattern to watch — catching broadly for "robustness" produces opaque failures that defeat the sealed-vault security model.
+
+**UI/UX** (Round 1 — SKIP):
+No templates, forms, or interactive elements. Two API contract findings (advisory): (1) `str(exc)` in 400 response body leaks env var names — must be mapped to generic message at Phase 5 UI layer; (2) wrong-passphrase and config-error both return bare 400 — structured error code (`code: "WRONG_PASSPHRASE" | "CONFIG_ERROR"`) needed before Phase 5 template renders `/unseal` responses. Sixth consecutive SKIP; infrastructure-before-UI sequencing remains disciplined.
+
+**DevOps** (Round 1 — FINDING, all resolved):
+Cryptographic foundation solid. Four findings resolved: (1) `asyncio.to_thread()` wrapping added for PBKDF2 (was blocking event loop ~0.5–1s); (2) `GF_SECURITY_ADMIN_USER__FILE` added to Grafana service in docker-compose (username was defaulting to "admin"); (3) `"conclave.audit"` logger renamed to `"synth_engine.security.audit"` — `conclave.*` names were outside the PIIFilter hierarchy; (4) `pydantic` added as direct dep (was transitive via sqlmodel, fragile). Advisory: `details: dict[str,str]` on `AuditEvent` is an open PII sink — tracked as ADV-017.
+
+**Architecture** (Round 1 — FINDING, all resolved):
+Boundary discipline strong — `shared/` has zero FastAPI/bootstrapper imports; import-linter reverse guard satisfied throughout. Three findings resolved: (1) `except (ValueError, Exception)` blocker (see QA); (2) `get_audit_logger()` docstring clarified re: chain isolation per call; (3) `pydantic` direct dep added. Standing watch: `VaultState` as a pure-classmethods class is effectively a module-level namespace — acceptable for this use case (single-instance service) but must not be mixed with injectable-instance patterns in Phase 5.
 
 ---
 
