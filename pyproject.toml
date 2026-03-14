@@ -120,6 +120,20 @@ markers = [
     "unit: Fast, isolated unit tests with no external dependencies",
     "integration: Tests requiring live databases or external services (Task 2.2)",
 ]
+filterwarnings = [
+    # Baseline: all warnings are errors — future regressions fail the build.
+    "error",
+    # pytest-asyncio 0.26.x uses asyncio.get/set_event_loop_policy internally.
+    # These APIs are deprecated in Python 3.14 for removal in 3.16.  The calls
+    # live entirely inside the pytest-asyncio plugin; we cannot fix them.
+    # Suppression is scoped tightly to the pytest_asyncio.plugin module.
+    "ignore:'asyncio.get_event_loop_policy' is deprecated:DeprecationWarning:pytest_asyncio",
+    "ignore:'asyncio.set_event_loop_policy' is deprecated:DeprecationWarning:pytest_asyncio",
+    # chromadb 1.5.x uses asyncio.iscoroutinefunction (deprecated in 3.14 for
+    # removal in 3.16; the fix is inspect.iscoroutinefunction).  Scoped to the
+    # chromadb telemetry sub-package; we cannot change third-party code.
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:chromadb",
+]
 
 # ---------------------------------------------------------------------------
 # Coverage — Source Mapping and Branch Coverage
@@ -183,3 +197,4 @@ paths = ["src"]
 # Abstract method parameters in ABCs are intentionally unused in the stub body.
 # These names are suppressed to avoid false positives.
 ignore_names = ["older_than", "task_id"]
+
