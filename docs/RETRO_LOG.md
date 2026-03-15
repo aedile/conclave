@@ -15,15 +15,64 @@ Drain (delete) rows when their target task is completed.
 | ADV-016+017 | UI/UX P1 + DevOps P2 | Before Phase 5 T5.3 (React SPA) | ADVISORY | Phase 5 frontend pre-conditions: (1) CSP headers for React/Vite SPA must be established in FastAPI middleware — restrictive `script-src 'self'` will block inline scripts used by accessibility polyfills; (2) Jaeger iframe embed needs `<iframe title="...">` and WCAG scope exclusion; (3) MinIO console is internal-only; (4) `AuditEvent.details: dict[str,str]` is an open PII sink — add Pydantic validator or key allowlist before event surface area grows. |
 | ADV-018+019 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | ADVISORY | Two `/unseal` UX issues: (1) undifferentiated `400` for wrong-passphrase vs missing-VAULT_SEAL_SALT — needs structured error codes (`WRONG_PASSPHRASE` / `CONFIG_ERROR`); (2) 600k-iteration PBKDF2 (~0.5–1s CPU) — Phase 5 form must disable submit button and show loading indicator to prevent double-submit. |
 | ADV-021 | QA P2-D2 | Phase 6 hardening | DEFERRED | `EncryptedString` NULL passthrough, empty-string, and unicode/multi-byte PII paths are not exercised at the integration level (only unit-tested). PM justification: `EncryptedString` has not expanded beyond its single use case since Phase 2; no new TypeDecorators are planned for Phase 5. Integration tests deferred to Phase 6 hardening sprint. |
-| ADV-036+044 | DevOps T3.5.4 / T4.2c | T5.1 (error sanitization) | ADVISORY | Error string sanitization gap: (1) CLI `except Exception` forwards raw `str(exc)` from SQLAlchemy stack frames to operator — may include table/column names from customer schemas; (2) raw `RuntimeError` from CTGAN/torch stored in `SynthesisJob.error_msg` may expose filesystem paths when streamed via SSE. Add `safe_error_msg()` helper in `shared/` and wire into both CLI and Huey task error paths before T5.1 ships. |
 | ADV-040 | DevOps T4.2b | Phase 6 security hardening | DEFERRED | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. PM justification: artifact trust boundary is internal-only through Phase 5; HMAC wiring deferred to Phase 6 hardening sprint when external storage is considered. |
 | ADV-046 | QA T4.3b | Phase 6 hardening | DEFERRED | Edge-case tests missing for `DPTrainingWrapper`: degenerate inputs (`max_grad_norm<=0`, `noise_multiplier<=0`, `allocated_epsilon=0.0`, `delta=0`). PM justification: Opacus validates these internally; explicit guards are defense-in-depth, not correctness-critical. Deferred to Phase 6 hardening sprint alongside ADV-040 pickle trust-boundary work. |
 | ADV-048 | Arch T4.3b | When SDV exposes training hooks | BLOCKER | Rule 8: `build_dp_wrapper()` factory missing from `bootstrapper/main.py`. TODO(T4.3b) added. `DPTrainingWrapper` exists in `modules/privacy/dp_engine.py` but cannot be wired end-to-end because SDV's `CTGANSynthesizer.fit()` does not expose optimizer/model/dataloader for Opacus wrapping (ADR-0017 risk). Wire when SDV adds training hooks. |
 | ADV-050 | Arch T4.4 | Phase 6 hardening | DEFERRED | `Float` column type for `total_allocated_epsilon`/`total_spent_epsilon` in `PrivacyLedger`. Floating-point accumulation across many small additions introduces budget drift. PM justification: at current scale (1–10 epsilon range, tens of jobs) float64 drift is sub-microsecond. Revisit if sub-0.01 epsilon granularity or high-concurrency workloads become a product requirement. |
+| ADV-051 | Arch T5.1 | Before T5.4 (Dashboard) | ADVISORY | Two architectural decisions lack ADRs: (1) SSE over WebSockets selection — inline comment in sse.py is not a decision record; (2) API-layer-owned SQLModel tables in bootstrapper/schemas/ vs domain-owned tables in modules/ — new pattern, no documented rule. Create ADR-0021 covering both decisions before the next task adds tables or streaming protocols. |
+| ADV-052 | DevOps T5.1 | Before T5.3 deployment | ADVISORY | No Alembic migration for `connection` and `setting` tables added in T5.1. Tests bypass via `SQLModel.metadata.create_all()`. Production environments using Alembic will encounter missing tables. Create `002_add_connection_setting_tables.py` migration. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-15] P5-T5.1 — Task Orchestration API Core
+
+**Summary**: Implemented full Task Orchestration API: CRUD for Jobs/Connections/Settings
+with cursor-based pagination, SSE streaming for job progress, RFC 7807 error handling
+middleware, `safe_error_msg()` sanitization helper (ADV-036+044 drain), and TypeScript
+codegen script. 25 files changed, +2993 lines. 588 unit tests, 95.76% coverage.
+4 integration tests. New deps: sse-starlette, datamodel-code-generator.
+
+**Architecture** (FINDING — 6 findings, no contract violations):
+- Deferred import in sse.py lacked rationale comment. Fixed.
+- session_factory typed as Any. Fixed: SessionFactory Protocol alias added to shared/db.py.
+- assert isinstance() stripped by python -O. Fixed: explicit TypeError raise.
+- Sync Huey enqueue in threadpool undocumented. Fixed: inline comment.
+- Connection/Setting don't extend BaseModel. Fixed: docstring rationale notes.
+- ADV-051: Two decisions lack ADRs (SSE-over-WebSockets, bootstrapper-owned tables).
+
+**QA** (FINDING — 3 blockers fixed):
+- _TERMINAL_STATUSES dead constant. Fixed: wired into guard conditions.
+- SSE integration test lacked specific percent assertions. Fixed: parses SSE data, asserts
+  sequential percent values matching expected set.
+- Missing delete_connection 404 test. Fixed: added.
+
+**DevOps** (FINDING — 2 findings fixed, 1 advisory):
+- Unvalidated parquet_path accepts path traversal. Fixed: Pydantic field_validator with
+  Path.resolve() and .parquet extension check.
+- Sync DB read blocking event loop in async SSE generator. Fixed: extracted _poll_job()
+  helper, called via asyncio.to_thread().
+- ADV-052: Missing Alembic migration for connection/setting tables.
+
+**UI/UX** (SKIP): No UI surface. Forward-looking: SSE events need aria-live routing (polite
+for progress, assertive for errors); RFC 7807 type URIs should be distinct per error class
+before T5.4; cursor pagination lacks total count — use "Load more" pattern; parquet_path
+field needs careful form UX design.
+
+**Retrospective**:
+The `safe_error_msg()` helper successfully drains ADV-036+044 — a two-phase-old advisory
+about raw exception strings reaching operators. The pattern of defining a sanitization
+boundary at the HTTP/SSE output layer is correct and should be replicated for any future
+output channel. The async/sync boundary violation in the SSE generator (sync session.get()
+in an async generator) is a recurring footgun when mixing SQLAlchemy sync sessions with
+FastAPI async routes — future tasks should audit every DB call site in async context.
+The _TERMINAL_STATUSES dead constant is the classic "defined with intent, bypassed during
+coding" antipattern — vulture at 80% confidence didn't catch it because it was referenced
+in a docstring. The parquet_path validation gap shows that API input validation must be
+part of the schema definition, not deferred to route handlers.
 
 ---
 
