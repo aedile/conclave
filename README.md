@@ -21,10 +21,14 @@ and developers need realistic data to work with. Conclave solves this by:
    surgically precise percentage of records while preserving all parent-child integrity.
 3. **Masking deterministically** — the same real name always produces the same fake name,
    preserving referential integrity across joined tables while making PII unrecoverable.
-4. **Generating synthetically** (Phase 4) — training GPU-accelerated tabular models
-   (SDV/CTGAN) with Differential Privacy (DP-SGD) guarantees, so that individual outlier
-   records cannot be reverse-engineered from the synthetic output.
-5. **Egressing** the result into a target PostgreSQL database with Saga-pattern rollback — if
+4. **Generating synthetically** — training GPU-accelerated tabular models (SDV/CTGAN) with
+   Differential Privacy (DP-SGD) guarantees, so that individual outlier records cannot be
+   reverse-engineered from the synthetic output.
+5. **Orchestrating via API** — a FastAPI task API with Server-Sent Events streams job
+   progress to a React SPA dashboard in real time.
+6. **Licensing offline** — RS256 JWT hardware-bound license activation for air-gapped
+   deployments; no license server call-home required.
+7. **Egressing** the result into a target PostgreSQL database with Saga-pattern rollback — if
    anything fails mid-write, the target is wiped clean.
 
 Everything runs inside Docker with no external network calls, encrypted volumes, and
@@ -45,9 +49,9 @@ src/synth_engine/
 │   ├── mapping/        Schema reflection, DAG, Kahn's topological sort
 │   ├── subsetting/     FK traversal, SubsettingEngine, Saga-pattern EgressWriter
 │   ├── masking/        Deterministic FPE registry, collision prevention, LUHN
-│   ├── profiler/       Statistical distributions, covariance, ProfileDelta    [Phase 4 ✅]
-│   ├── synthesizer/    EphemeralStorageClient, OOM guardrails, CTGAN engine   [Phase 4 🔄]
-│   └── privacy/        DP-SGD wiring, Epsilon accountant                      [Phase 4 ⏳]
+│   ├── profiler/       Statistical distributions, covariance, ProfileDelta
+│   ├── synthesizer/    EphemeralStorageClient, OOM guardrails, CTGAN engine
+│   └── privacy/        DP-SGD wiring, Epsilon/Delta accountant ledger
 └── shared/             Cross-cutting: Vault, ALE encryption, audit logger, JWT
 ```
 
@@ -67,17 +71,22 @@ Security is Priority Zero — it overrides every other consideration.
 | PII never in plaintext at rest | Application-Level Encryption (ALE) via Fernet + HKDF-SHA256 from Vault KEK |
 | Vault unseal pattern | Operator passphrase derives KEK at runtime; never persisted to disk or env |
 | Deterministic masking | HMAC-SHA256 seeded Faker; same input → same output; not reversible |
-| Differential Privacy | DP-SGD noise injection with Epsilon/Delta budget accounting (Phase 4) |
+| Differential Privacy | DP-SGD noise injection with Epsilon/Delta budget accounting |
 | WORM audit log | Cryptographically signed, append-only audit trail |
 | Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net |
-| Supply chain | All GitHub Actions SHA-pinned; Trivy container scan in CI (Phase 3.5) |
+| Supply chain | All GitHub Actions SHA-pinned; Trivy container scan in CI |
 | Secret scanning | `gitleaks` + `detect-secrets` on every commit; hooks cannot be bypassed |
+| Request body limits | RequestBodyLimitMiddleware: 1 MB body limit, JSON depth 100 |
+| Content Security Policy | CSP middleware: `script-src`, `font-src`, `connect-src` all `'self'` |
+| OWASP ZAP baseline scan | Automated ZAP scan in CI against the running FastAPI app |
+| NIST SP 800-88 erasure | Cryptographic shredding validated against NIST SP 800-88 Rev 1 guidelines |
+| Offline license activation | RS256 JWT with hardware binding; no license server call-home required |
 
 ---
 
 ## Current Development Status
 
-**Active Phase: 4 — Advanced Generative AI & Differential Privacy**
+**Active Phase: 6 — Integration, Audit & Finalization (completing)**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -87,28 +96,54 @@ Security is Priority Zero — it overrides every other consideration.
 | 2 — Foundational Architecture | ✅ Complete | FastAPI bootstrapper, PostgreSQL+ALE, JWT, Vault, WORM logger |
 | 3 — The "Thin Slice" | ✅ Complete | Ingestion, relational mapping, deterministic masking, subsetting+Saga, E2E tests |
 | 3.5 — Technical Debt Sprint | ✅ Complete | Module cohesion refactor, Virtual FK, CLI entrypoint, advisory sweep |
-| **4 — Generative AI & DP** | 🔄 **In Progress** | T4.0 ADR, T4.1 storage, T4.2a profiler, T4.3a OOM guardrails complete; T4.2b synthesizer next |
-| 5 — Orchestration & UI | ⏳ Pending | Task API, React SPA, offline licensing |
-| 6 — Integration & Audit | ⏳ Pending | E2E synthesis tests, NIST erasure, handover |
+| 4 — Generative AI & DP | ✅ Complete | GPU passthrough, profiler, OOM guardrails, DP-SGD engine, privacy accountant |
+| 5 — Orchestration & UI | ✅ Complete | Task Orchestration API, React SPA Dashboard, offline licensing, cryptographic shredding |
+| **6 — Integration & Audit** | 🔄 **In Progress** | E2E tests complete, NIST erasure complete, docs/remediation in progress |
 
 ---
 
 ## What's Working Right Now
 
-The Phase 3 "Thin Slice" pipeline is fully operational at the library level:
+The full Conclave platform is operational across all completed phases:
 
+**Phase 3 pipeline — operational**
 - **`PostgresIngestionAdapter`** — connects read-only, runs pre-flight privilege check
 - **`SchemaReflector`** + **`DirectedAcyclicGraph`** — reflects schema, builds FK topology
-- **`DeterministicMaskingEngine`** — masks Names, Emails, SSNs, Credit Cards, Phone Numbers deterministically with collision prevention and LUHN compliance
-- **`SubsettingEngine`** — traverses FK graph from a seed query, applies masking via injected callback, writes to target with Saga rollback
-- **Integration tests** — pytest-postgresql ephemeral source/target DBs, FK integrity verified, masking determinism verified
-- **`conclave-subset` CLI** — fully operational; connects read-only to source PostgreSQL, subsets relationally, masks deterministically, egresses with Saga rollback
+- **`DeterministicMaskingEngine`** — masks Names, Emails, SSNs, Credit Cards, Phone Numbers
+  deterministically with collision prevention and LUHN compliance
+- **`SubsettingEngine`** — traverses FK graph from a seed query, applies masking via injected
+  callback, writes to target with Saga rollback
+- **`conclave-subset` CLI** — fully operational; connects read-only to source PostgreSQL,
+  subsets relationally, masks deterministically, egresses with Saga rollback
 
-Phase 4 generative AI components now in active development:
+**Phase 4 generative AI — operational**
+- **`StatisticalProfiler`** — profiles DataFrames (histograms, covariance matrices,
+  nullability rates); `compare()` produces `ProfileDelta` for drift detection
+- **`EphemeralStorageClient`** — uploads/downloads Parquet files to MinIO ephemeral bucket
+  via injectable `StorageBackend` Protocol; `FORCE_CPU` fallback tested and operational
+- **`OOM Guardrail`** — `check_memory_feasibility()` pre-flight check rejects jobs that
+  would exhaust available RAM before training starts
+- **`CTGANSynthesizer`** — SDV/CTGAN tabular model training with DP-SGD noise injection
+  via Opacus `PrivacyEngine`
+- **`EpsilonAccountant`** — tracks per-table Epsilon/Delta privacy budget consumption;
+  rejects training runs that would exceed configured budget limits
 
-- **`StatisticalProfiler`** — profiles DataFrames (histograms, covariance matrices, nullability rates); `compare()` produces `ProfileDelta` for drift detection
-- **`EphemeralStorageClient`** — uploads/downloads Parquet files to MinIO ephemeral bucket via injectable `StorageBackend` Protocol; `FORCE_CPU` fallback tested and operational
-- **`OOM Guardrail`** — `check_memory_feasibility()` pre-flight check rejects jobs that would exhaust available RAM before training starts
+**Phase 5 orchestration — operational**
+- **Task Orchestration API** — FastAPI + Huey/Redis task queue; `POST /tasks/synthesize`
+  enqueues jobs; `GET /tasks/{id}/status` streams progress via Server-Sent Events (SSE)
+- **React SPA Dashboard** — React 18 + TypeScript + Vite; real-time job status via SSE;
+  accessible (WCAG 2.1 AA); offline-capable static build
+- **Offline License Activation** — RS256 JWT hardware binding; QR code challenge/response
+  workflow for air-gapped activation; no call-home required
+- **Cryptographic Shredding** — `CryptographicShredder` destroys ALE key material,
+  rendering encrypted PII permanently unrecoverable
+
+**Phase 6 validation — operational**
+- **Playwright E2E tests** — full browser automation across the React SPA + FastAPI backend
+- **NIST SP 800-88 erasure validation** — automated tests verifying cryptographic shredding
+  meets NIST SP 800-88 Rev 1 media sanitization guidelines
+- **OWASP ZAP baseline scan** — automated in CI against the running application
+- **Security fuzz tests** — property-based fuzzing of API endpoints and masking primitives
 
 ---
 
@@ -141,9 +176,10 @@ mocks do not substitute for integration tests that specify real infrastructure.
 - Docker + Docker Compose
 - Python 3.14
 - Poetry
+- Node.js (for the React SPA)
 - PostgreSQL client (`libpq`) for integration tests
 
-### Setup
+### Backend Setup
 
 ```bash
 # Install dependencies
@@ -162,6 +198,15 @@ poetry run pytest tests/unit/ -v
 # Run integration tests (requires PostgreSQL on PATH)
 poetry run pytest tests/integration/ -v --no-cov -p pytest_postgresql
 ```
+
+### Frontend Setup
+
+```bash
+cd frontend && npm ci && npm run dev
+```
+
+The SPA will be available at `http://localhost:5173` and proxies API calls to the FastAPI
+backend at `http://localhost:8000`.
 
 ### Air-Gap Bundle (for offline deployment)
 
@@ -203,14 +248,19 @@ priority hierarchy.
 ├── src/synth_engine/       Production source code (see Architecture above)
 ├── tests/
 │   ├── unit/               Fast isolated unit tests (90% coverage gate)
-│   └── integration/        pytest-postgresql integration tests (separate CI gate)
+│   ├── integration/        pytest-postgresql integration tests (separate CI gate)
+│   └── security/           NIST erasure validation and security fuzz tests
+├── frontend/               React 18 SPA (Vite, TypeScript, Playwright E2E)
 ├── docs/
 │   ├── adr/                Architecture Decision Records
 │   ├── backlog/            Phase-by-phase task backlog
 │   ├── RETRO_LOG.md        Living review ledger and advisory tracking
+│   ├── OPERATOR_MANUAL.md  Production deployment and operations guide
+│   ├── DISASTER_RECOVERY.md  Incident response and recovery procedures
+│   ├── LICENSING.md        Offline license activation and hardware binding guide
 │   └── retired/            Retired documents (EXECUTION_PLAN.md)
 ├── .claude/agents/         Specialized AI reviewer definitions
-├── scripts/                Utility scripts (ChromaDB seeding, etc.)
+├── scripts/                Utility scripts (ChromaDB seeding, type generation, etc.)
 ├── spikes/                 Exploratory prototypes (not production code)
 ├── docker-compose.yml      Local development services
 └── Makefile                Build targets including air-gap bundle
