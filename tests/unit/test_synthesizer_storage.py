@@ -87,6 +87,21 @@ def test_upload_download_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_upload_download_roundtrip_empty_dataframe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Uploading an empty DataFrame and downloading it back yields an equal empty DataFrame."""
+    monkeypatch.delenv("FORCE_CPU", raising=False)
+    from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
+
+    backend = InMemoryBackend()
+    client = EphemeralStorageClient(bucket="synth-ephemeral", backend=backend)
+    empty_df = pd.DataFrame(
+        {"id": pd.Series([], dtype="int64"), "value": pd.Series([], dtype="object")}
+    )
+    client.upload_parquet("empty_table.parquet", empty_df)
+    result = client.download_parquet("empty_table.parquet")
+    pd.testing.assert_frame_equal(empty_df.reset_index(drop=True), result.reset_index(drop=True))
+
+
 # ---------------------------------------------------------------------------
 # Test: FORCE_CPU=true logs CPU fallback at INFO
 # ---------------------------------------------------------------------------
@@ -106,8 +121,9 @@ def test_force_cpu_logs_info(
 
         # Force re-evaluation of the env var by re-importing the module's
         # detection function directly.
-        storage._log_device_selection()  # type: ignore[attr-defined]
+        device = storage._log_device_selection()  # type: ignore[attr-defined]
 
+    assert device == "cpu"
     assert any(
         "cpu" in record.message.lower() and record.levelno == logging.INFO
         for record in caplog.records
@@ -131,8 +147,9 @@ def test_gpu_detection_mocked_available(
         with caplog.at_level(logging.INFO, logger="synth_engine.modules.synthesizer.storage"):
             from synth_engine.modules.synthesizer import storage
 
-            storage._log_device_selection()  # type: ignore[attr-defined]
+            device = storage._log_device_selection()  # type: ignore[attr-defined]
 
+    assert device == "cuda"
     assert any(
         "cuda" in record.message.lower() and record.levelno == logging.INFO
         for record in caplog.records
@@ -151,8 +168,9 @@ def test_gpu_detection_mocked_unavailable(
         with caplog.at_level(logging.INFO, logger="synth_engine.modules.synthesizer.storage"):
             from synth_engine.modules.synthesizer import storage
 
-            storage._log_device_selection()  # type: ignore[attr-defined]
+            device = storage._log_device_selection()  # type: ignore[attr-defined]
 
+    assert device == "cpu"
     assert any(
         "cpu" in record.message.lower() and record.levelno == logging.INFO
         for record in caplog.records
@@ -219,6 +237,67 @@ def test_download_nonexistent_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(KeyError):
         client.download_parquet("does_not_exist.parquet")
+
+
+# ---------------------------------------------------------------------------
+# Test: MinioStorageBackend input validation
+# ---------------------------------------------------------------------------
+
+
+def test_minio_backend_rejects_invalid_endpoint_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MinioStorageBackend raises ValueError when endpoint_url is not an http(s) URL."""
+    monkeypatch.delenv("FORCE_CPU", raising=False)
+
+    from synth_engine.modules.synthesizer.storage import MinioStorageBackend
+
+    with pytest.raises(ValueError, match="endpoint_url must be an http"):
+        MinioStorageBackend(
+            endpoint_url="ftp://minio:9000",
+            access_key="somekey",
+            secret_key="somesecret",
+        )
+
+
+def test_minio_backend_rejects_empty_endpoint_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MinioStorageBackend raises ValueError when endpoint_url is an empty string."""
+    monkeypatch.delenv("FORCE_CPU", raising=False)
+
+    from synth_engine.modules.synthesizer.storage import MinioStorageBackend
+
+    with pytest.raises(ValueError, match="endpoint_url must be an http"):
+        MinioStorageBackend(
+            endpoint_url="",
+            access_key="somekey",
+            secret_key="somesecret",
+        )
+
+
+def test_minio_backend_rejects_empty_access_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MinioStorageBackend raises ValueError when access_key is empty."""
+    monkeypatch.delenv("FORCE_CPU", raising=False)
+
+    from synth_engine.modules.synthesizer.storage import MinioStorageBackend
+
+    with pytest.raises(ValueError, match="access_key must be a non-empty string"):
+        MinioStorageBackend(
+            endpoint_url="http://minio:9000",
+            access_key="",
+            secret_key="somesecret",
+        )
+
+
+def test_minio_backend_rejects_empty_secret_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MinioStorageBackend raises ValueError when secret_key is empty."""
+    monkeypatch.delenv("FORCE_CPU", raising=False)
+
+    from synth_engine.modules.synthesizer.storage import MinioStorageBackend
+
+    with pytest.raises(ValueError, match="secret_key must be a non-empty string"):
+        MinioStorageBackend(
+            endpoint_url="http://minio:9000",
+            access_key="somekey",
+            secret_key="",
+        )
 
 
 # ---------------------------------------------------------------------------

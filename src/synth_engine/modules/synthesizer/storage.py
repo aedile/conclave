@@ -38,7 +38,6 @@ import os
 from typing import Protocol, runtime_checkable
 
 import pandas as pd
-import torch
 
 _logger = logging.getLogger(__name__)
 
@@ -62,11 +61,18 @@ def _log_device_selection() -> str:
     Reads ``FORCE_CPU`` from the environment on every call (not cached at
     import time) so tests can use ``monkeypatch.setenv`` safely.
 
+    The ``torch`` import is deferred to this function body so that environments
+    installing only the default dependency group (without ``--with synthesizer``)
+    do not encounter ``ModuleNotFoundError`` at import time.  This mirrors the
+    boto3 deferred-import pattern used in ``MinioStorageBackend.__init__``.
+
     Returns:
         ``"cpu"`` if ``FORCE_CPU`` is set to a truthy value or if
         ``torch.cuda.is_available()`` returns ``False``.
         ``"cuda"`` if CUDA hardware is detected and ``FORCE_CPU`` is not set.
     """
+    import torch  # deferred import: only needed when device selection is invoked
+
     force_cpu = os.environ.get(FORCE_CPU_ENV_VAR, "").strip().lower() in {
         "1",
         "true",
@@ -143,8 +149,13 @@ class MinioStorageBackend:
 
     Args:
         endpoint_url: MinIO S3 API endpoint (e.g. ``"http://minio:9000"``).
-        access_key: MinIO access key.
-        secret_key: MinIO secret key.
+            Must be an ``http://`` or ``https://`` URL.
+        access_key: MinIO access key.  Must be non-empty.
+        secret_key: MinIO secret key.  Must be non-empty.
+
+    Raises:
+        ValueError: If ``endpoint_url`` is not a valid http(s) URL, or if
+            ``access_key`` or ``secret_key`` are empty strings.
     """
 
     def __init__(
@@ -156,10 +167,24 @@ class MinioStorageBackend:
         """Initialise the MinIO boto3 client.
 
         Args:
-            endpoint_url: S3-compatible endpoint URL.
-            access_key: Access key ID for authentication.
-            secret_key: Secret access key for authentication.
+            endpoint_url: S3-compatible endpoint URL.  Must start with
+                ``http://`` or ``https://``.
+            access_key: Access key ID for authentication.  Must be non-empty.
+            secret_key: Secret access key for authentication.  Must be non-empty.
+
+        Raises:
+            ValueError: If ``endpoint_url`` is not a valid http(s) URL, or if
+                ``access_key`` or ``secret_key`` are empty strings.
         """
+        if not endpoint_url or not endpoint_url.startswith(("http://", "https://")):
+            raise ValueError(
+                f"endpoint_url must be an http:// or https:// URL; got: {endpoint_url!r}"
+            )
+        if not access_key:
+            raise ValueError("access_key must be a non-empty string")
+        if not secret_key:
+            raise ValueError("secret_key must be a non-empty string")
+
         import boto3  # deferred import: only needed when MinIO backend is used
 
         self._client = boto3.client(
@@ -168,6 +193,15 @@ class MinioStorageBackend:
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
         )
+
+    def __repr__(self) -> str:
+        """Return a redacted representation that never exposes credentials.
+
+        Returns:
+            A string representation with endpoint_url and access_key redacted
+            to prevent accidental credential leakage in logs or tracebacks.
+        """
+        return "MinioStorageBackend(endpoint_url=<redacted>, access_key=<redacted>)"
 
     def put(self, bucket: str, key: str, data: bytes) -> None:
         """Upload raw bytes to MinIO.
@@ -196,7 +230,7 @@ class MinioStorageBackend:
 
         try:
             response = self._client.get_object(Bucket=bucket, Key=key)
-            return response["Body"].read()  # type: ignore[no-any-return]
+            return response["Body"].read()  # type: ignore[no-any-return]  # boto3-stubs types Body as StreamingBody; read() -> bytes but mypy infers Any without full stub resolution
         except botocore.exceptions.ClientError as exc:
             error_code = exc.response.get("Error", {}).get("Code", "")
             if error_code in ("NoSuchKey", "404"):

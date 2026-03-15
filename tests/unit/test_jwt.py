@@ -261,7 +261,7 @@ def test_invalid_signature_raises_401() -> None:
     # regardless of payload length or base64url padding.  The last-character flip
     # approach is flaky because padding-only tail bits leave decoded bytes unchanged.
     wrong_config = JWTConfig(
-        secret_key="wrong-secret-key-that-will-never-match",  # nosec B106 # pragma: allowlist secret  # noqa: S106
+        secret_key="wrong-secret-key-that-will-never-match",  # nosec B106 # pragma: allowlist secret
         algorithm=config.algorithm,
         access_token_expire_minutes=config.access_token_expire_minutes,
         trusted_proxy_header=config.trusted_proxy_header,
