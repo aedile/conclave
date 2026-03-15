@@ -33,9 +33,15 @@ class TestRFC7807ErrorHandler:
         async def _raise_unhandled() -> None:
             raise RuntimeError("Something went wrong internally")
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -63,9 +69,15 @@ class TestRFC7807ErrorHandler:
         async def _raise_with_path() -> None:
             raise RuntimeError("Error at /etc/passwd line 1")
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -88,9 +100,15 @@ class TestRFC7807ErrorHandler:
         async def _raise_generic() -> None:
             raise ValueError("Bad value")
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"

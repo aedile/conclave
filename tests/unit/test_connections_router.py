@@ -55,9 +55,15 @@ class TestConnectionsCRUD:
         """GET /connections must return HTTP 200 with items list."""
         app = _make_connections_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -72,9 +78,15 @@ class TestConnectionsCRUD:
         """POST /connections must return HTTP 201 Created."""
         app = _make_connections_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -97,9 +109,15 @@ class TestConnectionsCRUD:
         """POST /connections must persist and return the created connection."""
         app = _make_connections_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -125,9 +143,15 @@ class TestConnectionsCRUD:
         """GET /connections/{id} must return 404 with RFC 7807 for missing."""
         app = _make_connections_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -143,9 +167,15 @@ class TestConnectionsCRUD:
         """DELETE /connections/{id} must return 204 No Content."""
         app = _make_connections_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -175,9 +205,15 @@ class TestConnectionsCRUD:
         app = _make_connections_app()
         nonexistent_id = str(uuid.uuid4())
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"

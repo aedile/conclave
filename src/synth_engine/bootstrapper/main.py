@@ -31,6 +31,14 @@ Task 4.2c additions (Rule 8 — Huey task wiring):
 Task 5.1 additions:
   - Jobs, Connections, Settings routers included via app.include_router().
   - RFC 7807 catch-all error handler registered via bootstrapper/errors.py.
+
+Task 5.2 additions:
+  - LicenseGateMiddleware: blocks non-exempt routes until the software is
+    activated (402 Payment Required).
+  - /license/challenge GET endpoint: returns hardware-bound challenge payload
+    with QR code for offline activation.
+  - /license/activate POST endpoint: accepts RS256 JWT, validates signature
+    and hardware_id binding, transitions LicenseState to LICENSED.
 """
 
 from __future__ import annotations
@@ -46,6 +54,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
+from synth_engine.bootstrapper.dependencies.licensing import LicenseGateMiddleware
 from synth_engine.bootstrapper.dependencies.vault import SealGateMiddleware
 from synth_engine.modules.mapping import CycleDetectionError
 from synth_engine.shared.security.vault import VaultState
@@ -194,14 +203,20 @@ def create_app() -> FastAPI:
 
     Attaches:
     - OpenTelemetry instrumentation
-    - SealGateMiddleware (blocks sealed-state access)
+    - SealGateMiddleware (blocks sealed-state access, 423 Locked)
+    - LicenseGateMiddleware (blocks unlicensed access, 402 Payment Required)
     - Prometheus metrics at /metrics
     - CycleDetectionError exception handler (ADV-022)
     - RFC 7807 catch-all exception handler (T5.1)
     - Jobs, Connections, Settings routers (T5.1)
+    - License challenge/activate router (T5.2)
 
     Then registers the /health liveness probe, /unseal ops endpoint,
     and mounts the Prometheus ASGI app.
+
+    Middleware evaluation order (LIFO — last added = outermost):
+    1. SealGateMiddleware — outermost; returns 423 if vault is sealed.
+    2. LicenseGateMiddleware — inner; returns 402 if not licensed.
 
     Returns:
         A configured FastAPI instance ready to serve requests.
@@ -218,9 +233,10 @@ def create_app() -> FastAPI:
 
     FastAPIInstrumentor.instrument_app(app)
 
-    # Seal gate must be added before routes are registered so that every
-    # request passes through it.  Middleware is evaluated in LIFO order by
-    # Starlette, so the gate is the outermost layer.
+    # Middleware is evaluated in LIFO (Last In, First Out) order.
+    # LicenseGateMiddleware is added FIRST so that SealGateMiddleware wraps it
+    # (seal check fires before license check — correct priority ordering).
+    app.add_middleware(LicenseGateMiddleware)
     app.add_middleware(SealGateMiddleware)
 
     # Mount Prometheus metrics endpoint (internal network only; no auth required
@@ -247,10 +263,12 @@ def _include_routers(app: FastAPI) -> None:
     from synth_engine.bootstrapper.routers.connections import router as connections_router
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
     from synth_engine.bootstrapper.routers.settings import router as settings_router
+    from synth_engine.bootstrapper.routers.system import router as system_router
 
     app.include_router(jobs_router)
     app.include_router(connections_router)
     app.include_router(settings_router)
+    app.include_router(system_router)
 
 
 def _register_exception_handlers(app: FastAPI) -> None:

@@ -67,9 +67,15 @@ class TestJobsListEndpoint:
         """GET /jobs must return HTTP 200."""
         app, engine = _make_test_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -83,9 +89,15 @@ class TestJobsListEndpoint:
         """GET /jobs must return JSON with an 'items' list."""
         app, engine = _make_test_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -133,9 +145,15 @@ class TestJobsListEndpoint:
 
         app.dependency_overrides[get_db_session] = _override
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -185,9 +203,15 @@ class TestJobsListEndpoint:
 
         app.dependency_overrides[get_db_session] = _override
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -216,9 +240,15 @@ class TestJobGetEndpoint:
             assert job is not None
             job_id = job.id
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -232,9 +262,15 @@ class TestJobGetEndpoint:
         """GET /jobs/{id} must return HTTP 404 with RFC 7807 for missing job."""
         app, engine = _make_test_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -260,9 +296,15 @@ class TestJobGetEndpoint:
             assert job is not None
             job_id = job.id
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -283,9 +325,15 @@ class TestJobCreateEndpoint:
         """POST /jobs must return HTTP 201 Created."""
         app, engine = _make_test_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -306,9 +354,15 @@ class TestJobCreateEndpoint:
         """POST /jobs must return the newly created job body."""
         app, engine = _make_test_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -350,6 +404,10 @@ class TestJobStartEndpoint:
                 "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
                 return_value=False,
             ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
             patch("synth_engine.bootstrapper.routers.jobs.run_synthesis_job"),
         ):
             async with AsyncClient(
@@ -380,6 +438,10 @@ class TestJobStartEndpoint:
                 return_value=False,
             ),
             patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+            patch(
                 "synth_engine.bootstrapper.routers.jobs.run_synthesis_job",
                 mock_task,
             ),
@@ -396,9 +458,15 @@ class TestJobStartEndpoint:
         """POST /jobs/{id}/start must return 404 for a nonexistent job."""
         app, engine = _make_test_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -416,9 +484,15 @@ class TestJobSSEEndpoint:
         """GET /jobs/{id}/stream must return 404 for a nonexistent job."""
         app, engine = _make_test_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -468,9 +542,15 @@ class TestJobSSEEndpoint:
 
         app.dependency_overrides[get_db_session] = _override
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -522,9 +602,15 @@ class TestJobSSEEndpoint:
 
         app.dependency_overrides[get_db_session] = _override
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
