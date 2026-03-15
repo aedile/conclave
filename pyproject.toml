@@ -180,10 +180,6 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-fail-under=90",
     "--tb=short",
-    # Disable pytest-postgresql plugin when libpq is not installed (unit-test
-    # environments without the integration group). Integration tests that need
-    # PostgreSQL must be run explicitly with `pytest -m integration`.
-    "-p", "no:pytest_postgresql",
 ]
 markers = [
     "unit: Fast, isolated unit tests with no external dependencies",
@@ -231,7 +227,7 @@ filterwarnings = [
     # PyTorch 2.10+ emits a UserWarning from full backward hooks registered by
     # Opacus when no input requires gradients. This is an Opacus internal detail
     # that fires through torch.utils.hooks during DP-SGD backward passes.
-    "ignore:Full backward hook is firing when gradients are computed:UserWarning",
+    "ignore:Full backward hook is firing when gradients are computed:UserWarning:torch",
 ]
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,11 @@ Abstract base class for all database entities.  Provides:
 - ``created_at``: UTC timestamp, set on first insert.
 - ``updated_at``: UTC timestamp, updated by SQLAlchemy on every UPDATE.
 
+Alembic metadata note
+---------------------
+Any SQLModel table NOT extending ``BaseModel`` must be explicitly imported
+in ``alembic/env.py`` so that ``target_metadata`` remains complete.
+
 CONSTITUTION Priority 5: Code Quality
 Task: P2-T2.2 — Secure Database Layer
 Task: P4-T4.4 — Privacy Accountant (async engine + session)
