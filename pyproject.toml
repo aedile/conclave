@@ -66,6 +66,7 @@ pytest-postgresql = "^7.0"
 
 # ---------------------------------------------------------------------------
 # Synthesizer group — T4.1 (GPU Passthrough & Ephemeral Storage)
+#                      T4.2b adds sdv (CTGAN via SDV library)
 # Install with: poetry install --with dev,synthesizer
 #
 # Rationale for each dependency:
@@ -80,6 +81,11 @@ pytest-postgresql = "^7.0"
 #   boto3    — S3-compatible client for the concrete MinIO backend
 #              (EphemeralStorageClient's MinioStorageBackend). Unit tests use
 #              InMemoryBackend and never instantiate this class.
+#   sdv      — Synthetic Data Vault: provides CTGANSynthesizer for per-table
+#              CTGAN training (ADR-0017). Verified on PyPI: latest 1.34.3.
+#              Version range >=1.17.0,<2.0.0 chosen: 1.17 introduced the
+#              stable CTGANSynthesizer API used in T4.2b; <2.0.0 guards against
+#              breaking API changes in a future major release.
 # Note: pandas is in [tool.poetry.dependencies] (main group); removed from
 # synthesizer group to avoid redundancy (T4.1 fix).
 # ---------------------------------------------------------------------------
@@ -87,6 +93,7 @@ pytest-postgresql = "^7.0"
 torch = {version = ">=2.5.0,<3.0.0", python = ">=3.14,<3.15"}
 pyarrow = ">=22.0.0,<24.0.0"
 boto3 = ">=1.35.0,<2.0.0"
+sdv = {version = ">=1.17.0,<2.0.0", python = ">=3.14,<3.15"}
 
 [build-system]
 requires = ["poetry-core"]
@@ -153,6 +160,7 @@ skips = ["B101"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = [
     "--cov=src/synth_engine",
     "--cov-report=term-missing",
@@ -182,6 +190,26 @@ filterwarnings = [
     # removal in 3.16; the fix is inspect.iscoroutinefunction).  Scoped to the
     # chromadb telemetry sub-package; we cannot change third-party code.
     "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
+    # SDV 1.x and its dependencies (rdt, copulas) emit DeprecationWarnings
+    # from third-party code paths that we cannot fix.  Suppressed to keep
+    # -W error clean in unit tests.
+    "ignore::DeprecationWarning:sdv",
+    "ignore::DeprecationWarning:rdt",
+    "ignore::DeprecationWarning:copulas",
+    "ignore::FutureWarning:sdv",
+    "ignore::FutureWarning:rdt",
+    "ignore::FutureWarning:copulas",
+    # rdt 1.x imports sre_parse (deprecated in Python 3.14 for removal in 3.16;
+    # stdlib module deprecated in 3.14 per PEP 594).  The import is inside rdt
+    # which we cannot fix.  Attribute the filter to 'sre_parse' so it catches
+    # the DeprecationWarning regardless of which frame emits it.
+    "ignore:module 'sre_parse' is deprecated:DeprecationWarning",
+    "ignore:module 'sre_constants' is deprecated:DeprecationWarning",
+    "ignore:module 'sre_compile' is deprecated:DeprecationWarning",
+    # SDV 1.x emits UserWarning about saving metadata to JSON for replicability.
+    # This is advisory-only; our workflow does not require persisting metadata
+    # separately since it is auto-detected per-run from the training DataFrame.
+    "ignore:We strongly recommend saving the metadata:UserWarning:sdv",
 ]
 
 # ---------------------------------------------------------------------------

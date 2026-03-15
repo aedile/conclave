@@ -21,8 +21,10 @@ Drain (delete) rows when their target task is completed.
 | ADV-021 | QA P2-D2 | Before Phase 3/4 TypeDecorator usage | `EncryptedString` NULL passthrough, empty-string, and unicode/multi-byte PII paths are not exercised at the integration level (only unit-tested). Also: `Fernet.InvalidToken` propagation through SQLAlchemy on a live connection is untested. Write targeted integration tests for these edge cases before additional TypeDecorators are added in Phase 3/4. |
 | ADV-035 | DevOps T3.5.4 | T4.x (masking configuration) | `_CLI_MASKING_SALT` in `bootstrapper/cli.py` is a hardcoded fallback determinism seed (documented as non-secret). When Phase 4 introduces the production `MASKING_SALT` path, the CLI must be updated to inject it from environment/Vault rather than relying on the hardcoded fallback. Remove the hardcoded fallback or gate it behind a strict non-production check. |
 | ADV-036 | DevOps T3.5.4 | T5.1 (CLI hardening) | The CLI's `except Exception` boundary forwards `str(exc)` from potentially deep SQLAlchemy stack frames directly to the operator. As the engine grows, those exception messages could include table names, column names, or query fragments from customer schemas. Revisit the exception sanitisation boundary at T5.1 when the CLI is hardened for production use. |
-| ADV-037 | Arch+QA P4-T4.1 | T4.2b | **BLOCKER (CLAUDE.md Rule 8)**: `EphemeralStorageClient` wiring deferred — `MinioStorageBackend` is not wired into the bootstrapper because `SynthesisEngine` does not yet exist. `TODO(T4.2b)` comment added to `bootstrapper/main.py`. Must be completed before T4.2b merges; T4.2b is a Phase 4 entry gate for this wiring. |
+| ~~ADV-037~~ | ~~Arch+QA P4-T4.1~~ | ~~T4.2b~~ | **DRAINED** — Resolved in T4.2b: `build_ephemeral_storage_client()` and `build_synthesis_engine()` factory functions wired into `bootstrapper/main.py`. |
 | ADV-038 | Arch PR #32 | Before pr-reviewer goes live | No ADR documents the governance decision to permit AI-posted GitHub PR approvals. ADR should cover: problem solved, scope of authority (approve yes, merge never), escalation path when gates cannot be evaluated. |
+| ADV-039 | DevOps T4.2b | T5.1 (CLI hardening) | `.env.example` does not document MinIO Docker secrets (`minio_ephemeral_access_key`, `minio_ephemeral_secret_key`) or the synthesizer dependency group. `_MINIO_ENDPOINT` and `_EPHEMERAL_BUCKET` in `bootstrapper/main.py` are hardcoded constants with no environment-variable override path. Document before production deployment. |
+| ADV-040 | DevOps T4.2b | Phase 6 security hardening | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. If artifacts are ever stored externally or shared across trust boundaries, add HMAC integrity verification to `ModelArtifact.load()` before deserialization. |
 
 ---
 
@@ -30,27 +32,25 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
-### [2026-03-15] Task B — ChromaDB Learning System Wiring
+### [2026-03-15] P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
 
-**Summary**: Scripts/docs-only task. No src/synth_engine/ files modified. Architecture reviewer SKIP per scope gate.
+**Summary**: Implemented `SynthesisEngine` (CTGAN training/generation), `ModelArtifact` (pickle serialization), FK post-processing (seeded PRNG, zero orphan FKs), and bootstrapper wiring (ADV-037 drain). 464 unit tests pass at 96.57% coverage. 6 integration tests with real CTGAN training on Faker-generated data.
 
-**Changes committed**:
-- `feat`: `scripts/seed_chroma_retro.py` — parses RETRO_LOG.md Task Reviews (28 notes) and Open Advisory Items table (10 rows); upserts into ChromaDB "Retrospectives" and "Advisories" collections; uses `get_or_create_collection` + `upsert` semantics; verifies seeding with retrieval queries
-- `docs`: Amended `.claude/agents/software-developer.md` — tools frontmatter updated to include four chroma MCP tool names; Step 0 updated to make `chroma_query_documents` the preferred pre-task learning scan mechanism with RETRO_LOG fallback
-- `docs`: Amended `CLAUDE.md` — Rule 14 added (PM must run seeding script after every RETRO_LOG update); Quick Reference Card updated with AFTER RETRO_LOG UPDATE line
+**Architecture** (FINDING — 2 low-severity, fixed as advisory):
+File placement PASS, dependency direction PASS, ADR-0017 compliance PASS, bootstrapper wiring PASS (Rule 8). Two advisories: (1) `ModelArtifact.model` typed as `Any` — recommend `SynthesizerProtocol`; (2) consider `frozen=True` for immutability intent. Neither blocking.
 
-**Architecture** (SKIP): No src/synth_engine/ files touched. Scope gate applied.
+**QA** (FINDING — 2 blockers fixed, 3 advisories fixed):
+Blockers fixed: (1) nullable flags not captured in ModelArtifact — added `column_nullables` field + integration test; (2) missing KeyError test for fk_column — added. Advisories fixed: docstring accuracy, df immutability test, column_dtypes test. Recurring pattern: compound AC items ("column names, dtypes, nullable flags") partially implemented — recommend atomic AC checkboxes.
 
-**QA** (PASS):
-dead-code PASS. edge-cases PASS — empty inputs handled with logger.warning + return 0; missing section returns []; RETRO_LOG not found exits with sys.exit(1). error-paths PASS — all SystemExit paths documented. silent-failures PASS — no bare except: pass. type-annotation-accuracy PASS — cast(Any, metadatas) at chromadb upsert call sites with inline justification; mypy --ignore-missing-imports clean. No unit tests per established scripts/ convention (seed_chroma.py has no tests). Retrospective: cast(Any, ...) is the correct resolution for third-party stub incompatibility without coupling to chromadb internals.
+**DevOps** (FINDING — 1 blocker fixed, 1 advisory):
+Blocker fixed: no CI job installed synthesizer group — added `Synthesizer Integration Tests` job with SHA-pinned actions. Advisory: `.env.example` doesn't document MinIO/synthesizer Docker secrets config (ADV-039). Pickle trust-boundary risk noted for future hardening (ADV-040).
 
-**DevOps** (PASS):
-hardcoded-credentials PASS — gitleaks/detect-secrets clean. no-pii-in-code PASS. no-auth-material-in-logs PASS. input-validation PASS. bandit PASS — 0 issues. dependency-audit PASS — no new production deps. ci-health PASS — all 7 pre-commit hooks pass. mcp-tool-wiring PASS — tool names in frontmatter match server config with correct mcp__chroma__ prefix. Retrospective: MCP tool prefix (mcp__{server-key}__{tool-name}) is load-bearing in agent frontmatter — must be verified against claude_mcp.json mcpServers key when adding new MCP tools.
-
-**UI/UX** (SKIP): No UI surface area. scripts/ and agent config only.
+**UI/UX** (SKIP): Backend-only change. Forward-looking note: dashboard UI for synthesis jobs will need WCAG attention for async loading states and ML error message wrapping.
 
 **Retrospective**:
-The cast(Any, metadatas) pattern at chromadb upsert call sites is the correct resolution for stub incompatibility in scripts/ code that interacts with third-party libraries whose public stubs are more permissive than mypy strict allows. Prefer this over `# type: ignore` without justification. The seeding confirmed: 28 retrospective notes and 10 advisory items are now queryable in ChromaDB, enabling software-developer agents to retrieve institutional memory via semantic query rather than reading the full RETRO_LOG.md file.
+Three software-developer agent attempts were needed due to worktree isolation issues — agents couldn't check out the feature branch from nested worktrees. The first agent actually wrote quality implementation but couldn't commit from its deeply nested path. Root cause: worktree-in-worktree-in-worktree nesting. Lesson: for tasks with existing feature branches, avoid worktree isolation or clean up stale worktrees first. The implementation itself was sound — ADR-0017 FK strategy faithfully implemented, all boundary constraints respected, bootstrapper wiring complete. Review phase caught three legitimate blockers (nullable flags gap, missing edge-case test, CI job gap) that were all fixed in a single commit.
+
+---
 
 ### [2026-03-14] Governance Enforcement Sprint — docs/governance-enforcement branch
 

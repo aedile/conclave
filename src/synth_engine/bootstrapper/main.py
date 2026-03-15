@@ -15,12 +15,21 @@ Task 2.4 additions:
 Task 3.5.4 additions:
   - CycleDetectionError exception handler: returns HTTP 422 RFC 7807
     Problem Details (ADV-022).
+
+Task 4.2b additions (ADV-037 drain):
+  - build_synthesis_engine(): lazy factory for SynthesisEngine.
+  - build_ephemeral_storage_client(): lazy factory for EphemeralStorageClient
+    backed by MinioStorageBackend.  Reads MinIO credentials from Docker
+    secrets at /run/secrets/ (minio_ephemeral_access_key,
+    minio_ephemeral_secret_key).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -33,8 +42,118 @@ from synth_engine.modules.mapping import CycleDetectionError
 from synth_engine.shared.security.vault import VaultState
 from synth_engine.shared.telemetry import configure_telemetry
 
+if TYPE_CHECKING:
+    from synth_engine.modules.synthesizer.engine import SynthesisEngine
+    from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
+
 _SERVICE_NAME = "conclave-engine"
 _logger = logging.getLogger(__name__)
+
+#: Default MinIO endpoint for the ephemeral storage bucket.
+_MINIO_ENDPOINT = "http://minio-ephemeral:9000"
+
+#: Ephemeral bucket name — backed by tmpfs in Docker Compose.
+_EPHEMERAL_BUCKET = "synth-ephemeral"
+
+#: Docker secrets directory — credentials are mounted here at runtime.
+_SECRETS_DIR = Path("/run/secrets")
+
+# ---------------------------------------------------------------------------
+# MinioStorageBackend — deferred module-level import so that environments
+# without the synthesizer dependency group do not fail at import time.
+# The name is bound at module scope so unit tests can patch it with:
+#   patch('synth_engine.bootstrapper.main.MinioStorageBackend')
+# ---------------------------------------------------------------------------
+try:
+    from synth_engine.modules.synthesizer.storage import MinioStorageBackend
+except ImportError:  # pragma: no cover — synthesizer group not installed
+    MinioStorageBackend = None  # type: ignore[assignment,misc]
+
+
+def _read_secret(name: str) -> str:
+    """Read a Docker secret from the /run/secrets/ directory.
+
+    Secrets are mounted as files by Docker Compose (``secrets:`` block).
+    The file content is stripped of leading and trailing whitespace/newlines.
+
+    Args:
+        name: Secret file name (e.g. ``"minio_ephemeral_access_key"``).
+
+    Returns:
+        The secret value as a stripped string.
+
+    Raises:
+        RuntimeError: If the secret file does not exist or cannot be read.
+    """
+    secret_path = _SECRETS_DIR / name
+    try:
+        return secret_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RuntimeError(
+            f"Docker secret '{name}' not found at {secret_path}. "
+            "Ensure the secret is mounted at /run/secrets/ by Docker Compose."
+        ) from exc
+
+
+def build_ephemeral_storage_client() -> EphemeralStorageClient:
+    """Build an EphemeralStorageClient backed by MinioStorageBackend.
+
+    Reads MinIO credentials from Docker secrets at runtime:
+      - ``/run/secrets/minio_ephemeral_access_key``
+      - ``/run/secrets/minio_ephemeral_secret_key``
+
+    This factory is called lazily at synthesis job start time, not at
+    application startup — this avoids failing the health check when the
+    MinIO service is not yet running.
+
+    Returns:
+        A configured :class:`EphemeralStorageClient` instance ready to
+        upload and download Parquet files.
+
+    Raises:
+        RuntimeError: If the Docker secrets are not mounted.
+        ValueError: If the secrets are empty or the endpoint URL is invalid.
+    """
+    from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
+
+    access_key = _read_secret("minio_ephemeral_access_key")
+    secret_key = _read_secret("minio_ephemeral_secret_key")
+
+    # MinioStorageBackend is bound at module scope (patchable in tests).
+    # Use the module-level name so unit tests can intercept the constructor.
+    backend_cls: Any = MinioStorageBackend
+    backend = backend_cls(
+        endpoint_url=_MINIO_ENDPOINT,
+        access_key=access_key,
+        secret_key=secret_key,
+    )
+    _logger.info(
+        "EphemeralStorageClient initialised (bucket=%s, endpoint=%s).",
+        _EPHEMERAL_BUCKET,
+        _MINIO_ENDPOINT,
+    )
+    return EphemeralStorageClient(bucket=_EPHEMERAL_BUCKET, backend=backend)
+
+
+def build_synthesis_engine(epochs: int = 300) -> SynthesisEngine:
+    """Build a SynthesisEngine with the given epoch count.
+
+    This factory is called lazily at synthesis job start time, not at
+    application startup.  Callers receive a stateless engine instance;
+    model artifacts are returned from :meth:`SynthesisEngine.train` and
+    must be persisted by the caller.
+
+    Args:
+        epochs: Number of CTGAN training epochs.  Defaults to 300 (SDV
+            default).  Use a lower value (2-5) for integration-test runs.
+
+    Returns:
+        A configured :class:`SynthesisEngine` instance.
+    """
+    from synth_engine.modules.synthesizer.engine import SynthesisEngine as _SynthesisEngine
+
+    _logger.info("SynthesisEngine initialised (epochs=%d).", epochs)
+    return _SynthesisEngine(epochs=epochs)
 
 
 class UnsealRequest(BaseModel):
@@ -185,14 +304,6 @@ def _register_routes(app: FastAPI) -> None:
 
         return JSONResponse(content={"status": "unsealed"})
 
-
-# ---------------------------------------------------------------------------
-# TODO(T4.2b): Wire EphemeralStorageClient with MinioStorageBackend into the
-# synthesis job entry point once the SynthesisEngine is implemented.
-# MinioStorageBackend credentials come from Docker secrets (minio_ephemeral_access_key,
-# minio_ephemeral_secret_key) mounted at /run/secrets/ at runtime.
-# EphemeralStorageClient is defined in modules/synthesizer/storage.py.
-# ---------------------------------------------------------------------------
 
 #: Module-level application instance for use by uvicorn.
 #: ``uvicorn synth_engine.bootstrapper.main:app`` picks up this singleton.
