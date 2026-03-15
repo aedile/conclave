@@ -98,9 +98,6 @@ _400_DEPTH_BODY_TEMPLATE = (
     '"detail":"JSON nesting depth {depth} exceeds the maximum allowed depth of {limit}."}}'
 )
 
-_CONTENT_TYPE_JSON = b"content-type"
-_CONTENT_TYPE_JSON_VALUE = b"application/json"
-
 
 async def _send_response(
     send: Send,
@@ -284,9 +281,11 @@ class RequestBodyLimitMiddleware:
                     ).encode()
                     await _send_response(send, 400, body_400)
                     return
-            except (UnicodeDecodeError, ValueError) as exc:
-                # Body is not valid UTF-8 or has other encoding issues —
-                # log and pass through; route handler will reject it.
+            except (UnicodeDecodeError, ValueError) as exc:  # pragma: no cover
+                # Unreachable with the current decode strategy: body_bytes.decode("utf-8",
+                # errors="replace") never raises UnicodeDecodeError (the errors="replace"
+                # flag guarantees success), and _measure_json_depth raises no ValueError.
+                # Retained as a defensive catch; excluded from coverage (ADV-064).
                 _logger.warning(
                     "Could not decode request body for depth check on %s: %s",
                     scope.get("path", ""),

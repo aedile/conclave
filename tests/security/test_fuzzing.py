@@ -272,12 +272,13 @@ class TestNestedJsonFuzz:
             content=body,
             headers={"Content-Type": "application/json"},
         )
-        # Must NOT be 413 (body too large) — depth=100 is at the limit, not over
-        assert response.status_code != 413, (
+        # Must NOT be 400 or 413 — depth=100 is at the limit, not over it.
+        # A 400 here would indicate the depth check fired incorrectly.
+        assert response.status_code not in {400, 413}, (
             "JSON at exactly MAX_DEPTH=100 must not trigger the size/depth rejection."
         )
         _logger.info(
-            "JSON depth=%d at limit: status %d (not 413).",
+            "JSON depth=%d at limit: status %d (not 400 or 413).",
             _MAX_JSON_DEPTH,
             response.status_code,
         )
@@ -321,11 +322,12 @@ class TestLargePayloadFuzz:
             content=exact_body,
             headers={"Content-Type": "application/json"},
         )
-        # Must NOT be 413 — exactly 1 MiB is at the limit, not over it
-        assert response.status_code != 413, (
+        # Must NOT be 400 or 413 — exactly 1 MiB is at the limit, not over it.
+        # A 400 here would indicate the depth check fired on malformed JSON.
+        assert response.status_code not in {400, 413}, (
             "Payload of exactly 1 MiB must not trigger the 413 size rejection."
         )
-        _logger.info("Payload at exactly 1 MiB: status %d (not 413).", response.status_code)
+        _logger.info("Payload at exactly 1 MiB: status %d (not 400 or 413).", response.status_code)
 
     @pytest.mark.unit
     def test_server_remains_alive_after_oversized_payload(self, app_client: TestClient) -> None:
