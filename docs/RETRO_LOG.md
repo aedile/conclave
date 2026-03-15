@@ -24,10 +24,50 @@ Drain (delete) rows when their target task is completed.
 | ADV-046 | QA T4.3b | Phase 6 hardening | ADVISORY | Edge-case tests missing for `DPTrainingWrapper`: (1) `max_grad_norm <= 0` and `noise_multiplier <= 0` — nonsensical values passed to Opacus without validation; (2) `allocated_epsilon=0.0` — degenerate boundary; (3) `delta=0` passed to RDP accountant may produce inf. Consider ValueError guards + tests. |
 | ADV-047 | DevOps T4.3b | Phase 5 entry gate | ADVISORY | Unscoped backward-hook warning filter in `pyproject.toml`: `"ignore:Full backward hook is firing when gradients are computed:UserWarning"` has no `:torch` module qualifier. Risk: suppresses unrelated `UserWarning` from other modules. Add `:torch` scope. |
 | ADV-048 | Arch T4.3b | When SDV exposes training hooks | BLOCKER | Rule 8: `build_dp_wrapper()` factory missing from `bootstrapper/main.py`. TODO(T4.3b) added. `DPTrainingWrapper` exists in `modules/privacy/dp_engine.py` but cannot be wired end-to-end because SDV's `CTGANSynthesizer.fit()` does not expose optimizer/model/dataloader for Opacus wrapping (ADR-0017 risk). Wire when SDV adds training hooks. |
+| ADV-049 | Arch T4.4 | Phase 5 entry gate | ADVISORY | Tables extending `SQLModel` directly (not `BaseModel`) must be imported in `alembic/env.py` for `target_metadata` completeness. Fixed for `PrivacyLedger`/`PrivacyTransaction`; establish convention in `shared/db.py` docstring or ADR for future tables. |
+| ADV-050 | Arch T4.4 | Phase 6 hardening | DEFERRED | `Float` column type for `total_allocated_epsilon`/`total_spent_epsilon` in `PrivacyLedger`. Floating-point accumulation across many small additions introduces budget drift. PM justification: at current scale (1–10 epsilon range, tens of jobs) float64 drift is sub-microsecond. Revisit if sub-0.01 epsilon granularity or high-concurrency workloads become a product requirement. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-15] P4-T4.4 — Privacy Accountant (Global Epsilon Ledger)
+
+**Summary**: Implemented global epsilon budget ledger with `SELECT ... FOR UPDATE`
+pessimistic locking via async SQLAlchemy. Added `PrivacyLedger` + `PrivacyTransaction`
+tables, `spend_budget()` async function, async DB infrastructure (`get_async_engine`,
+`get_async_session`), first Alembic migration, and `asyncpg`/`aiosqlite` dependencies.
+13 unit tests + 3 integration tests. 95.75% coverage.
+
+**Architecture** (FINDING — 1 blocker fixed, 2 advisories):
+- Blocker: `alembic/env.py` missing side-effect imports for tables extending SQLModel
+  directly. Fixed: added imports for PrivacyLedger/PrivacyTransaction.
+- ADV-049: Establish convention for non-BaseModel table metadata registration.
+- ADV-050: Float vs Numeric for epsilon columns — deferred.
+
+**QA** (FINDING — 3 items fixed):
+- NoResultFound error path untested. Fixed: added test.
+- `amount <= 0` not guarded despite docstring precondition. Fixed: ValueError guard added.
+- `last_updated` missing `onupdate` hook. Fixed: added `sa_column_kwargs` + migration update.
+
+**DevOps** (FINDING — 1 item fixed):
+- `amount <= 0` enables budget credit attack (privacy bypass). Fixed: same guard.
+- All 3 new deps (asyncpg, greenlet, aiosqlite) audited, no CVEs.
+
+**UI/UX** (SKIP): No UI surface. Forward-looking: epsilon budget bars need progressbar ARIA,
+live polling needs aria-live regions, warning states must not rely on color alone.
+
+**Retrospective**:
+Three patterns worth tracking: (1) Docstring preconditions not enforced at runtime are a
+recurring drift pattern — "must be positive" documented but not checked. Treat Args/Raises
+entries as testable contracts. (2) Tables diverging from BaseModel silently drop the
+onupdate timestamp contract — any future table bypassing BaseModel should be field-by-field
+reviewed against BaseModel's contract list. (3) The 50-concurrent `SELECT FOR UPDATE`
+integration test is the correct category of invariant test — it exercises the correctness
+property the feature exists to protect. More tests in this style should be written for
+concurrency-sensitive operations.
 
 ---
 

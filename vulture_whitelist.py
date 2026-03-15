@@ -77,13 +77,19 @@ _.upload_parquet  # Public upload method on EphemeralStorageClient
 _.download_parquet  # Public download method on EphemeralStorageClient
 
 # ---------------------------------------------------------------------------
-# privacy — DP engine public API (wired in bootstrapper; T4.3b)
+# privacy — DP engine and Privacy Accountant public API (T4.3b, T4.4)
 # ---------------------------------------------------------------------------
 DPTrainingWrapper  # Public DP training wrapper (privacy/dp_engine.py) — injected at runtime
 BudgetExhaustionError  # Public exception (privacy/dp_engine.py) — raised on budget exhaustion
 _.wrap  # Public wrap method on DPTrainingWrapper (privacy/dp_engine.py)
 _.epsilon_spent  # Public epsilon_spent method on DPTrainingWrapper
 _.check_budget  # Public check_budget method on DPTrainingWrapper
+PrivacyLedger  # SQLModel table — global epsilon budget tracker (privacy/ledger.py)
+PrivacyTransaction  # SQLModel table — epsilon expenditure audit log (privacy/ledger.py)
+spend_budget  # Async function — atomically deducts epsilon with FOR UPDATE (privacy/accountant.py)
+get_async_engine  # Async SQLAlchemy engine factory (shared/db.py)
+get_async_session  # Async context manager yielding AsyncSession (shared/db.py)
+last_updated  # SQLModel timestamp field on PrivacyLedger (privacy/ledger.py)
 
 # ---------------------------------------------------------------------------
 # shared — auth, db, middleware, schema_topology, security, tasks

@@ -320,15 +320,12 @@ class TestSynthesisJobTaskIntegration:
         mock_artifact.save.return_value = str(
             tmp_path / "checkpoints" / f"job_{job_id}_epoch_3.pkl"
         )
-        mock_storage = MagicMock()
-
         with Session(db_engine) as session:
             with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
                 _run_synthesis_job_impl(
                     job_id=job_id,
                     session=session,
                     engine=mock_engine,
-                    storage_client=mock_storage,
                     checkpoint_dir=checkpoint_dir,
                 )
 
