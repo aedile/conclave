@@ -22,6 +22,11 @@ Task 4.2b additions (ADV-037 drain):
     backed by MinioStorageBackend.  Reads MinIO credentials from Docker
     secrets at /run/secrets/ (minio_ephemeral_access_key,
     minio_ephemeral_secret_key).
+
+Task 4.2c additions (Rule 8 — Huey task wiring):
+  - Import side-effect registers run_synthesis_job with the shared Huey
+    instance so the Huey worker process discovers the task at startup.
+    See: https://huey.readthedocs.io/en/latest/consumer.html#importing-tasks
 """
 
 from __future__ import annotations
@@ -304,6 +309,16 @@ def _register_routes(app: FastAPI) -> None:
 
         return JSONResponse(content={"status": "unsealed"})
 
+
+# ---------------------------------------------------------------------------
+# Rule 8 — Huey task wiring (T4.2c)
+# ---------------------------------------------------------------------------
+# This import is a deliberate side effect: importing the tasks module
+# registers ``run_synthesis_job`` with the shared Huey instance so that
+# the Huey worker process discovers the task at process start.
+# Do NOT remove this import — the worker will silently drop synthesis jobs
+# if the task is not registered.
+from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: F401, E402
 
 #: Module-level application instance for use by uvicorn.
 #: ``uvicorn synth_engine.bootstrapper.main:app`` picks up this singleton.

@@ -20,11 +20,9 @@ Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -61,35 +59,30 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_has_id_field(self) -> None:
         """SynthesisJob must have an integer id field."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
         job = _make_synthesis_job(id=42)
         assert job.id == 42
 
     def test_synthesis_job_has_status_field(self) -> None:
         """SynthesisJob must have a status field."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
         job = _make_synthesis_job(status="QUEUED")
         assert job.status == "QUEUED"
 
     def test_synthesis_job_has_current_epoch_field(self) -> None:
         """SynthesisJob must have a current_epoch integer field."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
         job = _make_synthesis_job(current_epoch=3)
         assert job.current_epoch == 3
 
     def test_synthesis_job_has_total_epochs_field(self) -> None:
         """SynthesisJob must have a total_epochs integer field."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
         job = _make_synthesis_job(total_epochs=300)
         assert job.total_epochs == 300
 
     def test_synthesis_job_has_artifact_path_field(self) -> None:
         """SynthesisJob must have an optional artifact_path string field."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
         job = _make_synthesis_job(artifact_path=None)
         assert job.artifact_path is None
@@ -99,7 +92,6 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_has_error_msg_field(self) -> None:
         """SynthesisJob must have an optional error_msg string field."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
         job = _make_synthesis_job(error_msg=None)
         assert job.error_msg is None
@@ -109,14 +101,12 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_has_table_name_field(self) -> None:
         """SynthesisJob must have a table_name field for the target table."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
         job = _make_synthesis_job(table_name="orders")
         assert job.table_name == "orders"
 
     def test_synthesis_job_has_parquet_path_field(self) -> None:
         """SynthesisJob must have a parquet_path field for the source data."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
         job = _make_synthesis_job(parquet_path="/data/orders.parquet")
         assert job.parquet_path == "/data/orders.parquet"
@@ -191,7 +181,12 @@ class TestSynthesisTaskSuccessPath:
         return session
 
     def test_task_transitions_queued_to_training(self) -> None:
-        """Task must set status=TRAINING before training starts."""
+        """Task must set status=TRAINING before training starts.
+
+        The job object is mutable — by the time we inspect call_args_list the
+        status is already COMPLETE.  We use side_effect to snapshot the status
+        at each session.add() call time instead.
+        """
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
@@ -205,9 +200,16 @@ class TestSynthesisTaskSuccessPath:
 
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        # Capture status at the moment session.add() is called (job is mutable).
+        recorded_statuses: list[str] = []
+
+        def _snapshot_status(obj: object) -> None:
+            if hasattr(obj, "status"):
+                recorded_statuses.append(str(obj.status))
+
+        mock_session.add.side_effect = _snapshot_status
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -215,13 +217,8 @@ class TestSynthesisTaskSuccessPath:
                 storage_client=mock_storage,
             )
 
-        # status must have been set to TRAINING at some point
-        training_calls = [
-            c for c in mock_session.add.call_args_list
-            if hasattr(c.args[0], "status") and c.args[0].status == "TRAINING"
-        ]
-        assert len(training_calls) >= 1, (
-            "Expected at least one session.add() call with status=TRAINING"
+        assert "TRAINING" in recorded_statuses, (
+            f"Expected status=TRAINING to be recorded; got: {recorded_statuses}"
         )
 
     def test_task_transitions_training_to_complete(self) -> None:
@@ -239,9 +236,7 @@ class TestSynthesisTaskSuccessPath:
 
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -267,9 +262,7 @@ class TestSynthesisTaskSuccessPath:
 
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -295,9 +288,7 @@ class TestSynthesisTaskSuccessPath:
 
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -439,18 +430,14 @@ class TestSynthesisTaskRuntimeFailure:
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
-        job = _make_synthesis_job(
-            id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3
-        )
+        job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA out of memory at epoch 3")
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -465,18 +452,14 @@ class TestSynthesisTaskRuntimeFailure:
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
-        job = _make_synthesis_job(
-            id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3
-        )
+        job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA out of memory at epoch 3")
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -502,9 +485,7 @@ class TestSynthesisTaskRuntimeFailure:
 
         mock_session = MagicMock()
         # total_epochs=6, checkpoint_every_n=3 → checkpoints at epoch 3 and 6
-        job = _make_synthesis_job(
-            id=3, status="QUEUED", total_epochs=6, checkpoint_every_n=3
-        )
+        job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=6, checkpoint_every_n=3)
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
@@ -534,18 +515,14 @@ class TestSynthesisTaskRuntimeFailure:
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
-        job = _make_synthesis_job(
-            id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3
-        )
+        job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("failed")
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -575,9 +552,7 @@ class TestSynthesisTaskCheckpointing:
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
-        job = _make_synthesis_job(
-            id=4, status="QUEUED", total_epochs=10, checkpoint_every_n=5
-        )
+        job = _make_synthesis_job(id=4, status="QUEUED", total_epochs=10, checkpoint_every_n=5)
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
@@ -586,9 +561,7 @@ class TestSynthesisTaskCheckpointing:
         mock_artifact.save.return_value = "/artifacts/job4_checkpoint.pkl"
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=4,
                 session=mock_session,
@@ -604,9 +577,7 @@ class TestSynthesisTaskCheckpointing:
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
-        job = _make_synthesis_job(
-            id=4, status="QUEUED", total_epochs=10, checkpoint_every_n=5
-        )
+        job = _make_synthesis_job(id=4, status="QUEUED", total_epochs=10, checkpoint_every_n=5)
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
@@ -615,9 +586,7 @@ class TestSynthesisTaskCheckpointing:
         mock_artifact.save.return_value = "/artifacts/job4.pkl"
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=4,
                 session=mock_session,
@@ -639,9 +608,7 @@ class TestSynthesisTaskCheckpointing:
 
         mock_session = MagicMock()
         # total_epochs=5 < checkpoint_every_n=10 → no intermediate checkpoints
-        job = _make_synthesis_job(
-            id=5, status="QUEUED", total_epochs=5, checkpoint_every_n=10
-        )
+        job = _make_synthesis_job(id=5, status="QUEUED", total_epochs=5, checkpoint_every_n=10)
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
@@ -650,9 +617,7 @@ class TestSynthesisTaskCheckpointing:
         mock_artifact.save.return_value = "/artifacts/job5_final.pkl"
         mock_storage = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=5,
                 session=mock_session,
