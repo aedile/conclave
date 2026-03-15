@@ -19,6 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.shared.security.licensing import LicenseState
 
 #: Routes that are accessible even when the software is not licensed.
@@ -51,6 +52,9 @@ class LicenseGateMiddleware(BaseHTTPMiddleware):
     (RFC 9110 §15.5.3: "the server refuses the request until the client
     makes a payment").
 
+    The response body uses RFC 7807 Problem Details format for consistency
+    with all other error responses in the application.
+
     Note: :class:`~synth_engine.bootstrapper.dependencies.vault.SealGateMiddleware`
     is evaluated first (outermost), so a sealed vault returns 423 before
     this middleware's 402 check fires.
@@ -64,16 +68,18 @@ class LicenseGateMiddleware(BaseHTTPMiddleware):
             call_next: ASGI callable for the next middleware or route handler.
 
         Returns:
-            A 402 JSONResponse if unlicensed and the path is not exempt,
-            otherwise the normal downstream response.
+            A 402 JSONResponse (RFC 7807) if unlicensed and the path is not
+            exempt, otherwise the normal downstream response.
         """
         if not LicenseState.is_licensed() and request.url.path not in LICENSE_EXEMPT_PATHS:
             return JSONResponse(
-                content={
-                    "detail": (
+                content=problem_detail(
+                    status=402,
+                    title="License Required",
+                    detail=(
                         "Software is not licensed. GET /license/challenge to begin activation."
-                    )
-                },
+                    ),
+                ),
                 status_code=402,
             )
         return await call_next(request)

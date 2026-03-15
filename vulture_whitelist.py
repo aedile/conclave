@@ -44,6 +44,8 @@ list_settings  # FastAPI GET /settings route (bootstrapper/routers/settings.py)
 upsert_setting  # FastAPI PUT /settings/{key} route (bootstrapper/routers/settings.py)
 get_setting  # FastAPI GET /settings/{key} route (bootstrapper/routers/settings.py)
 delete_setting  # FastAPI DELETE /settings/{key} route (bootstrapper/routers/settings.py)
+get_license_challenge  # FastAPI GET /license/challenge route (bootstrapper/routers/licensing.py)
+post_license_activate  # FastAPI POST /license/activate route (bootstrapper/routers/licensing.py)
 problem_detail  # Public RFC 7807 helper (bootstrapper/errors.py) — used by routers and tests
 register_error_handlers  # Public error handler registration (bootstrapper/errors.py)
 RFC7807Middleware  # Starlette middleware (bootstrapper/errors.py) — registered at startup
@@ -140,3 +142,7 @@ started_at  # SQLModel task field (shared/tasks/reaper.py)
 locked_by  # SQLModel task field (shared/tasks/reaper.py)
 OrphanTaskReaper  # Public task reaper class (shared/tasks/reaper.py)
 _.reap  # Public reap method on OrphanTaskReaper (shared/tasks/reaper.py)
+get_active_public_key  # Public key resolver (shared/security/licensing.py) — used by tests and router
+LicenseState  # Public license state class (shared/security/licensing.py) — used by middleware and router
+LicenseError  # Public license exception (shared/security/licensing.py) — used by router
+LicenseGateMiddleware  # Starlette middleware (bootstrapper/dependencies/licensing.py) — registered at startup

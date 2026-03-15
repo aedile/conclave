@@ -18,6 +18,7 @@ Task: P5-T5.2 — Offline License Activation Protocol
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -35,7 +36,6 @@ from synth_engine.bootstrapper.schemas.licensing import (
 from synth_engine.shared.security.licensing import (
     LicenseError,
     LicenseState,
-    _get_active_public_key,
     generate_challenge,
     verify_license_jwt,
 )
@@ -73,17 +73,18 @@ def _render_qr_code(payload: dict[str, str]) -> str:
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return base64.b64encode(buf.getvalue()).decode("ascii")
-    except Exception:
+    except Exception as exc:
         # Fallback: base64-encode the JSON payload as a text token.
         # An operator can decode this with `base64 -d` on the command line.
         _logger.warning(
-            "qrcode/Pillow rendering failed; returning text fallback for challenge QR code."
+            "qrcode/Pillow rendering failed (%s); returning text fallback for challenge QR code.",
+            exc,
         )
         return base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode("ascii")
 
 
 @router.get("/challenge", response_model=LicenseChallengeResponse)
-def get_license_challenge() -> LicenseChallengeResponse:
+async def get_license_challenge() -> LicenseChallengeResponse:
     """Generate a hardware-bound challenge payload for offline activation.
 
     The returned ``hardware_id`` uniquely identifies this machine.  The
@@ -95,21 +96,28 @@ def get_license_challenge() -> LicenseChallengeResponse:
     QR code library is unavailable, a base64-encoded JSON fallback is
     returned instead.
 
+    The ``alt_text`` field provides an accessibility description of the QR
+    code for screen readers and other assistive technology (WCAG 2.1 AA).
+
     Returns:
         :class:`LicenseChallengeResponse` with the challenge fields.
     """
     payload = generate_challenge()
-    qr_data = _render_qr_code(payload)
+    qr_data = await asyncio.to_thread(_render_qr_code, payload)
+    alt_text = f"License activation QR code for hardware ID {payload['hardware_id'][:8]}\u2026"
     return LicenseChallengeResponse(
         hardware_id=payload["hardware_id"],
         app_version=payload["app_version"],
         timestamp=payload["timestamp"],
         qr_code=qr_data,
+        alt_text=alt_text,
     )
 
 
 @router.post("/activate", response_model=LicenseActivateResponse)
-def post_license_activate(body: LicenseActivateRequest) -> LicenseActivateResponse | JSONResponse:
+async def post_license_activate(
+    body: LicenseActivateRequest,
+) -> LicenseActivateResponse | JSONResponse:
     """Activate the software license using a signed JWT.
 
     Validates the RS256 signature against the embedded public key (or the
@@ -118,6 +126,9 @@ def post_license_activate(body: LicenseActivateRequest) -> LicenseActivateRespon
     :class:`~synth_engine.shared.security.licensing.LicenseState` is
     transitioned to the LICENSED state.
 
+    Key resolution is handled internally by :func:`verify_license_jwt`:
+    ``LICENSE_PUBLIC_KEY`` env var takes precedence over the embedded key.
+
     Args:
         body: JSON body containing the ``token`` field (compact JWT string).
 
@@ -125,9 +136,8 @@ def post_license_activate(body: LicenseActivateRequest) -> LicenseActivateRespon
         :class:`LicenseActivateResponse` with ``status="activated"`` on
         success, or an RFC 7807 403 response on any validation failure.
     """
-    public_key = _get_active_public_key()
     try:
-        claims = verify_license_jwt(body.token, public_key)
+        claims = verify_license_jwt(body.token)
     except LicenseError as exc:
         return JSONResponse(
             status_code=exc.status_code,

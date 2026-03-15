@@ -39,6 +39,7 @@ Task 5.2 additions:
     with QR code for offline activation.
   - /license/activate POST endpoint: accepts RS256 JWT, validates signature
     and hardware_id binding, transitions LicenseState to LICENSED.
+  - routers/system.py renamed to routers/licensing.py (A1 advisory).
 """
 
 from __future__ import annotations
@@ -262,13 +263,13 @@ def _include_routers(app: FastAPI) -> None:
     """
     from synth_engine.bootstrapper.routers.connections import router as connections_router
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
+    from synth_engine.bootstrapper.routers.licensing import router as licensing_router
     from synth_engine.bootstrapper.routers.settings import router as settings_router
-    from synth_engine.bootstrapper.routers.system import router as system_router
 
     app.include_router(jobs_router)
     app.include_router(connections_router)
     app.include_router(settings_router)
-    app.include_router(system_router)
+    app.include_router(licensing_router)
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
