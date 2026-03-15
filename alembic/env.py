@@ -17,14 +17,21 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Import BaseModel to register all SQLModel table metadata.  The act of
-# importing this module causes all concrete table classes (imported transitively
-# by the application) to register with SQLModel.metadata.
-from synth_engine.shared.db import BaseModel
+from synth_engine.bootstrapper.schemas.connections import (
+    Connection,  # noqa: F401  (T5.1 — ADV-049 convention)
+)
+from synth_engine.bootstrapper.schemas.settings import (
+    Setting,  # noqa: F401  (T5.1 — ADV-049 convention)
+)
 
 # Side-effect imports: register all SQLModel tables that extend SQLModel directly
 # (rather than BaseModel) so that target_metadata is complete for autogenerate.
 from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction  # noqa: F401
+
+# Import BaseModel to register all SQLModel table metadata.  The act of
+# importing this module causes all concrete table classes (imported transitively
+# by the application) to register with SQLModel.metadata.
+from synth_engine.shared.db import BaseModel
 
 # ---------------------------------------------------------------------------
 # Alembic configuration object — provides access to values in alembic.ini

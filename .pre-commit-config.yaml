@@ -94,6 +94,8 @@ repos:
           - boto3>=1.35.0
           - boto3-stubs
           - botocore-stubs
+          # T5.1 SSE streaming dependency
+          - sse-starlette>=2.1.0
         files: ^src/
 
   # ---------------------------------------------------------------------------

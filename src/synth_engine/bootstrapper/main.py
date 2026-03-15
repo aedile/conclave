@@ -27,6 +27,10 @@ Task 4.2c additions (Rule 8 — Huey task wiring):
   - Import side-effect registers run_synthesis_job with the shared Huey
     instance so the Huey worker process discovers the task at startup.
     See: https://huey.readthedocs.io/en/latest/consumer.html#importing-tasks
+
+Task 5.1 additions:
+  - Jobs, Connections, Settings routers included via app.include_router().
+  - RFC 7807 catch-all error handler registered via bootstrapper/errors.py.
 """
 
 from __future__ import annotations
@@ -193,6 +197,8 @@ def create_app() -> FastAPI:
     - SealGateMiddleware (blocks sealed-state access)
     - Prometheus metrics at /metrics
     - CycleDetectionError exception handler (ADV-022)
+    - RFC 7807 catch-all exception handler (T5.1)
+    - Jobs, Connections, Settings routers (T5.1)
 
     Then registers the /health liveness probe, /unseal ops endpoint,
     and mounts the Prometheus ASGI app.
@@ -224,8 +230,27 @@ def create_app() -> FastAPI:
 
     _register_exception_handlers(app)
     _register_routes(app)
+    _include_routers(app)
 
     return app
+
+
+def _include_routers(app: FastAPI) -> None:
+    """Include all APIRouter submodules into the application.
+
+    Imported here (not at module top-level) so that create_app() controls
+    registration order relative to exception handlers and middleware.
+
+    Args:
+        app: The FastAPI instance to attach routers to.
+    """
+    from synth_engine.bootstrapper.routers.connections import router as connections_router
+    from synth_engine.bootstrapper.routers.jobs import router as jobs_router
+    from synth_engine.bootstrapper.routers.settings import router as settings_router
+
+    app.include_router(jobs_router)
+    app.include_router(connections_router)
+    app.include_router(settings_router)
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
@@ -235,10 +260,16 @@ def _register_exception_handlers(app: FastAPI) -> None:
     before FastAPI's default 500 handler fires.
 
     ADV-022: CycleDetectionError -> HTTP 422 RFC 7807 Problem Details.
+    T5.1: Generic Exception -> HTTP 500 RFC 7807 Problem Details (ADV-036+044).
 
     Args:
         app: The FastAPI instance to register handlers on.
     """
+    # Generic catch-all RFC 7807 handler (T5.1) — must be registered BEFORE
+    # domain-specific handlers so that specific handlers take precedence.
+    from synth_engine.bootstrapper.errors import register_error_handlers
+
+    register_error_handlers(app)
 
     @app.exception_handler(CycleDetectionError)
     async def _cycle_detection_error_handler(

@@ -28,6 +28,14 @@ a ``Session`` and guarantees cleanup on exit, including on exceptions.
     async with get_async_session(engine) as session:
         ...
 
+SessionFactory
+--------------
+``SessionFactory`` is a type alias for a zero-argument callable that returns
+a context manager yielding a :class:`sqlmodel.Session`.  Used as the
+parameter type for :func:`~synth_engine.bootstrapper.sse.job_event_stream`
+so the SSE generator can open its own sessions after the request session
+has been closed.
+
 BaseModel
 ---------
 Abstract base class for all database entities.  Provides:
@@ -44,19 +52,37 @@ in ``alembic/env.py`` so that ``target_metadata`` remains complete.
 CONSTITUTION Priority 5: Code Quality
 Task: P2-T2.2 — Secure Database Layer
 Task: P4-T4.4 — Privacy Accountant (async engine + session)
+Task: P5-T5.1 — Task Orchestration API Core (SessionFactory type alias)
 """
 
 from __future__ import annotations
 
+import contextlib
 import uuid
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlmodel import Field, Session, SQLModel
 from sqlmodel._compat import SQLModelConfig
+
+if TYPE_CHECKING:
+    pass
+
+# ---------------------------------------------------------------------------
+# Type aliases
+# ---------------------------------------------------------------------------
+
+#: Type alias for a zero-argument callable that returns a context manager
+#: yielding a :class:`sqlmodel.Session`.
+#:
+#: Used as the parameter type for
+#: :func:`~synth_engine.bootstrapper.sse.job_event_stream` so the SSE
+#: generator can open its own sessions independently of the request session.
+SessionFactory = Callable[[], contextlib.AbstractContextManager[Session]]
 
 # ---------------------------------------------------------------------------
 # Engine factories
