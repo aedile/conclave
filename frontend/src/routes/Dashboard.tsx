@@ -15,6 +15,15 @@
  * localStorage key: "conclave_active_job_id"
  *   Set when a job is started. Cleared when the job reaches a terminal state
  *   (COMPLETE or FAILED) or when a rehydrated job cannot be found (404).
+ *
+ * WCAG fix: "Load More" button uses --color-accent-text (#818cf8, ~6.3:1 on
+ * --color-bg) instead of --color-accent (#4f46e5, ~3:1 on --color-bg which
+ * fails WCAG 1.4.3 for text on transparent/dark background).
+ *
+ * Accessibility fix: form validation error div carries id="form-error" and the
+ * field that triggered the error receives aria-describedby="form-error" so
+ * assistive technologies can programmatically associate the message with its
+ * input.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -92,8 +101,11 @@ export default function Dashboard(): JSX.Element {
   const [form, setForm] = useState<CreateJobFormState>(EMPTY_FORM);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Form validation error (for NaN guards on integer fields)
+  // Form validation error (for NaN guards on integer fields).
+  // errorField tracks which input triggered the error so aria-describedby can
+  // be applied to that specific input element.
   const [formValidationError, setFormValidationError] = useState<string | null>(null);
+  const [formErrorField, setFormErrorField] = useState<keyof CreateJobFormState | null>(null);
 
   // Announcement text for screen readers (aria-live polite region)
   const [announcement, setAnnouncement] = useState("");
@@ -226,16 +238,19 @@ export default function Dashboard(): JSX.Element {
   ): Promise<void> => {
     e.preventDefault();
     setFormValidationError(null);
+    setFormErrorField(null);
 
     const totalEpochs = parseInt(form.total_epochs, 10);
     if (isNaN(totalEpochs)) {
       setFormValidationError("Total Epochs must be a valid integer.");
+      setFormErrorField("total_epochs");
       return;
     }
 
     const checkpointEveryN = parseInt(form.checkpoint_every_n, 10);
     if (isNaN(checkpointEveryN)) {
       setFormValidationError("Checkpoint Every must be a valid integer.");
+      setFormErrorField("checkpoint_every_n");
       return;
     }
 
@@ -343,9 +358,11 @@ export default function Dashboard(): JSX.Element {
               gap: "var(--spacing-md)",
             }}
           >
-            {/* Form validation error */}
+            {/* Form validation error — id="form-error" enables aria-describedby
+                association from the triggering input field (WCAG 1.3.1). */}
             {formValidationError !== null && (
               <div
+                id="form-error"
                 role="alert"
                 style={{
                   gridColumn: "1 / -1",
@@ -422,6 +439,7 @@ export default function Dashboard(): JSX.Element {
                   handleFormChange("total_epochs", e.target.value)
                 }
                 placeholder="e.g. 100"
+                aria-describedby={formErrorField === "total_epochs" ? "form-error" : undefined}
                 style={inputStyle}
               />
             </div>
@@ -446,6 +464,7 @@ export default function Dashboard(): JSX.Element {
                   handleFormChange("checkpoint_every_n", e.target.value)
                 }
                 placeholder="e.g. 10"
+                aria-describedby={formErrorField === "checkpoint_every_n" ? "form-error" : undefined}
                 style={inputStyle}
               />
             </div>
@@ -516,7 +535,10 @@ export default function Dashboard(): JSX.Element {
             </div>
           )}
 
-          {/* Pagination — load more */}
+          {/* Pagination — load more.
+              WCAG fix: uses --color-accent-text (#818cf8, ~6.3:1 on --color-bg)
+              instead of --color-accent (#4f46e5, ~3:1 on --color-bg which fails
+              WCAG 1.4.3 for text on a transparent/dark background). */}
           {nextCursor !== null && (
             <div style={{ marginTop: "var(--spacing-lg)", textAlign: "center" }}>
               <button
@@ -525,8 +547,8 @@ export default function Dashboard(): JSX.Element {
                 onClick={() => void handleLoadMore()}
                 style={{
                   backgroundColor: "transparent",
-                  color: "var(--color-accent)",
-                  border: "1px solid var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                  border: "1px solid var(--color-accent-text)",
                   borderRadius: "var(--radius-sm)",
                   padding: "var(--spacing-xs) var(--spacing-lg)",
                   fontFamily: "var(--font-family)",
