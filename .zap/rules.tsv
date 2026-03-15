@@ -1,0 +1,29 @@
+# OWASP ZAP Baseline Scan — Rule Overrides
+#
+# Format: <rule-id>\t<IGNORE|WARN|FAIL>\t<justification>
+#
+# These rules are suppressed because they are CI-environment artefacts:
+# the engine runs behind TLS/nginx in production, but the ZAP baseline
+# scan targets raw uvicorn on HTTP (no TLS in CI).
+#
+# All active security controls (CSPMiddleware, SealGate, LicenseGate,
+# RequestBodyLimitMiddleware) are tested by unit/integration tests.
+# The ZAP scan produces an audit trail; it is not a hard gate.
+#
+# Rule IDs: https://www.zaproxy.org/docs/alerts/
+#
+# 10035 — Strict-Transport-Security Header Not Set
+#         Production is served over TLS via nginx/Caddy. Raw uvicorn in CI
+#         does not terminate TLS so HSTS cannot be present. Not a real finding.
+10035	IGNORE	Production served over TLS; HSTS set by reverse proxy, not uvicorn
+# 10038 — Content Security Policy (CSP) Header Not Found (passive scan false positive)
+#         CSPMiddleware is implemented and tested; ZAP may still flag if it
+#         probes paths that return non-HTML responses where CSP is optional.
+10038	WARN	CSPMiddleware enforced; flag if CSP absent on HTML endpoints
+# 10096 — Timestamp Disclosure - Unix
+#         Timestamps in API responses are intentional (job created_at fields).
+10096	IGNORE	Timestamps in JSON responses are intentional — not information disclosure
+# 10054 — Cookie Without SameSite Attribute
+#         Engine uses token-based auth, not cookies. Any cookie set by uvicorn
+#         test middleware is not part of the production auth flow.
+10054	IGNORE	Engine uses token-based auth; cookies are not part of auth flow
