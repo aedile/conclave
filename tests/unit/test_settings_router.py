@@ -54,9 +54,15 @@ class TestSettingsCRUD:
         """GET /settings must return HTTP 200 with items list."""
         app = _make_settings_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -71,9 +77,15 @@ class TestSettingsCRUD:
         """PUT /settings/{key} must return HTTP 200 with the upserted value."""
         app = _make_settings_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -90,9 +102,15 @@ class TestSettingsCRUD:
         """GET /settings/{key} must return the stored value."""
         app = _make_settings_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -110,9 +128,15 @@ class TestSettingsCRUD:
         """GET /settings/{key} must return 404 for nonexistent key."""
         app = _make_settings_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -126,9 +150,15 @@ class TestSettingsCRUD:
         """DELETE /settings/{key} must return 204 No Content."""
         app = _make_settings_app()
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"

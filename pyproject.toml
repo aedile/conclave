@@ -43,6 +43,12 @@ asyncpg = ">=0.29.0,<1.0.0"
 # Pinning explicitly ensures it is always present regardless of platform.
 greenlet = ">=3.0.0,<4.0.0"
 sse-starlette = ">=2.1.0,<4.0.0"
+# qrcode[pil]: QR code generation for /license/challenge endpoint.
+# Used to render the hardware challenge payload as a scannable QR code in
+# air-gapped activation workflows.  The pil extra pulls in Pillow for PNG
+# image rendering (base64-encoded in the API response).
+# Version 8.2 verified on PyPI (T5.2).
+qrcode = {version = ">=8.0.0,<9.0.0", extras = ["pil"]}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
@@ -151,6 +157,11 @@ ignore = ["S101"]
 # B008: same rationale as auth.py — Depends() calls in route argument defaults are
 # intentional FastAPI DI usage, not eager function calls.
 "src/synth_engine/bootstrapper/main.py" = ["B008"]
+# B008: same rationale as auth.py — Depends() calls in route argument defaults are
+# intentional FastAPI DI usage, not eager function calls.
+# BLE001: system.py catches broad Exception in _render_qr_code() — intentional
+# fallback that guards against any qrcode/Pillow import or rendering error.
+"src/synth_engine/bootstrapper/routers/system.py" = ["B008", "BLE001"]
 # BLE001: cli.py catches broad Exception intentionally — it is the top-level error
 # boundary for the CLI; tracebacks must never reach the operator.
 "src/synth_engine/bootstrapper/cli.py" = ["BLE001"]
@@ -238,6 +249,10 @@ filterwarnings = [
     # when the GC collects the engine without explicit dispose(). This is expected
     # behavior in test contexts where engines are intentionally short-lived.
     "ignore::ResourceWarning",
+    # PIL/Pillow 11.x emits DeprecationWarning for internal resampling constants
+    # in some render paths (ANTIALIAS -> LANCZOS rename).  The call is inside
+    # the qrcode library's image rendering; we cannot fix third-party code.
+    "ignore::DeprecationWarning:PIL",
 ]
 
 # ---------------------------------------------------------------------------

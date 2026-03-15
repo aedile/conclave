@@ -10,6 +10,7 @@ in ``bootstrapper/``.
 
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
+Task: P5-T5.2 — Offline License Activation Protocol (added license endpoints)
 """
 
 from __future__ import annotations
@@ -23,8 +24,19 @@ from starlette.responses import Response
 from synth_engine.shared.security.vault import VaultState
 
 #: Routes that are accessible even when the vault is sealed.
+#: License endpoints are included so that operators can activate the software
+#: without first unsealing the vault (challenge/response is a pre-boot flow).
 EXEMPT_PATHS: frozenset[str] = frozenset(
-    {"/unseal", "/health", "/metrics", "/docs", "/redoc", "/openapi.json"}
+    {
+        "/unseal",
+        "/health",
+        "/metrics",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/license/challenge",
+        "/license/activate",
+    }
 )
 
 

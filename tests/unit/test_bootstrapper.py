@@ -76,7 +76,9 @@ async def test_cycle_detection_error_returns_422_rfc7807() -> None:
     RFC 7807 required fields: type, title, status, detail.
 
     The vault is patched to the unsealed state so the SealGateMiddleware
-    does not intercept the test route with a 423.
+    does not intercept the test route with a 423.  The license is patched
+    to the activated state so the LicenseGateMiddleware does not intercept
+    with a 402.
     """
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.modules.mapping import CycleDetectionError
@@ -91,9 +93,16 @@ async def test_cycle_detection_error_returns_422_rfc7807() -> None:
         raise CycleDetectionError(["table_a", "table_b", "table_a"])
 
     # Patch the vault seal check so SealGateMiddleware allows the request.
-    with patch(
-        "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-        return_value=False,
+    # Patch the license check so LicenseGateMiddleware allows the request.
+    with (
+        patch(
+            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+            return_value=False,
+        ),
+        patch(
+            "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+            return_value=True,
+        ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/test-cycle-error")
@@ -127,9 +136,15 @@ async def test_cycle_detection_error_not_a_500() -> None:
     async def _raise_cycle() -> None:
         raise CycleDetectionError(["orders", "line_items", "orders"])
 
-    with patch(
-        "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-        return_value=False,
+    with (
+        patch(
+            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+            return_value=False,
+        ),
+        patch(
+            "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+            return_value=True,
+        ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/test-cycle-not-500")

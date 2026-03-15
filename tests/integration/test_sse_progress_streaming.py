@@ -127,9 +127,15 @@ class TestSSEProgressStreaming:
 
         thread = threading.Thread(target=_advance_job, daemon=True)
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             thread.start()
             async with AsyncClient(
@@ -229,9 +235,15 @@ class TestSSEProgressStreaming:
 
         thread = threading.Thread(target=_complete_job, daemon=True)
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             thread.start()
             async with AsyncClient(
@@ -282,9 +294,15 @@ class TestRFC7807UnhandledExceptions:
         async def _boom() -> None:
             raise RuntimeError("Unexpected internal error at /secret/path/module.py")
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
@@ -317,9 +335,15 @@ class TestRFC7807UnhandledExceptions:
         async def _boom2() -> None:
             raise ValueError("Bad input")
 
-        with patch(
-            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-            return_value=False,
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
