@@ -1186,30 +1186,39 @@ The Round 3 fixes were clean and precise — both ImportError guards were correc
 
 **Quality gates**: ruff PASS, mypy PASS (73 source files clean), bandit PASS (0 HIGH/MEDIUM), 693 unit tests PASS, 95.91% coverage (exceeds 90% gate).
 
-**Architecture** (PASS):
-- PASS: `RequestBodyLimitMiddleware` is pure ASGI — no `BaseHTTPMiddleware` limitations.
-- PASS: Middleware placement documented in `main.py` — outermost (last `add_middleware()`) per LIFO order.
-- PASS: `_measure_json_depth()` is a structural scanner only — does not parse JSON, only measures bracket depth. Structurally invalid JSON is rejected by the route handler.
-- PASS: `_sanitize_for_json()` in `errors.py` is a defensive utility — does not change the validation error; only ensures it is JSON-serializable.
-- PASS: `tests/security/` package created; `tests/security/__init__.py` makes it a proper Python package.
-- PASS: NIST erasure tests use fictional PII strings exclusively (Pattern 9 compliance).
-- PASS: `VaultState.reset()` in autouse fixture prevents vault state leaking between tests (Pattern 6).
+**Architecture** (FINDING — 1 ADR gap, fixed):
+- FINDING: Missing ADR-0024 for pure ASGI body-replay middleware pattern. RETRO_LOG T6.2
+  entry mandated documenting the pattern but no ADR existed. Fixed: created
+  docs/adr/ADR-0024-pure-asgi-body-replay-middleware.md.
+- PASS: file-placement, naming-conventions, dependency-direction, no-langchain,
+  async-correctness, abstraction-level, interface-contracts.
 
-**QA** (PASS):
-- PASS: 24 unit tests for `RequestBodyLimitMiddleware` cover all branches including: Content-Length fast-path, streaming accumulation, JSON depth check, non-JSON content type bypass, empty body bypass, body replay fallback, non-HTTP scope forwarding, non-integer Content-Length warning, http.disconnect handling.
-- PASS: `_measure_json_depth()` tested with escaped brackets in strings, escaped quotes, backslash before non-quote, mixed array/object nesting, depth-101 boundary.
-- PASS: Fuzz tests cover depth 101/500/1000 rejection, depth 100 acceptance, 1 MiB+1 rejection, exact 1 MiB acceptance, server alive after rejection.
-- PASS: NaN/Infinity tests use `warnings.catch_warnings()` to suppress numpy RuntimeWarning in profiler (project filterwarnings treats all warnings as errors).
-- ADVISORY (ADV-062): The `except (UnicodeDecodeError, ValueError)` branch in `RequestBodyLimitMiddleware` (the defensive block for non-UTF-8 bodies) cannot be directly hit because `bytes.decode(errors="replace")` never raises `UnicodeDecodeError`. The branch is defensive resilience code. Coverage for this specific branch is intentionally excluded from the 90% gate. The test `test_invalid_utf8_body_logs_warning_and_forwards` documents the limitation in a docstring.
+**QA** (FINDING — 2 blockers + 1 advisory, all fixed):
+- FINDING (dead-code): Removed unused `_CONTENT_TYPE_JSON` and `_CONTENT_TYPE_JSON_VALUE`
+  byte-string constants from request_limits.py. Draft residue — author intended named
+  constants but switched to inline literals without cleanup.
+- FINDING (edge-cases): Tightened boundary assertions in test_fuzzing.py — changed
+  `!= 413` to `not in {400, 413}` for both test_json_depth_at_limit and
+  test_payload_exactly_1mb. A 400 at the boundary would be an incorrect rejection
+  that the old assertion would not catch.
+- ADVISORY (ADV-064): Added `# pragma: no cover` to unreachable except handler.
+  bytes.decode(errors="replace") never raises UnicodeDecodeError.
+- PASS: exception-specificity, silent-failures, coverage-gate (95.98%), error-paths,
+  public-api-coverage, meaningful-asserts, docstring-accuracy, type-annotation-accuracy.
 
-**DevOps** (PASS):
-- PASS: `zap-baseline` job is SHA-pinned (`de8ad967d3548d44ef623df22cf95c3b0baf8b25`) per supply-chain hardening policy.
-- PASS: `fail_action: false` is justified — production runs behind TLS/nginx; ZAP on raw HTTP is informational.
-- PASS: ZAP report uploaded as artifact (`retention-days: 90`), consistent with SBOM retention policy.
-- PASS: Background uvicorn started with `/tmp/uvicorn.pid`, stopped via `if: always()` step to prevent orphaned processes.
-- PASS: Health check loop (30 × 2s) is deterministic and exits with code 1 if API does not start.
-- PASS: `VAULT_SEAL_SALT` is a fictional base64 value (`emFwLWNpLXRlc3Qtc2FsdC1maWN0aW9uYWw=` = "zap-ci-test-salt-fictional") — not a real secret.
-- ADVISORY (ADV-063): The `zap_test.db` SQLite file created by the ZAP job is not cleaned up after the job completes. It lives in the runner's working directory and is discarded when the runner resets — not a real issue, but could be made explicit with a cleanup step.
+**UI/UX** (SKIP — no frontend changes):
+- Backend-only security task. No templates, routes, forms, or accessible elements modified.
+
+**DevOps** (FINDING — 1 blocker, fixed):
+- FINDING (ci-health): Removed duplicate artifact upload in zap-baseline CI job.
+  zaproxy/action-baseline composite action uploads artifacts internally via artifact_name
+  parameter. The explicit upload-artifact step caused a GitHub Actions v4 name collision
+  error. Fixed: removed explicit upload step.
+- PASS: hardcoded-credentials (fictional values only), no-pii-in-code (FICTIONAL- prefix),
+  no-auth-material-in-logs, input-validation, exception-exposure, bandit (0 findings),
+  logging-level-appropriate, no-blocking-async, structured-logging, dependency-audit,
+  no-bypass-flags.
+- ADVISORY (ADV-065): zap_test.db not explicitly cleaned up in CI job.
 
 **Retrospective Notes**:
 
