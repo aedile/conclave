@@ -23,10 +23,64 @@ Drain (delete) rows when their target task is completed.
 | ADV-052 | DevOps T5.1 | Before T5.3 deployment | ADVISORY | No Alembic migration for `connection` and `setting` tables added in T5.1. Tests bypass via `SQLModel.metadata.create_all()`. Production environments using Alembic will encounter missing tables. Create `002_add_connection_setting_tables.py` migration. |
 | ADV-053 | UI/UX T5.2 | T5.4 (Dashboard) | ADVISORY | POST /license/activate performs synchronous RSA JWT verification — UI calling this endpoint must show a loading/disabled state from submission until response. No API change needed; dashboard implementation brief must include this requirement. |
 | ADV-054 | Arch T5.2 | Phase 6 hardening | DEFERRED | `LicenseError.status_code` embeds HTTP semantics in `shared/security/licensing.py`, inconsistent with ADR-0008 framework-boundary pattern. PM justification: pragmatic — only one status code (403) is used, and the pattern matches VaultState's ValueError approach. Revisit if licensing error taxonomy grows. |
+| ADV-055 | QA T5.5 | Phase 6 hardening | DEFERRED | DATABASE_URL="" branch in security.py rotate_keys() (line ~186-191) is untested — logs a warning then enqueues a Huey task that will fail in the worker. PM justification: air-gapped deployment always has DATABASE_URL configured; edge case is defense-in-depth. |
+| ADV-056 | Arch T5.5 | Phase 6 hardening | DEFERRED | ADR-0020 should be amended to canonicalize both Huey task registration patterns (explicit side-effect import in main.py vs transitive import via router chain) as first-class alternatives. PM justification: both patterns work correctly; documentation gap is style not correctness. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-15] P5-T5.5 — Cryptographic Shredding & Re-Keying API
+
+**Summary**: Implemented POST /security/shred (KEK zeroization) and POST /security/keys/rotate
+(Huey-backed ALE column re-encryption). Security router with RFC 7807 error handling,
+WORM audit events, SealGate/LicenseGate exemptions. ALE key rotation introspects SQLModel
+metadata to discover EncryptedString columns, re-encrypts row-by-row with old→new Fernet keys.
+8 files changed, +1501 lines. 645 unit tests, 96.05% coverage. 2 integration tests (pytest-postgresql).
+
+**Architecture** (FINDING — 1 item fixed):
+- ADR-0020 compliance gap: rotate_ale_keys_task registered via transitive router import chain
+  instead of explicit side-effect import in main.py. Fixed: added explicit import matching
+  synthesizer tasks pattern. Two registration patterns now coexist — ADR-0020 amendment
+  recommended to canonicalize both as first-class alternatives.
+- File placement: PASS — security.py in bootstrapper/routers/, rotation.py in shared/security/.
+- Dependency direction: PASS — zero bootstrapper/modules imports in rotation.py.
+- Abstraction quality noted as exemplary: clean separation between HTTP layer and crypto domain.
+
+**QA** (FINDING — 4 items fixed):
+- body.new_passphrase dead field: declared in RotateRequest but never read. Fixed: audit now
+  logs passphrase_provided boolean; docstring corrected.
+- Integration test pytest.raises included bare Exception (vacuous assertion). Fixed: narrowed
+  to (InvalidToken, RuntimeError).
+- Unit test Huey assertion `or callable()` fallback was trivially true. Fixed: assert
+  hasattr(call_local).
+- except (ValueError, RuntimeError) on get_audit_logger() — RuntimeError unreachable. Fixed:
+  narrowed to except ValueError.
+- Advisory: DATABASE_URL="" branch (security.py:186-191) untested.
+
+**UI/UX** (SKIP):
+- No templates, forms, or interactive UI. Forward-looking: destructive operations like
+  /security/shred will require ARIA alertdialog confirmation when dashboard is built (T5.4).
+
+**DevOps** (FINDING — 1 blocker fixed):
+- Fernet key passed plaintext through Redis broker to Huey task. Fixed: KEK-wrapped before
+  enqueue, unwrapped in worker. Establishes pattern for cross-process key material transit.
+- Misleading docstring claiming passphrase logged to audit. Fixed.
+- All other checks (bandit, gitleaks, PII, structured logging, async correctness): PASS.
+
+**Retrospective Notes**:
+- Fernet-key-in-broker is a systemic boundary concern: key material crossing process boundaries
+  through a broker must always be wrapped. This establishes the KEK-wrapping pattern as canonical
+  for air-gapped deployments.
+- Documentation-leads-implementation failure: docstring described behavior (passphrase logged to
+  audit) that was never implemented. Security-critical endpoints require docstring-to-code
+  verification as a pre-merge checklist item.
+- pytest.raises should only name specific exception types the code is designed to raise — bare
+  Exception makes assertions vacuous. Add to security-router test checklist.
+- The separation between rotation.py (pure domain) and security.py (pure HTTP) is exemplary
+  layering that should be carried forward as the template for future security operations.
 
 ---
 
