@@ -429,3 +429,96 @@ def test_importlib_util_find_spec_is_used_for_torch_detection() -> None:
     # This verifies the spec-check is observable and not a direct import.
     # When find_spec returns None, torch is treated as absent.
     assert importlib.util.find_spec("torch") is None  # torch not installed in CI
+
+
+# ---------------------------------------------------------------------------
+# Guard: ValueError raised for non-positive inputs
+# ---------------------------------------------------------------------------
+
+
+def test_raises_value_error_for_zero_rows() -> None:
+    """rows=0 must raise ValueError before any memory check."""
+    with pytest.raises(ValueError, match="rows"):
+        check_memory_feasibility(
+            rows=0,
+            columns=1,
+            dtype_bytes=1,
+            overhead_factor=1.0,
+        )
+
+
+def test_raises_value_error_for_negative_rows() -> None:
+    """rows=-1 must raise ValueError before any memory check."""
+    with pytest.raises(ValueError, match="rows"):
+        check_memory_feasibility(
+            rows=-1,
+            columns=1,
+            dtype_bytes=1,
+            overhead_factor=1.0,
+        )
+
+
+def test_raises_value_error_for_zero_columns() -> None:
+    """columns=0 must raise ValueError before any memory check."""
+    with pytest.raises(ValueError, match="columns"):
+        check_memory_feasibility(
+            rows=1,
+            columns=0,
+            dtype_bytes=1,
+            overhead_factor=1.0,
+        )
+
+
+def test_raises_value_error_for_negative_columns() -> None:
+    """columns=-5 must raise ValueError before any memory check."""
+    with pytest.raises(ValueError, match="columns"):
+        check_memory_feasibility(
+            rows=1,
+            columns=-5,
+            dtype_bytes=1,
+            overhead_factor=1.0,
+        )
+
+
+def test_raises_value_error_for_zero_dtype_bytes() -> None:
+    """dtype_bytes=0 must raise ValueError before any memory check."""
+    with pytest.raises(ValueError, match="dtype_bytes"):
+        check_memory_feasibility(
+            rows=1,
+            columns=1,
+            dtype_bytes=0,
+            overhead_factor=1.0,
+        )
+
+
+def test_raises_value_error_for_negative_dtype_bytes() -> None:
+    """dtype_bytes=-8 must raise ValueError before any memory check."""
+    with pytest.raises(ValueError, match="dtype_bytes"):
+        check_memory_feasibility(
+            rows=1,
+            columns=1,
+            dtype_bytes=-8,
+            overhead_factor=1.0,
+        )
+
+
+def test_raises_value_error_for_zero_overhead_factor() -> None:
+    """overhead_factor=0.0 must raise ValueError before any memory check."""
+    with pytest.raises(ValueError, match="overhead_factor"):
+        check_memory_feasibility(
+            rows=1,
+            columns=1,
+            dtype_bytes=1,
+            overhead_factor=0.0,
+        )
+
+
+def test_raises_value_error_for_negative_overhead_factor() -> None:
+    """overhead_factor=-1.0 must raise ValueError before any memory check."""
+    with pytest.raises(ValueError, match="overhead_factor"):
+        check_memory_feasibility(
+            rows=1,
+            columns=1,
+            dtype_bytes=1,
+            overhead_factor=-1.0,
+        )

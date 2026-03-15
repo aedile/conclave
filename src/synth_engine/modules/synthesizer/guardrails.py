@@ -119,6 +119,9 @@ def check_memory_feasibility(
         ``None`` when the job fits within the safety threshold.
 
     Raises:
+        ValueError: When any of ``rows``, ``columns``, ``dtype_bytes`` are
+            ≤ 0, or ``overhead_factor`` ≤ 0.0. Non-positive inputs produce
+            nonsensical or silent results and are rejected early.
         OOMGuardrailError: When the estimate exceeds 85% of available memory,
             with a message that includes estimated size, available size, and
             the factor by which the dataset must be reduced.
@@ -132,6 +135,15 @@ def check_memory_feasibility(
             overhead_factor=6.0,
         )
     """
+    if rows <= 0:
+        raise ValueError(f"rows must be > 0, got {rows}")
+    if columns <= 0:
+        raise ValueError(f"columns must be > 0, got {columns}")
+    if dtype_bytes <= 0:
+        raise ValueError(f"dtype_bytes must be > 0, got {dtype_bytes}")
+    if overhead_factor <= 0.0:
+        raise ValueError(f"overhead_factor must be > 0.0, got {overhead_factor}")
+
     estimated: int = int(rows * columns * dtype_bytes * overhead_factor)
     available: int = _available_memory()
 
