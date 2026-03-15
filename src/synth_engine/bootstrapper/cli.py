@@ -35,6 +35,8 @@ Task: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
 
 from __future__ import annotations
 
+import logging
+import os
 import sys
 from collections.abc import Callable
 from typing import Any
@@ -48,14 +50,26 @@ from synth_engine.modules.subsetting.core import SubsettingEngine
 from synth_engine.modules.subsetting.egress import EgressWriter
 from synth_engine.shared.schema_topology import ColumnInfo, ForeignKeyInfo, SchemaTopology
 
+_logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Masking transformer factory
 # ---------------------------------------------------------------------------
 
 # Salt used by the CLI masking transformer.
 # Per ADR note on ADV-027: deterministic-across-deployments without a secret
-# is the current design for the CLI.  Phase 4 will introduce MASKING_SALT.
-_CLI_MASKING_SALT = "conclave-cli-v1"
+# is the current design for the CLI.
+#
+# ADV-035: Read from MASKING_SALT env var when set; fall back to the hardcoded
+# development value with a warning so operators are directed to inject the
+# production salt from Vault or the environment.
+_CLI_MASKING_SALT = os.environ.get("MASKING_SALT", "")
+if not _CLI_MASKING_SALT:
+    _logger.warning(
+        "MASKING_SALT env var not set; using hardcoded CLI fallback. "
+        "Set MASKING_SALT for production use."
+    )
+    _CLI_MASKING_SALT = "conclave-cli-v1"
 
 # Column-level masking configuration: table → {column → masking function}.
 # Only PII columns are listed; all others pass through unchanged.

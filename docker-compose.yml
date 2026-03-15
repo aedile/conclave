@@ -114,6 +114,8 @@ services:
   #   - read_only rootfs + tmpfs: same hardening as app service.
   # ---------------------------------------------------------------------------
   redis:
+    # TODO(ADV-014): Pin to SHA-256 digest before production deployment.
+    # Run: docker pull redis:7-alpine && docker inspect --format='{{index .RepoDigests 0}}' redis:7-alpine
     image: redis:7-alpine
     command: redis-server --save "" --appendonly no
     cap_drop:

@@ -3,6 +3,8 @@
 #   Uses node:20-alpine to establish the multi-stage pattern. Phase 5+ will
 #   populate this stage with a real React/Vite build.
 # =============================================================================
+# TODO(ADV-014): Pin to SHA-256 digest before production deployment.
+# Run: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
 FROM node:20-alpine AS frontend-builder
 
 WORKDIR /frontend
@@ -17,6 +19,8 @@ RUN mkdir -p dist
 #   a dedicated prefix so we can copy only the installed packages, not Poetry
 #   itself, into the final image.
 # =============================================================================
+# TODO(ADV-014): Pin to SHA-256 digest before production deployment.
+# Run: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
 FROM python:3.14-slim AS python-builder
 
 WORKDIR /build
@@ -54,6 +58,8 @@ RUN pip install --no-cache-dir --prefix=/install --no-deps .
 #   Minimal python:3.14-slim surface; no dev tools, no build caches, no secrets.
 #   Runs as non-root user appuser (UID 1000) via gosu + tini.
 # =============================================================================
+# TODO(ADV-014): Pin to SHA-256 digest before production deployment.
+# Run: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
 FROM python:3.14-slim AS final
 
 # ---- Security: install tini (PID-1 init) and gosu (privilege drop) ---------

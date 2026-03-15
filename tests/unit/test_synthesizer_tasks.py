@@ -220,8 +220,6 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1_epoch3.pkl"
 
-        mock_storage = MagicMock()
-
         # Capture status at the moment session.add() is called (job is mutable).
         recorded_statuses: list[str] = []
 
@@ -236,7 +234,6 @@ class TestSynthesisTaskSuccessPath:
                 job_id=1,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         assert "TRAINING" in recorded_statuses, (
@@ -256,14 +253,11 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1_final.pkl"
 
-        mock_storage = MagicMock()
-
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         # Final status on job must be COMPLETE
@@ -282,14 +276,11 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1_final.pkl"
 
-        mock_storage = MagicMock()
-
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         assert job.artifact_path is not None
@@ -308,14 +299,11 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1.pkl"
 
-        mock_storage = MagicMock()
-
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         # session.commit() must be called at least twice:
@@ -341,7 +329,6 @@ class TestSynthesisTaskOOMRejection:
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
-        mock_storage = MagicMock()
 
         with patch(
             "synth_engine.modules.synthesizer.tasks.check_memory_feasibility",
@@ -351,7 +338,6 @@ class TestSynthesisTaskOOMRejection:
                 job_id=2,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         assert job.status == "FAILED"
@@ -366,7 +352,6 @@ class TestSynthesisTaskOOMRejection:
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
-        mock_storage = MagicMock()
 
         oom_msg = "6.8 GiB estimated, 4.0 GiB available -- reduce dataset by 2.00x"
         with patch(
@@ -377,7 +362,6 @@ class TestSynthesisTaskOOMRejection:
                 job_id=2,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         assert job.error_msg is not None
@@ -393,7 +377,6 @@ class TestSynthesisTaskOOMRejection:
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
-        mock_storage = MagicMock()
 
         with patch(
             "synth_engine.modules.synthesizer.tasks.check_memory_feasibility",
@@ -403,7 +386,6 @@ class TestSynthesisTaskOOMRejection:
                 job_id=2,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         mock_engine.train.assert_not_called()
@@ -418,7 +400,6 @@ class TestSynthesisTaskOOMRejection:
         mock_session.get.return_value = job
 
         mock_engine = MagicMock()
-        mock_storage = MagicMock()
 
         with patch(
             "synth_engine.modules.synthesizer.tasks.check_memory_feasibility",
@@ -428,7 +409,6 @@ class TestSynthesisTaskOOMRejection:
                 job_id=2,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         # session.commit() must be called at least once to persist FAILED status
@@ -457,14 +437,12 @@ class TestSynthesisTaskRuntimeFailure:
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA out of memory at epoch 3")
-        mock_storage = MagicMock()
 
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         assert job.status == "FAILED"
@@ -479,14 +457,12 @@ class TestSynthesisTaskRuntimeFailure:
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA out of memory at epoch 3")
-        mock_storage = MagicMock()
 
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         assert job.error_msg is not None
@@ -515,7 +491,6 @@ class TestSynthesisTaskRuntimeFailure:
         first_artifact = MagicMock()
         first_artifact.save.return_value = "/artifacts/job3_epoch3.pkl"
         mock_engine.train.side_effect = [first_artifact, RuntimeError("OOM at epoch 5")]
-        mock_storage = MagicMock()
 
         with (
             patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
@@ -525,12 +500,11 @@ class TestSynthesisTaskRuntimeFailure:
                 job_id=3,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
                 checkpoint_dir=tmpdir,
             )
 
-        # Storage must have been called at least once (epoch-3 checkpoint)
-        assert mock_storage.upload_parquet.call_count >= 1 or first_artifact.save.call_count >= 1
+        # Artifact must have been saved at least once (epoch-3 checkpoint)
+        assert first_artifact.save.call_count >= 1
 
     def test_failed_job_commits_to_db(self) -> None:
         """RuntimeError path must commit FAILED status to the database."""
@@ -542,14 +516,12 @@ class TestSynthesisTaskRuntimeFailure:
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("failed")
-        mock_storage = MagicMock()
 
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         assert mock_session.commit.call_count >= 1
@@ -581,14 +553,12 @@ class TestSynthesisTaskCheckpointing:
         mock_artifact = MagicMock()
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job4_checkpoint.pkl"
-        mock_storage = MagicMock()
 
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=4,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         # artifact.save() must have been called at least once
@@ -606,14 +576,12 @@ class TestSynthesisTaskCheckpointing:
         mock_artifact = MagicMock()
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job4.pkl"
-        mock_storage = MagicMock()
 
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=4,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         # current_epoch must equal total_epochs on success
@@ -637,14 +605,12 @@ class TestSynthesisTaskCheckpointing:
         mock_artifact = MagicMock()
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job5_final.pkl"
-        mock_storage = MagicMock()
 
         with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=5,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
 
         # Exactly 1 save() call: the final artifact save on COMPLETE
@@ -667,12 +633,10 @@ class TestSynthesisJobNotFound:
         mock_session.get.return_value = None  # Job not found
 
         mock_engine = MagicMock()
-        mock_storage = MagicMock()
 
         with pytest.raises(ValueError, match="SynthesisJob.*not found"):
             _run_synthesis_job_impl(
                 job_id=999,
                 session=mock_session,
                 engine=mock_engine,
-                storage_client=mock_storage,
             )
