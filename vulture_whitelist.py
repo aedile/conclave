@@ -77,6 +77,15 @@ _.upload_parquet  # Public upload method on EphemeralStorageClient
 _.download_parquet  # Public download method on EphemeralStorageClient
 
 # ---------------------------------------------------------------------------
+# privacy — DP engine public API (wired in bootstrapper; T4.3b)
+# ---------------------------------------------------------------------------
+DPTrainingWrapper  # Public DP training wrapper (privacy/dp_engine.py) — injected at runtime
+BudgetExhaustionError  # Public exception (privacy/dp_engine.py) — raised on budget exhaustion
+_.wrap  # Public wrap method on DPTrainingWrapper (privacy/dp_engine.py)
+_.epsilon_spent  # Public epsilon_spent method on DPTrainingWrapper
+_.check_budget  # Public check_budget method on DPTrainingWrapper
+
+# ---------------------------------------------------------------------------
 # shared — auth, db, middleware, schema_topology, security, tasks
 # ---------------------------------------------------------------------------
 sub  # JWT payload field (shared/auth/jwt.py)

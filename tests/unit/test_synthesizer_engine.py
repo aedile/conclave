@@ -508,3 +508,128 @@ class TestModelArtifactPickleFormat:
             with open(save_path, "rb") as f:
                 loaded = pickle.load(f)  # noqa: S301 — test-only deserialization of self-produced artifact
             assert isinstance(loaded, ModelArtifact)
+
+
+class TestSynthesisEngineWithDPWrapper:
+    """Unit tests for SynthesisEngine.train() with optional dp_wrapper parameter.
+
+    Task: P4-T4.3b — DP Engine Wiring
+    The dp_wrapper parameter is accepted as Any to avoid import-linter boundary
+    violations between modules/synthesizer and modules/privacy.
+    """
+
+    def _make_persons_df(self, n: int = 10) -> pd.DataFrame:
+        """Build a minimal persons DataFrame for training tests."""
+        import numpy as np
+
+        rng = np.random.default_rng(42)
+        return pd.DataFrame(
+            {
+                "id": range(1, n + 1),
+                "age": rng.integers(18, 80, size=n).tolist(),
+                "salary": rng.integers(30000, 100000, size=n).tolist(),
+            }
+        )
+
+    def test_train_accepts_dp_wrapper_kwarg(self) -> None:
+        """train() must accept an optional dp_wrapper keyword argument without error."""
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.models import ModelArtifact
+
+        mock_dp_wrapper = MagicMock()
+        mock_dp_wrapper.check_budget.return_value = None
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+        ):
+            mock_instance = MagicMock()
+            mock_ctgan.return_value = mock_instance
+
+            df = self._make_persons_df()
+            parquet_path = str(Path(tmpdir) / "persons.parquet")
+            df.to_parquet(parquet_path, index=False, engine="pyarrow")
+
+            engine = SynthesisEngine()
+            result = engine.train(
+                table_name="persons",
+                parquet_path=parquet_path,
+                dp_wrapper=mock_dp_wrapper,
+            )
+
+        assert isinstance(result, ModelArtifact)
+
+    def test_train_without_dp_wrapper_still_works(self) -> None:
+        """train() without dp_wrapper must behave identically to pre-T4.3b behavior."""
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.models import ModelArtifact
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+        ):
+            mock_instance = MagicMock()
+            mock_ctgan.return_value = mock_instance
+
+            df = self._make_persons_df()
+            parquet_path = str(Path(tmpdir) / "persons.parquet")
+            df.to_parquet(parquet_path, index=False, engine="pyarrow")
+
+            engine = SynthesisEngine()
+            result = engine.train(table_name="persons", parquet_path=parquet_path)
+
+        assert isinstance(result, ModelArtifact)
+
+    def test_train_with_dp_wrapper_logs_advisory(self, caplog: pytest.LogCaptureFixture) -> None:
+        """train() with dp_wrapper must log an advisory about deferred SDV integration.
+
+        Since SDV's internal fit() does not expose the optimizer for wrapping,
+        the engine logs an advisory and proceeds. The dp_wrapper API is fully
+        implemented; SDV internal wiring is deferred per ADR-0017 risk note.
+        """
+        import logging
+
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.models import ModelArtifact
+
+        mock_dp_wrapper = MagicMock()
+        mock_dp_wrapper.check_budget.return_value = None
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            caplog.at_level(logging.WARNING, logger="synth_engine.modules.synthesizer.engine"),
+        ):
+            mock_instance = MagicMock()
+            mock_ctgan.return_value = mock_instance
+
+            df = self._make_persons_df()
+            parquet_path = str(Path(tmpdir) / "persons.parquet")
+            df.to_parquet(parquet_path, index=False, engine="pyarrow")
+
+            engine = SynthesisEngine()
+            result = engine.train(
+                table_name="persons",
+                parquet_path=parquet_path,
+                dp_wrapper=mock_dp_wrapper,
+            )
+
+        assert isinstance(result, ModelArtifact)
+        # An advisory warning must be logged when dp_wrapper is provided but
+        # cannot be applied to SDV's internal training loop
+        advisory_logged = any("dp_wrapper" in record.message.lower() for record in caplog.records)
+        assert advisory_logged, (
+            "Expected a log message mentioning dp_wrapper when dp_wrapper is provided. "
+            f"Actual log records: {[r.message for r in caplog.records]}"
+        )
+
+    def test_train_dp_wrapper_none_default(self) -> None:
+        """train() dp_wrapper parameter must default to None."""
+        import inspect
+
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+
+        sig = inspect.signature(SynthesisEngine.train)
+        assert "dp_wrapper" in sig.parameters
+        param = sig.parameters["dp_wrapper"]
+        assert param.default is None

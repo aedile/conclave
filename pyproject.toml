@@ -94,6 +94,11 @@ torch = {version = ">=2.5.0,<3.0.0", python = ">=3.14,<3.15"}
 pyarrow = ">=22.0.0,<24.0.0"
 boto3 = ">=1.35.0,<2.0.0"
 sdv = {version = ">=1.17.0,<2.0.0", python = ">=3.14,<3.15"}
+# opacus 1.5.4 — Differential Privacy for PyTorch (DP-SGD via PrivacyEngine).
+# Verified compatible: opacus>=1.4.0 requires torch>=2.0; our env has torch 2.10.0.
+# No Python version constraint needed — opacus requires python>=3.7.5.
+# Added in T4.3b (ADR-0017: CTGAN + Opacus DP path).
+opacus = ">=1.4.0,<2.0.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -210,6 +215,14 @@ filterwarnings = [
     # This is advisory-only; our workflow does not require persisting metadata
     # separately since it is auto-detected per-run from the training DataFrame.
     "ignore:We strongly recommend saving the metadata:UserWarning:sdv",
+    # opacus 1.5.x emits a UserWarning about secure RNG being disabled by default.
+    # This is expected behavior in non-production/experimentation mode; the warning
+    # is advisory-only and we cannot change third-party code. Scoped to opacus.
+    "ignore:Secure RNG turned off:UserWarning:opacus",
+    # PyTorch 2.10+ emits a UserWarning from full backward hooks registered by
+    # Opacus when no input requires gradients. This is an Opacus internal detail
+    # that fires through torch.utils.hooks during DP-SGD backward passes.
+    "ignore:Full backward hook is firing when gradients are computed:UserWarning",
 ]
 
 # ---------------------------------------------------------------------------

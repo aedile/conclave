@@ -21,6 +21,9 @@ Drain (delete) rows when their target task is completed.
 | ADV-036+044 | DevOps T3.5.4 / T4.2c | T5.1 (error sanitization) | ADVISORY | Error string sanitization gap: (1) CLI `except Exception` forwards raw `str(exc)` from SQLAlchemy stack frames to operator — may include table/column names from customer schemas; (2) raw `RuntimeError` from CTGAN/torch stored in `SynthesisJob.error_msg` may expose filesystem paths when streamed via SSE. Add `safe_error_msg()` helper in `shared/` and wire into both CLI and Huey task error paths before T5.1 ships. |
 | ADV-040 | DevOps T4.2b | Phase 6 security hardening | DEFERRED | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. PM justification: artifact trust boundary is internal-only through Phase 5; HMAC wiring deferred to Phase 6 hardening sprint when external storage is considered. |
 | ADV-045 | QA T4.2c | Phase 5 entry gate | ADVISORY | Integration test runner gap: `pyproject.toml` globally disables `pytest_postgresql` via `-p no:pytest_postgresql`. T4.2c integration tests require `-p pytest_postgresql` override. Pre-existing debt across 5+ integration test files. Needs dedicated integration runner or CI matrix fix. |
+| ADV-046 | QA T4.3b | Phase 6 hardening | ADVISORY | Edge-case tests missing for `DPTrainingWrapper`: (1) `max_grad_norm <= 0` and `noise_multiplier <= 0` — nonsensical values passed to Opacus without validation; (2) `allocated_epsilon=0.0` — degenerate boundary; (3) `delta=0` passed to RDP accountant may produce inf. Consider ValueError guards + tests. |
+| ADV-047 | DevOps T4.3b | Phase 5 entry gate | ADVISORY | Unscoped backward-hook warning filter in `pyproject.toml`: `"ignore:Full backward hook is firing when gradients are computed:UserWarning"` has no `:torch` module qualifier. Risk: suppresses unrelated `UserWarning` from other modules. Add `:torch` scope. |
+| ADV-048 | Arch T4.3b | When SDV exposes training hooks | BLOCKER | Rule 8: `build_dp_wrapper()` factory missing from `bootstrapper/main.py`. TODO(T4.3b) added. `DPTrainingWrapper` exists in `modules/privacy/dp_engine.py` but cannot be wired end-to-end because SDV's `CTGANSynthesizer.fit()` does not expose optimizer/model/dataloader for Opacus wrapping (ADR-0017 risk). Wire when SDV adds training hooks. |
 
 ---
 
@@ -72,6 +75,48 @@ Rule 8 guidance: when an IoC parameter exists but is never called, the correct f
 wiring a no-op). Wiring a no-op perpetuates the illusion of functionality. Rule 11 severity-tier
 labeling (BLOCKER/ADVISORY/DEFERRED) was applied to all remaining rows; this makes phase-kickoff
 audits faster.
+
+---
+
+### [2026-03-15] P4-T4.3b — DP Engine Wiring (Opacus DPTrainingWrapper)
+
+**Summary**: Implemented `DPTrainingWrapper` in `modules/privacy/dp_engine.py` with Opacus
+`PrivacyEngine.make_private()` wrapping, epsilon tracking via RDP accountant, budget
+enforcement via `BudgetExhaustionError`, and single-use constraint. Added `dp_wrapper: Any`
+parameter to `SynthesisEngine.train()` with advisory log (SDV integration deferred per
+ADR-0017). 19 unit tests + 5 integration tests. 95.72% coverage.
+
+**Architecture** (FINDING — 2 items, both fixed):
+- `wrap()` docstring omitted that `make_private()` returns 3-tuple; only optimizer surfaced.
+  Fixed: added Note section documenting tuple destructuring.
+- Rule 8: bootstrapper missing `build_dp_wrapper()` factory or TODO. Fixed: added TODO(T4.3b)
+  comment in `bootstrapper/main.py`. BLOCKER advisory ADV-048 logged for wiring when SDV
+  exposes training hooks.
+
+**QA** (FINDING — 2 blockers fixed, 2 advisories):
+- `match="1.1"` in budget error test did not verify allocated epsilon. Fixed: `match=r"1\.1.*1\.0"`.
+- Wrong `# nosec B604` on `PrivacyEngine = None` line. Fixed: removed.
+- Advisory: edge-case tests missing for degenerate inputs (ADV-046).
+- Advisory: integration assertion `dp_optimizer is not None` too weak.
+
+**DevOps** (PASS — 2 minor advisories):
+- Unscoped backward-hook warning filter needs `:torch` qualifier (ADV-047).
+- Wrong nosec B604 (fixed in same commit as QA blocker).
+
+**UI/UX** (SKIP): No UI surface. Forward-looking notes for Phase 5: BudgetExhaustionError
+messages need operator-friendly formatting; epsilon/delta display needs accessible formatting
+(not color-only); budget alerts need aria-live regions.
+
+**Retrospective**:
+The `# nosec B604` copy-paste from `engine.py` to `dp_engine.py` is a systemic risk: when
+boilerplate patterns are copied between files, suppression annotations travel with the code
+but may not apply at the new location. Every `# nosec` tag must be verified against bandit's
+actual output at its new location before the commit is authored. The duck-typing solution
+(`dp_wrapper: Any`) for cross-module boundaries works well but requires explicit docstring
+documentation of the expected interface contract — without the Note about tuple destructuring,
+callers would not know what `wrap()` actually returns. The Rule 8 TODO pattern is effective
+for documenting deferred wiring when the upstream dependency (SDV training hooks) does not
+yet exist.
 
 ---
 
