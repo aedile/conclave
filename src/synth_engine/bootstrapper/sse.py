@@ -18,6 +18,9 @@ Design notes:
       enough to avoid overwhelming SQLite/PostgreSQL in development.
     - The stream terminates when the job reaches a terminal state
       (``COMPLETE`` or ``FAILED``) or after a configurable timeout.
+    - The DB read is dispatched to a thread pool via ``asyncio.to_thread``
+      so the synchronous SQLModel session never blocks the event loop
+      (DevOps finding D2 — P5-T5.1 review).
 
 Task: P5-T5.1 — Task Orchestration API Core
 """
@@ -28,10 +31,13 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from synth_engine.shared.db import SessionFactory
 from synth_engine.shared.errors import safe_error_msg
+
+if TYPE_CHECKING:
+    from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
 _logger = logging.getLogger(__name__)
 
@@ -71,6 +77,33 @@ def _build_progress_data(
     }
 
 
+def _poll_job(
+    session_factory: SessionFactory,
+    job_id: int,
+) -> SynthesisJob | None:
+    """Read a single :class:`SynthesisJob` row from the database synchronously.
+
+    This function is designed to be called via :func:`asyncio.to_thread` so
+    that the blocking SQLModel session never occupies the event loop thread.
+    The full session lifecycle (open → query → close) is contained here so
+    no session object crosses thread boundaries.
+
+    Args:
+        session_factory: Zero-argument callable returning a
+            :class:`sqlmodel.Session` context manager.
+        job_id: Primary key of the job to fetch.
+
+    Returns:
+        The :class:`SynthesisJob` instance, or ``None`` if not found.
+    """
+    # Deferred import: avoids pulling synthesizer module-level state into
+    # every bootstrapper import at startup.
+    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+    with session_factory() as session:
+        return session.get(SynthesisJob, job_id)
+
+
 async def job_event_stream(
     job_id: int,
     session_factory: SessionFactory,
@@ -81,6 +114,10 @@ async def job_event_stream(
 
     Polls the database every ``poll_interval`` seconds and yields SSE event
     dicts for consumption by ``sse-starlette``'s ``EventSourceResponse``.
+
+    The synchronous DB read is dispatched to a worker thread via
+    ``asyncio.to_thread`` on every cycle so the event loop is never blocked
+    (DevOps finding D2).
 
     Yields event dicts of the form::
 
@@ -99,15 +136,8 @@ async def job_event_stream(
         SSE event dicts compatible with ``sse-starlette``'s
         ``EventSourceResponse``.
     """
-    # SynthesisJob is imported here rather than at module level to avoid
-    # pulling synthesizer module-level state into every bootstrapper import.
-    # The SSE generator is only constructed when a stream endpoint is hit,
-    # so the deferred import has no performance impact on startup.
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
-
     for _ in range(max_cycles):
-        with session_factory() as session:
-            job: SynthesisJob | None = session.get(SynthesisJob, job_id)
+        job = await asyncio.to_thread(_poll_job, session_factory, job_id)
 
         if job is None:
             _logger.warning("SSE stream: job %d not found; closing stream.", job_id)
