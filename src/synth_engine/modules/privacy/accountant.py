@@ -89,6 +89,7 @@ async def spend_budget(
         None on success.
 
     Raises:
+        ValueError: If ``amount`` is not positive (zero or negative).
         BudgetExhaustionError: If ``total_spent + amount > total_allocated``.
             The ledger row is left unchanged; no transaction record is written.
         sqlalchemy.exc.NoResultFound: If no ``PrivacyLedger`` row exists for
@@ -104,6 +105,8 @@ async def spend_budget(
                 session=session,
             )
     """
+    if amount <= 0:
+        raise ValueError(f"amount must be positive, got {amount!r}")
     async with session.begin():
         # Acquire pessimistic lock — blocks until previous holder commits.
         # SQLModel class-level attribute comparison — instrumented at runtime

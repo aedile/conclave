@@ -22,6 +22,10 @@ from sqlalchemy import engine_from_config, pool
 # by the application) to register with SQLModel.metadata.
 from synth_engine.shared.db import BaseModel
 
+# Side-effect imports: register all SQLModel tables that extend SQLModel directly
+# (rather than BaseModel) so that target_metadata is complete for autogenerate.
+from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Alembic configuration object — provides access to values in alembic.ini
 # ---------------------------------------------------------------------------

@@ -8,6 +8,9 @@ Tests verify:
    writes no transaction, and leaves the ledger balance unchanged.
 4. ``get_async_engine()`` and ``get_async_session()`` helpers are importable and
    return the correct SQLAlchemy async types.
+5. ``spend_budget()`` raises ``ValueError`` for zero or negative ``amount``.
+6. ``spend_budget()`` raises ``sqlalchemy.exc.NoResultFound`` when the
+   requested ``ledger_id`` does not exist.
 
 These tests use ``sqlite+aiosqlite:///:memory:`` so they require no external
 infrastructure.  Concurrency safety is covered by the integration tests which
@@ -24,6 +27,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import SQLModel
 
@@ -269,6 +273,58 @@ async def test_spend_budget_exact_boundary_exhausted(
     with pytest.raises(BudgetExhaustionError):
         async with get_async_session(async_engine) as s:
             await spend_budget(amount=0.001, job_id=1, ledger_id=ledger_id, session=s)
+
+
+# ---------------------------------------------------------------------------
+# Tests: spend_budget() — invalid amount guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_spend_budget_raises_value_error_for_zero_amount(
+    async_engine: AsyncEngine,
+) -> None:
+    """spend_budget() raises ValueError when amount is zero.
+
+    Verifies the pre-condition guard fires before any DB interaction.
+    """
+    from synth_engine.modules.privacy.accountant import spend_budget
+
+    async with get_async_session(async_engine) as s:
+        with pytest.raises(ValueError, match="amount must be positive"):
+            await spend_budget(amount=0, job_id=1, ledger_id=1, session=s)
+
+
+@pytest.mark.asyncio
+async def test_spend_budget_raises_value_error_for_negative_amount(
+    async_engine: AsyncEngine,
+) -> None:
+    """spend_budget() raises ValueError when amount is negative.
+
+    Verifies the pre-condition guard fires before any DB interaction.
+    """
+    from synth_engine.modules.privacy.accountant import spend_budget
+
+    async with get_async_session(async_engine) as s:
+        with pytest.raises(ValueError, match="amount must be positive"):
+            await spend_budget(amount=-0.5, job_id=1, ledger_id=1, session=s)
+
+
+@pytest.mark.asyncio
+async def test_spend_budget_raises_no_result_found_for_missing_ledger(
+    async_engine: AsyncEngine,
+) -> None:
+    """spend_budget() raises NoResultFound when the ledger_id does not exist.
+
+    Arrange: Empty database — no PrivacyLedger rows inserted.
+    Act: Call spend_budget with ledger_id=9999 (non-existent).
+    Assert: sqlalchemy.exc.NoResultFound is raised.
+    """
+    from synth_engine.modules.privacy.accountant import spend_budget
+
+    async with get_async_session(async_engine) as s:
+        with pytest.raises(NoResultFound):
+            await spend_budget(amount=0.5, job_id=1, ledger_id=9999, session=s)
 
 
 # ---------------------------------------------------------------------------

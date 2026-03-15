@@ -71,6 +71,8 @@ class PrivacyLedger(SQLModel, table=True):
             jobs that have successfully completed.  Incremented atomically
             by :func:`~synth_engine.modules.privacy.accountant.spend_budget`.
         last_updated: UTC timestamp of the most recent update to this row.
+            Updated automatically by SQLAlchemy's ``onupdate`` hook on every
+            UPDATE statement.
 
     Example::
 
@@ -83,7 +85,10 @@ class PrivacyLedger(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     total_allocated_epsilon: float = Field(default=0.0)
     total_spent_epsilon: float = Field(default=0.0)
-    last_updated: datetime = Field(default_factory=_utcnow)
+    last_updated: datetime = Field(
+        default_factory=_utcnow,
+        sa_column_kwargs={"onupdate": _utcnow},
+    )
 
 
 class PrivacyTransaction(SQLModel, table=True):

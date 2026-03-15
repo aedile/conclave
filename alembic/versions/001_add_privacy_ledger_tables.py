@@ -22,6 +22,14 @@ Manual migration rationale:
   CI environment this may not be available.  The explicit DDL is equivalent to
   what autogenerate would produce.
 
+``last_updated`` onupdate note:
+  The Python ORM layer carries an ``onupdate=_utcnow`` hook on the
+  ``PrivacyLedger.last_updated`` field (see ``ledger.py``).  This hook fires
+  on every ORM-level UPDATE.  The ``server_onupdate`` clause here registers
+  the same intent at the DDL level so that Alembic autogenerate does not
+  flag a drift, and so that raw SQL UPDATEs (e.g., admin scripts) also update
+  the timestamp on PostgreSQL via ``sa.func.now()``.
+
 CONSTITUTION Priority 0: Security — no credentials, no PII
 Task: P4-T4.4 — Privacy Accountant
 """
@@ -46,7 +54,10 @@ def upgrade() -> None:
     - ``id``: Serial (auto-increment) integer primary key.
     - ``total_allocated_epsilon``: Maximum cumulative epsilon allowed.
     - ``total_spent_epsilon``: Running total epsilon spent.
-    - ``last_updated``: UTC timestamp of the most recent update.
+    - ``last_updated``: UTC timestamp of the most recent update.  Carries
+      both ``server_default`` (for INSERT) and ``server_onupdate`` (for
+      UPDATE) so that all write paths — ORM and raw SQL alike — keep the
+      column current.
 
     privacy_transaction
     -------------------
@@ -67,6 +78,7 @@ def upgrade() -> None:
             sa.DateTime(timezone=True),
             nullable=False,
             server_default=sa.func.now(),
+            server_onupdate=sa.func.now(),
         ),
         sa.PrimaryKeyConstraint("id"),
     )
