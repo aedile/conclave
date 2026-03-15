@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+from urllib.parse import urlparse, urlunparse
 
 from huey import Huey  # type: ignore[import-untyped]
 
@@ -47,6 +48,25 @@ _DEFAULT_REDIS_URL: str = "redis://redis:6379/0"
 
 #: Environment variable to enable Huey immediate mode (synchronous execution).
 _HUEY_IMMEDIATE_ENV: str = "HUEY_IMMEDIATE"
+
+
+def _mask_redis_url(redis_url: str) -> str:
+    """Return a safe version of ``redis_url`` with auth material removed.
+
+    Strips the ``username:password@`` authority component so that embedded
+    credentials are never emitted to log files.
+
+    Args:
+        redis_url: A Redis connection URL that may contain embedded credentials,
+            e.g. ``redis://:password@redis:6379/0``.
+
+    Returns:
+        A URL with only ``hostname:port`` in the netloc, e.g.
+        ``redis://redis:6379/0``.
+    """
+    parsed = urlparse(redis_url)
+    safe_netloc = f"{parsed.hostname}:{parsed.port}"
+    return urlunparse(parsed._replace(netloc=safe_netloc))
 
 
 def _build_huey() -> Huey:
@@ -81,9 +101,10 @@ def _build_huey() -> Huey:
     from huey import RedisHuey
 
     redis_url = os.environ.get(_REDIS_URL_ENV, _DEFAULT_REDIS_URL)
+    safe_url = _mask_redis_url(redis_url)
     _logger.info(
         "Huey: using RedisHuey (url=%s, immediate=%s).",
-        redis_url,
+        safe_url,
         immediate,
     )
     return RedisHuey(

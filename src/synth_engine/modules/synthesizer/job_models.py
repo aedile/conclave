@@ -28,6 +28,8 @@ Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlmodel import Field, SQLModel
 
 # ---------------------------------------------------------------------------
@@ -67,7 +69,7 @@ class SynthesisJob(SQLModel, table=True):
             source training data written by the subsetting pipeline.
         checkpoint_every_n: Save a ``ModelArtifact`` checkpoint every this
             many epochs.  Defaults to 5.  Callers override for coarser or
-            finer checkpointing granularity.
+            finer checkpointing granularity.  Must be >= 1.
     """
 
     __tablename__ = "synthesis_job"
@@ -81,3 +83,23 @@ class SynthesisJob(SQLModel, table=True):
     table_name: str
     parquet_path: str
     checkpoint_every_n: int = Field(default=_DEFAULT_CHECKPOINT_EVERY_N)
+
+    def __init__(self, **data: Any) -> None:
+        """Initialise SynthesisJob, enforcing checkpoint_every_n >= 1.
+
+        SQLModel ``table=True`` models bypass pydantic field validators in
+        ``__init__`` to allow ORM row construction.  This override adds an
+        explicit guard before delegating to ``super().__init__``.
+
+        Args:
+            **data: Keyword arguments forwarded to the SQLModel base class.
+
+        Raises:
+            ValueError: If ``checkpoint_every_n`` is less than 1.  A value of
+                0 would cause ``min(0, total - 0) == 0`` in the training loop,
+                making ``completed_epochs`` never advance (infinite loop).
+        """
+        n = data.get("checkpoint_every_n", _DEFAULT_CHECKPOINT_EVERY_N)
+        if isinstance(n, int) and n < 1:
+            raise ValueError("checkpoint_every_n must be >= 1")
+        super().__init__(**data)

@@ -114,7 +114,7 @@ def _get_parquet_dimensions(parquet_path: str) -> tuple[int, int]:
         rows = meta.num_rows
         columns = meta.num_columns
         return int(rows), int(columns)
-    except (ImportError, FileNotFoundError, Exception):
+    except (ImportError, OSError):
         # Fall back to conservative defaults — the guardrail still fires for
         # implausibly large jobs; precise estimation requires pyarrow.
         _logger.warning(

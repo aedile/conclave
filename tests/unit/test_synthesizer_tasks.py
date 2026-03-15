@@ -144,6 +144,28 @@ class TestSynthesisJobModel:
         job = _make_synthesis_job(status="FAILED")
         assert job.status == "FAILED"
 
+    def test_synthesis_job_checkpoint_every_n_zero_raises(self) -> None:
+        """SynthesisJob must reject checkpoint_every_n=0 with ValueError.
+
+        A value of 0 would cause an infinite loop in _run_synthesis_job_impl
+        because min(0, total - 0) == 0, so completed_epochs never advances.
+
+        Note: SQLModel table=True models bypass pydantic field validators in
+        __init__ to allow ORM row construction.  The guard is implemented as
+        an __init__ override that raises ValueError directly.
+        """
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="checkpoint_every_n must be >= 1"):
+            SynthesisJob(
+                status="QUEUED",
+                current_epoch=0,
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                checkpoint_every_n=0,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Huey task registration
