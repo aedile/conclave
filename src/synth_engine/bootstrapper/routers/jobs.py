@@ -174,6 +174,9 @@ def start_job(
             ),
         )
 
+    # run_synthesis_job enqueues a Huey task synchronously (blocking call that
+    # pushes a message onto the task queue).  FastAPI runs sync route handlers
+    # in a threadpool, so this blocking enqueue does not stall the event loop.
     run_synthesis_job(job_id)
     _logger.info("Enqueued synthesis job %d.", job_id)
     return JSONResponse(
@@ -194,9 +197,13 @@ def _make_session_factory(session: Session) -> Any:
 
     Returns:
         A ``sessionmaker`` callable that produces new ``Session`` instances.
+
+    Raises:
+        TypeError: If the session is not bound to a SQLAlchemy Engine.
     """
     bind = session.get_bind()
-    assert isinstance(bind, Engine), "Session must be bound to a SQLAlchemy Engine"
+    if not isinstance(bind, Engine):
+        raise TypeError(f"Session must be bound to a SQLAlchemy Engine, got {type(bind)}")
     factory: sessionmaker[SASession] = sessionmaker(bind=bind, class_=SASession)
     return factory
 

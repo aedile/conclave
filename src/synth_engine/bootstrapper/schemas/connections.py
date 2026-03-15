@@ -34,6 +34,12 @@ class Connection(SQLModel, table=True):
     The primary key is stored as a VARCHAR UUID string for SQLite
     compatibility.  PostgreSQL stores the same column as TEXT.
 
+    Note: This class extends ``SQLModel`` directly rather than
+    ``shared.db.BaseModel``.  That is intentional — ``Connection`` is an
+    API-layer resource (operator-visible configuration), not a domain entity.
+    It does not need UUID audit timestamps from ``BaseModel``; its primary key
+    is a plain string UUID for SQLite/PostgreSQL portability.
+
     Attributes:
         id: UUID v4 primary key (stored as VARCHAR string).
         name: Human-readable display name.

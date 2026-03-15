@@ -30,6 +30,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from synth_engine.shared.db import SessionFactory
 from synth_engine.shared.errors import safe_error_msg
 
 _logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ def _build_progress_data(
 
 async def job_event_stream(
     job_id: int,
-    session_factory: Any,
+    session_factory: SessionFactory,
     poll_interval: float = _POLL_INTERVAL_S,
     max_cycles: int = _MAX_POLL_CYCLES,
 ) -> AsyncGenerator[dict[str, Any]]:
@@ -98,6 +99,10 @@ async def job_event_stream(
         SSE event dicts compatible with ``sse-starlette``'s
         ``EventSourceResponse``.
     """
+    # SynthesisJob is imported here rather than at module level to avoid
+    # pulling synthesizer module-level state into every bootstrapper import.
+    # The SSE generator is only constructed when a stream endpoint is hit,
+    # so the deferred import has no performance impact on startup.
     from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
     for _ in range(max_cycles):
@@ -117,7 +122,10 @@ async def job_event_stream(
             yield {"event": "complete", "data": json.dumps(data)}
             return
 
-        if job.status == "FAILED":
+        if job.status in _TERMINAL_STATUSES:
+            # Only FAILED reaches here — COMPLETE was handled above.
+            # Using _TERMINAL_STATUSES membership check (not inline string literal)
+            # ensures this branch stays in sync if terminal states are ever extended.
             error_detail = safe_error_msg(job.error_msg or "Unknown error")
             yield {"event": "error", "data": json.dumps({"detail": error_detail})}
             return

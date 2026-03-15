@@ -68,10 +68,16 @@ class TestSSEProgressStreaming:
     async def test_sse_streams_sequential_progress_events(self) -> None:
         """SSE endpoint must yield sequential progress events until complete.
 
-        Simulates a job progressing from QUEUED -> TRAINING -> COMPLETE by
-        updating the database in a background thread while the SSE endpoint
-        is streaming.  Verifies that at least one 'progress' event and one
-        'complete' event are received.
+        Simulates a job progressing through epochs 1, 2, 5, 10 of 10
+        (i.e., 10%, 20%, 50%, 100%) by updating the database in a background
+        thread while the SSE endpoint is streaming.
+
+        Verifies:
+        - At least one 'progress' event is received.
+        - A 'complete' event is received.
+        - The percent values in progress events are monotonically increasing.
+        - All observed percent values match the expected epoch-derived values
+          (10, 20, 50) before the job transitions to COMPLETE (100).
         """
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
@@ -82,7 +88,7 @@ class TestSSEProgressStreaming:
         )
         SQLModel.metadata.create_all(engine)
 
-        # Create a job in QUEUED state
+        # Create a job in QUEUED state with 10 total epochs.
         with Session(engine) as session:
             job = SynthesisJob(
                 table_name="customers",
@@ -96,13 +102,15 @@ class TestSSEProgressStreaming:
             job_id = job.id
 
         def _advance_job() -> None:
-            """Background thread that simulates epoch-by-epoch job progress."""
+            """Background thread: simulate epoch-by-epoch job progress.
+
+            Steps produce percent values: 10%, 20%, 50%, then COMPLETE@100%.
+            """
             steps = [
-                ("TRAINING", 1),
-                ("TRAINING", 2),
-                ("TRAINING", 5),
-                ("TRAINING", 10),
-                ("COMPLETE", 10),
+                ("TRAINING", 1),  # 10%
+                ("TRAINING", 2),  # 20%
+                ("TRAINING", 5),  # 50%
+                ("COMPLETE", 10),  # 100% — triggers terminal event
             ]
             for status, epoch in steps:
                 time.sleep(0.15)
@@ -136,10 +144,49 @@ class TestSSEProgressStreaming:
 
         assert response.status_code == 200
         content = response.text
-        # Must contain at least one progress event
-        assert "progress" in content
-        # Must end with a complete event
-        assert "complete" in content
+
+        # Parse all SSE events from the response body.
+        progress_percents: list[int] = []
+        has_complete_event = False
+
+        current_event_type: str | None = None
+        for line in content.splitlines():
+            if line.startswith("event:"):
+                current_event_type = line[6:].strip()
+            elif line.startswith("data:"):
+                data_str = line[5:].strip()
+                try:
+                    data = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+
+                if current_event_type == "progress" and "percent" in data:
+                    progress_percents.append(int(data["percent"]))
+                elif current_event_type == "complete":
+                    has_complete_event = True
+
+        # Must have received at least one progress event before complete.
+        assert len(progress_percents) >= 1, (
+            "SSE stream must emit at least one 'progress' event before 'complete'"
+        )
+
+        # Must end with a complete event.
+        assert has_complete_event, "SSE stream must emit a 'complete' event when job finishes"
+
+        # Percent values must be monotonically non-decreasing.
+        for i in range(1, len(progress_percents)):
+            assert progress_percents[i] >= progress_percents[i - 1], (
+                f"Progress percents are not sequential: {progress_percents}"
+            )
+
+        # All observed progress percents must be one of the expected values
+        # derived from the job steps (10%, 20%, 50% for epochs 1, 2, 5 of 10).
+        expected_possible = {10, 20, 50}
+        for pct in progress_percents:
+            assert pct in expected_possible, (
+                f"Unexpected percent value {pct}; expected one of {expected_possible}. "
+                f"Full sequence: {progress_percents}"
+            )
 
     @pytest.mark.asyncio
     async def test_sse_events_contain_percent_field(self) -> None:

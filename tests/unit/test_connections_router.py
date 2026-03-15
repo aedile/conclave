@@ -8,6 +8,7 @@ CONSTITUTION Priority 3: TDD — RED phase
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 from unittest.mock import patch
 
@@ -131,8 +132,6 @@ class TestConnectionsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                import uuid
-
                 response = await client.get(f"/connections/{uuid.uuid4()}")
 
         assert response.status_code == 404
@@ -165,3 +164,28 @@ class TestConnectionsCRUD:
                 response = await client.delete(f"/connections/{conn_id}")
 
         assert response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_connection_returns_404(self) -> None:
+        """DELETE /connections/{id} must return 404 with RFC 7807 for missing.
+
+        Attempting to delete a connection that does not exist must return
+        HTTP 404 with a valid RFC 7807 Problem Details body.
+        """
+        app = _make_connections_app()
+        nonexistent_id = str(uuid.uuid4())
+
+        with patch(
+            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+            return_value=False,
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.delete(f"/connections/{nonexistent_id}")
+
+        assert response.status_code == 404
+        body = response.json()
+        assert body.get("status") == 404
+        assert "title" in body
+        assert "detail" in body

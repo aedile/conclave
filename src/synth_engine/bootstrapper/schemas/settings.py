@@ -16,6 +16,12 @@ from sqlmodel import Field, SQLModel
 class Setting(SQLModel, table=True):
     """Database table for key-value application settings.
 
+    Note: This class extends ``SQLModel`` directly rather than
+    ``shared.db.BaseModel``.  That is intentional — ``Setting`` is an
+    API-layer resource (operator-visible configuration), not a domain entity.
+    Its primary key is the setting key string itself; it does not need the
+    UUID primary key or audit timestamps provided by ``BaseModel``.
+
     Attributes:
         key: Setting key (primary key; unique identifier).
         value: Setting value as a string.
