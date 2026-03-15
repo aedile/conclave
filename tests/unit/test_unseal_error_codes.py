@@ -10,30 +10,36 @@ Task: P5-T5.3 — Build Accessible React SPA & "Vault Unseal"
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 
-@pytest.fixture()
-def _sealed_app():  # type: ignore[no-untyped-def]
-    """Create a fresh FastAPI app with the vault explicitly sealed."""
+@pytest.fixture
+def sealed_app() -> Generator[Any]:
+    """Create a fresh FastAPI app with the vault explicitly sealed.
+
+    Yields:
+        A FastAPI application instance with the vault in sealed state.
+    """
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.shared.security.vault import VaultState
 
-    VaultState._is_sealed = True  # noqa: SLF001 — test access required
-    VaultState._kek = None  # noqa: SLF001 — clear any residual key
+    VaultState._is_sealed = True  # type: ignore[attr-defined]  # test access required
+    VaultState._kek = None  # type: ignore[attr-defined]  # clear any residual key
     app = create_app()
     yield app
     # Restore sealed state after each test
-    VaultState._is_sealed = True  # noqa: SLF001
-    VaultState._kek = None  # noqa: SLF001
+    VaultState._is_sealed = True  # type: ignore[attr-defined]
+    VaultState._kek = None  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
 async def test_unseal_empty_passphrase_returns_empty_passphrase_code(
-    _sealed_app,  # type: ignore[no-untyped-def]
+    sealed_app: Any,
 ) -> None:
     """POST /unseal with empty passphrase returns EMPTY_PASSPHRASE error code.
 
@@ -41,7 +47,7 @@ async def test_unseal_empty_passphrase_returns_empty_passphrase_code(
     The endpoint maps this to error_code='EMPTY_PASSPHRASE'.
     """
     async with AsyncClient(
-        transport=ASGITransport(app=_sealed_app), base_url="http://test"
+        transport=ASGITransport(app=sealed_app), base_url="http://test"
     ) as client:
         response = await client.post("/unseal", json={"passphrase": ""})
 
@@ -53,14 +59,13 @@ async def test_unseal_empty_passphrase_returns_empty_passphrase_code(
 
 @pytest.mark.asyncio
 async def test_unseal_already_unsealed_returns_already_unsealed_code(
-    _sealed_app,  # type: ignore[no-untyped-def]
+    sealed_app: Any,
 ) -> None:
     """POST /unseal when vault already unsealed returns ALREADY_UNSEALED.
 
     VaultState.unseal() raises ValueError('Vault is already unsealed...')
     The endpoint maps this to error_code='ALREADY_UNSEALED'.
     """
-    # Simulate already-unsealed by patching VaultState.unseal to raise
     from synth_engine.shared.security.vault import VaultState
 
     with patch.object(
@@ -69,7 +74,7 @@ async def test_unseal_already_unsealed_returns_already_unsealed_code(
         side_effect=ValueError("Vault is already unsealed. Call seal() before unsealing again."),
     ):
         async with AsyncClient(
-            transport=ASGITransport(app=_sealed_app), base_url="http://test"
+            transport=ASGITransport(app=sealed_app), base_url="http://test"
         ) as client:
             response = await client.post("/unseal", json={"passphrase": "some-passphrase"})
 
@@ -81,7 +86,7 @@ async def test_unseal_already_unsealed_returns_already_unsealed_code(
 
 @pytest.mark.asyncio
 async def test_unseal_missing_salt_returns_config_error_code(
-    _sealed_app,  # type: ignore[no-untyped-def]
+    sealed_app: Any,
 ) -> None:
     """POST /unseal with no VAULT_SEAL_SALT set returns CONFIG_ERROR.
 
@@ -100,7 +105,7 @@ async def test_unseal_missing_salt_returns_config_error_code(
         ),
     ):
         async with AsyncClient(
-            transport=ASGITransport(app=_sealed_app), base_url="http://test"
+            transport=ASGITransport(app=sealed_app), base_url="http://test"
         ) as client:
             response = await client.post("/unseal", json={"passphrase": "some-passphrase"})
 
@@ -112,7 +117,7 @@ async def test_unseal_missing_salt_returns_config_error_code(
 
 @pytest.mark.asyncio
 async def test_unseal_short_salt_returns_config_error_code(
-    _sealed_app,  # type: ignore[no-untyped-def]
+    sealed_app: Any,
 ) -> None:
     """POST /unseal with a salt that is too short returns CONFIG_ERROR.
 
@@ -128,7 +133,7 @@ async def test_unseal_short_salt_returns_config_error_code(
         side_effect=ValueError("VAULT_SEAL_SALT must decode to at least 16 bytes; got 8 bytes."),
     ):
         async with AsyncClient(
-            transport=ASGITransport(app=_sealed_app), base_url="http://test"
+            transport=ASGITransport(app=sealed_app), base_url="http://test"
         ) as client:
             response = await client.post("/unseal", json={"passphrase": "some-passphrase"})
 
@@ -140,7 +145,7 @@ async def test_unseal_short_salt_returns_config_error_code(
 
 @pytest.mark.asyncio
 async def test_unseal_success_returns_200_with_status_unsealed(
-    _sealed_app,  # type: ignore[no-untyped-def]
+    sealed_app: Any,
 ) -> None:
     """POST /unseal with valid params returns 200 and status=unsealed.
 
@@ -150,7 +155,7 @@ async def test_unseal_success_returns_200_with_status_unsealed(
 
     with patch.object(VaultState, "unseal", return_value=None):
         async with AsyncClient(
-            transport=ASGITransport(app=_sealed_app), base_url="http://test"
+            transport=ASGITransport(app=sealed_app), base_url="http://test"
         ) as client:
             response = await client.post("/unseal", json={"passphrase": "valid-passphrase"})
 
@@ -162,7 +167,7 @@ async def test_unseal_success_returns_200_with_status_unsealed(
 
 @pytest.mark.asyncio
 async def test_unseal_error_response_contains_both_error_code_and_detail(
-    _sealed_app,  # type: ignore[no-untyped-def]
+    sealed_app: Any,
 ) -> None:
     """Error responses must contain BOTH error_code and detail fields.
 
@@ -170,7 +175,7 @@ async def test_unseal_error_response_contains_both_error_code_and_detail(
     and detail for logging/display to admins.
     """
     async with AsyncClient(
-        transport=ASGITransport(app=_sealed_app), base_url="http://test"
+        transport=ASGITransport(app=sealed_app), base_url="http://test"
     ) as client:
         response = await client.post("/unseal", json={"passphrase": ""})
 
@@ -179,5 +184,7 @@ async def test_unseal_error_response_contains_both_error_code_and_detail(
     assert "error_code" in body
     assert "detail" in body
     # Both must be non-empty strings
-    assert isinstance(body["error_code"], str) and body["error_code"]
-    assert isinstance(body["detail"], str) and body["detail"]
+    assert isinstance(body["error_code"], str)
+    assert body["error_code"] != ""
+    assert isinstance(body["detail"], str)
+    assert body["detail"] != ""

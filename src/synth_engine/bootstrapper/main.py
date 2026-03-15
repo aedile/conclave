@@ -45,6 +45,12 @@ Task 5.5 additions:
   - Security router included via app.include_router().
   - POST /security/shred: zeroizes vault KEK rendering all ciphertext unrecoverable.
   - POST /security/keys/rotate: enqueues Huey task to re-encrypt all ALE columns.
+
+Task 5.3 additions (ADV-016+017 drain):
+  - CSPMiddleware: adds Content-Security-Policy header to every response,
+    denying external CDN references for scripts, fonts, and stylesheets.
+  - /unseal structured error codes (ADV-018): maps ValueError messages to
+    error_code values (EMPTY_PASSPHRASE, ALREADY_UNSEALED, CONFIG_ERROR).
 """
 
 from __future__ import annotations
@@ -60,6 +66,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
+from synth_engine.bootstrapper.dependencies.csp import CSPMiddleware
 from synth_engine.bootstrapper.dependencies.licensing import LicenseGateMiddleware
 from synth_engine.bootstrapper.dependencies.vault import SealGateMiddleware
 from synth_engine.modules.mapping import CycleDetectionError
@@ -221,8 +228,9 @@ def create_app() -> FastAPI:
     and mounts the Prometheus ASGI app.
 
     Middleware evaluation order (LIFO — last added = outermost):
-    1. SealGateMiddleware — outermost; returns 423 if vault is sealed.
-    2. LicenseGateMiddleware — inner; returns 402 if not licensed.
+    1. CSPMiddleware — outermost; adds Content-Security-Policy header.
+    2. SealGateMiddleware — middle; returns 423 if vault is sealed.
+    3. LicenseGateMiddleware — inner; returns 402 if not licensed.
 
     Returns:
         A configured FastAPI instance ready to serve requests.
@@ -240,10 +248,14 @@ def create_app() -> FastAPI:
     FastAPIInstrumentor.instrument_app(app)
 
     # Middleware is evaluated in LIFO (Last In, First Out) order.
-    # LicenseGateMiddleware is added FIRST so that SealGateMiddleware wraps it
-    # (seal check fires before license check — correct priority ordering).
+    # LicenseGateMiddleware is added FIRST, then SealGateMiddleware, then
+    # CSPMiddleware — CSP is outermost so the header is added to all responses
+    # including 423 / 402 error responses from the inner gate middlewares.
+    # Evaluation order (outermost to innermost on request):
+    #   CSPMiddleware → SealGateMiddleware → LicenseGateMiddleware → route
     app.add_middleware(LicenseGateMiddleware)
     app.add_middleware(SealGateMiddleware)
+    app.add_middleware(CSPMiddleware)
 
     # Mount Prometheus metrics endpoint (internal network only; no auth required
     # because /metrics is unreachable from outside the Docker bridge network).
@@ -360,7 +372,17 @@ def _register_routes(app: FastAPI) -> None:
         try:
             await asyncio.to_thread(VaultState.unseal, body.passphrase)
         except ValueError as exc:
-            return JSONResponse(content={"detail": str(exc)}, status_code=400)
+            msg = str(exc)
+            if "empty" in msg.lower():
+                code = "EMPTY_PASSPHRASE"
+            elif "already unsealed" in msg.lower():
+                code = "ALREADY_UNSEALED"
+            else:
+                code = "CONFIG_ERROR"
+            return JSONResponse(
+                content={"error_code": code, "detail": msg},
+                status_code=400,
+            )
 
         # Emit audit event — best-effort; failure must not prevent unsealing
         try:
