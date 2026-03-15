@@ -64,7 +64,6 @@ if TYPE_CHECKING:
     from sqlmodel import Session
 
     from synth_engine.modules.synthesizer.engine import SynthesisEngine
-    from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
 
 _logger = logging.getLogger(__name__)
 
@@ -136,7 +135,6 @@ def _run_synthesis_job_impl(
     job_id: int,
     session: Session,
     engine: SynthesisEngine,
-    storage_client: EphemeralStorageClient,
     checkpoint_dir: str | None = None,
 ) -> None:
     """Core synthesis job logic with injected dependencies.
@@ -161,8 +159,6 @@ def _run_synthesis_job_impl(
         job_id: Primary key of the ``SynthesisJob`` record to process.
         session: Open SQLModel ``Session`` for reading and updating the job.
         engine: ``SynthesisEngine`` instance used to run CTGAN training.
-        storage_client: ``EphemeralStorageClient`` used to upload checkpoint
-            artifacts to ephemeral MinIO storage.
         checkpoint_dir: Optional filesystem directory for writing checkpoint
             pickle files.  If ``None``, a temporary directory is created and
             cleaned up automatically.
@@ -351,28 +347,10 @@ def run_synthesis_job(job_id: int) -> None:
     from sqlmodel import Session
 
     from synth_engine.modules.synthesizer.engine import SynthesisEngine
-    from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
     from synth_engine.shared.db import get_engine
 
     database_url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
     db_engine = get_engine(database_url)
-
-    # Use a no-op backend for ephemeral storage when MinIO is not configured.
-    # In production the bootstrapper wires a real MinioStorageBackend.
-    class _NullBackend:
-        """No-op storage backend for environments without MinIO."""
-
-        def put(self, bucket: str, key: str, data: bytes) -> None:
-            """Discard the data (no-op)."""
-
-        def get(self, bucket: str, key: str) -> bytes:
-            """Raise KeyError — nothing stored."""
-            raise KeyError(f"{bucket}/{key}")
-
-    storage_client = EphemeralStorageClient(
-        bucket="synth-ephemeral",
-        backend=_NullBackend(),
-    )
 
     synthesis_engine = SynthesisEngine()
 
@@ -381,5 +359,4 @@ def run_synthesis_job(job_id: int) -> None:
             job_id=job_id,
             session=session,
             engine=synthesis_engine,
-            storage_client=storage_client,
         )
