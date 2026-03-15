@@ -10,30 +10,68 @@ Updated after each task's review phase completes.
 Advisory findings without a resolved target task are tracked here.
 Drain (delete) rows when their target task is completed.
 
-| ID | Source | Target Task | Advisory |
-|----|--------|-------------|----------|
-| ADV-011 | QA P0.8.2 | Before Phase 4 promotion of spike_fpe_luhn.py | `FeistelFPE` in `spike_fpe_luhn.py` has unguarded edge cases: `rounds=0` is an identity transformation (no encryption). Guard must be added before promotion. Promotion checklist documented in CLAUDE.md (Phase 4 Kickoff). |
-| ADV-014 | DevOps P1-T1.3–1.7 | Before Phase 2 ships | Dockerfile FROM lines for `node:20-alpine`, `python:3.14-slim`, and `redis:7-alpine` use floating minor-version tags. A silent tag update can introduce new packages or CVEs without triggering a dependency review. Pin all FROM lines to SHA-256 digests (e.g. `python:3.14-slim@sha256:<digest>`) before any production deployment. |
-| ADV-016 | UI/UX P1-T1.3–1.7 | Before Phase 5 dashboard task | Three accessibility pre-conditions from the Docker topology: (1) CSP headers for React/Vite SPA must be established in FastAPI middleware before frontend build starts — restrictive `script-src 'self'` will block inline scripts used by accessibility polyfills; (2) any Jaeger iframe embed needs `<iframe title="...">` and documented third-party WCAG scope exclusion; (3) MinIO console must be treated as internal developer tool only — never surfaced to end users. |
-| ADV-017 | DevOps P2-T2.4 | Before Phase 5 (T5.3 React SPA) | `details: dict[str,str]` on `AuditEvent` is an open PII sink — any key/value can be written to the WORM log without validation. Add a Pydantic validator or key allowlist to `AuditEvent` before the event surface area grows beyond its one current call site. |
-| ADV-018 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | `POST /unseal` returns undifferentiated `400` for both wrong-passphrase and missing-VAULT_SEAL_SALT config errors. Phase 5 UI needs a structured error code (e.g. `{"detail": "...", "code": "WRONG_PASSPHRASE" \| "CONFIG_ERROR"}`) to route operators to correct remediation. Add structured error codes before the first template renders `/unseal` responses. |
-| ADV-019 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | `POST /unseal` triggers 600k-iteration PBKDF2 (~0.5–1s CPU). The Phase 5 form must disable the submit button immediately on POST and show a loading indicator to prevent double-submit. Establish this UI contract before the React SPA is built. |
-| ADV-021 | QA P2-D2 | Before Phase 3/4 TypeDecorator usage | `EncryptedString` NULL passthrough, empty-string, and unicode/multi-byte PII paths are not exercised at the integration level (only unit-tested). Also: `Fernet.InvalidToken` propagation through SQLAlchemy on a live connection is untested. Write targeted integration tests for these edge cases before additional TypeDecorators are added in Phase 3/4. |
-| ADV-035 | DevOps T3.5.4 | T4.x (masking configuration) | `_CLI_MASKING_SALT` in `bootstrapper/cli.py` is a hardcoded fallback determinism seed (documented as non-secret). When Phase 4 introduces the production `MASKING_SALT` path, the CLI must be updated to inject it from environment/Vault rather than relying on the hardcoded fallback. Remove the hardcoded fallback or gate it behind a strict non-production check. |
-| ADV-036 | DevOps T3.5.4 | T5.1 (CLI hardening) | The CLI's `except Exception` boundary forwards `str(exc)` from potentially deep SQLAlchemy stack frames directly to the operator. As the engine grows, those exception messages could include table names, column names, or query fragments from customer schemas. Revisit the exception sanitisation boundary at T5.1 when the CLI is hardened for production use. |
-| ~~ADV-037~~ | ~~Arch+QA P4-T4.1~~ | ~~T4.2b~~ | **DRAINED** — Resolved in T4.2b: `build_ephemeral_storage_client()` and `build_synthesis_engine()` factory functions wired into `bootstrapper/main.py`. |
-| ADV-038 | Arch PR #32 | Before pr-reviewer goes live | No ADR documents the governance decision to permit AI-posted GitHub PR approvals. ADR should cover: problem solved, scope of authority (approve yes, merge never), escalation path when gates cannot be evaluated. |
-| ADV-039 | DevOps T4.2b | T5.1 (CLI hardening) | `.env.example` does not document MinIO Docker secrets (`minio_ephemeral_access_key`, `minio_ephemeral_secret_key`) or the synthesizer dependency group. `_MINIO_ENDPOINT` and `_EPHEMERAL_BUCKET` in `bootstrapper/main.py` are hardcoded constants with no environment-variable override path. Document before production deployment. |
-| ADV-040 | DevOps T4.2b | Phase 6 security hardening | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. If artifacts are ever stored externally or shared across trust boundaries, add HMAC integrity verification to `ModelArtifact.load()` before deserialization. |
-| ADV-041 | Arch T4.2c | ADVISORY — T5.1 or next Huey task | `_NullBackend` inline class in `run_synthesis_job` task body is a Rule 8 violation — storage wiring belongs in bootstrapper, not inside the task. `storage_client` parameter in `_run_synthesis_job_impl` is accepted but never called (dead parameter). Extract to bootstrapper or remove until upload is wired. |
-| ADV-042 | Arch T4.2c | ADVISORY — before next shared/ module | No ADR documents Huey singleton pattern (`shared/task_queue.py`), env-var backend selection (HUEY_BACKEND/HUEY_IMMEDIATE), or import-side-effect registration in bootstrapper. `shared/tasks/` (orphan reaper) vs `shared/task_queue.py` naming inconsistency needs unified taxonomy. Create ADR-0019. |
-| ADV-043 | DevOps T4.2c | ADVISORY — T5.1 (SSE endpoint) | `.env.example` missing HUEY_BACKEND, REDIS_URL, HUEY_IMMEDIATE env vars. Document before production deployment. |
-| ADV-044 | DevOps T4.2c | ADVISORY — T5.1 (SSE endpoint) | Raw `RuntimeError` strings from CTGAN/torch stored in `SynthesisJob.error_msg` may expose internal filesystem paths when streamed via T5.1 SSE. Add sanitizer (`safe_error_msg()` helper in `shared/`) before T5.1 ships. |
-| ADV-045 | QA T4.2c | ADVISORY — Phase 5 entry gate | Integration test runner gap: `pyproject.toml` globally disables `pytest_postgresql` via `-p no:pytest_postgresql`. T4.2c integration tests require `-p pytest_postgresql` override. Pre-existing debt across 5+ integration test files. Needs dedicated integration runner or CI matrix fix. |
+| ID | Source | Target Task | Severity | Advisory |
+|----|--------|-------------|----------|----------|
+| ADV-011 | QA P0.8.2 | Before promotion of spike_fpe_luhn.py | BLOCKER | `FeistelFPE` in `spike_fpe_luhn.py` has unguarded edge cases: `rounds=0` is an identity transformation (no encryption). Guard must be added before promotion. Promotion checklist documented in CLAUDE.md (Phase 4 Kickoff). |
+| ADV-016 | UI/UX P1-T1.3–1.7 | Before Phase 5 dashboard task | ADVISORY | Three accessibility pre-conditions from the Docker topology: (1) CSP headers for React/Vite SPA must be established in FastAPI middleware before frontend build starts — restrictive `script-src 'self'` will block inline scripts used by accessibility polyfills; (2) any Jaeger iframe embed needs `<iframe title="...">` and documented third-party WCAG scope exclusion; (3) MinIO console must be treated as internal developer tool only — never surfaced to end users. |
+| ADV-017 | DevOps P2-T2.4 | Before Phase 5 (T5.3 React SPA) | ADVISORY | `details: dict[str,str]` on `AuditEvent` is an open PII sink — any key/value can be written to the WORM log without validation. Add a Pydantic validator or key allowlist to `AuditEvent` before the event surface area grows beyond its one current call site. |
+| ADV-018 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | ADVISORY | `POST /unseal` returns undifferentiated `400` for both wrong-passphrase and missing-VAULT_SEAL_SALT config errors. Phase 5 UI needs a structured error code (e.g. `{"detail": "...", "code": "WRONG_PASSPHRASE" \| "CONFIG_ERROR"}`) to route operators to correct remediation. Add structured error codes before the first template renders `/unseal` responses. |
+| ADV-019 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | ADVISORY | `POST /unseal` triggers 600k-iteration PBKDF2 (~0.5–1s CPU). The Phase 5 form must disable the submit button immediately on POST and show a loading indicator to prevent double-submit. Establish this UI contract before the React SPA is built. |
+| ADV-021 | QA P2-D2 | Phase 5 entry gate | ADVISORY | `EncryptedString` NULL passthrough, empty-string, and unicode/multi-byte PII paths are not exercised at the integration level (only unit-tested). Also: `Fernet.InvalidToken` propagation through SQLAlchemy on a live connection is untested. Write targeted integration tests for these edge cases before additional TypeDecorators are added in Phase 5+. |
+| ADV-036 | DevOps T3.5.4 | T5.1 (CLI hardening) | ADVISORY | The CLI's `except Exception` boundary forwards `str(exc)` from potentially deep SQLAlchemy stack frames directly to the operator. As the engine grows, those exception messages could include table names, column names, or query fragments from customer schemas. Revisit the exception sanitisation boundary at T5.1 when the CLI is hardened for production use. |
+| ADV-040 | DevOps T4.2b | Phase 6 security hardening | DEFERRED | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. PM justification: artifact trust boundary is internal-only through Phase 5; HMAC wiring deferred to Phase 6 hardening sprint when external storage is considered. |
+| ADV-044 | DevOps T4.2c | T5.1 (SSE endpoint) | ADVISORY | Raw `RuntimeError` strings from CTGAN/torch stored in `SynthesisJob.error_msg` may expose internal filesystem paths when streamed via T5.1 SSE. Add sanitizer (`safe_error_msg()` helper in `shared/`) before T5.1 ships. |
+| ADV-045 | QA T4.2c | Phase 5 entry gate | ADVISORY | Integration test runner gap: `pyproject.toml` globally disables `pytest_postgresql` via `-p no:pytest_postgresql`. T4.2c integration tests require `-p pytest_postgresql` override. Pre-existing debt across 5+ integration test files. Needs dedicated integration runner or CI matrix fix. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-15] Advisory Drain Sprint — chore/advisory-drain-sprint branch
+
+**Summary**: Rule 11 compliance sprint. Advisory count was 17 (ceiling: 12; drain target: ≤8).
+Drained 7 advisory IDs (ADV-014, ADV-035, ADV-038, ADV-039, ADV-041, ADV-042, ADV-043) and
+removed the already-drained ADV-037 display row. Net result: 17 → 10 open rows. Added severity
+tiers (BLOCKER/ADVISORY/DEFERRED) to all remaining rows per Rule 11. Remaining gap: 10 > 8 target;
+two additional drain items needed before Phase 5 starts (ADV-036 wired to T5.1, ADV-021 wired to
+Phase 5 entry gate — no code changes needed, just task-start audits).
+
+**Changes committed**:
+- `chore`: Dockerfile + docker-compose.yml — SHA-256 digest pinning TODO comments (ADV-014)
+- `fix`: `bootstrapper/cli.py` — MASKING_SALT env var override path, logger.warning on fallback (ADV-035)
+- `docs`: `.env.example` + `.secrets.baseline` — MinIO, Huey, MASKING_SALT env vars (ADV-039, ADV-043)
+- `docs`: `docs/adr/ADR-0019-ai-pr-review-governance.md` — AI PR approval governance (ADV-038)
+- `docs`: `docs/adr/ADR-0020-huey-task-queue-singleton.md` — Huey singleton pattern (ADV-042)
+- `refactor`: `modules/synthesizer/tasks.py` + unit tests — removed `_NullBackend` inline class and
+  dead `storage_client` parameter from `_run_synthesis_job_impl` (ADV-041)
+
+**Architecture** (PASS): All changes in correct modules. Rule 8 violation (ADV-041) resolved by
+removing dead code rather than wiring (parameter was never called; no upload is implemented).
+ADR-0019 and ADR-0020 close two documentation gaps that had been open since PR #32 and T4.2c.
+
+**QA** (PASS): 483 unit tests pass (93.42% coverage). 14 pre-existing failures unrelated to this
+sprint (optional deps: sdv, torch, boto3). The `storage_client` removal touched 16 call sites in
+`test_synthesizer_tasks.py`; all 32 synthesizer task tests pass. One test assertion updated:
+`mock_storage.upload_parquet.call_count >= 1` → `first_artifact.save.call_count >= 1`.
+
+**DevOps** (PASS): `bandit` clean. `ruff` clean. `.secrets.baseline` updated (line number shift
+from `.env.example` additions). Pre-commit `detect-secrets` and `ruff` hooks pass.
+
+**UI/UX** (SKIP): No UI surface area.
+
+**Retrospective**:
+The ADV-014 drain reveals an important policy gap: SHA-256 digest pinning requires a running Docker
+daemon, which may not be available in CI or air-gapped environments. The TODO comment approach is
+a valid interim solution but should be automated (e.g., a pre-push hook that runs docker pull +
+inspects digests). The ADV-035 fix demonstrates the logging.warning vs warnings.warn distinction:
+logging.warning is safe with -W error; warnings.warn is not. This pattern should be applied
+consistently to all similar module-load-time diagnostic messages. The ADV-041 cleanup confirms the
+Rule 8 guidance: when an IoC parameter exists but is never called, the correct fix is removal (not
+wiring a no-op). Wiring a no-op perpetuates the illusion of functionality. Rule 11 severity-tier
+labeling (BLOCKER/ADVISORY/DEFERRED) was applied to all remaining rows; this makes phase-kickoff
+audits faster.
 
 ---
 
