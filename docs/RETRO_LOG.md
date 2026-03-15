@@ -102,6 +102,22 @@ ADV-009 and ADV-011 must be resolved or explicitly deferred with justification b
 
 ---
 
+### [2026-03-14] P4-T4.3a — OOM Pre-Flight Guardrail
+
+**Architecture** (FINDING, fixed):
+file-placement PASS — `guardrails.py` in `modules/synthesizer/` correct per ADR-0017 §T4.3a consequences. naming-conventions PASS — `OOMGuardrailError`, `check_memory_feasibility`, `_available_memory`, `_format_bytes`, `_SAFETY_THRESHOLD` all conform. dependency-direction PASS — `guardrails.py` imports only stdlib (`importlib.util`) + `psutil`; zero `synth_engine` imports; import-linter contracts clean. abstraction-level PASS — single-purpose module; OOM check correctly isolated from synthesis logic. interface-contracts PASS — `check_memory_feasibility` fully typed with Args/Returns/Raises docstring; `OOMGuardrailError` message contract documented. adr-compliance FINDING (fixed) — `psutil` added as production dependency without documenting ADR (CLAUDE.md Rule 6 violation); ADR-0018 created (`docs/adr/ADR-0018-psutil-ram-introspection.md`) evaluating three candidates (`resource` stdlib, `/proc/meminfo` direct read, `psutil`), documenting decision, version range, VRAM fallback path, and air-gap bundling implications. Retrospective: Rule 6 (technology substitution requires ADR) continues to be the most commonly missed process gate. PM should add "grep docs/adr/ for any new production dependency" to the pre-GREEN checklist.
+
+**QA** (FINDING, 2 blockers fixed):
+dead-code PASS — `_SAFETY_THRESHOLD` used at guardrails.py line 68; vulture 80% clean. reachable-handlers PASS — `OOMGuardrailError` raise path reachable via `estimated > threshold`. exception-specificity PASS — raises only `OOMGuardrailError` (domain exception) and `ValueError` (input guard). silent-failures PASS — all failure paths raise with human-readable messages. coverage-gate FINDING (fixed) — 86.79% (below 90%) due to shared `.venv` editable install pointing to T4.2a worktree `src/`; profiler files appeared in coverage report at 0%; fixed by `poetry install` in T4.3a branch root; 354 tests, 97.08% coverage after fix. edge-cases FINDING (fixed) — `check_memory_feasibility` lacked guard for non-positive inputs; `ValueError` guards added for `rows≤0`, `columns≤0`, `dtype_bytes≤0`, `overhead_factor≤0.0`; 8 new tests covering zero and negative cases. error-paths, public-api-coverage, meaningful-asserts, docstring-accuracy, backlog-compliance all PASS. Retrospective: shared `.venv` editable install contamination is a recurring pattern (T4.2a and T4.3a both hit it). Each worktree must independently run `poetry install` before any test run — this must be an explicit step in all Phase 4+ software-developer prompts.
+
+**DevOps** (PASS):
+hardcoded-credentials PASS. no-pii-in-code PASS. no-auth-material-in-logs PASS. input-validation PASS — `ValueError` guards added for all non-positive inputs. exception-exposure PASS — `OOMGuardrailError` message contains byte counts only; no PII. bandit PASS — 0 issues. dependency-audit PASS — psutil 7.2.2, no CVEs; ADR-0018 documents air-gap implications. ci-health PASS — `psutil` and `types-psutil` added to `mirrors-mypy` `additional_dependencies` in `.pre-commit-config.yaml`. no-speculative-permissions PASS — `psutil.virtual_memory()` is a read-only OS call. Retrospective: bonus pre-commit hook fix (psutil missing from mypy isolated env) caught a latent CI divergence gap — production imports resolving in Poetry venv but failing in pre-commit's isolated mypy env.
+
+**UI/UX** (SKIP):
+Backend-only diff. Forward: when `OOMGuardrailError` surfaces in Phase 5 synthesis dashboard, UI must present the `reduction_factor` from the error message as a clear remediation hint with `aria-live` announcement; raw exception strings must not be shown to users.
+
+---
+
 ### [2026-03-14] P3.5-T3.5.5 — Advisory Sweep
 
 **Architecture** (PASS, 1 advisory fixed):
