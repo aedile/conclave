@@ -25,10 +25,35 @@ Drain (delete) rows when their target task is completed.
 | ADV-038 | Arch PR #32 | Before pr-reviewer goes live | No ADR documents the governance decision to permit AI-posted GitHub PR approvals. ADR should cover: problem solved, scope of authority (approve yes, merge never), escalation path when gates cannot be evaluated. |
 | ADV-039 | DevOps T4.2b | T5.1 (CLI hardening) | `.env.example` does not document MinIO Docker secrets (`minio_ephemeral_access_key`, `minio_ephemeral_secret_key`) or the synthesizer dependency group. `_MINIO_ENDPOINT` and `_EPHEMERAL_BUCKET` in `bootstrapper/main.py` are hardcoded constants with no environment-variable override path. Document before production deployment. |
 | ADV-040 | DevOps T4.2b | Phase 6 security hardening | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. If artifacts are ever stored externally or shared across trust boundaries, add HMAC integrity verification to `ModelArtifact.load()` before deserialization. |
+| ADV-041 | Arch T4.2c | ADVISORY — T5.1 or next Huey task | `_NullBackend` inline class in `run_synthesis_job` task body is a Rule 8 violation — storage wiring belongs in bootstrapper, not inside the task. `storage_client` parameter in `_run_synthesis_job_impl` is accepted but never called (dead parameter). Extract to bootstrapper or remove until upload is wired. |
+| ADV-042 | Arch T4.2c | ADVISORY — before next shared/ module | No ADR documents Huey singleton pattern (`shared/task_queue.py`), env-var backend selection (HUEY_BACKEND/HUEY_IMMEDIATE), or import-side-effect registration in bootstrapper. `shared/tasks/` (orphan reaper) vs `shared/task_queue.py` naming inconsistency needs unified taxonomy. Create ADR-0019. |
+| ADV-043 | DevOps T4.2c | ADVISORY — T5.1 (SSE endpoint) | `.env.example` missing HUEY_BACKEND, REDIS_URL, HUEY_IMMEDIATE env vars. Document before production deployment. |
+| ADV-044 | DevOps T4.2c | ADVISORY — T5.1 (SSE endpoint) | Raw `RuntimeError` strings from CTGAN/torch stored in `SynthesisJob.error_msg` may expose internal filesystem paths when streamed via T5.1 SSE. Add sanitizer (`safe_error_msg()` helper in `shared/`) before T5.1 ships. |
+| ADV-045 | QA T4.2c | ADVISORY — Phase 5 entry gate | Integration test runner gap: `pyproject.toml` globally disables `pytest_postgresql` via `-p no:pytest_postgresql`. T4.2c integration tests require `-p pytest_postgresql` override. Pre-existing debt across 5+ integration test files. Needs dedicated integration runner or CI matrix fix. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-15] P4-T4.2c — Huey Task Wiring & Checkpointing
+
+**Summary**: Implemented `SynthesisJob` SQLModel, `run_synthesis_job` Huey task with OOM pre-flight, epoch-chunked training with checkpointing, and `shared/task_queue.py` Huey singleton. 32 unit tests pass at 93% coverage. Bootstrapper wiring via import side-effect (Rule 8).
+
+**Architecture** (FINDING — 2 advisories):
+File placement PASS, dependency direction PASS with one finding: `_NullBackend` inline class in task body is a Rule 8 violation — storage wiring belongs in bootstrapper (ADV-041). ADR gap: no ADR documents Huey singleton pattern or env-var backend selection (ADV-042). Naming inconsistency between `shared/tasks/` and `shared/task_queue.py`.
+
+**QA** (FINDING — 1 blocker fixed, 4 advisories):
+Blocker fixed: `checkpoint_every_n=0` causes infinite loop — added `__init__` validator rejecting values < 1. Advisories: dead `storage_client` parameter never called (ADV-041), redundant exception handler fixed (`except (ImportError, OSError)`), misleading test assertion with `or` disjunction, integration test runner gap (ADV-045).
+
+**DevOps** (FINDING — 2 blockers fixed, 2 advisories):
+Blockers fixed: (1) Redis URL with potential auth material logged at INFO — added `_mask_redis_url()` helper; (2) exception specificity tightened. Advisories: `.env.example` missing 3 Huey env vars (ADV-043), raw RuntimeError in error_msg for T5.1 SSE (ADV-044).
+
+**UI/UX** (SKIP): Backend-only change. Forward-looking: T5.1 SSE must sanitize `error_msg` before streaming to operator UI. Zero-epochs error message at `tasks.py:295` is the quality model for all error copy.
+
+**Retrospective**:
+The `_run_synthesis_job_impl` / `run_synthesis_job` split is a strong testability pattern — injectable dependencies without Huey worker overhead. The `checkpoint_every_n=0` blocker echoes the `FeistelFPE rounds=0` pattern from ADV-011: zero-value inputs that produce identity/infinite behavior must be guarded at the model layer, not just at the call site. The `storage_client` dead parameter reveals incomplete delivery — the parameter was designed for MinIO upload wiring that never materialized, creating "theoretical correctness" debt (Rule 8 anti-pattern from Phase 3 retro). Redis URL masking should become a shared utility as more auth-bearing connection URLs are added in Phase 5.
 
 ---
 
