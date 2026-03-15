@@ -48,7 +48,7 @@ _logger = logging.getLogger(__name__)
 try:
     from opacus import PrivacyEngine  # type: ignore[import-untyped]
 except ImportError:  # pragma: no cover — only triggered if synthesizer group absent
-    PrivacyEngine = None  # nosec B604 — Opacus not installed; DP training unavailable
+    PrivacyEngine = None  # Opacus not installed; DP training unavailable
 
 
 class BudgetExhaustionError(Exception):
@@ -136,6 +136,15 @@ class DPTrainingWrapper:
             The DP-wrapped optimizer returned by
             ``PrivacyEngine.make_private()``.  Use this optimizer in the
             training loop instead of the original one.
+
+        Note:
+            Opacus ``PrivacyEngine.make_private()`` internally returns a
+            3-tuple (dp_model, dp_optimizer, dp_dataloader).  This method
+            surfaces only the dp_optimizer to the caller — the DP-wrapped
+            model and dataloader are consumed internally by Opacus to instrument
+            gradient hooks and batch accounting.  Callers do not need to handle
+            the model or dataloader replacements; only the returned optimizer
+            must replace the original in the training loop.
 
         Raises:
             RuntimeError: If this wrapper has already been used to wrap a

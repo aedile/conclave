@@ -161,6 +161,14 @@ def build_synthesis_engine(epochs: int = 300) -> SynthesisEngine:
     return _SynthesisEngine(epochs=epochs)
 
 
+# TODO(T4.3b): Add build_dp_wrapper() factory here.
+# DPTrainingWrapper (modules/privacy/dp_engine.py) must be wired through the
+# bootstrapper before it can be passed to SynthesisEngine.train(dp_wrapper=...).
+# Concrete SDV/Opacus integration is deferred per ADR-0017 risk note —
+# SDV's CTGANSynthesizer.fit() does not expose its optimizer/model/dataloader
+# for Opacus wrapping.  When SDV adds training hooks, wire here.
+
+
 class UnsealRequest(BaseModel):
     """Request body for the /unseal endpoint.
 

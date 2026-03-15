@@ -360,7 +360,7 @@ class TestDPTrainingWrapperCheckBudget:
 
         wrapper = self._make_wrapper_with_epsilon(1.1)
 
-        with pytest.raises(BudgetExhaustionError, match="1.1"):
+        with pytest.raises(BudgetExhaustionError, match=r"1\.1.*1\.0"):
             wrapper.check_budget(allocated_epsilon=1.0, delta=1e-5)  # type: ignore[union-attr]
 
     def test_check_budget_before_wrap_raises_runtime_error(self) -> None:
