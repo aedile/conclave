@@ -30,6 +30,106 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-15] Phase 5 End-of-Phase Retrospective
+
+**Phase:** 5 — Orchestration, UI, & Licensing
+**Tasks completed:** T5.1 (Task Orchestration API), T5.2 (Offline License Activation), T5.3 (Accessible React SPA), T5.4 (Data Synthesis Dashboard), T5.5 (Cryptographic Shredding & Re-Keying)
+**PRs merged:** #42, #43, #44, #45, #46, #47, #48, #49
+**Phase status:** COMPLETE — all 5 tasks delivered, all acceptance criteria verified
+
+#### Exit Criteria Audit
+
+| # | Criterion | Result |
+|---|-----------|--------|
+| 1 | Jobs/Connections/Settings CRUD with cursor pagination, SSE streaming, RFC 7807 | PASS — T5.1 delivered all endpoints; SSE generator uses asyncio.to_thread; RFC7807Middleware wraps all responses |
+| 2 | Offline license activation with RS256 JWT, hardware binding, QR challenge | PASS — T5.2 delivered /license/challenge + /license/activate; LicenseGateMiddleware returns 402; ADR-0022 documents architecture |
+| 3 | WCAG 2.1 AA React SPA with CSP, local fonts, Vault Unseal router | PASS — T5.3 delivered CSPMiddleware, React 18 + Vite 6 scaffold, WCAG-compliant Unseal form; ADR-0023 documents decisions |
+| 4 | Data Synthesis Dashboard with SSE, localStorage rehydration, aria-live | PASS — T5.4 delivered JobDashboard, useSSE hook, AriaLive, ErrorBoundary, RFC7807Toast; 99 Vitest tests |
+| 5 | Cryptographic shredding (KEK zeroization) and ALE key rotation | PASS — T5.5 delivered POST /security/shred + POST /security/keys/rotate; KEK-wrapped key transit through Redis broker |
+| 6 | All review commits present (qa, ui-ux, devops, arch) | PASS — verified in git log; all 5 tasks have all required review commits |
+| 7 | Unit test coverage >= 90% | PASS — Python: 96%+, Frontend: 95%+ (both above 90% threshold) |
+| 8 | Advisory count within Rule 11 ceiling | PASS — 11 open advisories (ceiling is 12) |
+
+#### Acceptance Criteria Cross-Audit (Rule 4)
+
+**T5.1** — All AC met:
+- [x] CRUD for Jobs/Connections/Settings with cursor pagination
+- [x] POST /jobs/{id}/start → 202 Accepted with Huey enqueue
+- [x] GET /jobs/{id}/stream → SSE with progress/complete/error events
+- [x] TypeScript codegen script (datamodel-code-generator) — script present but not wired as automatic build step (acceptable — manual invocation documented)
+
+**T5.2** — All AC met:
+- [x] /license/challenge generates hardware-bound payload with QR code
+- [x] /license/activate accepts RS256 JWT, validates signature + hardware_id
+- [x] LicenseGateMiddleware enforces license validity (402 Payment Required)
+
+**T5.3** — All AC met:
+- [x] React application scaffolded via Vite
+- [x] Strict CSP headers (CSPMiddleware) denying external script/font/style-src
+- [x] Local WOFF2 fonts bundled (download script + .gitkeep)
+- [x] /unseal router guard — 423 redirects to unseal screen
+- [x] Error differentiation: Network Error vs Invalid Passphrase vs Config Error
+
+**T5.4** — All AC met:
+- [x] JobDashboard component displays active jobs
+- [x] EventSource SSE logic consuming progress endpoint
+- [x] aria-live="polite" regions for progress announcements
+- [x] localStorage rehydration of active JobId on page refresh
+- [x] Global error boundary/toast parsing RFC 7807 formats
+
+**T5.5** — All AC met:
+- [x] POST /security/keys/rotate triggers Huey re-encryption task
+- [x] Re-encryption iterates ALE columns, decrypt with old KEK, re-encrypt with new
+- [x] POST /security/shred zeroizes KEK, rendering ciphertext unrecoverable
+
+#### What Went Well
+
+- **Full-stack delivery in a single phase**: Phase 5 is the first phase to span both Python backend and React frontend. The separation was clean — backend tasks (T5.1, T5.2, T5.5) shipped independently of frontend tasks (T5.3, T5.4), with well-defined API contracts bridging them. The discriminated union result pattern in client.ts is exemplary.
+
+- **WCAG 2.1 AA discipline**: Both frontend tasks (T5.3, T5.4) underwent thorough accessibility review. The pattern of axe-core e2e + manual contrast audit + aria-live routing is now established. Every WCAG blocker found in review was fixed before merge.
+
+- **Advisory drain sprint (PR #46)**: Proactive drain of 5 advisories (13→8) before Phase 5 tasks began kept the advisory count manageable. The Rule 11 ceiling of 12 was never breached despite 3 new advisories from T5.3 and 3 from T5.4.
+
+- **Typed exception hierarchies**: T5.3's architecture finding led to VaultEmptyPassphraseError/VaultAlreadyUnsealedError/VaultConfigError replacing fragile string-matching. This pattern is now canonical for domain exception handling.
+
+- **KEK-wrapped key transit**: T5.5's DevOps finding about Fernet keys in the Redis broker led to a KEK-wrapping pattern that is now the standard for cross-process key material.
+
+#### What Did Not Go Well
+
+- **Focus outline contrast blindspot (T5.3 + T5.4)**: The original --color-accent (#6366f1) was chosen for visual appeal, then changed to #4f46e5 after T5.3 review — but #4f46e5 still failed WCAG 1.4.11 Non-text Contrast for focus outlines on dark surfaces (~2.6:1, needs 3:1). T5.4 review caught it and changed to #818cf8 (~5:1). This is a two-pass failure: the fix for one contrast issue introduced another. **Process fix needed**: add a mandatory focus-outline contrast verification step to the UI/UX review checklist, testing against both --color-bg and --color-surface.
+
+- **Playwright e2e tests not in CI (ADV-059)**: Both T5.3 and T5.4 wrote Playwright e2e tests with axe-core, but neither wired them into the CI workflow. The accessibility gate is effectively inert — it only runs when developers remember to run it locally. This must be resolved in Phase 6.
+
+- **Version hallucination recurrence**: T5.3's implementation summary claimed "React 19" when the actual version is React 18.3.1. This is the same pattern as T4.1's pyproject.toml version pins. Despite being documented as a known failure pattern, it recurred.
+
+- **RFC7807Toast co-location (T5.4)**: A reusable component was initially co-located inside ErrorBoundary.tsx, creating a dependency direction violation when Dashboard imported it. This is a planning failure — Rule 7 (intra-module cohesion) should have caught it at plan time. Components with multiple callers should be in their own files from the start.
+
+- **npm audit level regression (PR #48)**: The squash merge of T5.3 (PR #47) included `--audit-level=moderate` which immediately broke CI due to the known esbuild CVE. Required a hotfix PR (#48). The fix commit was on the branch but was pushed after the squash merge was created.
+
+#### Process Changes Triggered
+
+- Focus-outline contrast must be verified against both `--color-bg` and `--color-surface` in every UI/UX review. Added to known failure patterns.
+- EventSource/WebSocket message handlers must wrap JSON.parse in try/catch — React ErrorBoundary does not catch errors in browser event callbacks.
+- Inline `transition:` CSS properties cannot be overridden by stylesheet `@media` rules — must use JS `matchMedia` or CSS classes for prefers-reduced-motion compliance.
+- Components with more than one caller must be in standalone files from plan-approval time (Rule 7 enforcement).
+
+#### Entering Phase 6 — Known Obligations
+
+| ID | Obligation | Gate |
+|----|------------|------|
+| ADV-059 | Wire Playwright e2e tests into CI (axe-core accessibility gate) | Before Phase 6 E2E tasks begin |
+| ADV-021 | EncryptedString integration tests (NULL, empty, unicode) | Phase 6 hardening |
+| ADV-040 | Pickle artifact HMAC verification | Phase 6 hardening |
+| ADV-052 | Alembic migrations for connection/setting tables | Phase 6 hardening |
+| ADV-057 | Strip production source maps | Before any external deployment |
+| ADV-058 | Pin esbuild >=0.25.0 via overrides when vitest 4.x evaluable | Phase 6 hardening |
+| ADV-060 | Extract shared MockEventSource test utility | Phase 6 hardening |
+| ADV-061 | JobCard total_epochs=0 division guard | Phase 6 hardening |
+
+Advisory count entering Phase 6: **11** (ceiling 12). If Phase 6 T6.1 generates more than 1 advisory, a drain sprint will be required before T6.2 can start.
+
+---
+
 ### [2026-03-15] P5-T5.4 — Data Synthesis Dashboard UX
 
 **Summary**: Implemented real-time job monitoring dashboard consuming SSE streams from T5.1 Jobs API.
