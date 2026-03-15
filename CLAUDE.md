@@ -118,6 +118,23 @@ task (e.g., it depends on Phase 4 work), the PM must:
 2. Log it as a BLOCKER advisory (not an informational advisory) in RETRO_LOG.
 3. Make it a Phase-entry gate for the phase that includes the wiring task.
 
+**Rule 9 — Documentation gate: every PR requires a `docs:` commit.**
+Every PR branch MUST contain at least one commit whose message begins with `docs:`. If no documentation changes were made, the commit message MUST be:
+`docs: no documentation changes required — <one-sentence justification>`
+If documentation DID change (README, ADR, RETRO_LOG, agent files, CLAUDE.md, CONSTITUTION.md), the `docs:` commit updates those files. This is enforced by the `docs-gate` CI job which fails the build if no `docs:` commit is found on the branch. The PM is responsible for making this commit as the final commit before pushing.
+
+**Rule 10 — Agent learning gate: PM surfaces RETRO_LOG lessons in every brief.**
+When writing the implementation brief for any `software-developer` subagent, the PM MUST scan `docs/RETRO_LOG.md` — the full Task Reviews section, not just the advisory table — for retrospective notes whose domain matches the current task (e.g., task touches `pyproject.toml` → include the version-pin hallucination finding; task touches tests → include the return-value assertion finding; task touches bootstrapper → include the file-placement finding). These findings are included verbatim in the brief under a **"Known Failure Patterns — Guard Against These"** heading. The agent's first output statement MUST declare which patterns it is guarding against.
+
+**Rule 11 — Advisory drain cadence.**
+Every ADV row in `docs/RETRO_LOG.md` MUST be tagged with one of three severity tiers: `BLOCKER` (must drain before its target task starts — PM cannot approve the target task until this row is resolved), `ADVISORY` (must drain within the same phase as its target task), or `DEFERRED` (explicitly accepted post-launch debt — requires one-sentence written PM justification in the row). Open ADV row count is audited at every phase kickoff and included in the kickoff commit. If open ADV rows exceed **12**, the PM MUST stop new feature work and propose a drain sprint before any new task is approved. The ceiling triggers at >12; drain target before resuming is ≤8.
+
+**Rule 12 — Phase execution authority.**
+Once the user approves a phase plan, the PM has execution authority over all tasks in that phase without per-task human approval. The PM proceeds task-to-task autonomously: implement → review → auto-merge → recontextualize → next task. Mandatory human touchpoints are: (1) phase plan approval at phase start, (2) phase retrospective sign-off at phase end, (3) any PM-raised architectural blocker requiring strategic input outside the phase spec. The PM MUST call `gh pr merge --squash --auto` immediately after `gh pr create` on every PR. This enables GitHub to auto-merge when all required status checks pass.
+
+**Rule 13 — PR review automation.**
+After spawning the four parallel review agents (qa, devops, arch, ui-ux) and after CI is green, the PM MUST spawn the `pr-reviewer` subagent. The pr-reviewer reads the PR diff, verifies all review commits are present, checks CI status via `gh pr checks`, and posts a structured summary comment via `gh pr comment`. If all gates are green, the pr-reviewer posts `gh pr review --approve` to satisfy branch protection, at which point auto-merge fires. The PM does not wait for human approval — the pr-reviewer IS the approval gate.
+
 ---
 
 ## Core Philosophy
