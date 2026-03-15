@@ -65,7 +65,7 @@ def generate(output_path: str) -> None:
     Args:
         output_path: Destination file path for the TypeScript output.
     """
-    print(f"[generate-ts-types] Extracting OpenAPI schema from FastAPI app…")
+    print("[generate-ts-types] Extracting OpenAPI schema from FastAPI app…")
     schema = _get_openapi_schema()
 
     output = Path(output_path)
