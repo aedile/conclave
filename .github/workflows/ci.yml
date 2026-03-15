@@ -325,6 +325,9 @@ jobs:
       - name: Install dependencies
         run: cd frontend && npm ci
 
+      - name: Audit dependencies
+        run: cd frontend && npm audit --audit-level=moderate
+
       - name: Type-check
         run: cd frontend && npm run type-check
 
@@ -348,7 +351,7 @@ jobs:
 
       - name: Run shellcheck
         run: |
-          find scripts/ .claude/hooks/ -name "*.sh" -print0 \
+          find scripts/ frontend/scripts/ .claude/hooks/ -name "*.sh" -print0 \
             | xargs -0 shellcheck --severity=warning
 
   # ---------------------------------------------------------------------------

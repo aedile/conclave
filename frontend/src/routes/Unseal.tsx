@@ -3,12 +3,15 @@
  *
  * WCAG 2.1 AA compliance:
  *   - Form label properly associated with input via htmlFor/id
+ *   - Required field indicated with visible asterisk (aria-hidden) + aria-required
  *   - aria-describedby links the input to its error message region
- *   - aria-live="polite" announces status changes to screen readers
+ *   - aria-live="polite" role="status" announces status changes to screen readers
  *   - Loading state disables submit and shows visible indicator (ADV-019)
+ *   - Spinner is aria-hidden; adjacent text communicates loading state
  *   - Auto-focus on mount for keyboard users
  *   - Minimum 4.5:1 contrast ratio enforced via CSS custom properties
  *   - Visible focus ring on all interactive elements (:focus-visible)
+ *   - prefers-reduced-motion respected via global.css
  *
  * Error differentiation (ADV-018):
  *   - Network error: cannot reach server
@@ -51,9 +54,27 @@ export default function Unseal() {
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
+  // Store timer IDs so they can be cleared on unmount (QA finding — no leak)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
   // Auto-focus the passphrase input on mount for keyboard users
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // Set page title on mount for screen readers and browser history
+  useEffect(() => {
+    document.title = "Unseal Vault — Conclave Engine";
+  }, []);
+
+  // Clear any pending timers on unmount to prevent state updates on
+  // an unmounted component (QA finding — setTimeout never cleaned up)
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== undefined) {
+        clearTimeout(timerRef.current);
+      }
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -69,7 +90,7 @@ export default function Unseal() {
     if (result.ok) {
       setSuccessMessage("Vault unsealed. Redirecting to dashboard…");
       // Brief delay so screen readers announce the success message
-      setTimeout(() => void navigate("/dashboard"), 800);
+      timerRef.current = setTimeout(() => void navigate("/dashboard"), 800);
       return;
     }
 
@@ -91,7 +112,10 @@ export default function Unseal() {
             type: "already_unsealed",
             message: ERROR_MESSAGES.already_unsealed,
           });
-          setTimeout(() => void navigate("/dashboard"), 1200);
+          timerRef.current = setTimeout(
+            () => void navigate("/dashboard"),
+            1200,
+          );
           break;
         case "CONFIG_ERROR":
         default:
@@ -150,6 +174,8 @@ export default function Unseal() {
         {/*
          * aria-live="polite" region — announces status changes to screen readers
          * without interrupting ongoing speech. Wraps both error and success msgs.
+         * The inner error div does NOT carry role="alert" — that would create a
+         * conflicting live-region nest (UI/UX finding — conflicting live-region nesting).
          */}
         <div
           aria-live="polite"
@@ -160,7 +186,6 @@ export default function Unseal() {
           {error && (
             <div
               id="unseal-error"
-              role="alert"
               style={{
                 backgroundColor: "rgba(248, 113, 113, 0.12)",
                 border: "1px solid var(--color-error)",
@@ -204,7 +229,14 @@ export default function Unseal() {
                 marginBottom: "var(--spacing-xs)",
               }}
             >
-              Operator Passphrase
+              Operator Passphrase{" "}
+              {/* Visible required indicator — aria-hidden so SR reads aria-required */}
+              <span
+                aria-hidden="true"
+                style={{ color: "var(--color-error)" }}
+              >
+                *
+              </span>
             </label>
             <input
               ref={inputRef}
@@ -227,7 +259,6 @@ export default function Unseal() {
                 borderRadius: "var(--radius-sm)",
                 color: "var(--color-text-primary)",
                 fontSize: "1rem",
-                outline: "none",
                 transition: "border-color 0.15s ease",
               }}
             />
@@ -243,7 +274,7 @@ export default function Unseal() {
               backgroundColor: isLoading
                 ? "var(--color-border)"
                 : "var(--color-accent)",
-              color: "var(--color-text-primary)",
+              color: "white",
               border: "none",
               borderRadius: "var(--radius-sm)",
               fontSize: "1rem",
@@ -259,16 +290,19 @@ export default function Unseal() {
           >
             {isLoading ? (
               <>
-                {/* Accessible loading spinner */}
+                {/*
+                 * Spinner is decorative — aria-hidden so the adjacent
+                 * "Unsealing…" text communicates state to screen readers
+                 * (UI/UX finding — spinner double-announcement).
+                 */}
                 <span
-                  role="img"
-                  aria-label="Loading"
+                  aria-hidden="true"
                   style={{
                     display: "inline-block",
                     width: "1rem",
                     height: "1rem",
                     border: "2px solid rgba(255,255,255,0.3)",
-                    borderTopColor: "var(--color-text-primary)",
+                    borderTopColor: "white",
                     borderRadius: "50%",
                     animation: "spin 0.8s linear infinite",
                   }}

@@ -70,7 +70,12 @@ from synth_engine.bootstrapper.dependencies.csp import CSPMiddleware
 from synth_engine.bootstrapper.dependencies.licensing import LicenseGateMiddleware
 from synth_engine.bootstrapper.dependencies.vault import SealGateMiddleware
 from synth_engine.modules.mapping import CycleDetectionError
-from synth_engine.shared.security.vault import VaultState
+from synth_engine.shared.security.vault import (
+    VaultAlreadyUnsealedError,
+    VaultConfigError,
+    VaultEmptyPassphraseError,
+    VaultState,
+)
 from synth_engine.shared.telemetry import configure_telemetry
 
 if TYPE_CHECKING:
@@ -367,20 +372,29 @@ def _register_routes(app: FastAPI) -> None:
 
         Returns:
             ``{"status": "unsealed"}`` with HTTP 200 on success.
-            ``{"detail": "<reason>"}`` with HTTP 400 on failure.
+            ``{"error_code": "<code>", "detail": "<reason>"}`` with HTTP 400 on failure.
         """
         try:
             await asyncio.to_thread(VaultState.unseal, body.passphrase)
-        except ValueError as exc:
-            msg = str(exc)
-            if "empty" in msg.lower():
-                code = "EMPTY_PASSPHRASE"
-            elif "already unsealed" in msg.lower():
-                code = "ALREADY_UNSEALED"
-            else:
-                code = "CONFIG_ERROR"
+        except VaultEmptyPassphraseError as exc:
             return JSONResponse(
-                content={"error_code": code, "detail": msg},
+                content={"error_code": "EMPTY_PASSPHRASE", "detail": str(exc)},
+                status_code=400,
+            )
+        except VaultAlreadyUnsealedError as exc:
+            return JSONResponse(
+                content={"error_code": "ALREADY_UNSEALED", "detail": str(exc)},
+                status_code=400,
+            )
+        except VaultConfigError as exc:
+            return JSONResponse(
+                content={"error_code": "CONFIG_ERROR", "detail": str(exc)},
+                status_code=400,
+            )
+        except ValueError as exc:
+            # Fallback for unexpected ValueError subclasses
+            return JSONResponse(
+                content={"error_code": "CONFIG_ERROR", "detail": str(exc)},
                 status_code=400,
             )
 

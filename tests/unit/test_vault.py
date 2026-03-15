@@ -110,25 +110,25 @@ def test_different_passphrase_produces_different_kek(vault_salt_env: str) -> Non
     assert kek1 != kek2
 
 
-def test_missing_vault_salt_raises_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """unseal() raises ValueError when VAULT_SEAL_SALT is not set."""
+def test_missing_vault_salt_raises_vault_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """unseal() raises VaultConfigError when VAULT_SEAL_SALT is not set."""
     monkeypatch.delenv("VAULT_SEAL_SALT", raising=False)
 
-    from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.security.vault import VaultConfigError, VaultState
 
-    with pytest.raises(ValueError, match="VAULT_SEAL_SALT"):
+    with pytest.raises(VaultConfigError, match="VAULT_SEAL_SALT"):
         VaultState.unseal("any-passphrase")  # nosec B105 # pragma: allowlist secret
 
 
-def test_short_vault_salt_raises_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """unseal() raises ValueError when VAULT_SEAL_SALT decodes to fewer than 16 bytes."""
+def test_short_vault_salt_raises_vault_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """unseal() raises VaultConfigError when VAULT_SEAL_SALT decodes to fewer than 16 bytes."""
     # base64url-encode a 4-byte value — too short
     short_salt = base64.urlsafe_b64encode(b"\x00" * 4).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", short_salt)
 
-    from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.security.vault import VaultConfigError, VaultState
 
-    with pytest.raises(ValueError, match="16 bytes"):
+    with pytest.raises(VaultConfigError, match="16 bytes"):
         VaultState.unseal("any-passphrase")  # nosec B105 # pragma: allowlist secret
 
 
@@ -137,21 +137,21 @@ def test_short_vault_salt_raises_value_error(monkeypatch: pytest.MonkeyPatch) ->
 # ---------------------------------------------------------------------------
 
 
-def test_empty_passphrase_raises_value_error(vault_salt_env: str) -> None:
-    """unseal() raises ValueError when passphrase is an empty string."""
-    from synth_engine.shared.security.vault import VaultState
+def test_empty_passphrase_raises_vault_empty_passphrase_error(vault_salt_env: str) -> None:
+    """unseal() raises VaultEmptyPassphraseError when passphrase is an empty string."""
+    from synth_engine.shared.security.vault import VaultEmptyPassphraseError, VaultState
 
-    with pytest.raises(ValueError, match="[Pp]assphrase"):
+    with pytest.raises(VaultEmptyPassphraseError, match="[Pp]assphrase"):
         VaultState.unseal("")  # nosec B105 # pragma: allowlist secret
 
 
-def test_re_unseal_while_unsealed_raises_value_error(vault_salt_env: str) -> None:
-    """unseal() raises ValueError when the vault is already unsealed."""
-    from synth_engine.shared.security.vault import VaultState
+def test_re_unseal_while_unsealed_raises_vault_already_unsealed_error(vault_salt_env: str) -> None:
+    """unseal() raises VaultAlreadyUnsealedError when the vault is already unsealed."""
+    from synth_engine.shared.security.vault import VaultAlreadyUnsealedError, VaultState
 
     VaultState.unseal("first-passphrase")  # nosec B105 # pragma: allowlist secret
 
-    with pytest.raises(ValueError, match="already unsealed"):
+    with pytest.raises(VaultAlreadyUnsealedError, match="already unsealed"):
         VaultState.unseal("second-passphrase")  # nosec B105 # pragma: allowlist secret
 
 

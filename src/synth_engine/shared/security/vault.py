@@ -42,6 +42,30 @@ class VaultSealedError(Exception):
         self.status_code: int = 423
 
 
+class VaultEmptyPassphraseError(ValueError):
+    """Raised when the unseal passphrase is empty.
+
+    Allows the /unseal endpoint to catch this by type rather than by
+    string-matching ValueError messages (Architecture finding P5-T5.3).
+    """
+
+
+class VaultAlreadyUnsealedError(ValueError):
+    """Raised when VaultState.unseal() is called on an already-unsealed vault.
+
+    Allows the /unseal endpoint to catch this by type rather than by
+    string-matching ValueError messages (Architecture finding P5-T5.3).
+    """
+
+
+class VaultConfigError(ValueError):
+    """Raised when VAULT_SEAL_SALT is missing or does not meet the 16-byte minimum.
+
+    Allows the /unseal endpoint to catch this by type rather than by
+    string-matching ValueError messages (Architecture finding P5-T5.3).
+    """
+
+
 def derive_kek(passphrase: str, salt: bytes) -> bytes:
     """Derive a 32-byte Key Encryption Key from *passphrase* and *salt*.
 
@@ -87,27 +111,30 @@ class VaultState:
         in an in-memory ``bytearray``.
 
         This method is idempotent-hostile: calling ``unseal()`` while the
-        vault is already unsealed raises ``ValueError`` to prevent silent
-        KEK rotation.  Call ``seal()`` first if a re-unseal is intended.
+        vault is already unsealed raises ``VaultAlreadyUnsealedError`` to
+        prevent silent KEK rotation.  Call ``seal()`` first if a re-unseal
+        is intended.
 
         Args:
             passphrase: Operator-provided unseal passphrase.
 
         Raises:
-            ValueError: If *passphrase* is empty.
-            ValueError: If the vault is already unsealed (call ``seal()``
-                first to re-unseal).
-            ValueError: If ``VAULT_SEAL_SALT`` is not set or decodes to
-                fewer than 16 bytes.
+            VaultEmptyPassphraseError: If *passphrase* is empty.
+            VaultAlreadyUnsealedError: If the vault is already unsealed
+                (call ``seal()`` first to re-unseal).
+            VaultConfigError: If ``VAULT_SEAL_SALT`` is not set or decodes
+                to fewer than 16 bytes.
         """
         if not passphrase:
-            raise ValueError("Passphrase must not be empty.")
+            raise VaultEmptyPassphraseError("Passphrase must not be empty.")
         if not cls._is_sealed:
-            raise ValueError("Vault is already unsealed. Call seal() before unsealing again.")
+            raise VaultAlreadyUnsealedError(
+                "Vault is already unsealed. Call seal() before unsealing again."
+            )
 
         raw_salt = os.environ.get("VAULT_SEAL_SALT")
         if not raw_salt:
-            raise ValueError(
+            raise VaultConfigError(
                 "VAULT_SEAL_SALT environment variable is not set. "
                 'Generate with: python3 -c "import os, base64; '
                 'print(base64.urlsafe_b64encode(os.urandom(16)).decode())"'
@@ -116,7 +143,7 @@ class VaultState:
         padded = raw_salt + "=="
         salt = base64.urlsafe_b64decode(padded)
         if len(salt) < 16:
-            raise ValueError(
+            raise VaultConfigError(
                 f"VAULT_SEAL_SALT must decode to at least 16 bytes; got {len(salt)} bytes."
             )
 

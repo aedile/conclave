@@ -66,12 +66,14 @@ async def test_unseal_already_unsealed_returns_already_unsealed_code(
     VaultState.unseal() raises ValueError('Vault is already unsealed...')
     The endpoint maps this to error_code='ALREADY_UNSEALED'.
     """
-    from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.security.vault import VaultAlreadyUnsealedError, VaultState
 
     with patch.object(
         VaultState,
         "unseal",
-        side_effect=ValueError("Vault is already unsealed. Call seal() before unsealing again."),
+        side_effect=VaultAlreadyUnsealedError(
+            "Vault is already unsealed. Call seal() before unsealing again."
+        ),
     ):
         async with AsyncClient(
             transport=ASGITransport(app=sealed_app), base_url="http://test"
@@ -94,12 +96,12 @@ async def test_unseal_missing_salt_returns_config_error_code(
     variable is not set. ...') The endpoint maps this to
     error_code='CONFIG_ERROR'.
     """
-    from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.security.vault import VaultConfigError, VaultState
 
     with patch.object(
         VaultState,
         "unseal",
-        side_effect=ValueError(
+        side_effect=VaultConfigError(
             "VAULT_SEAL_SALT environment variable is not set. "
             "Set it to a base64-encoded 16-byte minimum salt."
         ),
@@ -125,12 +127,14 @@ async def test_unseal_short_salt_returns_config_error_code(
     at least 16 bytes; got N bytes.') The endpoint maps this to
     error_code='CONFIG_ERROR'.
     """
-    from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.security.vault import VaultConfigError, VaultState
 
     with patch.object(
         VaultState,
         "unseal",
-        side_effect=ValueError("VAULT_SEAL_SALT must decode to at least 16 bytes; got 8 bytes."),
+        side_effect=VaultConfigError(
+            "VAULT_SEAL_SALT must decode to at least 16 bytes; got 8 bytes."
+        ),
     ):
         async with AsyncClient(
             transport=ASGITransport(app=sealed_app), base_url="http://test"

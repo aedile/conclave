@@ -158,7 +158,9 @@ describe("Unseal component", () => {
     });
   });
 
-  it("shows already-unsealed message on ALREADY_UNSEALED code", async () => {
+  it("shows already-unsealed message and redirects after delay on ALREADY_UNSEALED code", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
     mockPostUnseal.mockResolvedValue({
       ok: false,
       error: {
@@ -167,7 +169,7 @@ describe("Unseal component", () => {
       },
     });
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderUnseal();
 
     await user.type(screen.getByLabelText(/operator passphrase/i), "passphrase");
@@ -176,6 +178,15 @@ describe("Unseal component", () => {
     await waitFor(() => {
       expect(screen.getByText(/vault is already unsealed/i)).toBeInTheDocument();
     });
+
+    // Advance past the 1200ms redirect delay
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith("/dashboard");
+
+    vi.useRealTimers();
   });
 
   it("redirects to dashboard on successful unseal", async () => {
@@ -247,5 +258,10 @@ describe("Unseal component", () => {
 
     const input = screen.getByLabelText(/operator passphrase/i);
     expect(input).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("sets document.title on mount", () => {
+    renderUnseal();
+    expect(document.title).toBe("Unseal Vault — Conclave Engine");
   });
 });

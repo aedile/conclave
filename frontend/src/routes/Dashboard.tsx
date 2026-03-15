@@ -5,7 +5,14 @@
  * Rendered after the vault is successfully unsealed.
  */
 
+import { useEffect } from "react";
+
 export default function Dashboard() {
+  // Set page title on mount so screen readers and browser history reflect the route
+  useEffect(() => {
+    document.title = "Dashboard — Conclave Engine";
+  }, []);
+
   return (
     <main
       style={{
