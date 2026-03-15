@@ -222,7 +222,7 @@ jobs:
       - name: Install dependencies (dev + synthesizer)
         run: poetry install --with dev,synthesizer
       - name: Run synthesizer integration tests
-        run: poetry run pytest tests/integration/test_synthesizer_integration.py -v
+        run: poetry run pytest tests/integration/test_synthesizer_integration.py -v --no-cov
 
   # ---------------------------------------------------------------------------
   # SBOM — generate Software Bill of Materials after tests pass
