@@ -20,15 +20,82 @@ Drain (delete) rows when their target task is completed.
 | ADV-054 | Arch T5.2 | Phase 6 hardening | DEFERRED | `LicenseError.status_code` embeds HTTP semantics in `shared/security/licensing.py`, inconsistent with ADR-0008 framework-boundary pattern. PM justification: pragmatic — only one status code (403) is used, and the pattern matches VaultState's ValueError approach. Revisit if licensing error taxonomy grows. |
 | ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
 | ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
-| ADV-059 | DevOps T5.4 | Phase 6 hardening | ADVISORY | Playwright e2e tests (including axe-core WCAG gate) exist but are not wired into CI. Requires browser binaries and running backend. Add dedicated e2e CI job when Phase 6 E2E infrastructure is established. |
-| ADV-060 | QA T5.4 | Phase 6 hardening | ADVISORY | MockEventSource is copy-pasted between useSSE.test.ts and Dashboard.test.tsx. Extract to shared test utility to prevent drift when mock API changes. |
-| ADV-061 | QA T5.4 | Phase 6 hardening | ADVISORY | JobCard division-by-zero when total_epochs=0 — displayPercent falls back to Math.round with no guard. Currently benign (backend validates total_epochs > 0) but latent defect against non-conforming responses. |
 
 ---
 
 ## Task Reviews
 
 ---
+
+### [2026-03-15] P6-T6.1 — E2E Generative Synthesis Subsystem Tests
+
+**Summary**: Implemented the full E2E test infrastructure for the Generative Synthesis subsystem.
+Deliverables:  (DummyMLSynthesizer — lightweight
+SynthesisEngine stand-in using seeded NumPy RNG), 
+(9 integration tests: 5 Privacy Ledger spend_budget() via aiosqlite, 4 DummyMLSynthesizer
+interface contract),  (9 Playwright E2E tests:
+create-job form, SSE rehydration, aria-live ARIA structure, localStorage lifecycle via COMPLETE
+event, 3 axe-core WCAG 2.1 AA scans, no-external-requests air-gap assertion).
+ADV drains: ADV-059 (Playwright wired into CI), ADV-060 (MockEventSource extracted to shared
+helper), ADV-061 (JobCard safePercent guard + TRAINING badge WCAG colour fix).
+All 9 Playwright E2E tests pass. 669 Python unit tests at 96.04%. 99 Vitest tests at 95.46%.
+All 9 new integration tests pass. Bandit, mypy, ruff, pre-commit all pass.
+
+**QA** (PASS):
+- All 9 Playwright E2E tests pass with documented SSE static fulfillment limitation.
+- 9 integration tests cover spend_budget() Privacy Ledger pathway and DummyMLSynthesizer interface.
+- MockEventSource shared helper (ADV-060) eliminates 60 lines of duplicated test infrastructure.
+- JobCard safePercent guard (ADV-061) prevents aria-valuenow=NaN for total_epochs=0 edge case.
+- Python 96.04% coverage, Frontend 95.46% coverage — both above 90% threshold.
+- SSE static fulfillment limitation documented thoroughly in spec file header.
+
+**UI/UX** (PASS):
+- WCAG colour fix: TRAINING status badge changed from --color-accent (#4f46e5, 2.67:1) to
+  --color-accent-text (#818cf8, ~5:1 on --color-surface) — fixes WCAG 1.4.3 failure for small
+  text (0.75rem / 12px). The --color-accent-text CSS variable formalises the distinction:
+  --color-accent for button backgrounds (white text achieves 6.1:1), --color-accent-text for
+  dark-background text badges.
+- axe-core 0 violations confirmed on: empty Dashboard, TRAINING progress view, COMPLETE view.
+- aria-live=polite region with aria-atomic=true verified to be present and attached in DOM.
+- Progress bar aria-valuenow correctly reflects list-fallback epoch ratio (not undefined/NaN).
+
+**DevOps** (PASS):
+- e2e CI job added with SHA-pinned actions (same SHAs as existing frontend job).
+  checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+  upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02.
+- No backend required in CI — all API calls intercepted by page.route() mocks.
+- Playwright report uploaded as artifact on failure (retention-days: 7).
+- No external network requests verified by E2E test (air-gap assertion).
+- gitleaks: 0 leaks. bandit: 0 findings. No PII, no bypass flags.
+
+**Architecture** (PASS):
+- DummyMLSynthesizer correctly placed in tests/fixtures/ (test infrastructure, not src/).
+- No production code added — all changes are test infrastructure and UI hardening.
+- Privacy Ledger integration tests use aiosqlite (not pytest-postgresql) — justified: these
+  tests verify functional correctness of spend_budget() (epsilon math), not SELECT FOR UPDATE
+  concurrency. The PostgreSQL concurrency path is covered by the existing
+  test_privacy_accountant_integration.py. Two-gate test policy satisfied.
+- ADV-048 (DPTrainingWrapper SDV wiring) unaffected — DummyMLSynthesizer correctly bypasses
+  the DP-SGD pathway and accepts dp_wrapper=None for interface parity.
+
+**Retrospective Notes**:
+- Playwright route.fulfill() static SSE limitation: fulfilling an SSE route with a static body
+  immediately closes the HTTP response. The browser's EventSource fires a generic connection-error
+  event (onerror) which useSSE.ts's error handler intercepts — causing a FAILED state transition.
+  Consequence: tests cannot assert transient TRAINING SSE state. Mitigation strategy established:
+  (a) use TRAINING job in the job list as a display fallback — progress bar persists via list
+  snapshot even after SSE clears activeJobId; (b) use sseEvent(complete) for localStorage
+  lifecycle tests — useSSE calls es.close() explicitly on COMPLETE before onerror fires; (c) use
+  waitForResponse() to verify POST /start was received instead of polling for transient
+  localStorage values that may clear before the poll fires.
+- Transient state polling anti-pattern: polling for a value that is SET then immediately CLEARED
+  by React state updates (sub-100ms cycle) is unreliable. Use waitForResponse or network-request
+  assertions to prove the set happened, then poll only for the final stable state.
+- aria-live announcement text population via async React state (SSE → setState → useEffect →
+  setAnnouncement) is too fast to observe in static-fulfillment E2E tests. Layer test strategy:
+  unit tests prove text population, E2E tests prove DOM structure (region exists, aria-atomic
+  correct). This is the correct separation of concerns.
+
 
 ### [2026-03-15] Phase 5 End-of-Phase Retrospective
 
