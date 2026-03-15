@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Conclave Engine</title>
+
+    <!--
+      Content-Security-Policy meta tag — defence-in-depth.
+      The primary CSP is set by the FastAPI CSPMiddleware (server-side header).
+      This meta tag is a client-side fallback for standalone development.
+      Policy: no external CDN references for scripts, fonts, or stylesheets.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    />
+
+    <!--
+      Local font preloads — WOFF2 files bundled in the repository.
+      No external CDN (no Google Fonts, no Typekit).
+
+      Production deployment: place Inter-Regular.woff2 and Inter-Bold.woff2
+      in frontend/src/assets/fonts/ before running `npm run build`.
+      A download script is provided at frontend/scripts/download-fonts.sh.
+
+      The @font-face CSS is in frontend/src/styles/fonts.css.
+    -->
+    <link
+      rel="preload"
+      href="/src/assets/fonts/Inter-Regular.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/src/assets/fonts/Inter-Bold.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

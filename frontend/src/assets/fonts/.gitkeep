@@ -1,0 +1,4 @@
+# This directory holds WOFF2 font files for air-gapped deployment.
+# Run frontend/scripts/download-fonts.sh to populate it.
+# The downloaded font files (*.woff2) are tracked in git.
+# See: frontend/src/styles/fonts.css for @font-face declarations.
