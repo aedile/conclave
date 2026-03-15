@@ -231,7 +231,7 @@ filterwarnings = [
     # PyTorch 2.10+ emits a UserWarning from full backward hooks registered by
     # Opacus when no input requires gradients. This is an Opacus internal detail
     # that fires through torch.utils.hooks during DP-SGD backward passes.
-    "ignore:Full backward hook is firing when gradients are computed:UserWarning",
+    "ignore:Full backward hook is firing when gradients are computed:UserWarning:torch",
 ]
 
 # ---------------------------------------------------------------------------
