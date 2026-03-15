@@ -20,10 +20,68 @@ Drain (delete) rows when their target task is completed.
 | ADV-054 | Arch T5.2 | Phase 6 hardening | DEFERRED | `LicenseError.status_code` embeds HTTP semantics in `shared/security/licensing.py`, inconsistent with ADR-0008 framework-boundary pattern. PM justification: pragmatic — only one status code (403) is used, and the pattern matches VaultState's ValueError approach. Revisit if licensing error taxonomy grows. |
 | ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
 | ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
+| ADV-059 | DevOps T5.4 | Phase 6 hardening | ADVISORY | Playwright e2e tests (including axe-core WCAG gate) exist but are not wired into CI. Requires browser binaries and running backend. Add dedicated e2e CI job when Phase 6 E2E infrastructure is established. |
+| ADV-060 | QA T5.4 | Phase 6 hardening | ADVISORY | MockEventSource is copy-pasted between useSSE.test.ts and Dashboard.test.tsx. Extract to shared test utility to prevent drift when mock API changes. |
+| ADV-061 | QA T5.4 | Phase 6 hardening | ADVISORY | JobCard division-by-zero when total_epochs=0 — displayPercent falls back to Math.round with no guard. Currently benign (backend validates total_epochs > 0) but latent defect against non-conforming responses. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-15] P5-T5.4 — Data Synthesis Dashboard UX
+
+**Summary**: Implemented real-time job monitoring dashboard consuming SSE streams from T5.1 Jobs API.
+Frontend-only diff (no Python changes). New components: Dashboard.tsx (JobDashboard with job list,
+create form, SSE streaming, localStorage rehydration, cursor pagination), useSSE.ts (EventSource hook
+with typed handlers and cleanup), AriaLive.tsx (separate polite/assertive live regions), RFC7807Toast.tsx
+(extracted generic toast), ErrorBoundary.tsx (class component with persistent fallback), JobCard.tsx
+(accessible progress bar with role="progressbar"). Modified: client.ts (+4 job API functions with
+discriminated unions), App.tsx (ErrorBoundary wrapper), global.css (focus outline contrast fix).
+99 Vitest tests (95.45% coverage), Playwright e2e with axe-core. All quality gates pass.
+
+**Architecture** (FINDING — 2 items, all fixed):
+- RFC7807Toast co-located in ErrorBoundary.tsx but imported by Dashboard — cross-concern coupling.
+  Fixed: extracted to standalone components/RFC7807Toast.tsx (A1).
+- OOM-specific domain heuristic (reduction_factor detection) embedded in generic toast.
+  Fixed: removed from RFC7807Toast (A2).
+- PASS: file-placement, naming-conventions, dependency-direction (post-fix), no-langchain,
+  async-correctness, interface-contracts, model-integrity (TS types match backend Pydantic exactly),
+  adr-compliance (ADR-0023).
+
+**QA** (FINDING — 4 items, all fixed):
+- dead-code: esRef in useSSE.ts assigned but .current never read. Fixed: removed (Q1).
+- silent-failures: parseProblemDetail catch block returned fallback with no logging.
+  Fixed: added console.warn (Q2).
+- error-paths: handleStart, handleCreateJob, handleLoadMore ok:false branches untested.
+  Fixed: 3 new tests added (Q3).
+- docstring-accuracy: RFC7807Toast JSDoc claimed auto-dismiss but component doesn't own timer.
+  Fixed: corrected JSDoc; added 8s auto-dismiss useEffect in Dashboard standalone usage (Q4).
+- Advisory: MockEventSource duplicated across test files (ADV-060); JobCard total_epochs=0
+  division-by-zero (ADV-061).
+
+**UI/UX** (FINDING — 4 blockers, all fixed):
+- BLOCKER: No visible required indicator on 4 form inputs. Fixed: added asterisks with
+  aria-hidden="true" matching Unseal.tsx pattern (U1).
+- BLOCKER: Focus outline #4f46e5 ≈2.6:1 contrast fails WCAG 1.4.11 (3:1 required).
+  Fixed: changed to #818cf8 (indigo-400, ~5:1) in global.css (U2).
+- BLOCKER: Progress bar inline transition not suppressed by prefers-reduced-motion.
+  Fixed: window.matchMedia guard in JobCard.tsx (U3).
+- BLOCKER: ErrorBoundary blank screen after toast auto-dismiss (hasError true, toastVisible false).
+  Fixed: persistent fallback UI with reload button (U4).
+- Advisory: button accent contrast passes 4.5:1 by thin margin (~4.56:1).
+
+**DevOps** (FINDING — 2 blockers + 1 secondary, all fixed):
+- BLOCKER: 3 JSON.parse calls in useSSE.ts SSE handlers had no try/catch — malformed payloads
+  would throw uncaught SyntaxError outside React error boundary. Fixed: wrapped in try/catch,
+  sets FAILED state, closes EventSource (D1).
+- BLOCKER: Playwright e2e tests not wired into CI — axe-core WCAG gate inert.
+  Deferred: comment added; dedicated e2e CI job tracked as ADV-059 (D2).
+- SECONDARY: parseInt NaN guard missing on form submission. Fixed: isNaN check with
+  form validation error (D3).
+- PASS: gitleaks (275 commits, 0 leaks), bandit (0 findings), no auth material in logs,
+  no PII, no bypass flags, no new dependencies.
 
 ---
 
