@@ -98,9 +98,14 @@ repos:
 
   # ---------------------------------------------------------------------------
   # Security scanning — bandit on src/ and scripts/
+  # tests/ is excluded: test-only credentials (e.g. secret_key="somesecret" in
+  # MinioStorageBackend validation tests) trigger B106 false positives that are
+  # not security issues. The standalone `poetry run bandit -r src/` CI gate
+  # covers the same production scope without scanning test fixtures.
   # ---------------------------------------------------------------------------
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.4
     hooks:
       - id: bandit
         args: [-c, pyproject.toml, -r, src/, scripts/]
+        files: ^(src|scripts)/
