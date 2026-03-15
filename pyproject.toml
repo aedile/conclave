@@ -11,6 +11,7 @@ packages = [{ include = "synth_engine", from = "src" }]
 # ---------------------------------------------------------------------------
 [tool.poetry.scripts]
 conclave-subset = "synth_engine.bootstrapper.cli:subset"
+generate-ts-types = "scripts.generate_ts_types:main"
 
 [tool.poetry.dependencies]
 python = "^3.14"
@@ -41,6 +42,7 @@ asyncpg = ">=0.29.0,<1.0.0"
 # does not match "aarch64" for arm64, so greenlet is not auto-installed.
 # Pinning explicitly ensures it is always present regardless of platform.
 greenlet = ">=3.0.0,<4.0.0"
+sse-starlette = ">=2.1.0,<4.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
@@ -70,6 +72,7 @@ aiosqlite = ">=0.19.0,<1.0.0"
 # Install with: poetry install --with dev,integration
 # Requires libpq (PostgreSQL client library) to be present on the host.
 # ---------------------------------------------------------------------------
+datamodel-code-generator = ">=0.50.0,<1.0.0"
 [tool.poetry.group.integration.dependencies]
 pytest-postgresql = "^7.0"
 
@@ -151,6 +154,9 @@ ignore = ["S101"]
 # BLE001: cli.py catches broad Exception intentionally — it is the top-level error
 # boundary for the CLI; tracebacks must never reach the operator.
 "src/synth_engine/bootstrapper/cli.py" = ["BLE001"]
+# BLE001: errors.py catches broad Exception intentionally — it is the RFC 7807
+# catch-all middleware boundary; all exceptions must be captured for sanitized output.
+"src/synth_engine/bootstrapper/errors.py" = ["BLE001"]
 
 # ---------------------------------------------------------------------------
 # Mypy — Strict Type Checking (src/synth_engine only; scripts/ pre-date this)
@@ -228,6 +234,10 @@ filterwarnings = [
     # Opacus when no input requires gradients. This is an Opacus internal detail
     # that fires through torch.utils.hooks during DP-SGD backward passes.
     "ignore:Full backward hook is firing when gradients are computed:UserWarning:torch",
+    # SQLite in-memory databases used in unit test helpers emit ResourceWarning
+    # when the GC collects the engine without explicit dispose(). This is expected
+    # behavior in test contexts where engines are intentionally short-lived.
+    "ignore::ResourceWarning",
 ]
 
 # ---------------------------------------------------------------------------

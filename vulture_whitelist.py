@@ -31,6 +31,26 @@ require_unsealed  # FastAPI dependency (bootstrapper/dependencies/vault.py)
 _cycle_detection_error_handler  # FastAPI exception handler (bootstrapper/main.py)
 health_check  # FastAPI GET /health route (bootstrapper/main.py)
 unseal_vault  # FastAPI POST /unseal route (bootstrapper/main.py)
+list_jobs  # FastAPI GET /jobs route (bootstrapper/routers/jobs.py) — registered via @router decorator
+create_job  # FastAPI POST /jobs route (bootstrapper/routers/jobs.py)
+get_job  # FastAPI GET /jobs/{id} route (bootstrapper/routers/jobs.py)
+start_job  # FastAPI POST /jobs/{id}/start route (bootstrapper/routers/jobs.py)
+stream_job  # FastAPI GET /jobs/{id}/stream route (bootstrapper/routers/jobs.py)
+list_connections  # FastAPI GET /connections route (bootstrapper/routers/connections.py)
+create_connection  # FastAPI POST /connections route (bootstrapper/routers/connections.py)
+get_connection  # FastAPI GET /connections/{id} route (bootstrapper/routers/connections.py)
+delete_connection  # FastAPI DELETE /connections/{id} route (bootstrapper/routers/connections.py)
+list_settings  # FastAPI GET /settings route (bootstrapper/routers/settings.py)
+upsert_setting  # FastAPI PUT /settings/{key} route (bootstrapper/routers/settings.py)
+get_setting  # FastAPI GET /settings/{key} route (bootstrapper/routers/settings.py)
+delete_setting  # FastAPI DELETE /settings/{key} route (bootstrapper/routers/settings.py)
+problem_detail  # Public RFC 7807 helper (bootstrapper/errors.py) — used by routers and tests
+register_error_handlers  # Public error handler registration (bootstrapper/errors.py)
+RFC7807Middleware  # Starlette middleware (bootstrapper/errors.py) — registered at startup
+get_db_session  # FastAPI dependency (bootstrapper/dependencies/db.py) — used in routers
+safe_error_msg  # Public sanitization helper (shared/errors.py) — used by SSE and error handler
+job_event_stream  # Public SSE generator (bootstrapper/sse.py) — used by jobs router
+_uuid_str  # UUID string factory (bootstrapper/schemas/connections.py) — default_factory
 
 # ---------------------------------------------------------------------------
 # ingestion — public adapter API (wired in Phase 4 bootstrapper)

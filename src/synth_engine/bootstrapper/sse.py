@@ -1,0 +1,140 @@
+"""Server-Sent Events (SSE) streaming utilities for the Conclave Engine.
+
+Provides :func:`job_event_stream` — an async generator that polls the
+database for :class:`SynthesisJob` status changes and yields SSE events
+representing real-time training progress to the frontend operator UI.
+
+Event types emitted:
+    - ``progress``: Training in progress.  JSON data includes
+      ``status``, ``current_epoch``, ``total_epochs``, and ``percent``.
+    - ``complete``: Job reached ``COMPLETE`` status.
+    - ``error``: Job reached ``FAILED`` status.  ``detail`` is sanitized
+      via :func:`~synth_engine.shared.errors.safe_error_msg` (ADV-036+044).
+
+Design notes:
+    - SSE is used instead of WebSockets to avoid enterprise firewall
+      interference with WebSocket upgrades (per backlog Context & Constraints).
+    - Polling interval is 1 second — low enough for responsive UX, high
+      enough to avoid overwhelming SQLite/PostgreSQL in development.
+    - The stream terminates when the job reaches a terminal state
+      (``COMPLETE`` or ``FAILED``) or after a configurable timeout.
+
+Task: P5-T5.1 — Task Orchestration API Core
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from collections.abc import AsyncGenerator
+from typing import Any
+
+from synth_engine.shared.errors import safe_error_msg
+
+_logger = logging.getLogger(__name__)
+
+#: Polling interval between database reads (seconds).
+_POLL_INTERVAL_S: float = 1.0
+
+#: Maximum number of poll cycles before the stream times out.
+#: At 1 s/poll, 3600 = 1 hour max stream lifetime.
+_MAX_POLL_CYCLES: int = 3600
+
+#: Terminal job statuses — stream ends when one of these is reached.
+_TERMINAL_STATUSES: frozenset[str] = frozenset({"COMPLETE", "FAILED"})
+
+
+def _build_progress_data(
+    status: str,
+    current_epoch: int,
+    total_epochs: int,
+) -> dict[str, Any]:
+    """Build the SSE data dict for a ``progress`` event.
+
+    Args:
+        status: Current job status string (e.g. ``"TRAINING"``).
+        current_epoch: Most recently completed training epoch.
+        total_epochs: Total epochs requested.
+
+    Returns:
+        Dict with ``status``, ``current_epoch``, ``total_epochs``,
+        and ``percent`` (0-100 integer).
+    """
+    percent = int(current_epoch / total_epochs * 100) if total_epochs > 0 else 0
+    return {
+        "status": status,
+        "current_epoch": current_epoch,
+        "total_epochs": total_epochs,
+        "percent": percent,
+    }
+
+
+async def job_event_stream(
+    job_id: int,
+    session_factory: Any,
+    poll_interval: float = _POLL_INTERVAL_S,
+    max_cycles: int = _MAX_POLL_CYCLES,
+) -> AsyncGenerator[dict[str, Any]]:
+    """Async generator that streams SSE events for a synthesis job.
+
+    Polls the database every ``poll_interval`` seconds and yields SSE event
+    dicts for consumption by ``sse-starlette``'s ``EventSourceResponse``.
+
+    Yields event dicts of the form::
+
+        {"event": "progress", "data": '{"status": "TRAINING", ...}'}
+        {"event": "complete", "data": '{}'}
+        {"event": "error",    "data": '{"detail": "<sanitized msg>"}'}
+
+    Args:
+        job_id: Primary key of the ``SynthesisJob`` to stream.
+        session_factory: Zero-argument callable returning a
+            :class:`sqlmodel.Session` context manager.  Used to poll the DB.
+        poll_interval: Seconds between database polls.  Default: 1.0.
+        max_cycles: Maximum number of poll cycles before timeout.  Default: 3600.
+
+    Yields:
+        SSE event dicts compatible with ``sse-starlette``'s
+        ``EventSourceResponse``.
+    """
+    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+    for _ in range(max_cycles):
+        with session_factory() as session:
+            job: SynthesisJob | None = session.get(SynthesisJob, job_id)
+
+        if job is None:
+            _logger.warning("SSE stream: job %d not found; closing stream.", job_id)
+            return
+
+        if job.status == "COMPLETE":
+            data = _build_progress_data(
+                status=job.status,
+                current_epoch=job.current_epoch,
+                total_epochs=job.total_epochs,
+            )
+            yield {"event": "complete", "data": json.dumps(data)}
+            return
+
+        if job.status == "FAILED":
+            error_detail = safe_error_msg(job.error_msg or "Unknown error")
+            yield {"event": "error", "data": json.dumps({"detail": error_detail})}
+            return
+
+        # Emit progress event for QUEUED or TRAINING states
+        data = _build_progress_data(
+            status=job.status,
+            current_epoch=job.current_epoch,
+            total_epochs=job.total_epochs,
+        )
+        yield {"event": "progress", "data": json.dumps(data)}
+
+        await asyncio.sleep(poll_interval)
+
+    # Timeout: emit a timeout error event
+    _logger.warning("SSE stream: job %d timed out after %d cycles.", job_id, max_cycles)
+    yield {
+        "event": "error",
+        "data": json.dumps({"detail": "Stream timed out waiting for job completion."}),
+    }
