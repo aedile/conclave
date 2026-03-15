@@ -300,6 +300,43 @@ jobs:
           ignore-unfixed: true
           severity: "HIGH,CRITICAL"
 
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Lint, Unit Tests (Vitest, 90% coverage), Build
+  # Runs after security scan. SHA-pinned actions/setup-node@v4.4.0
+  # SHA: 49933ea5288caeca8642d1e84afbd3f7d6820020
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: Frontend (Lint, Test, Build)
+    runs-on: ubuntu-latest
+    needs: security
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Audit dependencies
+        run: cd frontend && npm audit --audit-level=moderate
+
+      - name: Type-check
+        run: cd frontend && npm run type-check
+
+      - name: Run unit tests with coverage
+        run: cd frontend && npm run test:coverage
+
+      - name: Build production bundle
+        run: cd frontend && npm run build
+
   # ---------------------------------------------------------------------------
   # Shell lint — shellcheck on all hook and script .sh files
   # Runs independently — no Python deps required
@@ -314,7 +351,7 @@ jobs:
 
       - name: Run shellcheck
         run: |
-          find scripts/ .claude/hooks/ -name "*.sh" -print0 \
+          find scripts/ frontend/scripts/ .claude/hooks/ -name "*.sh" -print0 \
             | xargs -0 shellcheck --severity=warning
 
   # ---------------------------------------------------------------------------
