@@ -20,6 +20,7 @@ Drain (delete) rows when their target task is completed.
 | ADV-054 | Arch T5.2 | Phase 6 hardening | DEFERRED | `LicenseError.status_code` embeds HTTP semantics in `shared/security/licensing.py`, inconsistent with ADR-0008 framework-boundary pattern. PM justification: pragmatic — only one status code (403) is used, and the pattern matches VaultState's ValueError approach. Revisit if licensing error taxonomy grows. |
 | ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
 | ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
+| ADV-062 | DevOps T6.1 | Phase 6 hardening | ADVISORY | E2E CI job rebuilds frontend from scratch (npm ci + playwright.config.ts webServer runs build+preview). Two full frontend builds per CI run. Introduce build-artifact handoff between frontend and e2e jobs when wall-clock time becomes a concern. |
 
 ---
 
@@ -41,32 +42,34 @@ helper), ADV-061 (JobCard safePercent guard + TRAINING badge WCAG colour fix).
 All 9 Playwright E2E tests pass. 669 Python unit tests at 96.04%. 99 Vitest tests at 95.46%.
 All 9 new integration tests pass. Bandit, mypy, ruff, pre-commit all pass.
 
-**QA** (PASS):
-- All 9 Playwright E2E tests pass with documented SSE static fulfillment limitation.
-- 9 integration tests cover spend_budget() Privacy Ledger pathway and DummyMLSynthesizer interface.
-- MockEventSource shared helper (ADV-060) eliminates 60 lines of duplicated test infrastructure.
-- JobCard safePercent guard (ADV-061) prevents aria-valuenow=NaN for total_epochs=0 edge case.
-- Python 96.04% coverage, Frontend 95.46% coverage — both above 90% threshold.
-- SSE static fulfillment limitation documented thoroughly in spec file header.
+**QA** (FINDING — 2 items, all fixed):
+- safePercent() guard used `=== 0` but docstring claimed "falsy" coverage; didn't guard negative/NaN.
+  Fixed: changed to `if (!totalEpochs || totalEpochs <= 0) return 0;`, docstring corrected (Q1).
+- safePercent() docstring "Treated as 0 if falsy" was factually incorrect for the `=== 0` implementation.
+  Fixed: docstring now accurately describes the guard domain (Q2).
+- Added 21 JobCard unit tests including total_epochs=0 regression assertion.
+- After fixes: 120 Vitest tests, 95.25% coverage; 669 Python unit tests, 96.04% coverage.
+- Advisory: e2e CI rebuilds frontend from scratch — two builds per CI run (ADV-062).
 
-**UI/UX** (PASS):
-- WCAG colour fix: TRAINING status badge changed from --color-accent (#4f46e5, 2.67:1) to
-  --color-accent-text (#818cf8, ~5:1 on --color-surface) — fixes WCAG 1.4.3 failure for small
-  text (0.75rem / 12px). The --color-accent-text CSS variable formalises the distinction:
-  --color-accent for button backgrounds (white text achieves 6.1:1), --color-accent-text for
-  dark-background text badges.
+**UI/UX** (FINDING — 3 items, all fixed):
+- BLOCKER: "Load More" button used --color-accent (#4f46e5) on --color-bg (#0f1117) ≈ 2.5:1 —
+  WCAG 1.4.3 failure. Fixed: changed to --color-accent-text (#818cf8, ~6.3:1) (U1).
+- TRAINING badge contrast verification: independent calculation confirmed #818cf8 on #1a1d27 = 5.64:1
+  — passes WCAG 4.5:1 threshold. Comment updated from "~5:1" to "~5.6:1" for accuracy (U2).
+- Form validation errors not aria-describedby-linked to triggering input. Fixed: added
+  id="form-error" on alert div, formErrorField state tracks which input, aria-describedby
+  conditionally applied to the triggering input (U3).
 - axe-core 0 violations confirmed on: empty Dashboard, TRAINING progress view, COMPLETE view.
 - aria-live=polite region with aria-atomic=true verified to be present and attached in DOM.
-- Progress bar aria-valuenow correctly reflects list-fallback epoch ratio (not undefined/NaN).
 
 **DevOps** (PASS):
 - e2e CI job added with SHA-pinned actions (same SHAs as existing frontend job).
-  checkout@34e114876b0b11c390a56381ad16ebd13914f8d5, setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-  upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02.
+  checkout@34e114876b, setup-node@49933ea528, upload-artifact@ea165f8d65.
 - No backend required in CI — all API calls intercepted by page.route() mocks.
 - Playwright report uploaded as artifact on failure (retention-days: 7).
 - No external network requests verified by E2E test (air-gap assertion).
 - gitleaks: 0 leaks. bandit: 0 findings. No PII, no bypass flags.
+- Advisory: e2e job rebuilds frontend independently — build-artifact handoff recommended (ADV-062).
 
 **Architecture** (PASS):
 - DummyMLSynthesizer correctly placed in tests/fixtures/ (test infrastructure, not src/).
@@ -95,7 +98,19 @@ All 9 new integration tests pass. Bandit, mypy, ruff, pre-commit all pass.
   setAnnouncement) is too fast to observe in static-fulfillment E2E tests. Layer test strategy:
   unit tests prove text population, E2E tests prove DOM structure (region exists, aria-atomic
   correct). This is the correct separation of concerns.
+- Guard docstring overclaim pattern: when a guard is introduced to fix a specific bug (e.g.,
+  division by zero at === 0), docstrings tend to overclaim scope ("falsy") while code
+  underdelivers (only === 0). Pre-merge checklist: "if you added a guard, does the docstring
+  exactly describe the guard's domain — not what you wish the guard covered?"
+- Color token context-shift failure: --color-accent was designed for button backgrounds (white
+  text on #4f46e5 gives 6.1:1). Reusing it as text color on a dark bg gives ~2.5:1. The
+  project now has --color-accent-text (#818cf8) specifically for text-on-dark-surface. New
+  pattern: every color token needs a documented surface context.
+- Form validation aria-describedby is not caught by axe-core when the error div is conditionally
+  rendered and inputs are valid at scan time. Manual review remains necessary for conditional
+  validation paths.
 
+---
 
 ### [2026-03-15] Phase 5 End-of-Phase Retrospective
 
