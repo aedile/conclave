@@ -15,7 +15,8 @@
   --color-border: #2a2d3a;
   --color-text-primary: #e8eaf0;   /* contrast: ~14:1 on bg */
   --color-text-secondary: #9ca3af; /* contrast: ~5.9:1 on bg */
-  --color-accent: #4f46e5;         /* indigo-600: ~4.6:1 contrast with white text on dark bg */
+  --color-accent: #4f46e5;         /* indigo-600: used for buttons/backgrounds (white text on top) */
+  --color-accent-text: #818cf8;    /* indigo-400: ~5:1 on surface — use for accent text/badges on dark bg */
   --color-accent-hover: #6366f1;   /* indigo-500 */
   --color-error: #f87171;          /* red-400, contrast: ~4.8:1 on bg */
   --color-warning: #fbbf24;        /* amber-400 */

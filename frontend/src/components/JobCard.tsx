@@ -9,6 +9,12 @@
  * progress bar has required ARIA attributes, status badges use semantic colours.
  * prefers-reduced-motion is respected via window.matchMedia so that inline
  * styles do not override the @media CSS block.
+ *
+ * ADV-061 fix: totalEpochs guard prevents division-by-zero when total_epochs=0.
+ *
+ * WCAG colour fix: TRAINING status badge uses --color-accent-text (#818cf8,
+ * indigo-400, ~5:1 on --color-surface) instead of --color-accent (#4f46e5,
+ * indigo-600, ~2.6:1 on --color-surface which fails WCAG 1.4.3 for small text).
  */
 
 import type { JobResponse } from "../api/client";
@@ -31,11 +37,19 @@ interface JobCardProps {
 
 // ---------------------------------------------------------------------------
 // Status badge colours — mapped to CSS custom properties
+//
+// WCAG note: Status badge text is rendered at 0.75rem (12px) uppercase on
+// --color-surface (#1a1d27). WCAG 1.4.3 requires 4.5:1 contrast for small text.
+//   QUEUED:   --color-text-secondary (#9ca3af) ~5.9:1 on --color-surface  ✓
+//   TRAINING: --color-accent-text (#818cf8)    ~5:1 on --color-surface     ✓
+//             (NOT --color-accent #4f46e5 which is only ~2.6:1 — fails AA)
+//   COMPLETE: --color-success (#34d399)        ~8.4:1 on --color-surface  ✓
+//   FAILED:   --color-error (#f87171)          ~5.8:1 on --color-surface  ✓
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<string, string> = {
   QUEUED: "var(--color-text-secondary)",
-  TRAINING: "var(--color-accent)",
+  TRAINING: "var(--color-accent-text)",
   COMPLETE: "var(--color-success)",
   FAILED: "var(--color-error)",
 };
@@ -56,6 +70,26 @@ function checkPrefersReducedMotion(): boolean {
     return false;
   }
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Calculate a progress percentage safely, guarding against division by zero.
+ *
+ * ADV-061: When total_epochs is 0 (job created with total_epochs=0, which is
+ * an edge case that should be prevented by the API but may reach the UI),
+ * return 0 instead of NaN to keep the progressbar aria-valuenow valid.
+ *
+ * @param currentEpoch - The current epoch count.
+ * @param totalEpochs - The total epoch count. Treated as 0 if falsy.
+ * @returns Integer percentage in [0, 100], or 0 if totalEpochs is 0.
+ */
+function safePercent(currentEpoch: number, totalEpochs: number): number {
+  if (totalEpochs === 0) return 0;
+  return Math.round((currentEpoch / totalEpochs) * 100);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,9 +123,11 @@ export default function JobCard({
   const displayTotal = isStreaming
     ? (sseState.totalEpochs ?? job.total_epochs)
     : job.total_epochs;
+
+  // ADV-061: use safePercent to guard against total_epochs=0 (division-by-zero)
   const displayPercent = isStreaming
-    ? (sseState.percent ?? Math.round((job.current_epoch / job.total_epochs) * 100))
-    : Math.round((job.current_epoch / job.total_epochs) * 100);
+    ? (sseState.percent ?? safePercent(job.current_epoch, job.total_epochs))
+    : safePercent(job.current_epoch, job.total_epochs);
 
   const statusColor = STATUS_COLORS[displayStatus] ?? "var(--color-text-secondary)";
 
