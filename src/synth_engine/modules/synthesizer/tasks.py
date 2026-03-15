@@ -107,7 +107,7 @@ def _get_parquet_dimensions(parquet_path: str) -> tuple[int, int]:
         be read.
     """
     try:
-        import pyarrow.parquet as pq  # type: ignore[import-not-found, unused-ignore]  # optional dep: absent when synthesizer group not installed
+        import pyarrow.parquet as pq  # type: ignore[import-untyped]  # optional dep: absent without synthesizer group; no py.typed marker
 
         meta = pq.read_metadata(parquet_path)
         rows = meta.num_rows

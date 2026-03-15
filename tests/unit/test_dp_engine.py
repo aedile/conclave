@@ -328,7 +328,10 @@ class TestDPTrainingWrapperCheckBudget:
             wrapper.check_budget(allocated_epsilon=1.0, delta=1e-5)  # type: ignore[union-attr]
 
     def test_check_budget_raises_when_epsilon_equals_allocated(self) -> None:
-        """check_budget must raise BudgetExhaustionError when epsilon_spent==allocated (boundary)."""
+        """check_budget must raise BudgetExhaustionError when epsilon_spent==allocated.
+
+        Boundary condition: epsilon_spent exactly equals allocated_epsilon.
+        """
         from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
 
         wrapper = self._make_wrapper_with_epsilon(1.0)

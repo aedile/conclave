@@ -510,8 +510,6 @@ class TestModelArtifactPickleFormat:
             assert isinstance(loaded, ModelArtifact)
 
 
-
-
 class TestSynthesisEngineWithDPWrapper:
     """Unit tests for SynthesisEngine.train() with optional dp_wrapper parameter.
 

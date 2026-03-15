@@ -203,6 +203,8 @@ class SynthesisEngine:
         self,
         table_name: str,
         parquet_path: str,
+        *,
+        dp_wrapper: Any = None,
     ) -> ModelArtifact:
         """Train a CTGANSynthesizer on the Parquet file at ``parquet_path``.
 
@@ -216,11 +218,29 @@ class SynthesisEngine:
         the tabular distribution.  No special treatment is needed during
         training; FK post-processing happens post-generation.
 
+        DP wrapper note (T4.3b — ADR-0017 risk):
+            When ``dp_wrapper`` is provided, this method logs an advisory
+            indicating that DP wrapping is requested.  SDV's internal
+            ``CTGANSynthesizer.fit()`` does not expose its optimizer, model,
+            or DataLoader as public arguments — Opacus's ``make_private()``
+            cannot be applied to SDV's internal loop without accessing private
+            CTGAN attributes or replacing SDV's training loop.  The concrete
+            wiring is deferred to a future task (see ADR-0017 risk section).
+            The ``dp_wrapper`` parameter is accepted here so the
+            ``SynthesisEngine`` public API is stable and the bootstrapper can
+            pass the wrapper without breaking callers.
+
         Args:
             table_name: Logical name of the source table (stored in the
                 artifact for logging and identification).
             parquet_path: Absolute path to the Parquet file written by the
                 subsetting/ingestion pipeline.
+            dp_wrapper: Optional :class:`~synth_engine.modules.privacy.dp_engine.DPTrainingWrapper`
+                instance.  Typed as ``Any`` to avoid import-linter boundary
+                violations between ``modules/synthesizer`` and
+                ``modules/privacy``.  When provided, an advisory is logged
+                explaining that SDV's internal training loop does not expose
+                wrapping hooks.  Default: ``None`` (no DP wrapping).
 
         Returns:
             A :class:`ModelArtifact` containing the trained model, table name,
@@ -243,6 +263,16 @@ class SynthesisEngine:
             raise ImportError(
                 "The 'sdv' package is required for synthesis. "
                 "Install it with: poetry install --with synthesizer"
+            )
+
+        if dp_wrapper is not None:
+            _logger.warning(
+                "dp_wrapper provided for table '%s' but SDV's CTGANSynthesizer.fit() "
+                "does not expose its optimizer or DataLoader for Opacus wrapping. "
+                "dp_wrapper API is ready; concrete SDV integration deferred per ADR-0017 "
+                "risk note (Opacus compatibility with CTGAN internals). "
+                "Training will proceed WITHOUT DP-SGD for this run.",
+                table_name,
             )
 
         _logger.info("Loading Parquet for table '%s' from %s", table_name, parquet_path)
