@@ -45,6 +45,20 @@ repos:
   # src/synth_engine/ so that the mirrors-mypy isolated environment can resolve
   # types.  Pin versions to match pyproject.toml production dependencies.
   # Update this list whenever a new production dependency is added.
+  #
+  # T4.1 additions:
+  #   torch>=2.5.0       — ships py.typed; required for torch.cuda.is_available
+  #                        type coverage in synthesizer/storage.py.
+  #                        Corrected from >=2.10.0 (non-existent) to >=2.5.0.
+  #   pandas>=2.2.0      — module-level import in synthesizer/storage.py
+  #   pandas-stubs       — type stubs for pandas DataFrame parameters
+  #   pyarrow>=22.0.0    — Parquet engine; imported indirectly via pandas.
+  #                        Updated from >=17.0.0: 22.0.0 is the first release
+  #                        with cp314 manylinux wheels; earlier releases have no
+  #                        Python 3.14 wheel and cause CI source-build failures.
+  #   boto3>=1.35.0      — S3 client in MinioStorageBackend (deferred import)
+  #   boto3-stubs        — type stubs for boto3 client
+  #   botocore-stubs     — type stubs for botocore.exceptions (deferred import)
   # ---------------------------------------------------------------------------
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.19.1
@@ -74,13 +88,24 @@ repos:
           - numpy>=1.22.0
           - psutil>=5.9.0
           - types-psutil
+          # T4.1 synthesizer dependencies (corrected version constraints)
+          - torch>=2.5.0
+          - pyarrow>=22.0.0
+          - boto3>=1.35.0
+          - boto3-stubs
+          - botocore-stubs
         files: ^src/
 
   # ---------------------------------------------------------------------------
   # Security scanning — bandit on src/ and scripts/
+  # tests/ is excluded: test-only credentials (e.g. secret_key="somesecret" in
+  # MinioStorageBackend validation tests) trigger B106 false positives that are
+  # not security issues. The standalone `poetry run bandit -r src/` CI gate
+  # covers the same production scope without scanning test fixtures.
   # ---------------------------------------------------------------------------
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.4
     hooks:
       - id: bandit
         args: [-c, pyproject.toml, -r, src/, scripts/]
+        files: ^(src|scripts)/

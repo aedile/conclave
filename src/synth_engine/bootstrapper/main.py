@@ -186,6 +186,14 @@ def _register_routes(app: FastAPI) -> None:
         return JSONResponse(content={"status": "unsealed"})
 
 
+# ---------------------------------------------------------------------------
+# TODO(T4.2b): Wire EphemeralStorageClient with MinioStorageBackend into the
+# synthesis job entry point once the SynthesisEngine is implemented.
+# MinioStorageBackend credentials come from Docker secrets (minio_ephemeral_access_key,
+# minio_ephemeral_secret_key) mounted at /run/secrets/ at runtime.
+# EphemeralStorageClient is defined in modules/synthesizer/storage.py.
+# ---------------------------------------------------------------------------
+
 #: Module-level application instance for use by uvicorn.
 #: ``uvicorn synth_engine.bootstrapper.main:app`` picks up this singleton.
 app = create_app()

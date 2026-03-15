@@ -49,8 +49,12 @@ import-linter = "^2.3"
 pre-commit = "^4.2"
 cyclonedx-bom = "^5.1"
 detect-secrets = "^1.5"
-pandas-stubs = ">=2.2.0,<3.0.0"
+# Type stubs for synthesizer module dependencies (T4.1)
+# boto3-stubs provides mypy coverage for the MinioStorageBackend;
+# pandas-stubs covers EphemeralStorageClient DataFrame parameters.
+pandas-stubs = ">=2.2.0,<4.0.0"
 types-psutil = ">=5.9.0,<8.0.0"
+boto3-stubs = ">=1.35.0,<2.0.0"
 
 # ---------------------------------------------------------------------------
 # Integration group — NOT included by default; wired in Task 2.2
@@ -59,6 +63,30 @@ types-psutil = ">=5.9.0,<8.0.0"
 # ---------------------------------------------------------------------------
 [tool.poetry.group.integration.dependencies]
 pytest-postgresql = "^7.0"
+
+# ---------------------------------------------------------------------------
+# Synthesizer group — T4.1 (GPU Passthrough & Ephemeral Storage)
+# Install with: poetry install --with dev,synthesizer
+#
+# Rationale for each dependency:
+#   torch    — GPU/CPU device detection via torch.cuda.is_available(); CTGAN/TVAE
+#              training backend (ADR-0017). FORCE_CPU=true provides CI fallback.
+#              Corrected from >=2.10.0 (non-existent) to >=2.5.0 (T4.1 fix).
+#   pyarrow  — Parquet serialisation engine used by pandas.to_parquet() /
+#              pd.read_parquet(). Preferred over fastparquet for broader type
+#              coverage and NumPy 2.x compatibility.
+#              Updated to >=22.0.0 — first release with cp314 manylinux wheels;
+#              19.0.1 had no Python 3.14 wheel causing CI source-build failures.
+#   boto3    — S3-compatible client for the concrete MinIO backend
+#              (EphemeralStorageClient's MinioStorageBackend). Unit tests use
+#              InMemoryBackend and never instantiate this class.
+# Note: pandas is in [tool.poetry.dependencies] (main group); removed from
+# synthesizer group to avoid redundancy (T4.1 fix).
+# ---------------------------------------------------------------------------
+[tool.poetry.group.synthesizer.dependencies]
+torch = {version = ">=2.5.0,<3.0.0", python = ">=3.14,<3.15"}
+pyarrow = ">=22.0.0,<24.0.0"
+boto3 = ">=1.35.0,<2.0.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -79,9 +107,10 @@ ignore = ["S101"]
 [tool.ruff.lint.per-file-ignores]
 # S101: assert — allowed in tests and scripts
 # S105: hardcoded-password-string — test-only credentials, not real secrets
+# S106: hardcoded-password-in-argument — secret_key/access_key in unit tests are test-only
 # S108: insecure /tmp usage — mocked paths in unit tests are not real filesystem calls
 # RUF002: ambiguous unicode in docstrings — pre-existing test docstrings use EN DASH notation
-"tests/**" = ["S101", "S105", "S108", "RUF002"]
+"tests/**" = ["S101", "S105", "S106", "S108", "RUF002"]
 # S603/S607: subprocess without shell=True / partial path — pre-existing scripts
 # UP006/UP035: typing.List is deprecated — scripts pre-date pyproject.toml; modernise in Task 2.x
 "scripts/**" = ["S603", "S607", "UP006", "UP035"]
@@ -143,14 +172,16 @@ filterwarnings = [
     "error",
     # pytest-asyncio 0.26.x uses asyncio.get/set_event_loop_policy internally.
     # These APIs are deprecated in Python 3.14 for removal in 3.16.  The calls
-    # live entirely inside the pytest-asyncio plugin; we cannot fix them.
-    # Suppression is scoped tightly to the pytest_asyncio.plugin module.
-    "ignore:'asyncio.get_event_loop_policy' is deprecated:DeprecationWarning:pytest_asyncio",
-    "ignore:'asyncio.set_event_loop_policy' is deprecated:DeprecationWarning:pytest_asyncio",
+    # live inside the pytest-asyncio plugin; we cannot fix them.
+    # Note: Python's warnings._deprecated() uses stacklevel=3, so the warning
+    # is attributed to the asyncio stdlib module (not pytest_asyncio.plugin).
+    # The filter omits the module scope to match regardless of reported origin.
+    "ignore:'asyncio.get_event_loop_policy' is deprecated:DeprecationWarning",
+    "ignore:'asyncio.set_event_loop_policy' is deprecated:DeprecationWarning",
     # chromadb 1.5.x uses asyncio.iscoroutinefunction (deprecated in 3.14 for
     # removal in 3.16; the fix is inspect.iscoroutinefunction).  Scoped to the
     # chromadb telemetry sub-package; we cannot change third-party code.
-    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:chromadb",
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
 ]
 
 # ---------------------------------------------------------------------------

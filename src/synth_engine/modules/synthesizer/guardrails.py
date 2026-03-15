@@ -74,7 +74,7 @@ def _available_memory() -> int:
     """
     # Attempt VRAM path only when torch is installed.
     if importlib.util.find_spec("torch") is not None:
-        import torch  # type: ignore[import-not-found]  # optional dependency
+        import torch  # type: ignore[import-not-found, unused-ignore]  # optional dep: absent when synthesizer group not installed
 
         if torch.cuda.is_available():
             # Reserved memory accounts for the CUDA context already allocated.
