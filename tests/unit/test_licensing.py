@@ -12,6 +12,9 @@ Tests cover:
 - /license/activate endpoint — valid JWT → 200; bad JWT → 403
 - Modified JWT hardware_id claim → rejected (backlog verbatim)
 - Modified JWT signature → rejected (backlog verbatim)
+- LicenseGateMiddleware — 402 returned for non-exempt routes when unlicensed
+- LICENSE_PUBLIC_KEY env var override — activate endpoint uses env key
+- LicenseChallengeResponse.alt_text field — accessibility field present
 
 CONSTITUTION Priority 3: TDD
 Task: P5-T5.2 — Offline License Activation Protocol
@@ -329,18 +332,60 @@ def test_verify_license_jwt_rejects_expired_token(rsa_keypair: tuple[str, str]) 
 
 
 # ---------------------------------------------------------------------------
-# LicenseGateMiddleware tests
+# LicenseGateMiddleware tests — B1 fix: real HTTP assertions
 # ---------------------------------------------------------------------------
 
 
-def test_license_gate_middleware_blocks_unlicensed_routes() -> None:
-    """Unlicensed requests to non-exempt routes return 402."""
+@pytest.mark.asyncio
+async def test_license_gate_middleware_returns_402_for_unlicensed_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LicenseGateMiddleware returns 402 for non-exempt routes when unlicensed.
+
+    Vault is patched to return unsealed so that SealGateMiddleware passes,
+    isolating the 402 behavior of LicenseGateMiddleware.
+    """
+    import base64
+    import os
+
+    from synth_engine.bootstrapper.main import create_app
+    from synth_engine.shared.security.licensing import LicenseState
+    from synth_engine.shared.security.vault import VaultState
+
+    # Unseal the vault so the seal gate passes
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+    VaultState.unseal("any-passphrase-for-test")
+
+    assert LicenseState.is_licensed() is False
+
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/connections")
+
+    # Vault is unsealed → SealGateMiddleware passes; LicenseGateMiddleware fires → 402
+    assert response.status_code == 402
+    body = response.json()
+    # RFC 7807 format required (B6 fix)
+    assert body["status"] == 402
+    assert "title" in body
+    assert "detail" in body
+    assert "type" in body
+
+    # Restore vault state
+    VaultState.seal()
+
+
+@pytest.mark.asyncio
+async def test_license_gate_middleware_class_is_importable() -> None:
+    """LicenseGateMiddleware is importable and is a middleware class."""
+    from starlette.middleware.base import BaseHTTPMiddleware
+
     from synth_engine.bootstrapper.dependencies.licensing import LicenseGateMiddleware
     from synth_engine.shared.security.licensing import LicenseState
 
     assert LicenseState.is_licensed() is False
-    # Middleware class itself must be importable and have the expected name
-    assert LicenseGateMiddleware.__name__ == "LicenseGateMiddleware"
+    assert issubclass(LicenseGateMiddleware, BaseHTTPMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +424,24 @@ async def test_challenge_endpoint_includes_qr_code() -> None:
     # Must be a non-empty string
     assert isinstance(body["qr_code"], str)
     assert len(body["qr_code"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_challenge_endpoint_includes_alt_text() -> None:
+    """GET /license/challenge returns an alt_text field for accessibility (WCAG 2.1 AA)."""
+    from synth_engine.bootstrapper.main import create_app
+
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/license/challenge")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "alt_text" in body
+    assert isinstance(body["alt_text"], str)
+    assert len(body["alt_text"]) > 0
+    # alt_text must reference the hardware_id prefix for identification
+    assert body["hardware_id"][:8] in body["alt_text"]
 
 
 @pytest.mark.asyncio
@@ -560,13 +623,70 @@ async def test_activate_endpoint_response_body_on_success(
 
 
 # ---------------------------------------------------------------------------
+# LICENSE_PUBLIC_KEY env var override test — B9 fix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_activate_endpoint_uses_license_public_key_env_var(
+    rsa_keypair: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /license/activate uses LICENSE_PUBLIC_KEY env var when set.
+
+    This test covers the env var return path in get_active_public_key()
+    (shared/security/licensing.py line that returns env_key when present).
+    """
+    from synth_engine.bootstrapper.main import create_app
+    from synth_engine.shared.security.licensing import LicenseState, get_hardware_id
+
+    private_pem, public_pem = rsa_keypair
+    hw_id = get_hardware_id()
+    token = _make_license_jwt(private_pem, hw_id)
+
+    # Set LICENSE_PUBLIC_KEY env var — this is the path under test (B9)
+    monkeypatch.setenv("LICENSE_PUBLIC_KEY", public_pem)
+
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/license/activate", json={"token": token})
+
+    assert response.status_code == 200
+    assert LicenseState.is_licensed() is True
+
+
+def test_get_active_public_key_returns_env_var_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_active_public_key() returns the env var value when LICENSE_PUBLIC_KEY is set."""
+    from synth_engine.shared.security.licensing import get_active_public_key
+
+    fake_key = "-----BEGIN PUBLIC KEY-----\nFAKE\n-----END PUBLIC KEY-----\n"
+    monkeypatch.setenv("LICENSE_PUBLIC_KEY", fake_key)
+    result = get_active_public_key()
+    assert result == fake_key
+
+
+def test_get_active_public_key_falls_back_to_embedded_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_active_public_key() returns the embedded key when LICENSE_PUBLIC_KEY is not set."""
+    import synth_engine.shared.security.licensing as lic_mod
+    from synth_engine.shared.security.licensing import get_active_public_key
+
+    monkeypatch.delenv("LICENSE_PUBLIC_KEY", raising=False)
+    result = get_active_public_key()
+    assert result == lic_mod._EMBEDDED_PUBLIC_KEY
+
+
+# ---------------------------------------------------------------------------
 # LicenseGateMiddleware integration tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_license_gate_blocks_protected_route_when_unlicensed() -> None:
-    """A non-exempt route returns 402 when the software is not licensed."""
+    """A non-exempt route returns 423 when vault is sealed (seal fires first)."""
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.shared.security.licensing import LicenseState
     from synth_engine.shared.security.vault import VaultState

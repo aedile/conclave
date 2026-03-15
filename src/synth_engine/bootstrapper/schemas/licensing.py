@@ -20,6 +20,8 @@ class LicenseChallengeResponse(BaseModel):
         timestamp: ISO-8601 UTC timestamp of when the challenge was generated.
         qr_code: Base64-encoded PNG of the challenge QR code, or a plain-text
             fallback if Pillow / qrcode rendering is unavailable.
+        alt_text: Accessibility description of the QR code for screen readers
+            and other assistive technology (WCAG 2.1 AA).
     """
 
     hardware_id: str = Field(..., description="SHA-256 hardware identifier for this machine.")
@@ -31,6 +33,10 @@ class LicenseChallengeResponse(BaseModel):
             "Base64-encoded PNG QR code of the challenge payload, "
             "or a plain-text fallback if image rendering is unavailable."
         ),
+    )
+    alt_text: str = Field(
+        ...,
+        description=("Accessibility description of the QR code content for screen readers."),
     )
 
 

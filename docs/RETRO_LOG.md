@@ -21,10 +21,49 @@ Drain (delete) rows when their target task is completed.
 | ADV-050 | Arch T4.4 | Phase 6 hardening | DEFERRED | `Float` column type for `total_allocated_epsilon`/`total_spent_epsilon` in `PrivacyLedger`. Floating-point accumulation across many small additions introduces budget drift. PM justification: at current scale (1–10 epsilon range, tens of jobs) float64 drift is sub-microsecond. Revisit if sub-0.01 epsilon granularity or high-concurrency workloads become a product requirement. |
 | ADV-051 | Arch T5.1 | Before T5.4 (Dashboard) | ADVISORY | Two architectural decisions lack ADRs: (1) SSE over WebSockets selection — inline comment in sse.py is not a decision record; (2) API-layer-owned SQLModel tables in bootstrapper/schemas/ vs domain-owned tables in modules/ — new pattern, no documented rule. Create ADR-0021 covering both decisions before the next task adds tables or streaming protocols. |
 | ADV-052 | DevOps T5.1 | Before T5.3 deployment | ADVISORY | No Alembic migration for `connection` and `setting` tables added in T5.1. Tests bypass via `SQLModel.metadata.create_all()`. Production environments using Alembic will encounter missing tables. Create `002_add_connection_setting_tables.py` migration. |
+| ADV-053 | UI/UX T5.2 | T5.4 (Dashboard) | ADVISORY | POST /license/activate performs synchronous RSA JWT verification — UI calling this endpoint must show a loading/disabled state from submission until response. No API change needed; dashboard implementation brief must include this requirement. |
+| ADV-054 | Arch T5.2 | Phase 6 hardening | DEFERRED | `LicenseError.status_code` embeds HTTP semantics in `shared/security/licensing.py`, inconsistent with ADR-0008 framework-boundary pattern. PM justification: pragmatic — only one status code (403) is used, and the pattern matches VaultState's ValueError approach. Revisit if licensing error taxonomy grows. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-15] P5-T5.2 — Offline License Activation Protocol
+
+**Summary**: Implemented RS256 JWT-based offline license activation with hardware-bound
+challenge/response, QR code generation, LicenseGateMiddleware (HTTP 402), and thread-safe
+LicenseState singleton. 19 files changed, +2113 lines. 625 unit tests, 95.90% coverage.
+New deps: qrcode[pil], pillow. ADR-0022 created.
+
+**Architecture** (FINDING — 2 blockers, 3 advisories fixed):
+- Route handlers in system.py were sync def (inconsistent with codebase). Fixed: converted to async def, Pillow rendering wrapped in asyncio.to_thread().
+- No ADR existed for the license activation architecture. Fixed: ADR-0022 created covering hardware binding, RS256 trust model, singleton lifecycle, middleware ordering, key deployment.
+- system.py renamed to licensing.py for domain consistency with sibling routers.
+- _get_active_public_key() was private but imported across boundary. Fixed: made public, key resolution collapsed into verify_license_jwt().
+- LicenseError.status_code embeds HTTP semantics in shared/ — noted as advisory, pragmatic divergence from ADR-0008.
+
+**QA** (FINDING — 2 blockers, 3 advisories fixed):
+- 402 branch of LicenseGateMiddleware.dispatch() never hit by any test; rubber-stamp assertion only checked class name. Fixed: real HTTP-level 402 test added with vault unsealed.
+- _render_qr_code() swallowed exceptions without logging exc object. Fixed: bound exception with `as exc`, logged in warning.
+- LICENSE_PUBLIC_KEY env var override path was untested. Fixed: monkeypatch.setenv tests added.
+- get_hardware_id() docstring updated with container instability warning.
+
+**UI/UX** (FINDING — 2 findings fixed):
+- QR code response had no alt_text field for accessibility (WCAG 1.1.1). Fixed: alt_text field added to LicenseChallengeResponse schema.
+- 402 LicenseGateMiddleware response was plain JSON, not RFC 7807. Fixed: now uses problem_detail() helper matching codebase error contract.
+- Advisory: POST /license/activate is synchronous crypto — UI implementation must show loading state.
+
+**DevOps** (FINDING — 2 findings fixed):
+- LICENSE_PUBLIC_KEY env var undocumented in .env.example. Fixed: documented entry added.
+- Pillow was transitive-only dependency. Fixed: explicit pin added (>=12.0.0,<13.0.0).
+
+**Retrospective Notes**:
+- Recurring pattern: new middleware behind existing middleware makes inner gate's failure path unreachable in tests. Test authors assume coverage from tests hitting non-exempt paths, but the outer gate fires first. Future middleware additions must include isolated tests that bypass all outer gates.
+- API endpoints returning binary image data (QR codes, thumbnails) must include an alt_text field in the schema — accessibility is an API contract, not a UI-only concern.
+- ADR lag continues: significant architectural decisions ship without decision records. Singleton-gate patterns should auto-trigger ADR requirements at plan-approval time.
+- Private symbol imports across module boundaries (_get_active_public_key) silently become public API. Leading-underscore convention must be enforced at review time.
 
 ---
 

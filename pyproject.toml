@@ -49,6 +49,10 @@ sse-starlette = ">=2.1.0,<4.0.0"
 # image rendering (base64-encoded in the API response).
 # Version 8.2 verified on PyPI (T5.2).
 qrcode = {version = ">=8.0.0,<9.0.0", extras = ["pil"]}
+# pillow: direct pin required (B8 — T5.2 review).
+# pillow is a transitive dependency of qrcode[pil] but pinned here explicitly
+# to ensure version stability and allow security audits via pip-audit.
+pillow = ">=12.0.0,<13.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
@@ -159,9 +163,9 @@ ignore = ["S101"]
 "src/synth_engine/bootstrapper/main.py" = ["B008"]
 # B008: same rationale as auth.py — Depends() calls in route argument defaults are
 # intentional FastAPI DI usage, not eager function calls.
-# BLE001: system.py catches broad Exception in _render_qr_code() — intentional
+# BLE001: licensing.py catches broad Exception in _render_qr_code() — intentional
 # fallback that guards against any qrcode/Pillow import or rendering error.
-"src/synth_engine/bootstrapper/routers/system.py" = ["B008", "BLE001"]
+"src/synth_engine/bootstrapper/routers/licensing.py" = ["B008", "BLE001"]
 # BLE001: cli.py catches broad Exception intentionally — it is the top-level error
 # boundary for the CLI; tracebacks must never reach the operator.
 "src/synth_engine/bootstrapper/cli.py" = ["BLE001"]

@@ -73,7 +73,7 @@ _APP_VERSION: str = "0.1.0"
 # Production deployments MUST set LICENSE_PUBLIC_KEY to the real key.
 _EMBEDDED_PUBLIC_KEY: str = (
     "-----BEGIN PUBLIC KEY-----\n"
-    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2a2rwplBQLzHPZe5TNJN\n"
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2a2rwplBQLzHPZe5TNJN\n"  # pragma: allowlist secret
     "HPnCVFq7BjRqQ2LMxHJpblNMaWMrqUWyMxHJpblNMaWMrqUWyMxHJpblNMaWMr\n"
     "qUWyMxHJpblNMaWMrqUWyMxHJpblNMaWMrqUWyMxHJpblNMaWMrqUWyMxHJpbl\n"
     "NMaWMrqUWyMxHJpblNMaWMrqUWyMxHJpblNMaWMrqUWyMxHJpblNMaWMrqUWy\n"
@@ -82,7 +82,7 @@ _EMBEDDED_PUBLIC_KEY: str = (
 )
 
 
-def _get_active_public_key() -> str:
+def get_active_public_key() -> str:
     """Return the public key to use for JWT verification.
 
     Checks ``LICENSE_PUBLIC_KEY`` environment variable first; falls back to
@@ -202,6 +202,16 @@ def get_hardware_id() -> str:
     address — this is acceptable because the hardware ID is stable within
     a single Python process on any given machine.
 
+    Warning:
+        In containerized environments (Docker, Kubernetes) where the MAC
+        address is not explicitly exposed to the container, ``uuid.getnode()``
+        may return a randomly generated value per Python process invocation.
+        This means the hardware ID will differ across container restarts,
+        making license validation fail after each restart.  Production
+        deployments in containers MUST either (1) assign a fixed MAC to the
+        container interface, or (2) use a stable machine identifier injected
+        via environment variable rather than relying on ``uuid.getnode()``.
+
     Returns:
         64-character lowercase hexadecimal SHA-256 digest.
     """
@@ -237,18 +247,25 @@ def generate_challenge() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def verify_license_jwt(token: str, public_key: str) -> dict[str, Any]:
-    """Verify a license JWT against the provided RSA public key.
+def verify_license_jwt(token: str, public_key: str | None = None) -> dict[str, Any]:
+    """Verify a license JWT against the RSA public key.
+
+    Key resolution order:
+    1. The ``public_key`` parameter (explicit override, used by tests).
+    2. ``LICENSE_PUBLIC_KEY`` environment variable.
+    3. The embedded placeholder key (``_EMBEDDED_PUBLIC_KEY``).
 
     Validates:
-    1. The JWT signature (RS256) against *public_key*.
+    1. The JWT signature (RS256) against the resolved public key.
     2. The ``exp`` claim (token must not be expired).
     3. The ``hardware_id`` claim must be present and must match the local
        machine's hardware ID.
 
     Args:
         token: Compact JWT string issued by the licensing server.
-        public_key: PEM-encoded RSA public key for signature verification.
+        public_key: Optional PEM-encoded RSA public key.  When ``None``
+            (the default), key resolution falls through to the env var and
+            the embedded placeholder.
 
     Returns:
         Dictionary of decoded JWT claims on success.
@@ -258,10 +275,11 @@ def verify_license_jwt(token: str, public_key: str) -> dict[str, Any]:
             (invalid signature, expired token, missing or mismatched
             ``hardware_id`` claim).
     """
+    resolved_key = public_key if public_key is not None else get_active_public_key()
     try:
         claims: dict[str, Any] = pyjwt.decode(
             token,
-            public_key,
+            resolved_key,
             algorithms=["RS256"],
         )
     except ExpiredSignatureError as exc:
