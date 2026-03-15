@@ -53,6 +53,7 @@ class TestModelArtifactRoundTrip:
             model=_PicklableModelStub(),
             column_names=["id", "name", "age"],
             column_dtypes={"id": "int64", "name": "object", "age": "int64"},
+            column_nullables={"id": False, "name": False, "age": False},
         )
 
     def test_save_returns_path(self) -> None:
@@ -106,6 +107,21 @@ class TestModelArtifactRoundTrip:
             artifact.save(str(save_path))
             loaded = ModelArtifact.load(str(save_path))
             assert loaded.column_dtypes == {"id": "int64", "name": "object", "age": "int64"}
+
+    def test_round_trip_preserves_column_nullables(self) -> None:
+        """load(save(artifact)) must preserve column_nullables."""
+        artifact = ModelArtifact(
+            table_name="test_table",
+            model=_PicklableModelStub(),
+            column_names=["id", "opt_field"],
+            column_dtypes={"id": "int64", "opt_field": "object"},
+            column_nullables={"id": False, "opt_field": True},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            save_path = Path(tmpdir) / "artifact.pkl"
+            artifact.save(str(save_path))
+            loaded = ModelArtifact.load(str(save_path))
+            assert loaded.column_nullables == {"id": False, "opt_field": True}
 
     def test_load_nonexistent_file_raises_file_not_found(self) -> None:
         """load() on a missing path must raise FileNotFoundError."""
@@ -228,6 +244,38 @@ class TestFkPostProcessing:
         )
         assert isinstance(result, pd.DataFrame)
 
+    def test_missing_fk_column_raises_key_error(self) -> None:
+        """apply_fk_post_processing must raise KeyError if fk_column is absent."""
+        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+
+        parent_pks = {1, 2, 3}
+        child_df = pd.DataFrame({"id": [10, 11], "parent_id": [1, 2]})
+        with pytest.raises(KeyError):
+            apply_fk_post_processing(
+                child_df=child_df,
+                fk_column="nonexistent_column",
+                valid_parent_pks=parent_pks,
+                rng_seed=42,
+            )
+
+    def test_original_df_not_mutated(self) -> None:
+        """apply_fk_post_processing must not mutate the original child_df."""
+        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+
+        parent_pks = {1, 2, 3}
+        original_values = [999, 888, 777]
+        child_df = pd.DataFrame({"id": [10, 11, 12], "parent_id": original_values.copy()})
+
+        apply_fk_post_processing(
+            child_df=child_df,
+            fk_column="parent_id",
+            valid_parent_pks=parent_pks,
+            rng_seed=42,
+        )
+
+        # Original DataFrame must be unchanged
+        assert list(child_df["parent_id"]) == original_values
+
 
 class TestSynthesisEngineTrain:
     """Unit tests for SynthesisEngine.train() using a mocked CTGAN model."""
@@ -326,6 +374,31 @@ class TestSynthesisEngineTrain:
 
             assert sorted(result.column_names) == sorted(["id", "age", "salary"])
 
+    def test_train_artifact_preserves_column_dtypes(self) -> None:
+        """train() must record all column dtypes in the ModelArtifact."""
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+        ):
+            mock_instance = MagicMock()
+            mock_ctgan.return_value = mock_instance
+
+            df = self._make_persons_df()
+            parquet_path = str(Path(tmpdir) / "persons.parquet")
+            df.to_parquet(parquet_path, index=False, engine="pyarrow")
+
+            engine = SynthesisEngine()
+            result = engine.train(table_name="persons", parquet_path=parquet_path)
+
+            # column_dtypes must be a dict with all columns present
+            assert set(result.column_dtypes.keys()) == {"id", "age", "salary"}
+            # Each value must be a non-empty string dtype representation
+            for col, dtype_str in result.column_dtypes.items():
+                assert isinstance(dtype_str, str), f"dtype for '{col}' must be str"
+                assert dtype_str, f"dtype string for '{col}' must not be empty"
+
     def test_train_missing_parquet_raises_file_not_found(self) -> None:
         """train() must raise FileNotFoundError for non-existent parquet_path."""
         from synth_engine.modules.synthesizer.engine import SynthesisEngine
@@ -354,6 +427,7 @@ class TestSynthesisEngineGenerate:
             model=mock_model,
             column_names=["id", "age", "salary"],
             column_dtypes={"id": "int64", "age": "int64", "salary": "int64"},
+            column_nullables={"id": False, "age": False, "salary": False},
         )
 
     def test_generate_returns_dataframe(self) -> None:
@@ -425,6 +499,7 @@ class TestModelArtifactPickleFormat:
             model=_PicklableModelStub(),
             column_names=["a"],
             column_dtypes={"a": "int64"},
+            column_nullables={"a": False},
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             save_path = Path(tmpdir) / "artifact.pkl"

@@ -209,7 +209,7 @@ class SynthesisEngine:
         Reads source data, auto-detects SingleTableMetadata from the DataFrame
         schema, instantiates CTGANSynthesizer with that metadata, fits it, and
         returns a :class:`ModelArtifact` containing the trained model and schema
-        metadata.
+        metadata (column names, dtypes, and nullable flags).
 
         The FK column (if any) must be included in the Parquet file as a
         regular feature column — CTGAN learns the FK distribution as part of
@@ -224,7 +224,7 @@ class SynthesisEngine:
 
         Returns:
             A :class:`ModelArtifact` containing the trained model, table name,
-            and schema metadata (column names and dtypes).
+            and schema metadata (column names, dtypes, and nullable flags).
 
         Raises:
             FileNotFoundError: If the Parquet file does not exist at
@@ -250,6 +250,7 @@ class SynthesisEngine:
 
         column_names = list(source_df.columns)
         column_dtypes = {col: str(source_df[col].dtype) for col in column_names}
+        column_nullables = {col: bool(source_df[col].isnull().any()) for col in column_names}
 
         _logger.info(
             "Training CTGANSynthesizer on table '%s' (%d rows, %d cols, epochs=%d)",
@@ -270,6 +271,7 @@ class SynthesisEngine:
             model=model,
             column_names=column_names,
             column_dtypes=column_dtypes,
+            column_nullables=column_nullables,
         )
 
     def generate(

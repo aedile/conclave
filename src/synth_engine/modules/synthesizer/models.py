@@ -8,9 +8,9 @@ Design principles:
   - Pickle serialisation: consistent with SDV's own model persistence approach
     and avoids a hard dependency on torch.save (which would require the full
     torch runtime at load time even for metadata-only operations).
-  - Metadata captured at train time: column names and dtypes are stored in the
-    artifact so that :meth:`SynthesisEngine.generate` can enforce schema
-    consistency without re-reading the source Parquet file.
+  - Metadata captured at train time: column names, dtypes, and nullable flags
+    are stored in the artifact so that :meth:`SynthesisEngine.generate` can
+    enforce schema consistency without re-reading the source Parquet file.
 
 Task: P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
 ADR: ADR-0017 (CTGAN + Opacus; per-table training strategy)
@@ -37,6 +37,9 @@ class ModelArtifact:
         column_names: Ordered list of column names from the training DataFrame.
         column_dtypes: Mapping of column name to its pandas dtype string
             (e.g. ``{"id": "int64", "name": "object"}``).
+        column_nullables: Mapping of column name to a boolean indicating
+            whether the source column contained any null values during
+            training (e.g. ``{"id": False, "opt_field": True}``).
 
     Example::
 
@@ -52,6 +55,7 @@ class ModelArtifact:
     model: Any  # CTGANSynthesizer or compatible duck-typed model
     column_names: list[str] = field(default_factory=list)
     column_dtypes: dict[str, str] = field(default_factory=dict)
+    column_nullables: dict[str, bool] = field(default_factory=dict)
 
     def save(self, path: str) -> str:
         """Serialise the artifact to a pickle file.

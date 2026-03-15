@@ -3,7 +3,7 @@
 These tests exercise the full synthesis pipeline:
   1. Train a CTGAN model on a Faker-generated 100-row persons DataFrame.
   2. Generate 50 synthetic rows and verify the output schema matches the
-     source schema exactly (column names and dtypes).
+     source schema exactly (column names, dtypes, and nullable flags).
   3. Verify that the synthesizer module does NOT import from modules/ingestion/,
      modules/masking/, or modules/subsetting/ (import boundary enforcement).
 
@@ -52,6 +52,35 @@ def persons_parquet(tmp_path: Path) -> str:
     ]
     df = pd.DataFrame(rows)
     parquet_path = str(tmp_path / "persons.parquet")
+    df.to_parquet(parquet_path, index=False, engine="pyarrow")
+    return parquet_path
+
+
+@pytest.fixture
+def persons_parquet_with_nulls(tmp_path: Path) -> str:
+    """Generate a 100-row persons Parquet fixture with nulls in one column.
+
+    The ``opt_field`` column has ~30% null values so that the nullable flag
+    test can assert True for that column.  All data is fictional.
+
+    Args:
+        tmp_path: pytest-provided temporary directory.
+
+    Returns:
+        Absolute path to the written Parquet file.
+    """
+    import numpy as np
+
+    rng = np.random.default_rng(99)
+    ids = list(range(1, 101))
+    ages = rng.integers(18, 80, size=100).tolist()
+    # ~30% nulls in opt_field
+    opt_values: list[float | None] = [
+        None if rng.random() < 0.3 else float(rng.integers(100, 999)) for _ in range(100)
+    ]
+
+    df = pd.DataFrame({"id": ids, "age": ages, "opt_field": opt_values})
+    parquet_path = str(tmp_path / "persons_with_nulls.parquet")
     df.to_parquet(parquet_path, index=False, engine="pyarrow")
     return parquet_path
 
@@ -127,6 +156,34 @@ class TestSynthesisEngineCTGANIntegration:
             result = engine.generate(artifact=loaded_artifact, n_rows=20)
             assert isinstance(result, pd.DataFrame)
             assert len(result) == 20
+
+    def test_artifact_nullable_flags_match_source(self, persons_parquet_with_nulls: str) -> None:
+        """Artifact column_nullables must reflect actual null presence in source data.
+
+        ``id`` and ``age`` have no nulls → nullable flag must be False.
+        ``opt_field`` has ~30% nulls → nullable flag must be True.
+        """
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+
+        source_df = pd.read_parquet(persons_parquet_with_nulls, engine="pyarrow")
+        engine = SynthesisEngine(epochs=2)
+        artifact = engine.train(
+            table_name="persons_with_nulls",
+            parquet_path=persons_parquet_with_nulls,
+        )
+
+        # Verify nullable flags match actual null presence in source
+        for col in source_df.columns:
+            expected_nullable = bool(source_df[col].isnull().any())
+            assert artifact.column_nullables[col] == expected_nullable, (
+                f"Column '{col}' nullable flag mismatch: "
+                f"expected {expected_nullable}, got {artifact.column_nullables[col]}"
+            )
+
+        # Explicit checks: id and age have no nulls; opt_field does
+        assert artifact.column_nullables["id"] is False
+        assert artifact.column_nullables["age"] is False
+        assert artifact.column_nullables["opt_field"] is True
 
 
 class TestImportBoundaryEnforcement:

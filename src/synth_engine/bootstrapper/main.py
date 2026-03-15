@@ -74,7 +74,7 @@ def _read_secret(name: str) -> str:
     """Read a Docker secret from the /run/secrets/ directory.
 
     Secrets are mounted as files by Docker Compose (``secrets:`` block).
-    The file content is stripped of trailing whitespace/newlines.
+    The file content is stripped of leading and trailing whitespace/newlines.
 
     Args:
         name: Secret file name (e.g. ``"minio_ephemeral_access_key"``).

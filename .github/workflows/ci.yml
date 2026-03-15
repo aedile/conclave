@@ -6,7 +6,7 @@
 # request. Jobs are chained so a security failure short-circuits all downstream
 # work.
 #
-# Job order: security → lint → test → {integration-test | sbom | trivy-scan} (parallel)
+# Job order: security → lint → test → {integration-test | synthesizer-integration-test | sbom | trivy-scan} (parallel)
 # shellcheck runs independently (no Python deps required).
 #
 # Supply-chain hardening (T3.5.1): all `uses:` lines are pinned to immutable
@@ -194,6 +194,35 @@ jobs:
         run: poetry install --with dev,integration
       - name: Run integration tests
         run: poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql
+
+  # ---------------------------------------------------------------------------
+  # Synthesizer integration tests — real CTGAN training on Faker-generated data
+  #
+  # Installs the synthesizer dependency group (sdv, torch, etc.) and runs the
+  # synthesizer-specific integration tests.  These tests are separated from the
+  # main integration-test job because the synthesizer group is large (~1 GB) and
+  # only required for synthesis tasks.
+  # ---------------------------------------------------------------------------
+  synthesizer-integration-test:
+    name: Synthesizer Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Set up Python 3.14
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.14"
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
+        with:
+          version: "2.2.1"
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+      - name: Install dependencies (dev + synthesizer)
+        run: poetry install --with dev,synthesizer
+      - name: Run synthesizer integration tests
+        run: poetry run pytest tests/integration/test_synthesizer_integration.py -v
 
   # ---------------------------------------------------------------------------
   # SBOM — generate Software Bill of Materials after tests pass
