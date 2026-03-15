@@ -459,6 +459,11 @@ jobs:
   #
   # Action SHA pinning: zaproxy/action-baseline@v0.15.0
   #   SHA: de8ad967d3548d44ef623df22cf95c3b0baf8b25
+  #
+  # Artifact upload: handled exclusively by the zaproxy/action-baseline
+  # composite action via its artifact_name parameter. A separate
+  # actions/upload-artifact step is intentionally absent to avoid a duplicate
+  # artifact name collision error (P6-T6.2 DevOps blocker fix).
   # ---------------------------------------------------------------------------
   zap-baseline:
     name: OWASP ZAP Baseline Scan
@@ -540,15 +545,3 @@ jobs:
       - name: Stop background API server
         if: always()
         run: kill $(cat /tmp/uvicorn.pid) 2>/dev/null || true
-
-      - name: Upload ZAP report artifact
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: zap-baseline-report
-          path: |
-            report_html.html
-            report_json.json
-            report_md.md
-          retention-days: 90
-          if-no-files-found: warn
