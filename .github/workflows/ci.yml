@@ -440,3 +440,108 @@ jobs:
             exit 1
           fi
           echo "Found ${DOCS_COMMITS} docs: commit(s). Constitution Priority 6: PASS."
+
+  # ---------------------------------------------------------------------------
+  # OWASP ZAP Baseline Scan — dynamic application security testing (DAST)
+  #
+  # Starts the Conclave Engine in SQLite mode, unseals the vault, then runs
+  # the ZAP baseline scan against the live API. The baseline scan is
+  # informational (fail_action: false) — findings are uploaded as an artifact
+  # and visible in the Actions summary but do NOT block merge.
+  #
+  # Rationale for fail_action: false (P6-T6.2):
+  #   The ZAP baseline scan checks for passive OWASP Top 10 issues. Because the
+  #   engine runs behind TLS/nginx in production (not raw uvicorn), some ZAP
+  #   findings (e.g., missing HSTS on HTTP-only CI) are CI-environment artefacts
+  #   rather than real vulnerabilities. All critical findings are mitigated by
+  #   CSPMiddleware, SealGate, LicenseGate, and RequestBodyLimitMiddleware.
+  #   The scan runs to produce an audit trail — not as a hard gate.
+  #
+  # Action SHA pinning: zaproxy/action-baseline@v0.15.0
+  #   SHA: de8ad967d3548d44ef623df22cf95c3b0baf8b25
+  #
+  # Artifact upload: handled exclusively by the zaproxy/action-baseline
+  # composite action via its artifact_name parameter. A separate
+  # actions/upload-artifact step is intentionally absent to avoid a duplicate
+  # artifact name collision error (P6-T6.2 DevOps blocker fix).
+  # ---------------------------------------------------------------------------
+  zap-baseline:
+    name: OWASP ZAP Baseline Scan
+    runs-on: ubuntu-latest
+    needs: [test]
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.14"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
+        with:
+          version: "2.2.1"
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ runner.os }}-py3.14-
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Start Conclave Engine (SQLite mode, background)
+        env:
+          DATABASE_URL: "sqlite:///./zap_test.db"
+          VAULT_SEAL_SALT: "emFwLWNpLXRlc3Qtc2FsdC1maWN0aW9uYWw="  # base64("zap-ci-test-salt-fictional")
+          HUEY_BACKEND: "memory"
+          HUEY_IMMEDIATE: "true"
+          LICENSE_KEY: "zap-ci-fictional-license"
+        run: |
+          poetry run uvicorn synth_engine.bootstrapper.main:app \
+            --host 127.0.0.1 --port 8765 --log-level warning &
+          echo $! > /tmp/uvicorn.pid
+
+      - name: Wait for API health check
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8765/health || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "API is up (attempt $i)."
+              exit 0
+            fi
+            echo "Waiting for API... attempt $i (got $STATUS)"
+            sleep 2
+          done
+          echo "ERROR: API did not become healthy within 60 seconds."
+          kill $(cat /tmp/uvicorn.pid) || true
+          exit 1
+
+      - name: Unseal vault (fictional test passphrase)
+        run: |
+          curl -s -X POST http://127.0.0.1:8765/vault/unseal \
+            -H "Content-Type: application/json" \
+            -d '{"passphrase": "zap-ci-fictional-unseal-passphrase"}' \
+            || true  # Unseal may fail if vault is already unsealed — not a gate
+
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        with:
+          target: "http://127.0.0.1:8765"
+          rules_file_name: ".zap/rules.tsv"
+          cmd_options: "-a -j"
+          fail_action: false
+          artifact_name: "zap-baseline-report"
+        continue-on-error: true
+
+      - name: Stop background API server
+        if: always()
+        run: kill $(cat /tmp/uvicorn.pid) 2>/dev/null || true

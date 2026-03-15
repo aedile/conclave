@@ -51,6 +51,14 @@ Task 5.3 additions (ADV-016+017 drain):
     denying external CDN references for scripts, fonts, and stylesheets.
   - /unseal structured error codes (ADV-018): maps ValueError messages to
     error_code values (EMPTY_PASSPHRASE, ALREADY_UNSEALED, CONFIG_ERROR).
+
+Task 6.2 additions:
+  - RequestBodyLimitMiddleware: outermost middleware that rejects oversized
+    payloads (> 1 MiB, HTTP 413) and deeply nested JSON (depth > 100, HTTP 400).
+    Protects against CPU exhaustion and stack overflow DoS attacks.
+  - Custom RequestValidationError handler: sanitizes non-finite float values
+    (NaN, Infinity) in validation error responses to prevent JSON serialization
+    failures (see bootstrapper/errors.py).
 """
 
 from __future__ import annotations
@@ -68,6 +76,7 @@ from pydantic import BaseModel
 
 from synth_engine.bootstrapper.dependencies.csp import CSPMiddleware
 from synth_engine.bootstrapper.dependencies.licensing import LicenseGateMiddleware
+from synth_engine.bootstrapper.dependencies.request_limits import RequestBodyLimitMiddleware
 from synth_engine.bootstrapper.dependencies.vault import SealGateMiddleware
 from synth_engine.modules.mapping import CycleDetectionError
 from synth_engine.shared.security.vault import (
@@ -221,11 +230,14 @@ def create_app() -> FastAPI:
 
     Attaches:
     - OpenTelemetry instrumentation
+    - RequestBodyLimitMiddleware (outermost; enforces 1 MiB size + 100-depth limits)
+    - CSPMiddleware (second; adds Content-Security-Policy header)
     - SealGateMiddleware (blocks sealed-state access, 423 Locked)
     - LicenseGateMiddleware (blocks unlicensed access, 402 Payment Required)
     - Prometheus metrics at /metrics
     - CycleDetectionError exception handler (ADV-022)
     - RFC 7807 catch-all exception handler (T5.1)
+    - RequestValidationError handler with NaN/Infinity sanitization (T6.2)
     - Jobs, Connections, Settings routers (T5.1)
     - License challenge/activate router (T5.2)
 
@@ -233,9 +245,11 @@ def create_app() -> FastAPI:
     and mounts the Prometheus ASGI app.
 
     Middleware evaluation order (LIFO — last added = outermost):
-    1. CSPMiddleware — outermost; adds Content-Security-Policy header.
-    2. SealGateMiddleware — middle; returns 423 if vault is sealed.
-    3. LicenseGateMiddleware — inner; returns 402 if not licensed.
+    1. RequestBodyLimitMiddleware — outermost; size + depth gate before any
+       business logic runs.  Rejects > 1 MiB (413) or depth > 100 (400).
+    2. CSPMiddleware — adds Content-Security-Policy header to all responses.
+    3. SealGateMiddleware — returns 423 if vault is sealed.
+    4. LicenseGateMiddleware — innermost gate; returns 402 if not licensed.
 
     Returns:
         A configured FastAPI instance ready to serve requests.
@@ -253,14 +267,21 @@ def create_app() -> FastAPI:
     FastAPIInstrumentor.instrument_app(app)
 
     # Middleware is evaluated in LIFO (Last In, First Out) order.
-    # LicenseGateMiddleware is added FIRST, then SealGateMiddleware, then
-    # CSPMiddleware — CSP is outermost so the header is added to all responses
-    # including 423 / 402 error responses from the inner gate middlewares.
-    # Evaluation order (outermost to innermost on request):
-    #   CSPMiddleware → SealGateMiddleware → LicenseGateMiddleware → route
+    # Add INNERMOST first, OUTERMOST last.
+    #
+    # Request path (outermost → innermost):
+    #   RequestBodyLimitMiddleware → CSPMiddleware → SealGateMiddleware
+    #   → LicenseGateMiddleware → route handler
+    #
+    # Response path (innermost → outermost):
+    #   route handler → LicenseGateMiddleware → SealGateMiddleware
+    #   → CSPMiddleware → RequestBodyLimitMiddleware
     app.add_middleware(LicenseGateMiddleware)
     app.add_middleware(SealGateMiddleware)
     app.add_middleware(CSPMiddleware)
+    # RequestBodyLimitMiddleware is added LAST so it is the OUTERMOST middleware.
+    # It must run before any other middleware to prevent DoS from oversized bodies.
+    app.add_middleware(RequestBodyLimitMiddleware)
 
     # Mount Prometheus metrics endpoint (internal network only; no auth required
     # because /metrics is unreachable from outside the Docker bridge network).
@@ -304,6 +325,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     ADV-022: CycleDetectionError -> HTTP 422 RFC 7807 Problem Details.
     T5.1: Generic Exception -> HTTP 500 RFC 7807 Problem Details (ADV-036+044).
+    T6.2: RequestValidationError -> HTTP 422 with NaN/Infinity-safe serialization.
 
     Args:
         app: The FastAPI instance to register handlers on.

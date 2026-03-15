@@ -19,21 +19,40 @@ Implementation note — BaseHTTPMiddleware and exception handlers:
     chain.  This correctly intercepts exceptions before they reach the
     generic Starlette 500 HTML handler.
 
+Implementation note — RequestValidationError with NaN/Infinity inputs:
+    FastAPI's default ``RequestValidationError`` handler serializes the raw
+    input values into the error response (e.g. as ``{"detail": [{"input": NaN}]}``).
+    Python's stdlib ``json.dumps`` does NOT support ``NaN`` or ``Infinity``
+    and raises ``ValueError`` when asked to serialize them (RFC 8259 §6:
+    "Numeric values that cannot be represented as sequences of digits ... are
+    NOT permitted").
+
+    This produces a 500 Internal Server Error for requests containing
+    ``NaN`` or ``Infinity`` rather than the expected 422.
+
+    Our custom ``RequestValidationError`` handler passes all error dicts
+    through :func:`_sanitize_for_json` which replaces non-finite float values
+    with the string ``"<non-finite float>"`` before serialization.  This
+    ensures all validation errors produce a proper 400 or 422 response.
+
 Reference: RFC 7807 — Problem Details for HTTP APIs
     https://datatracker.ietf.org/doc/html/rfc7807
 
 Task: P5-T5.1 — Task Orchestration API Core
+Task: P6-T6.2 — NIST SP 800-88 Erasure, OWASP validation, LLM Fuzz Testing
+    (Added RequestValidationError NaN/Infinity sanitization)
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
 from starlette.responses import Response
 
 from synth_engine.shared.errors import safe_error_msg
@@ -53,6 +72,41 @@ _STATUS_TITLES: dict[int, str] = {
     422: "Unprocessable Entity",
     500: "Internal Server Error",
 }
+
+#: Sentinel string replacing non-finite float values in error responses.
+_NON_FINITE_SENTINEL: str = "<non-finite float>"
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    """Recursively replace non-JSON-serializable float values in an object.
+
+    Python's stdlib ``json.dumps`` does not support ``NaN``, ``Infinity``,
+    or ``-Infinity`` (RFC 8259 §6).  When these appear in Pydantic validation
+    error dicts (e.g. as the ``input`` field reflecting the raw request value),
+    serialization raises ``ValueError``.
+
+    This function walks the object graph and replaces any non-finite float
+    with the sentinel string :data:`_NON_FINITE_SENTINEL`.
+
+    Args:
+        obj: The object to sanitize.  May be a dict, list, float, or any
+            other JSON-serializable type.
+
+    Returns:
+        A sanitized copy of ``obj`` where all non-finite floats have been
+        replaced with :data:`_NON_FINITE_SENTINEL`.
+    """
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return _NON_FINITE_SENTINEL
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(item) for item in obj]
+    if isinstance(obj, tuple):
+        return tuple(_sanitize_for_json(item) for item in obj)
+    return obj
 
 
 def problem_detail(
@@ -128,14 +182,47 @@ class RFC7807Middleware(BaseHTTPMiddleware):
             )
 
 
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Handle RequestValidationError with NaN/Infinity-safe serialization.
+
+    FastAPI's default validation error handler serializes the raw input
+    values in the error response.  When the request body contains
+    ``NaN`` or ``Infinity`` (non-standard JSON values), Python's
+    ``json.dumps`` raises ``ValueError`` because these values are not
+    valid JSON (RFC 8259 §6).
+
+    This handler replaces all non-finite float values with
+    :data:`_NON_FINITE_SENTINEL` before serialization, ensuring
+    that the response is always a well-formed JSON document.
+
+    Args:
+        request: The incoming HTTP request (required by FastAPI signature).
+        exc: The RequestValidationError raised by FastAPI/Pydantic.
+
+    Returns:
+        JSONResponse with HTTP 422 and sanitized Pydantic error details.
+    """
+    errors = exc.errors()
+    sanitized_errors = _sanitize_for_json(errors)
+    _logger.warning(
+        "Request validation error on %s %s: %d error(s).",
+        request.method,
+        request.url.path,
+        len(errors),
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": sanitized_errors},
+    )
+
+
 def register_error_handlers(app: FastAPI) -> None:
     """Register RFC 7807 catch-all error handling on the FastAPI app.
 
-    Adds :class:`RFC7807Middleware` as an outer ASGI middleware.  This
-    approach is used instead of ``@app.exception_handler(Exception)``
-    because FastAPI's built-in exception handler registration is bypassed
-    by ``BaseHTTPMiddleware`` (e.g. ``SealGateMiddleware``) due to how
-    ``call_next()`` re-raises route exceptions.
+    Adds :class:`RFC7807Middleware` as an outer ASGI middleware and
+    registers a custom ``RequestValidationError`` handler that safely
+    serializes validation errors even when the request input contains
+    non-finite float values (NaN, Infinity, -Infinity).
 
     This function is idempotent-safe: each call wraps the app in an
     additional middleware layer.  Call exactly once per app instance.
@@ -144,3 +231,7 @@ def register_error_handlers(app: FastAPI) -> None:
         app: The FastAPI application instance to register handlers on.
     """
     app.add_middleware(RFC7807Middleware)
+
+    # Register a safe RequestValidationError handler that sanitizes
+    # non-finite float values before JSON serialization (P6-T6.2).
+    app.add_exception_handler(RequestValidationError, _validation_error_handler)  # type: ignore[arg-type]
