@@ -22,6 +22,7 @@ Drain (delete) rows when their target task is completed.
 | ADV-035 | DevOps T3.5.4 | T4.x (masking configuration) | `_CLI_MASKING_SALT` in `bootstrapper/cli.py` is a hardcoded fallback determinism seed (documented as non-secret). When Phase 4 introduces the production `MASKING_SALT` path, the CLI must be updated to inject it from environment/Vault rather than relying on the hardcoded fallback. Remove the hardcoded fallback or gate it behind a strict non-production check. |
 | ADV-036 | DevOps T3.5.4 | T5.1 (CLI hardening) | The CLI's `except Exception` boundary forwards `str(exc)` from potentially deep SQLAlchemy stack frames directly to the operator. As the engine grows, those exception messages could include table names, column names, or query fragments from customer schemas. Revisit the exception sanitisation boundary at T5.1 when the CLI is hardened for production use. |
 | ADV-037 | Arch+QA P4-T4.1 | T4.2b | **BLOCKER (CLAUDE.md Rule 8)**: `EphemeralStorageClient` wiring deferred — `MinioStorageBackend` is not wired into the bootstrapper because `SynthesisEngine` does not yet exist. `TODO(T4.2b)` comment added to `bootstrapper/main.py`. Must be completed before T4.2b merges; T4.2b is a Phase 4 entry gate for this wiring. |
+| ADV-038 | Arch PR #32 | Before pr-reviewer goes live | No ADR documents the governance decision to permit AI-posted GitHub PR approvals. ADR should cover: problem solved, scope of authority (approve yes, merge never), escalation path when gates cannot be evaluated. |
 
 ---
 
@@ -52,6 +53,16 @@ Drain (delete) rows when their target task is completed.
 
 **Retrospective**:
 This sprint closes the documentation-drift failure pattern identified in Phase 3 retrospectives by making it mechanically impossible to merge a PR without a `docs:` commit. The self-referential enforcement inventory table in CONSTITUTION.md Section 4 is the key artifact: it turns an honor-system expectation into an auditable contract. The RETRO_LOG Step 0 mandate for software-developer agents closes the institutional-memory gap that produced repeated Rule 7 and Rule 8 violations. Architecture-reviewer model upgrade from sonnet to opus reflects the asymmetric cost of structural mistakes — cheap to get right, expensive to unwind.
+
+---
+
+### [2026-03-14] pr-reviewer agent — PR approval automation
+
+**All reviewers** (SKIP): Pure agent-definition addition. No source code, no tests, no infrastructure changes.
+
+New agent `.claude/agents/pr-reviewer.md` provides automated PR approval to replace manual human merge clicks. Agent verifies: CI green, all review commits present, no unresolved BLOCKERs, docs: commit present. Posts structured summary comment then `gh pr review --approve`. PM workflow wiring (Rule 13) to be added in concurrent governance-enforcement PR — pending merge of docs/governance-enforcement branch.
+
+---
 
 ### [2026-03-14] P4-T4.2a — Statistical Profiler
 
