@@ -501,7 +501,7 @@ jobs:
       - name: Start Conclave Engine (SQLite mode, background)
         env:
           DATABASE_URL: "sqlite:///./zap_test.db"
-          VAULT_SEAL_SALT: "emFwLWNpLXRlc3Qtc2FsdC1maWN0aW9uYWw="  # base64("zap-ci-test-salt-fictional")
+          VAULT_SEAL_SALT: "emFwLWNpLXRlc3Qtc2FsdC1maWN0aW9uYWw="  # pragma: allowlist secret  base64("zap-ci-test-salt-fictional")
           HUEY_BACKEND: "memory"
           HUEY_IMMEDIATE: "true"
           LICENSE_KEY: "zap-ci-fictional-license"
