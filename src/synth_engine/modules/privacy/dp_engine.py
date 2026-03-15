@@ -129,8 +129,10 @@ class DPTrainingWrapper:
             dataloader: The ``DataLoader`` providing training batches.
             max_grad_norm: Maximum L2 norm for per-sample gradient clipping.
                 Controls the sensitivity of the gradients.  Typical value: 1.0.
+                Must be strictly positive.
             noise_multiplier: Ratio of Gaussian noise std to max_grad_norm.
                 Higher values → stronger privacy, lower utility.  Typical: 1.1.
+                Must be strictly positive.
 
         Returns:
             The DP-wrapped optimizer returned by
@@ -147,11 +149,27 @@ class DPTrainingWrapper:
             must replace the original in the training loop.
 
         Raises:
+            ValueError: If ``max_grad_norm`` or ``noise_multiplier`` is not
+                strictly positive.
             RuntimeError: If this wrapper has already been used to wrap a
                 training setup (single-use constraint).
             ImportError: If ``opacus`` is not installed (synthesizer group
                 not present).
         """
+        if max_grad_norm <= 0:
+            raise ValueError(
+                f"max_grad_norm must be positive, got {max_grad_norm!r}. "
+                "A zero or negative gradient norm bound clips all gradients to zero "
+                "and produces no useful training signal."
+            )
+
+        if noise_multiplier <= 0:
+            raise ValueError(
+                f"noise_multiplier must be positive, got {noise_multiplier!r}. "
+                "A zero or negative noise multiplier adds no Gaussian noise and "
+                "provides no differential privacy protection."
+            )
+
         if self._wrapped:
             raise RuntimeError(
                 "DPTrainingWrapper has already wrapped a training setup. "
@@ -215,16 +233,33 @@ class DPTrainingWrapper:
         Args:
             allocated_epsilon: The maximum Epsilon budget for this training run.
                 Training must stop if ``epsilon_spent >= allocated_epsilon``.
+                Must be strictly positive.
             delta: The Delta value used to compute the current Epsilon spend.
+                Must be strictly positive.
 
         Returns:
             None — if the budget has not been exhausted.
 
         Raises:
+            ValueError: If ``allocated_epsilon`` or ``delta`` is not strictly
+                positive.
             RuntimeError: If :meth:`wrap` has not been called yet (no Opacus
                 engine is active to query).
             BudgetExhaustionError: If ``epsilon_spent(delta) >= allocated_epsilon``.
         """
+        if allocated_epsilon <= 0:
+            raise ValueError(
+                f"allocated_epsilon must be positive, got {allocated_epsilon!r}. "
+                "A zero or negative budget is not a valid privacy allocation."
+            )
+
+        if delta <= 0:
+            raise ValueError(
+                f"delta must be positive, got {delta!r}. "
+                "A zero or negative delta cannot be used to compute a valid "
+                "epsilon-delta DP guarantee."
+            )
+
         if not self._wrapped:
             raise RuntimeError(
                 "DPTrainingWrapper is not wrapped yet. Call wrap() before calling check_budget()."

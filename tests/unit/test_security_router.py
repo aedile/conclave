@@ -6,6 +6,7 @@ Tests verify:
 - Audit events are emitted on both operations.
 - RFC 7807 error responses on failure paths.
 - Both handlers are async def.
+- DATABASE_URL="" edge case: 202 still returned, task still enqueued (ADV-055).
 
 CONSTITUTION Priority 3: TDD — Red Phase
 Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
@@ -245,6 +246,48 @@ def test_rotate_audit_failure_does_not_block(
         )
 
     assert response.status_code == 202
+
+
+def test_rotate_empty_database_url_returns_202_and_enqueues_task(
+    security_client: TestClient,
+    unsealed_vault: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /security/keys/rotate with DATABASE_URL="" must still return 202.
+
+    When DATABASE_URL is empty or unset, the endpoint logs a warning and
+    still enqueues the Huey task (the task will fail in the worker, but the
+    HTTP response is 202 — the failure is a worker concern, not an API
+    concern).
+
+    This is a defense-in-depth edge case: air-gapped deployments always have
+    DATABASE_URL configured, but the endpoint must not panic if it is absent.
+
+    ADV-055 drain: exercises the DATABASE_URL="" branch in security.py.
+    """
+    # Ensure DATABASE_URL is absent from the environment
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with patch("synth_engine.bootstrapper.routers.security.rotate_ale_keys_task") as mock_task:
+        response = security_client.post(
+            "/security/keys/rotate",
+            json={"new_passphrase": "new-secure-passphrase"},
+        )
+
+    # The endpoint must return 202 — the missing DATABASE_URL is a warning, not an error
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "accepted"
+
+    # The Huey task must still be enqueued — the worker handles the failure
+    mock_task.assert_called_once()
+    call_args = mock_task.call_args
+    # First positional arg is database_url — it must be the empty string
+    database_url_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("database_url")
+    assert database_url_arg == "", (
+        "database_url passed to task must be '' when DATABASE_URL is unset, "
+        f"got {database_url_arg!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
