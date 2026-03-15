@@ -53,6 +53,16 @@ Drain (delete) rows when their target task is completed.
 **Retrospective**:
 This sprint closes the documentation-drift failure pattern identified in Phase 3 retrospectives by making it mechanically impossible to merge a PR without a `docs:` commit. The self-referential enforcement inventory table in CONSTITUTION.md Section 4 is the key artifact: it turns an honor-system expectation into an auditable contract. The RETRO_LOG Step 0 mandate for software-developer agents closes the institutional-memory gap that produced repeated Rule 7 and Rule 8 violations. Architecture-reviewer model upgrade from sonnet to opus reflects the asymmetric cost of structural mistakes — cheap to get right, expensive to unwind.
 
+---
+
+### [2026-03-14] pr-reviewer agent — PR approval automation
+
+**All reviewers** (SKIP): Pure agent-definition addition. No source code, no tests, no infrastructure changes.
+
+New agent `.claude/agents/pr-reviewer.md` provides automated PR approval to replace manual human merge clicks. Agent verifies: CI green, all review commits present, no unresolved BLOCKERs, docs: commit present. Posts structured summary comment then `gh pr review --approve`. Wired into PM workflow via CLAUDE.md Rule 13 (concurrent governance-enforcement PR).
+
+---
+
 ### [2026-03-14] P4-T4.2a — Statistical Profiler
 
 **Architecture** (FINDING, 2 fixed):
