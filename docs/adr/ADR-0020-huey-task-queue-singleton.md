@@ -141,3 +141,29 @@ decorator wrapper) must be exercised without spawning a real worker process.
 - Future Huey configuration changes (e.g., adding a results backend, changing
   serialization) should be made in `shared/task_queue.py` and documented as
   an ADR amendment.
+
+### Alternative registration pattern: self-registering tasks in `shared/`
+
+Tasks defined in `shared/security/rotation.py` (e.g., `rotate_ale_keys_task`)
+register themselves when imported because `@huey.task()` executes at import time.
+When the task module is transitively imported via the router chain (`main.py` →
+`_include_routers()` → `security.py` → `rotation.py`), the decorator fires and
+the task is registered.
+
+For explicitness and consistency, `bootstrapper/main.py` ALSO includes a
+direct side-effect import:
+
+```python
+from synth_engine.shared.security import rotation as _security_rotation  # noqa: F401
+```
+
+Both patterns are first-class and correct:
+
+| Pattern | When to use |
+|---------|-------------|
+| Explicit import in `main.py` | Tasks in `modules/` (cannot be discovered otherwise) |
+| Self-registration via `shared/` import | Tasks in `shared/` (imported transitively by routers) |
+
+The explicit import is preferred as the canonical documentation point, even when
+transitive import would suffice, because it makes the registration visible in one
+place (`main.py`).
