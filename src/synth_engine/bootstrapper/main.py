@@ -40,6 +40,11 @@ Task 5.2 additions:
   - /license/activate POST endpoint: accepts RS256 JWT, validates signature
     and hardware_id binding, transitions LicenseState to LICENSED.
   - routers/system.py renamed to routers/licensing.py (A1 advisory).
+
+Task 5.5 additions:
+  - Security router included via app.include_router().
+  - POST /security/shred: zeroizes vault KEK rendering all ciphertext unrecoverable.
+  - POST /security/keys/rotate: enqueues Huey task to re-encrypt all ALE columns.
 """
 
 from __future__ import annotations
@@ -264,12 +269,14 @@ def _include_routers(app: FastAPI) -> None:
     from synth_engine.bootstrapper.routers.connections import router as connections_router
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
     from synth_engine.bootstrapper.routers.licensing import router as licensing_router
+    from synth_engine.bootstrapper.routers.security import router as security_router
     from synth_engine.bootstrapper.routers.settings import router as settings_router
 
     app.include_router(jobs_router)
     app.include_router(connections_router)
     app.include_router(settings_router)
     app.include_router(licensing_router)
+    app.include_router(security_router)
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
@@ -383,6 +390,11 @@ def _register_routes(app: FastAPI) -> None:
 # Do NOT remove this import — the worker will silently drop synthesis jobs
 # if the task is not registered.
 from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: F401, E402
+
+# This import registers ``rotate_ale_keys_task`` with the shared Huey instance
+# so the Huey worker process discovers the task at startup (ADR-0020).
+# Do NOT remove — the worker will silently drop key rotation jobs otherwise.
+from synth_engine.shared.security import rotation as _security_rotation  # noqa: F401, E402
 
 #: Module-level application instance for use by uvicorn.
 #: ``uvicorn synth_engine.bootstrapper.main:app`` picks up this singleton.
