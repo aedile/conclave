@@ -14,6 +14,7 @@ Pattern guards applied:
 
 Task: P4-T4.3b — DP Engine Wiring
 ADR: ADR-0017 (CTGAN + Opacus; RDP accountant)
+ADV-046: parameter validation guards for degenerate inputs added.
 """
 
 from __future__ import annotations
@@ -220,6 +221,72 @@ class TestDPTrainingWrapperWrap:
                     noise_multiplier=1.1,
                 )
 
+    # --- ADV-046: degenerate input guards for wrap() ---
+
+    def test_wrap_raises_for_max_grad_norm_zero(self) -> None:
+        """wrap() must raise ValueError when max_grad_norm is zero.
+
+        A zero gradient norm bound would clip all gradients to zero, producing
+        no useful training signal and silently corrupting the DP guarantee.
+        """
+        from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
+
+        wrapper = DPTrainingWrapper()
+        with pytest.raises(ValueError, match="max_grad_norm must be positive"):
+            wrapper.wrap(
+                optimizer=self._make_mock_optimizer(),
+                model=self._make_mock_model(),
+                dataloader=self._make_mock_dataloader(),
+                max_grad_norm=0.0,
+                noise_multiplier=1.1,
+            )
+
+    def test_wrap_raises_for_max_grad_norm_negative(self) -> None:
+        """wrap() must raise ValueError when max_grad_norm is negative."""
+        from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
+
+        wrapper = DPTrainingWrapper()
+        with pytest.raises(ValueError, match="max_grad_norm must be positive"):
+            wrapper.wrap(
+                optimizer=self._make_mock_optimizer(),
+                model=self._make_mock_model(),
+                dataloader=self._make_mock_dataloader(),
+                max_grad_norm=-1.0,
+                noise_multiplier=1.1,
+            )
+
+    def test_wrap_raises_for_noise_multiplier_zero(self) -> None:
+        """wrap() must raise ValueError when noise_multiplier is zero.
+
+        A zero noise multiplier adds no Gaussian noise, providing no privacy
+        protection while appearing to perform DP training.
+        """
+        from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
+
+        wrapper = DPTrainingWrapper()
+        with pytest.raises(ValueError, match="noise_multiplier must be positive"):
+            wrapper.wrap(
+                optimizer=self._make_mock_optimizer(),
+                model=self._make_mock_model(),
+                dataloader=self._make_mock_dataloader(),
+                max_grad_norm=1.0,
+                noise_multiplier=0.0,
+            )
+
+    def test_wrap_raises_for_noise_multiplier_negative(self) -> None:
+        """wrap() must raise ValueError when noise_multiplier is negative."""
+        from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
+
+        wrapper = DPTrainingWrapper()
+        with pytest.raises(ValueError, match="noise_multiplier must be positive"):
+            wrapper.wrap(
+                optimizer=self._make_mock_optimizer(),
+                model=self._make_mock_model(),
+                dataloader=self._make_mock_dataloader(),
+                max_grad_norm=1.0,
+                noise_multiplier=-0.5,
+            )
+
 
 class TestDPTrainingWrapperEpsilonSpent:
     """Unit tests for DPTrainingWrapper.epsilon_spent()."""
@@ -371,6 +438,46 @@ class TestDPTrainingWrapperCheckBudget:
 
         with pytest.raises(RuntimeError, match="not wrapped"):
             wrapper.check_budget(allocated_epsilon=1.0, delta=1e-5)
+
+    # --- ADV-046: degenerate input guards for check_budget() ---
+
+    def test_check_budget_raises_for_allocated_epsilon_zero(self) -> None:
+        """check_budget() must raise ValueError when allocated_epsilon is zero.
+
+        An allocation of zero would immediately exhaust the budget on any
+        training step — this is a degenerate configuration, not a valid
+        privacy budget.
+        """
+        wrapper = self._make_wrapper_with_epsilon(0.5)
+
+        with pytest.raises(ValueError, match="allocated_epsilon must be positive"):
+            wrapper.check_budget(allocated_epsilon=0.0, delta=1e-5)  # type: ignore[union-attr]
+
+    def test_check_budget_raises_for_allocated_epsilon_negative(self) -> None:
+        """check_budget() must raise ValueError when allocated_epsilon is negative."""
+        wrapper = self._make_wrapper_with_epsilon(0.5)
+
+        with pytest.raises(ValueError, match="allocated_epsilon must be positive"):
+            wrapper.check_budget(allocated_epsilon=-1.0, delta=1e-5)  # type: ignore[union-attr]
+
+    def test_check_budget_raises_for_delta_zero(self) -> None:
+        """check_budget() must raise ValueError when delta is zero.
+
+        Delta=0 would request a pure epsilon-DP guarantee that Opacus's RDP
+        accountant cannot compute, resulting in a division-by-zero or infinite
+        epsilon rather than a controlled error.
+        """
+        wrapper = self._make_wrapper_with_epsilon(0.5)
+
+        with pytest.raises(ValueError, match="delta must be positive"):
+            wrapper.check_budget(allocated_epsilon=1.0, delta=0.0)  # type: ignore[union-attr]
+
+    def test_check_budget_raises_for_delta_negative(self) -> None:
+        """check_budget() must raise ValueError when delta is negative."""
+        wrapper = self._make_wrapper_with_epsilon(0.5)
+
+        with pytest.raises(ValueError, match="delta must be positive"):
+            wrapper.check_budget(allocated_epsilon=1.0, delta=-1e-5)  # type: ignore[union-attr]
 
 
 class TestPrivacyModuleExports:
