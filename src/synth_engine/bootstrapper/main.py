@@ -168,6 +168,12 @@ def build_synthesis_engine(epochs: int = 300) -> SynthesisEngine:
 # SDV's CTGANSynthesizer.fit() does not expose its optimizer/model/dataloader
 # for Opacus wrapping.  When SDV adds training hooks, wire here.
 
+# TODO(T4.4): Add build_privacy_accountant() factory or DI binding here.
+# PrivacyLedger and spend_budget() (modules/privacy/accountant.py) must be
+# wired through the bootstrapper to connect to the async database engine.
+# The async engine URL should come from the same DATABASE_URL env var used
+# by the sync engine, with the driver swapped to postgresql+asyncpg://.
+
 
 class UnsealRequest(BaseModel):
     """Request body for the /unseal endpoint.

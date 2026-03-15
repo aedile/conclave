@@ -11,10 +11,22 @@ In production the application connects through PgBouncer, so
 ``pool_size`` and ``max_overflow`` are intentionally modest: PgBouncer
 handles external multiplexing.
 
+``get_async_engine`` provides an :class:`~sqlalchemy.ext.asyncio.AsyncEngine`
+for use with async sessions.  Required by the Privacy Accountant (T4.4)
+which needs ``SELECT ... FOR UPDATE`` within an async FastAPI request context.
+For PostgreSQL async the driver is ``asyncpg`` (``postgresql+asyncpg://``).
+For in-process unit tests the driver is ``aiosqlite`` (``sqlite+aiosqlite://``).
+
 Session management
 ------------------
 ``get_session`` is a FastAPI-compatible generator dependency.  It yields
 a ``Session`` and guarantees cleanup on exit, including on exceptions.
+
+``get_async_session`` is an async context manager that yields an
+:class:`~sqlalchemy.ext.asyncio.AsyncSession`.  Use it as::
+
+    async with get_async_session(engine) as session:
+        ...
 
 BaseModel
 ---------
@@ -26,20 +38,23 @@ Abstract base class for all database entities.  Provides:
 
 CONSTITUTION Priority 5: Code Quality
 Task: P2-T2.2 — Secure Database Layer
+Task: P4-T4.4 — Privacy Accountant (async engine + session)
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from sqlalchemy import Engine, create_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlmodel import Field, Session, SQLModel
 from sqlmodel._compat import SQLModelConfig
 
 # ---------------------------------------------------------------------------
-# Engine factory
+# Engine factories
 # ---------------------------------------------------------------------------
 
 _POOL_SIZE = 5
@@ -73,8 +88,41 @@ def get_engine(database_url: str) -> Engine:
     )
 
 
+def get_async_engine(database_url: str) -> AsyncEngine:
+    """Create an async SQLAlchemy engine for use with AsyncSession.
+
+    Supports two driver schemes:
+
+    - ``postgresql+asyncpg://...``  — production PostgreSQL via asyncpg.
+      ``SELECT ... FOR UPDATE`` works correctly here; used by the Privacy
+      Accountant (T4.4) concurrency integration tests.
+    - ``sqlite+aiosqlite://...``    — in-process SQLite via aiosqlite.
+      Suitable for unit tests.  Note: SQLite ignores ``FOR UPDATE`` clauses,
+      so concurrency correctness cannot be verified with this driver.
+
+    Pool sizing arguments are omitted for SQLite (``sqlite+aiosqlite``)
+    because ``StaticPool`` is automatically chosen by SQLAlchemy for
+    in-memory SQLite and does not accept pool configuration.
+
+    Args:
+        database_url: An async-driver-compatible SQLAlchemy URL.  Credentials
+            must be sourced from environment variables at call-site, never
+            hard-coded.
+
+    Returns:
+        A configured :class:`~sqlalchemy.ext.asyncio.AsyncEngine` instance.
+    """
+    if database_url.startswith("sqlite"):
+        return create_async_engine(database_url)
+    return create_async_engine(
+        database_url,
+        pool_size=_POOL_SIZE,
+        max_overflow=_MAX_OVERFLOW,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Session dependency
+# Session dependencies
 # ---------------------------------------------------------------------------
 
 
@@ -97,6 +145,36 @@ def get_session(engine: Engine) -> Generator[Session]:
         ``finally`` block so cleanup is guaranteed even on exception.
     """
     with Session(engine) as session:
+        yield session
+
+
+@asynccontextmanager
+async def get_async_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
+    """Async context manager that yields an AsyncSession for the given engine.
+
+    Provides a clean async session lifecycle: the session is opened on entry
+    and closed on exit (including on exceptions).  The caller is responsible
+    for calling ``await session.commit()`` or ``await session.rollback()``
+    within the context.
+
+    Usage::
+
+        async with get_async_session(engine) as session:
+            result = await session.execute(select(MyModel))
+            ...
+            await session.commit()
+
+    For FastAPI routes, wrap this in a ``Depends`` lambda or use it directly
+    inside route handler bodies.
+
+    Args:
+        engine: The :class:`~sqlalchemy.ext.asyncio.AsyncEngine` to bind the
+            session to.  Obtain one via :func:`get_async_engine`.
+
+    Yields:
+        An open :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
+    """
+    async with AsyncSession(engine, expire_on_commit=False) as session:
         yield session
 
 

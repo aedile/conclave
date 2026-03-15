@@ -20,6 +20,8 @@ Task: P4-T4.4 — Privacy Accountant
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -29,15 +31,17 @@ from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
 from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
 from synth_engine.shared.db import get_async_engine, get_async_session
 
-
 # ---------------------------------------------------------------------------
 # Async engine + session fixture (SQLite / aiosqlite for unit tests)
 # ---------------------------------------------------------------------------
 
 
 @pytest_asyncio.fixture()
-async def async_engine() -> AsyncEngine:
+async def async_engine() -> AsyncGenerator[AsyncEngine]:
     """Provide an in-memory async SQLite engine with schema created.
+
+    Creates all SQLModel tables on setup; disposes the engine on teardown
+    to ensure aiosqlite connections are properly closed.
 
     Yields:
         An :class:`AsyncEngine` with ``privacy_ledger`` and
@@ -46,7 +50,8 @@ async def async_engine() -> AsyncEngine:
     engine = get_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-    return engine
+    yield engine
+    await engine.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -179,16 +184,14 @@ async def test_spend_budget_sequential_calls_accumulate(
 
     async with get_async_session(async_engine) as s:
         count_result = await s.execute(
-            select(func.count()).select_from(PrivacyTransaction).where(
-                PrivacyTransaction.ledger_id == ledger_id
-            )
+            select(func.count())
+            .select_from(PrivacyTransaction)
+            .where(PrivacyTransaction.ledger_id == ledger_id)
         )
         count = count_result.scalar_one()
         assert count == 2, f"Expected 2 transactions, got {count}"
 
-        ledger_result = await s.execute(
-            select(PrivacyLedger).where(PrivacyLedger.id == ledger_id)
-        )
+        ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         updated_ledger = ledger_result.scalar_one()
         assert abs(updated_ledger.total_spent_epsilon - 0.6) < 1e-9, (
             f"Expected 0.6 total_spent, got {updated_ledger.total_spent_epsilon}"
@@ -231,16 +234,14 @@ async def test_spend_budget_raises_when_budget_exhausted(
     # Verify no transaction was written
     async with get_async_session(async_engine) as s:
         count_result = await s.execute(
-            select(func.count()).select_from(PrivacyTransaction).where(
-                PrivacyTransaction.ledger_id == ledger_id
-            )
+            select(func.count())
+            .select_from(PrivacyTransaction)
+            .where(PrivacyTransaction.ledger_id == ledger_id)
         )
         count = count_result.scalar_one()
         assert count == 0, f"Expected 0 transactions after exhaustion, got {count}"
 
-        ledger_result = await s.execute(
-            select(PrivacyLedger).where(PrivacyLedger.id == ledger_id)
-        )
+        ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         unchanged_ledger = ledger_result.scalar_one()
         assert unchanged_ledger.total_spent_epsilon == 0.9, (
             f"Ledger balance should be unchanged at 0.9, got {unchanged_ledger.total_spent_epsilon}"

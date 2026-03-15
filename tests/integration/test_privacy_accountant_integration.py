@@ -82,7 +82,7 @@ def _require_postgresql() -> None:
 @pytest_asyncio.fixture()
 async def pg_async_engine(
     postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
-) -> AsyncGenerator[AsyncEngine, None]:
+) -> AsyncGenerator[AsyncEngine]:
     """Provide an async SQLAlchemy engine connected to the ephemeral PostgreSQL instance.
 
     Creates all SQLModel tables, yields the engine, then drops all tables
@@ -98,10 +98,7 @@ async def pg_async_engine(
     """
     proc = postgresql_proc
     password = proc.password or ""
-    db_url = (
-        f"postgresql+asyncpg://{proc.user}:{password}"
-        f"@{proc.host}:{proc.port}/{proc.dbname}"
-    )
+    db_url = f"postgresql+asyncpg://{proc.user}:{password}@{proc.host}:{proc.port}/{proc.dbname}"
     engine = get_async_engine(db_url)
 
     async with engine.begin() as conn:
@@ -180,9 +177,7 @@ async def test_concurrent_spend_budget_for_update_prevents_overrun(
 
     # --- Assert: DB state ---
     async with get_async_session(pg_async_engine) as s:
-        ledger_result = await s.execute(
-            select(PrivacyLedger).where(PrivacyLedger.id == ledger_id)
-        )
+        ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         final_ledger = ledger_result.scalar_one()
         assert abs(final_ledger.total_spent_epsilon - 5.0) < 1e-9, (
             f"Expected total_spent_epsilon == 5.0, got {final_ledger.total_spent_epsilon}. "
@@ -233,9 +228,7 @@ async def test_spend_budget_postgresql_creates_transaction_record(
         assert transactions[0].epsilon_spent == 1.0
         assert transactions[0].job_id == 99
 
-        ledger_result = await s.execute(
-            select(PrivacyLedger).where(PrivacyLedger.id == ledger_id)
-        )
+        ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         updated_ledger = ledger_result.scalar_one()
         assert updated_ledger.total_spent_epsilon == 1.0, (
             f"Expected 1.0 spent, got {updated_ledger.total_spent_epsilon}"
@@ -265,9 +258,7 @@ async def test_spend_budget_postgresql_raises_on_exhaustion(
             await spend_budget(amount=0.1, job_id=1, ledger_id=ledger_id, session=s)
 
     async with get_async_session(pg_async_engine) as s:
-        ledger_result = await s.execute(
-            select(PrivacyLedger).where(PrivacyLedger.id == ledger_id)
-        )
+        ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         unchanged_ledger = ledger_result.scalar_one()
         assert unchanged_ledger.total_spent_epsilon == 0.95, (
             f"Ledger balance should be 0.95, got {unchanged_ledger.total_spent_epsilon}"
