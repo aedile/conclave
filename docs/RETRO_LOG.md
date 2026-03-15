@@ -18,6 +18,8 @@ Drain (delete) rows when their target task is completed.
 | ADV-050 | Arch T4.4 | Phase 6 hardening | DEFERRED | `Float` column type for `total_allocated_epsilon`/`total_spent_epsilon` in `PrivacyLedger`. Floating-point accumulation across many small additions introduces budget drift. PM justification: at current scale (1–10 epsilon range, tens of jobs) float64 drift is sub-microsecond. Revisit if sub-0.01 epsilon granularity or high-concurrency workloads become a product requirement. |
 | ADV-052 | DevOps T5.1 | Phase 6 hardening | DEFERRED | No Alembic migration for `connection` and `setting` tables. PM justification: Alembic infrastructure not yet established; air-gapped deployment uses SQLModel.metadata.create_all() at startup. Migration creation blocked until Alembic is initialized (Phase 6). |
 | ADV-054 | Arch T5.2 | Phase 6 hardening | DEFERRED | `LicenseError.status_code` embeds HTTP semantics in `shared/security/licensing.py`, inconsistent with ADR-0008 framework-boundary pattern. PM justification: pragmatic — only one status code (403) is used, and the pattern matches VaultState's ValueError approach. Revisit if licensing error taxonomy grows. |
+| ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
+| ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
 
 ---
 
@@ -38,39 +40,52 @@ error differentiation). Local WOFF2 font infrastructure with download script. 3 
 backend, 1 commit to frontend scaffold. 669 Python unit tests (96.11% coverage),
 28 Vitest tests (98.85% coverage). ADV-016+017 and ADV-018+019 drained.
 
-**Architecture** (PASS):
-- CSPMiddleware in bootstrapper/dependencies/csp.py — correct placement (Rule 7)
-- Frontend in frontend/ directory outside Python monolith — correct placement
-- No cross-module boundary violations
-- CSP is outermost middleware (LIFO) — wraps all 423/402 error responses
+**Architecture** (FINDING — 2 items, all fixed):
+- Missing ADR for frontend technology decisions. Fixed: ADR-0023 created documenting React 18 + Vite 6
+  selection, Vitest + Playwright test strategy, dev proxy, production serving, WOFF2 bundling, CSP.
+- Fragile string-matching on ValueError messages in /unseal endpoint. Fixed: introduced typed exception
+  subclasses (VaultEmptyPassphraseError, VaultAlreadyUnsealedError, VaultConfigError) in vault.py;
+  /unseal handler catches by type instead of string matching.
+- File placement PASS, dependency direction PASS, naming conventions PASS, CSP middleware correctly
+  placed in bootstrapper/dependencies/ alongside vault.py and licensing.py.
 
-**QA** (PASS):
-- Python unit tests: 669 passed, 96.11% coverage (threshold: 90%)
-- Frontend unit tests: 28 passed (Vitest), 98.85% coverage (threshold: 90%)
-- ruff: PASS, mypy: PASS, bandit: PASS, vulture: PASS
-- pre-commit hooks: PASS
+**QA** (FINDING — 3 items, all fixed):
+- ALREADY_UNSEALED redirect never asserted in tests. Fixed: added timer advancement + navigate assertion.
+- setTimeout IDs never cleaned up on unmount (latent state leak). Fixed: timerRef + useEffect cleanup.
+- Stale /unseal docstring (response body shape). Fixed: updated to document error_code field.
+- After fixes: 669 Python tests, 96.04% coverage; 29 Vitest tests, 98.91% coverage. All gates pass.
 
-**UI/UX** (PASS):
-- Unseal form: label/htmlFor association, aria-describedby, aria-invalid, aria-live status
-- Loading state: button disabled + spinner during PBKDF2 (ADV-019 drain)
-- Error differentiation: network error, EMPTY_PASSPHRASE, CONFIG_ERROR, ALREADY_UNSEALED
-- Playwright @axe-core test scaffolded (runs against dev server or built preview)
-- Focus management: auto-focus on mount, :focus-visible indicators
+**UI/UX** (FINDING — 6 items, 2 blockers, all fixed):
+- BLOCKER: Button text contrast ~3.4:1 on #6366f1 accent bg. Fixed: changed to #4f46e5 (~4.6:1).
+- BLOCKER: outline: "none" inline style killed keyboard :focus-visible indicator. Fixed: removed.
+- Conflicting live-region nesting (role="alert" inside aria-live="polite"). Fixed: removed role="alert".
+- Spinner double-announcement (role="img" + visible text). Fixed: changed to aria-hidden="true".
+- Required field missing visual indicator. Fixed: added asterisk.
+- Page title static across routes (WCAG 2.4.2). Fixed: useEffect sets document.title per route.
+- Advisory: prefers-reduced-motion guard added for spin animation.
 
-**DevOps** (PASS):
-- frontend CI job in .github/workflows/ci.yml with SHA-pinned actions/setup-node@v4.4.0
-- SHA: 49933ea5288caeca8642d1e84afbd3f7d6820020
-- Job runs: npm ci, type-check, test:coverage, build
-- vitest.config.ts uses @ts-nocheck to avoid vitest/vite plugin type conflict
+**DevOps** (FINDING — 2 items, all fixed):
+- No npm audit step in frontend CI job. Fixed: added npm audit --audit-level=moderate.
+- shellcheck doesn't cover frontend/scripts/. Fixed: added frontend/scripts/ to find path.
+- ADV-057: Production source maps (deferred); ADV-058: esbuild moderate CVE (dev-only, npm audit gate added).
 
-**Retrospective Note**:
+**Retrospective Notes**:
 - ES module mocking in Vitest requires vi.mock() at module level with factory function;
   vi.spyOn() on exported functions from ES modules does NOT intercept calls at the consumer
   site — only the original binding is updated. Use vi.mocked(client.fn) after vi.mock().
 - Fake timers + mockResolvedValue can deadlock in waitFor() calls — only use vi.useFakeTimers()
   inside tests that explicitly need timer advancement, not in beforeEach globally.
-- vitest/config and the outer @vitejs/plugin-react have aligned but distinct Plugin types;
-  use // @ts-nocheck in vitest.config.ts as the pragmatic workaround until versions align.
+- axe-core does not catch inline style specificity overriding stylesheet focus rules, and cannot
+  resolve CSS custom property contrast in static analysis. Future frontend PRs must include manual
+  contrast audit alongside axe-core.
+- Conflicting live-region nesting (role="alert" inside aria-live="polite") is a recurring ARIA
+  pattern — added to known failure patterns for future frontend work.
+- String-matching on exception messages creates implicit coupling between layers. VaultState's
+  failure modes now use typed exceptions — this pattern should be canonical going forward.
+- Every new language ecosystem added to CI must carry its own vulnerability audit step as a
+  non-negotiable gate (pip-audit for Python, npm audit for frontend).
+- Version hallucination: implementation summary claimed "React 19" but actual version is React 18.
+  Same pattern as T4.1 pyproject.toml version pins. Verify all claimed versions against lockfiles.
 
 ---
 
