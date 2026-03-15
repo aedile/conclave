@@ -30,6 +30,28 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-15] Task B — ChromaDB Learning System Wiring
+
+**Summary**: Scripts/docs-only task. No src/synth_engine/ files modified. Architecture reviewer SKIP per scope gate.
+
+**Changes committed**:
+- `feat`: `scripts/seed_chroma_retro.py` — parses RETRO_LOG.md Task Reviews (28 notes) and Open Advisory Items table (10 rows); upserts into ChromaDB "Retrospectives" and "Advisories" collections; uses `get_or_create_collection` + `upsert` semantics; verifies seeding with retrieval queries
+- `docs`: Amended `.claude/agents/software-developer.md` — tools frontmatter updated to include four chroma MCP tool names; Step 0 updated to make `chroma_query_documents` the preferred pre-task learning scan mechanism with RETRO_LOG fallback
+- `docs`: Amended `CLAUDE.md` — Rule 14 added (PM must run seeding script after every RETRO_LOG update); Quick Reference Card updated with AFTER RETRO_LOG UPDATE line
+
+**Architecture** (SKIP): No src/synth_engine/ files touched. Scope gate applied.
+
+**QA** (PASS):
+dead-code PASS. edge-cases PASS — empty inputs handled with logger.warning + return 0; missing section returns []; RETRO_LOG not found exits with sys.exit(1). error-paths PASS — all SystemExit paths documented. silent-failures PASS — no bare except: pass. type-annotation-accuracy PASS — cast(Any, metadatas) at chromadb upsert call sites with inline justification; mypy --ignore-missing-imports clean. No unit tests per established scripts/ convention (seed_chroma.py has no tests). Retrospective: cast(Any, ...) is the correct resolution for third-party stub incompatibility without coupling to chromadb internals.
+
+**DevOps** (PASS):
+hardcoded-credentials PASS — gitleaks/detect-secrets clean. no-pii-in-code PASS. no-auth-material-in-logs PASS. input-validation PASS. bandit PASS — 0 issues. dependency-audit PASS — no new production deps. ci-health PASS — all 7 pre-commit hooks pass. mcp-tool-wiring PASS — tool names in frontmatter match server config with correct mcp__chroma__ prefix. Retrospective: MCP tool prefix (mcp__{server-key}__{tool-name}) is load-bearing in agent frontmatter — must be verified against claude_mcp.json mcpServers key when adding new MCP tools.
+
+**UI/UX** (SKIP): No UI surface area. scripts/ and agent config only.
+
+**Retrospective**:
+The cast(Any, metadatas) pattern at chromadb upsert call sites is the correct resolution for stub incompatibility in scripts/ code that interacts with third-party libraries whose public stubs are more permissive than mypy strict allows. Prefer this over `# type: ignore` without justification. The seeding confirmed: 28 retrospective notes and 10 advisory items are now queryable in ChromaDB, enabling software-developer agents to retrieve institutional memory via semantic query rather than reading the full RETRO_LOG.md file.
+
 ### [2026-03-14] Governance Enforcement Sprint — docs/governance-enforcement branch
 
 **Summary**: Docs/chore-only sprint. No src/ files modified. All four reviewers SKIP per scope gate.
