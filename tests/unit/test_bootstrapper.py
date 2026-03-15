@@ -6,9 +6,13 @@ basic application structure.
 CONSTITUTION Priority 3: TDD RED Phase
 Task: P2-T2.1 — Module Bootstrapper, OTEL, Idempotency, Orphan Task Reaper
 Task: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
+Task: P4-T4.2b — SynthesisEngine + EphemeralStorageClient factory wiring
+                  (ADV-037 drain)
 """
 
-from unittest.mock import patch
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -131,6 +135,166 @@ async def test_cycle_detection_error_not_a_500() -> None:
             response = await client.get("/test-cycle-not-500")
 
     assert response.status_code != 500
+
+
+# ---------------------------------------------------------------------------
+# ADV-037 drain: _read_secret, build_synthesis_engine, build_ephemeral_storage_client
+# ---------------------------------------------------------------------------
+
+
+class TestReadSecret:
+    """Unit tests for the _read_secret() Docker secrets helper."""
+
+    def test_reads_secret_from_file(self) -> None:
+        """_read_secret() must read and strip the content of a secrets file."""
+        from synth_engine.bootstrapper.main import _read_secret
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_path = Path(tmpdir) / "my_secret"
+            secret_path.write_text("supersecretvalue\n", encoding="utf-8")
+
+            with patch("synth_engine.bootstrapper.main._SECRETS_DIR", Path(tmpdir)):
+                result = _read_secret("my_secret")
+
+        assert result == "supersecretvalue"
+
+    def test_raises_runtime_error_for_missing_secret(self) -> None:
+        """_read_secret() must raise RuntimeError if the secret file is absent."""
+        from synth_engine.bootstrapper.main import _read_secret
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("synth_engine.bootstrapper.main._SECRETS_DIR", Path(tmpdir)):
+                with pytest.raises(RuntimeError, match="not found"):
+                    _read_secret("nonexistent_secret")
+
+    def test_strips_trailing_whitespace(self) -> None:
+        """_read_secret() must strip trailing whitespace and newlines."""
+        from synth_engine.bootstrapper.main import _read_secret
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_path = Path(tmpdir) / "padded_secret"
+            secret_path.write_text("  myvalue  \n\n", encoding="utf-8")
+
+            with patch("synth_engine.bootstrapper.main._SECRETS_DIR", Path(tmpdir)):
+                result = _read_secret("padded_secret")
+
+        assert result == "myvalue"
+
+
+class TestBuildSynthesisEngine:
+    """Unit tests for the build_synthesis_engine() bootstrapper factory."""
+
+    def test_returns_synthesis_engine_instance(self) -> None:
+        """build_synthesis_engine() must return a SynthesisEngine instance."""
+        from synth_engine.bootstrapper.main import build_synthesis_engine
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+
+        engine = build_synthesis_engine()
+        assert isinstance(engine, SynthesisEngine)
+
+    def test_default_epochs_is_300(self) -> None:
+        """build_synthesis_engine() default produces an engine with 300 epochs."""
+        from synth_engine.bootstrapper.main import build_synthesis_engine
+
+        engine = build_synthesis_engine()
+        # Access private _epochs attribute to verify epoch count
+        assert engine._epochs == 300
+
+    def test_custom_epochs_passed_through(self) -> None:
+        """build_synthesis_engine(epochs=N) must produce engine with N epochs."""
+        from synth_engine.bootstrapper.main import build_synthesis_engine
+
+        engine = build_synthesis_engine(epochs=5)
+        assert engine._epochs == 5
+
+    def test_returns_fresh_instance_each_call(self) -> None:
+        """build_synthesis_engine() must return a new instance on each call."""
+        from synth_engine.bootstrapper.main import build_synthesis_engine
+
+        engine1 = build_synthesis_engine()
+        engine2 = build_synthesis_engine()
+        assert engine1 is not engine2
+
+
+class TestBuildEphemeralStorageClient:
+    """Unit tests for the build_ephemeral_storage_client() bootstrapper factory.
+
+    MinioStorageBackend is not instantiated directly — boto3.client() is
+    patched to avoid real network calls to MinIO.
+    """
+
+    def _make_secret_files(self, tmpdir: str) -> Path:
+        """Create mock secret files in a temporary directory.
+
+        Args:
+            tmpdir: Path to a temporary directory.
+
+        Returns:
+            Path to the directory containing the mock secret files.
+        """
+        secrets_dir = Path(tmpdir)
+        (secrets_dir / "minio_ephemeral_access_key").write_text("testkey\n", encoding="utf-8")
+        (secrets_dir / "minio_ephemeral_secret_key").write_text("testsecret\n", encoding="utf-8")
+        return secrets_dir
+
+    def test_returns_ephemeral_storage_client_instance(self) -> None:
+        """build_ephemeral_storage_client() must return an EphemeralStorageClient."""
+        from synth_engine.bootstrapper.main import build_ephemeral_storage_client
+        from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secrets_dir = self._make_secret_files(tmpdir)
+            # Patch boto3.client to prevent real network calls
+            with (
+                patch("synth_engine.bootstrapper.main._SECRETS_DIR", secrets_dir),
+                patch("boto3.client", return_value=MagicMock()),
+            ):
+                result = build_ephemeral_storage_client()
+
+        assert isinstance(result, EphemeralStorageClient)
+
+    def test_reads_credentials_from_docker_secrets(self) -> None:
+        """build_ephemeral_storage_client() must pass secrets to MinioStorageBackend.
+
+        Verifies that access_key and secret_key are read from Docker secrets
+        and forwarded to the MinioStorageBackend constructor (stripped of
+        trailing whitespace).
+        """
+        from synth_engine.bootstrapper.main import build_ephemeral_storage_client
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secrets_dir = Path(tmpdir)
+            (secrets_dir / "minio_ephemeral_access_key").write_text(
+                "myaccesskey\n", encoding="utf-8"
+            )
+            (secrets_dir / "minio_ephemeral_secret_key").write_text(
+                "mysecretkey\n", encoding="utf-8"
+            )
+
+            with (
+                patch("synth_engine.bootstrapper.main._SECRETS_DIR", secrets_dir),
+                patch("boto3.client") as mock_boto3_client,
+            ):
+                mock_boto3_client.return_value = MagicMock()
+                build_ephemeral_storage_client()
+
+            # Verify boto3.client was called with the stripped credentials
+            mock_boto3_client.assert_called_once_with(
+                "s3",
+                endpoint_url="http://minio-ephemeral:9000",
+                aws_access_key_id="myaccesskey",
+                aws_secret_access_key="mysecretkey",  # pragma: allowlist secret
+            )
+
+    def test_raises_runtime_error_when_secrets_missing(self) -> None:
+        """build_ephemeral_storage_client() must raise RuntimeError if secrets absent."""
+        from synth_engine.bootstrapper.main import build_ephemeral_storage_client
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Empty secrets dir — no secret files
+            with patch("synth_engine.bootstrapper.main._SECRETS_DIR", Path(tmpdir)):
+                with pytest.raises(RuntimeError, match="not found"):
+                    build_ephemeral_storage_client()
 
 
 # ---------------------------------------------------------------------------

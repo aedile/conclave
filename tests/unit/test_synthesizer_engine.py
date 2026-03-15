@@ -8,6 +8,9 @@ Pattern guards applied:
   function under test, not just absence of exceptions.
 - Version-pin hallucination: SDV pinned to verified PyPI version 1.34.3.
 - ADV-037 BLOCKER: EphemeralStorageClient + SynthesisEngine wired in bootstrapper.
+- Pickle compatibility: MagicMock is NOT picklable in Python 3.14; save/load
+  round-trip tests use _PicklableModelStub instead.  MagicMock is retained for
+  tests that do NOT call save/load (generate calls, training mock assertions).
 """
 
 from __future__ import annotations
@@ -23,16 +26,31 @@ import pytest
 from synth_engine.modules.synthesizer.models import ModelArtifact
 
 
+class _PicklableModelStub:
+    """Minimal picklable stand-in for a CTGANSynthesizer used in save/load tests.
+
+    Python 3.14 changed MagicMock pickling behaviour — MagicMock instances are
+    NOT picklable because the class identity check fails across the pickling
+    boundary.  This stub is a plain class that can be pickled and whose
+    ``sample()`` method returns a predictable DataFrame.
+    """
+
+    def __init__(self, some_param: str = "test_value") -> None:
+        self.some_param = some_param
+
+    def sample(self, num_rows: int = 1) -> pd.DataFrame:
+        """Return a minimal DataFrame with one column."""
+        return pd.DataFrame({"id": list(range(num_rows))})
+
+
 class TestModelArtifactRoundTrip:
     """Unit tests for ModelArtifact save/load round-trip."""
 
     def _make_artifact(self, table_name: str = "persons") -> ModelArtifact:
-        """Create a minimal ModelArtifact with a mock synthesizer model."""
-        mock_model = MagicMock()
-        mock_model.some_param = "test_value"
+        """Create a minimal ModelArtifact with a picklable synthesizer stub."""
         return ModelArtifact(
             table_name=table_name,
-            model=mock_model,
+            model=_PicklableModelStub(),
             column_names=["id", "name", "age"],
             column_dtypes={"id": "int64", "name": "object", "age": "int64"},
         )
@@ -92,7 +110,7 @@ class TestModelArtifactRoundTrip:
     def test_load_nonexistent_file_raises_file_not_found(self) -> None:
         """load() on a missing path must raise FileNotFoundError."""
         with pytest.raises(FileNotFoundError):
-            ModelArtifact.load("/tmp/does_not_exist_artifact.pkl")  # noqa: S108
+            ModelArtifact.load("/tmp/does_not_exist_artifact.pkl")
 
 
 class TestFkPostProcessing:
@@ -169,7 +187,12 @@ class TestFkPostProcessing:
         from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
 
         parent_pks = {1, 2, 3}
-        child_df = pd.DataFrame({"id": pd.Series([], dtype="int64"), "parent_id": pd.Series([], dtype="int64")})
+        child_df = pd.DataFrame(
+            {
+                "id": pd.Series([], dtype="int64"),
+                "parent_id": pd.Series([], dtype="int64"),
+            }
+        )
         result = apply_fk_post_processing(
             child_df=child_df,
             fk_column="parent_id",
@@ -212,6 +235,7 @@ class TestSynthesisEngineTrain:
     def _make_persons_df(self, n: int = 10) -> pd.DataFrame:
         """Build a minimal persons DataFrame for training tests."""
         import numpy as np
+
         rng = np.random.default_rng(42)
         return pd.DataFrame(
             {
@@ -309,20 +333,22 @@ class TestSynthesisEngineTrain:
         with patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer"):
             engine = SynthesisEngine()
             with pytest.raises(FileNotFoundError):
-                engine.train(table_name="persons", parquet_path="/tmp/nonexistent.parquet")  # noqa: S108
+                engine.train(table_name="persons", parquet_path="/tmp/nonexistent.parquet")
 
 
 class TestSynthesisEngineGenerate:
-    """Unit tests for SynthesisEngine.generate() using mocked CTGAN."""
+    """Unit tests for SynthesisEngine.generate() using mocked CTGAN.
 
-    def _make_artifact(self) -> "ModelArtifact":
+    Uses MagicMock here because generate() does NOT pickle the model —
+    it only calls model.sample().  MagicMock is safe for non-pickle usage.
+    """
+
+    def _make_artifact(self) -> ModelArtifact:
         """Create a ModelArtifact backed by a mock CTGAN model."""
         mock_model = MagicMock()
         mock_model.sample.return_value = pd.DataFrame(
             {"id": [1, 2, 3], "age": [25, 30, 35], "salary": [50000, 60000, 70000]}
         )
-        from synth_engine.modules.synthesizer.models import ModelArtifact
-
         return ModelArtifact(
             table_name="persons",
             model=mock_model,
@@ -386,16 +412,17 @@ class TestSynthesisEngineGenerate:
 
 
 class TestModelArtifactPickleFormat:
-    """Tests that ModelArtifact serialises using pickle (not torch.save)."""
+    """Tests that ModelArtifact serialises using pickle (not torch.save).
+
+    Uses _PicklableModelStub instead of MagicMock because Python 3.14 changed
+    MagicMock pickling behaviour — MagicMock is no longer picklable.
+    """
 
     def test_saved_file_is_valid_pickle(self) -> None:
         """ModelArtifact.save() must produce a valid pickle file."""
-        mock_model = MagicMock()
-        from synth_engine.modules.synthesizer.models import ModelArtifact
-
         artifact = ModelArtifact(
             table_name="test",
-            model=mock_model,
+            model=_PicklableModelStub(),
             column_names=["a"],
             column_dtypes={"a": "int64"},
         )

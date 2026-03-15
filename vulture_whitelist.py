@@ -66,7 +66,10 @@ _.written_tables  # Public property on EgressWriter (subsetting/egress.py)
 
 # ---------------------------------------------------------------------------
 # synthesizer — public storage API (wired in Phase 4 bootstrapper; T4.1)
+# Engine and model API wired in bootstrapper in T4.2b (ADV-037 drain)
 # ---------------------------------------------------------------------------
+build_ephemeral_storage_client  # Factory fn for EphemeralStorageClient (bootstrapper/main.py)
+build_synthesis_engine  # Factory fn for SynthesisEngine (bootstrapper/main.py)
 _log_device_selection  # Module-level GPU/CPU detection fn (synthesizer/storage.py)
 MinioStorageBackend  # Concrete MinIO backend (synthesizer/storage.py) — injected at runtime
 EphemeralStorageClient  # Public ephemeral storage client (synthesizer/storage.py)

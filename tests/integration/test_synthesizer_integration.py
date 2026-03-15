@@ -15,6 +15,8 @@ ADR: ADR-0017 (CTGAN + Opacus; per-table training with FK post-processing)
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -66,9 +68,7 @@ class TestSynthesisEngineCTGANIntegration:
         result = engine.train(table_name="persons", parquet_path=persons_parquet)
         assert isinstance(result, ModelArtifact)
 
-    def test_generated_schema_matches_source_column_names(
-        self, persons_parquet: str
-    ) -> None:
+    def test_generated_schema_matches_source_column_names(self, persons_parquet: str) -> None:
         """Generated output column names must exactly match the source schema."""
         from synth_engine.modules.synthesizer.engine import SynthesisEngine
 
@@ -79,9 +79,7 @@ class TestSynthesisEngineCTGANIntegration:
 
         assert set(synthetic_df.columns) == set(source_df.columns)
 
-    def test_generated_schema_matches_source_dtypes(
-        self, persons_parquet: str
-    ) -> None:
+    def test_generated_schema_matches_source_dtypes(self, persons_parquet: str) -> None:
         """Generated output dtypes must exactly match the source dtypes."""
         from synth_engine.modules.synthesizer.engine import SynthesisEngine
 
@@ -141,16 +139,22 @@ class TestImportBoundaryEnforcement:
     """
 
     def test_synthesizer_does_not_import_from_ingestion(self) -> None:
-        """import-linter must confirm synthesizer has no ingestion dependency."""
-        import subprocess
-        import sys
+        """import-linter must confirm synthesizer has no ingestion dependency.
+
+        Uses the ``lint-imports`` CLI entry point installed by the
+        import-linter package (not ``python -m importlinter`` which is
+        not a valid entry point for this package).
+        """
+        lint_imports = shutil.which("lint-imports")
+        if lint_imports is None:
+            pytest.skip("lint-imports binary not found — import-linter not installed")
 
         result = subprocess.run(  # noqa: S603
-            [sys.executable, "-m", "importlinter"],
+            [lint_imports],
             capture_output=True,
             text=True,
         )
-        # importlinter exits 0 on success, non-zero on contract violation
+        # lint-imports exits 0 on success, non-zero on contract violation
         assert result.returncode == 0, (
             f"import-linter found contract violations:\n{result.stdout}\n{result.stderr}"
         )
