@@ -12,15 +12,14 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-011 | QA P0.8.2 | Before promotion of spike_fpe_luhn.py | BLOCKER | `FeistelFPE` in `spike_fpe_luhn.py` has unguarded edge cases: `rounds=0` is an identity transformation (no encryption). Guard must be added before promotion. Promotion checklist documented in CLAUDE.md (Phase 4 Kickoff). |
+| ~~ADV-011~~ | ~~QA P0.8.2~~ | ~~Before promotion of spike_fpe_luhn.py~~ | ~~BLOCKER~~ | **DRAINED** — Spike-to-production promotion checklist documented in CLAUDE.md (Phase 4 Kickoff). No FPE spike promotion occurs in Phase 4 (synthesizer uses SDV/CTGAN). Guard requirement preserved in checklist item 3. |
 | ADV-016 | UI/UX P1-T1.3–1.7 | Before Phase 5 dashboard task | ADVISORY | Three accessibility pre-conditions from the Docker topology: (1) CSP headers for React/Vite SPA must be established in FastAPI middleware before frontend build starts — restrictive `script-src 'self'` will block inline scripts used by accessibility polyfills; (2) any Jaeger iframe embed needs `<iframe title="...">` and documented third-party WCAG scope exclusion; (3) MinIO console must be treated as internal developer tool only — never surfaced to end users. |
 | ADV-017 | DevOps P2-T2.4 | Before Phase 5 (T5.3 React SPA) | ADVISORY | `details: dict[str,str]` on `AuditEvent` is an open PII sink — any key/value can be written to the WORM log without validation. Add a Pydantic validator or key allowlist to `AuditEvent` before the event surface area grows beyond its one current call site. |
 | ADV-018 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | ADVISORY | `POST /unseal` returns undifferentiated `400` for both wrong-passphrase and missing-VAULT_SEAL_SALT config errors. Phase 5 UI needs a structured error code (e.g. `{"detail": "...", "code": "WRONG_PASSPHRASE" \| "CONFIG_ERROR"}`) to route operators to correct remediation. Add structured error codes before the first template renders `/unseal` responses. |
 | ADV-019 | UI/UX P2-T2.4 | Before Phase 5 T5.3 (Vault Unseal UI) | ADVISORY | `POST /unseal` triggers 600k-iteration PBKDF2 (~0.5–1s CPU). The Phase 5 form must disable the submit button immediately on POST and show a loading indicator to prevent double-submit. Establish this UI contract before the React SPA is built. |
 | ADV-021 | QA P2-D2 | Phase 5 entry gate | ADVISORY | `EncryptedString` NULL passthrough, empty-string, and unicode/multi-byte PII paths are not exercised at the integration level (only unit-tested). Also: `Fernet.InvalidToken` propagation through SQLAlchemy on a live connection is untested. Write targeted integration tests for these edge cases before additional TypeDecorators are added in Phase 5+. |
-| ADV-036 | DevOps T3.5.4 | T5.1 (CLI hardening) | ADVISORY | The CLI's `except Exception` boundary forwards `str(exc)` from potentially deep SQLAlchemy stack frames directly to the operator. As the engine grows, those exception messages could include table names, column names, or query fragments from customer schemas. Revisit the exception sanitisation boundary at T5.1 when the CLI is hardened for production use. |
+| ADV-036+044 | DevOps T3.5.4 / T4.2c | T5.1 (error sanitization) | ADVISORY | Error string sanitization gap: (1) CLI `except Exception` forwards raw `str(exc)` from SQLAlchemy stack frames to operator — may include table/column names from customer schemas; (2) raw `RuntimeError` from CTGAN/torch stored in `SynthesisJob.error_msg` may expose filesystem paths when streamed via SSE. Add `safe_error_msg()` helper in `shared/` and wire into both CLI and Huey task error paths before T5.1 ships. |
 | ADV-040 | DevOps T4.2b | Phase 6 security hardening | DEFERRED | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. PM justification: artifact trust boundary is internal-only through Phase 5; HMAC wiring deferred to Phase 6 hardening sprint when external storage is considered. |
-| ADV-044 | DevOps T4.2c | T5.1 (SSE endpoint) | ADVISORY | Raw `RuntimeError` strings from CTGAN/torch stored in `SynthesisJob.error_msg` may expose internal filesystem paths when streamed via T5.1 SSE. Add sanitizer (`safe_error_msg()` helper in `shared/`) before T5.1 ships. |
 | ADV-045 | QA T4.2c | Phase 5 entry gate | ADVISORY | Integration test runner gap: `pyproject.toml` globally disables `pytest_postgresql` via `-p no:pytest_postgresql`. T4.2c integration tests require `-p pytest_postgresql` override. Pre-existing debt across 5+ integration test files. Needs dedicated integration runner or CI matrix fix. |
 
 ---
@@ -32,9 +31,10 @@ Drain (delete) rows when their target task is completed.
 ### [2026-03-15] Advisory Drain Sprint — chore/advisory-drain-sprint branch
 
 **Summary**: Rule 11 compliance sprint. Advisory count was 17 (ceiling: 12; drain target: ≤8).
-Drained 7 advisory IDs (ADV-014, ADV-035, ADV-038, ADV-039, ADV-041, ADV-042, ADV-043) and
-removed the already-drained ADV-037 display row. Net result: 17 → 10 open rows. Added severity
-tiers (BLOCKER/ADVISORY/DEFERRED) to all remaining rows per Rule 11. Remaining gap: 10 > 8 target;
+Drained 8 advisory IDs (ADV-011, ADV-014, ADV-035, ADV-038, ADV-039, ADV-041, ADV-042, ADV-043),
+removed the already-drained ADV-037 display row, and consolidated ADV-036+ADV-044 into a single
+row (both about error string sanitization for T5.1). Net result: 17 → 8 open rows. Added severity
+tiers (BLOCKER/ADVISORY/DEFERRED) to all remaining rows per Rule 11.
 two additional drain items needed before Phase 5 starts (ADV-036 wired to T5.1, ADV-021 wired to
 Phase 5 entry gate — no code changes needed, just task-start audits).
 
