@@ -126,12 +126,12 @@ describe("RFC7807Toast component", () => {
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
 
-    act(() => {
+    // Advance past TOAST_DISMISS_MS (5000ms) and flush React state.
+    // Do NOT use waitFor() with fake timers — it deadlocks.
+    await act(async () => {
       vi.advanceTimersByTime(6000);
     });
 
-    await waitFor(() => {
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

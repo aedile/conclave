@@ -13,6 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api/client", () => ({
   getHealth: vi.fn(),
   postUnseal: vi.fn(),
+  getJobs: vi.fn().mockResolvedValue({ ok: true, data: { items: [], next_cursor: null } }),
+  getJob: vi.fn(),
+  createJob: vi.fn(),
+  startJob: vi.fn(),
 }));
 
 // Mock useNavigate for App component's RouterGuard

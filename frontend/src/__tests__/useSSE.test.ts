@@ -25,7 +25,6 @@ class MockEventSource {
   url: string;
   readyState: number = 0; // CONNECTING
   private listeners: Record<string, EventListener[]> = {};
-  private genericListeners: Array<(event: MessageEvent) => void> = [];
   onerror: ((event: Event) => void) | null = null;
 
   constructor(url: string) {
@@ -71,7 +70,8 @@ vi.stubGlobal("EventSource", MockEventSource);
 // ---------------------------------------------------------------------------
 
 function lastInstance(): MockEventSource {
-  const inst = MockEventSource.instances.at(-1);
+  const instances = MockEventSource.instances;
+  const inst = instances[instances.length - 1];
   if (!inst) throw new Error("No MockEventSource instance created");
   return inst;
 }

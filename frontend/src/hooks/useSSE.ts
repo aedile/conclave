@@ -1,0 +1,150 @@
+/**
+ * useSSE — custom hook for consuming Server-Sent Events from the job stream.
+ *
+ * Wraps the browser EventSource API to subscribe to `/jobs/{jobId}/stream`.
+ * Parses `progress`, `complete`, and `error` event types from the backend.
+ * Closes the EventSource on unmount to prevent memory and connection leaks.
+ *
+ * CONSTITUTION: No external network calls — targets same-origin backend only.
+ *
+ * @example
+ * ```tsx
+ * const { status, percent, currentEpoch, totalEpochs, error } = useSSE(jobId);
+ * ```
+ */
+
+import { useEffect, useRef, useState } from "react";
+import type { JobStatus } from "../api/client";
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+/** State shape returned by useSSE. All fields are null until the first event. */
+export interface SSEState {
+  /** Current job status derived from the most recent SSE event. */
+  status: JobStatus | null;
+  /** Completion percentage (0–100). */
+  percent: number | null;
+  /** Current training epoch number. */
+  currentEpoch: number | null;
+  /** Total training epochs for this job. */
+  totalEpochs: number | null;
+  /** Sanitized error detail string, set on "error" event. */
+  error: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Internal event payload shapes (from backend SSE stream)
+// ---------------------------------------------------------------------------
+
+interface ProgressPayload {
+  status: "TRAINING";
+  current_epoch: number;
+  total_epochs: number;
+  percent: number;
+}
+
+interface CompletePayload {
+  status: "COMPLETE";
+  current_epoch: number;
+  total_epochs: number;
+  percent: number;
+}
+
+interface ErrorPayload {
+  detail: string;
+}
+
+const INITIAL_STATE: SSEState = {
+  status: null,
+  percent: null,
+  currentEpoch: null,
+  totalEpochs: null,
+  error: null,
+};
+
+// ---------------------------------------------------------------------------
+// Hook implementation
+// ---------------------------------------------------------------------------
+
+/**
+ * Subscribe to the SSE stream for a synthesis job.
+ *
+ * Opens an `EventSource` connection to `/jobs/{jobId}/stream` and
+ * listens for `progress`, `complete`, and `error` events. The connection
+ * is automatically closed when the component unmounts or when `jobId`
+ * changes to a different value.
+ *
+ * When `jobId` is `null`, no connection is opened and the returned state
+ * contains all-null fields.
+ *
+ * @param jobId - The numeric job ID to stream, or `null` to skip.
+ * @returns Current SSE state with status, progress, epoch counters, and error.
+ */
+export function useSSE(jobId: number | null): SSEState {
+  const [state, setState] = useState<SSEState>(INITIAL_STATE);
+  // Hold a ref to the EventSource so we can close it in cleanup without
+  // capturing stale closure values.
+  const esRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    if (jobId === null) {
+      setState(INITIAL_STATE);
+      return;
+    }
+
+    const es = new EventSource(`/jobs/${jobId}/stream`);
+    esRef.current = es;
+
+    const handleProgress = (event: MessageEvent<string>): void => {
+      const payload = JSON.parse(event.data) as ProgressPayload;
+      setState({
+        status: payload.status,
+        percent: payload.percent,
+        currentEpoch: payload.current_epoch,
+        totalEpochs: payload.total_epochs,
+        error: null,
+      });
+    };
+
+    const handleComplete = (event: MessageEvent<string>): void => {
+      const payload = JSON.parse(event.data) as CompletePayload;
+      setState({
+        status: payload.status,
+        percent: payload.percent,
+        currentEpoch: payload.current_epoch,
+        totalEpochs: payload.total_epochs,
+        error: null,
+      });
+      es.close();
+    };
+
+    const handleError = (event: MessageEvent<string>): void => {
+      const payload = JSON.parse(event.data) as ErrorPayload;
+      setState((prev) => ({
+        ...prev,
+        status: "FAILED",
+        error: payload.detail,
+      }));
+      es.close();
+    };
+
+    // EventSource.addEventListener accepts EventListener (Event) but SSE events
+    // are MessageEvent. We cast via unknown to satisfy TypeScript while keeping
+    // the handler typed correctly.
+    es.addEventListener("progress", handleProgress as unknown as EventListener);
+    es.addEventListener("complete", handleComplete as unknown as EventListener);
+    es.addEventListener("error", handleError as unknown as EventListener);
+
+    return () => {
+      es.removeEventListener("progress", handleProgress as unknown as EventListener);
+      es.removeEventListener("complete", handleComplete as unknown as EventListener);
+      es.removeEventListener("error", handleError as unknown as EventListener);
+      es.close();
+      esRef.current = null;
+    };
+  }, [jobId]);
+
+  return state;
+}

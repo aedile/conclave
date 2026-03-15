@@ -1,41 +1,493 @@
 /**
- * Dashboard — post-unseal landing page.
+ * Dashboard — Job Synthesis monitoring interface.
  *
- * Placeholder for the main Conclave Engine UI (Phase 6+).
- * Rendered after the vault is successfully unsealed.
+ * Displays active synthesis jobs, supports job creation, and streams live
+ * progress via SSE. Persists the active job ID in localStorage so a page
+ * refresh reconnects to the running stream automatically.
+ *
+ * CONSTITUTION:
+ *   - WCAG 2.1 AA: aria-live regions, progressbar roles, labelled forms.
+ *   - No hardcoded colours — exclusively uses CSS custom properties.
+ *   - document.title set on mount.
+ *   - prefers-reduced-motion respected via global.css @media rule.
+ *
+ * localStorage key: "conclave_active_job_id"
+ *   Set when a job is started. Cleared when the job reaches a terminal state
+ *   (COMPLETE or FAILED) or when a rehydrated job cannot be found (404).
  */
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createJob,
+  getJob,
+  getJobs,
+  startJob,
+  type CreateJobParams,
+  type JobResponse,
+  type ProblemDetail,
+} from "../api/client";
+import { RFC7807Toast } from "../components/ErrorBoundary";
+import JobCard from "../components/JobCard";
+import { useSSE } from "../hooks/useSSE";
+import { PoliteAnnouncement } from "../components/AriaLive";
 
-export default function Dashboard() {
-  // Set page title on mount so screen readers and browser history reflect the route
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const LOCAL_STORAGE_KEY = "conclave_active_job_id";
+const TERMINAL_STATUSES = new Set(["COMPLETE", "FAILED"]);
+
+// ---------------------------------------------------------------------------
+// Create Job form state
+// ---------------------------------------------------------------------------
+
+interface CreateJobFormState {
+  table_name: string;
+  parquet_path: string;
+  total_epochs: string;
+  checkpoint_every_n: string;
+}
+
+const EMPTY_FORM: CreateJobFormState = {
+  table_name: "",
+  parquet_path: "",
+  total_epochs: "",
+  checkpoint_every_n: "",
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+/**
+ * Dashboard — main post-unseal UI for monitoring synthesis jobs.
+ *
+ * On mount:
+ *  1. Loads the job list from GET /jobs.
+ *  2. Reads localStorage for a persisted active job ID.
+ *  3. If found, verifies the job still exists and is non-terminal; if so,
+ *     opens an SSE stream for rehydration.
+ */
+export default function Dashboard(): JSX.Element {
+  // Job list state
+  const [jobs, setJobs] = useState<JobResponse[]>([]);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Active SSE job (the one being streamed)
+  const [activeJobId, setActiveJobId] = useState<number | null>(null);
+
+  // Starting state per-job (only one can start at a time in practice)
+  const [startingJobId, setStartingJobId] = useState<number | null>(null);
+
+  // RFC 7807 toast for API errors
+  const [apiError, setApiError] = useState<ProblemDetail | null>(null);
+  const [errorVisible, setErrorVisible] = useState(false);
+
+  // Create Job form
+  const [form, setForm] = useState<CreateJobFormState>(EMPTY_FORM);
+  const [isCreating, setIsCreating] = useState(false);
+
+  // Announcement text for screen readers (aria-live polite region)
+  const [announcement, setAnnouncement] = useState("");
+  const announcementRef = useRef("");
+
+  // SSE streaming state
+  const sseState = useSSE(activeJobId);
+
+  // -------------------------------------------------------------------------
+  // Side effects from SSE state
+  // -------------------------------------------------------------------------
+
+  const prevSsePercent = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (sseState.percent !== null && sseState.percent !== prevSsePercent.current) {
+      prevSsePercent.current = sseState.percent;
+      const text = `Job Synthesis reached ${sseState.percent}%`;
+      if (announcementRef.current !== text) {
+        announcementRef.current = text;
+        setAnnouncement(text);
+      }
+    }
+
+    if (sseState.status === "COMPLETE" || sseState.status === "FAILED") {
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      setActiveJobId(null);
+    }
+  }, [sseState]);
+
+  // -------------------------------------------------------------------------
+  // Load jobs on mount
+  // -------------------------------------------------------------------------
+
+  const loadJobs = useCallback(async (cursor?: number): Promise<void> => {
+    const result = await getJobs(cursor);
+    if (result.ok) {
+      if (cursor !== undefined) {
+        setJobs((prev) => [...prev, ...result.data.items]);
+      } else {
+        setJobs(result.data.items);
+      }
+      setNextCursor(result.data.next_cursor);
+    } else {
+      setApiError(result.error);
+      setErrorVisible(true);
+    }
+  }, []);
+
+  // Rehydrate from localStorage on mount
+  useEffect(() => {
+    void (async () => {
+      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (stored !== null) {
+        const jobId = parseInt(stored, 10);
+        if (!isNaN(jobId)) {
+          const result = await getJob(jobId);
+          if (result.ok) {
+            const job = result.data;
+            if (!TERMINAL_STATUSES.has(job.status)) {
+              setActiveJobId(jobId);
+            } else {
+              localStorage.removeItem(LOCAL_STORAGE_KEY);
+            }
+          } else {
+            // Job not found or errored — clear stale entry
+            localStorage.removeItem(LOCAL_STORAGE_KEY);
+          }
+        }
+      }
+
+      await loadJobs();
+    })();
+  }, [loadJobs]);
+
+  // Set page title
   useEffect(() => {
     document.title = "Dashboard — Conclave Engine";
   }, []);
 
+  // -------------------------------------------------------------------------
+  // Event handlers
+  // -------------------------------------------------------------------------
+
+  const handleLoadMore = async (): Promise<void> => {
+    if (nextCursor === null) return;
+    setIsLoadingMore(true);
+    await loadJobs(nextCursor);
+    setIsLoadingMore(false);
+  };
+
+  const handleStart = async (jobId: number): Promise<void> => {
+    setStartingJobId(jobId);
+    const result = await startJob(jobId);
+    setStartingJobId(null);
+    if (result.ok) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, String(jobId));
+      setActiveJobId(jobId);
+    } else {
+      setApiError(result.error);
+      setErrorVisible(true);
+    }
+  };
+
+  const handleFormChange = (
+    field: keyof CreateJobFormState,
+    value: string,
+  ): void => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleCreateJob = async (
+    e: React.FormEvent<HTMLFormElement>,
+  ): Promise<void> => {
+    e.preventDefault();
+    setIsCreating(true);
+
+    const params: CreateJobParams = {
+      table_name: form.table_name,
+      parquet_path: form.parquet_path,
+      total_epochs: parseInt(form.total_epochs, 10),
+      checkpoint_every_n: parseInt(form.checkpoint_every_n, 10),
+    };
+
+    const result = await createJob(params);
+    setIsCreating(false);
+
+    if (result.ok) {
+      setForm(EMPTY_FORM);
+      await loadJobs();
+    } else {
+      setApiError(result.error);
+      setErrorVisible(true);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
+
   return (
     <main
       style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
         minHeight: "100vh",
         backgroundColor: "var(--color-bg)",
         color: "var(--color-text-primary)",
         fontFamily: "var(--font-family)",
+        padding: "var(--spacing-xl)",
       }}
     >
-      <section aria-labelledby="dashboard-heading">
-        <h1
-          id="dashboard-heading"
-          style={{ fontSize: "2rem", fontWeight: 700, marginBottom: "1rem" }}
-        >
-          Conclave Engine
-        </h1>
-        <p style={{ color: "var(--color-text-secondary)" }}>
-          Vault unsealed. Dashboard coming in Phase 6.
-        </p>
-      </section>
+      {/* RFC 7807 error toast */}
+      <RFC7807Toast
+        problem={apiError}
+        visible={errorVisible}
+        onDismiss={() => setErrorVisible(false)}
+      />
+
+      {/* Hidden aria-live region for progress announcements.
+          IMPORTANT: This is a separate container from role="alert" — no nesting. */}
+      <PoliteAnnouncement>
+        {announcement}
+      </PoliteAnnouncement>
+
+      <div
+        style={{
+          maxWidth: "60rem",
+          margin: "0 auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--spacing-xl)",
+        }}
+      >
+        {/* Page heading */}
+        <header>
+          <h1
+            style={{
+              fontSize: "1.75rem",
+              fontWeight: 700,
+              marginBottom: "var(--spacing-xs)",
+            }}
+          >
+            Conclave Engine
+          </h1>
+          <p style={{ color: "var(--color-text-secondary)", margin: 0 }}>
+            Monitor and manage data synthesis jobs.
+          </p>
+        </header>
+
+        {/* Create Job form */}
+        <section aria-labelledby="create-job-heading">
+          <h2
+            id="create-job-heading"
+            style={{
+              fontSize: "1.25rem",
+              fontWeight: 600,
+              marginBottom: "var(--spacing-md)",
+            }}
+          >
+            Create Job
+          </h2>
+
+          <form
+            onSubmit={(e) => void handleCreateJob(e)}
+            style={{
+              backgroundColor: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--spacing-lg)",
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "var(--spacing-md)",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+              <label
+                htmlFor="table-name"
+                style={{ fontSize: "0.875rem", fontWeight: 500 }}
+              >
+                Table Name
+              </label>
+              <input
+                id="table-name"
+                type="text"
+                required
+                value={form.table_name}
+                onChange={(e) => handleFormChange("table_name", e.target.value)}
+                placeholder="e.g. customers"
+                style={inputStyle}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+              <label
+                htmlFor="parquet-path"
+                style={{ fontSize: "0.875rem", fontWeight: 500 }}
+              >
+                Parquet Path
+              </label>
+              <input
+                id="parquet-path"
+                type="text"
+                required
+                value={form.parquet_path}
+                onChange={(e) =>
+                  handleFormChange("parquet_path", e.target.value)
+                }
+                placeholder="e.g. /data/customers.parquet"
+                style={inputStyle}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+              <label
+                htmlFor="total-epochs"
+                style={{ fontSize: "0.875rem", fontWeight: 500 }}
+              >
+                Total Epochs
+              </label>
+              <input
+                id="total-epochs"
+                type="number"
+                required
+                min={1}
+                value={form.total_epochs}
+                onChange={(e) =>
+                  handleFormChange("total_epochs", e.target.value)
+                }
+                placeholder="e.g. 100"
+                style={inputStyle}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+              <label
+                htmlFor="checkpoint-every"
+                style={{ fontSize: "0.875rem", fontWeight: 500 }}
+              >
+                Checkpoint Every (epochs)
+              </label>
+              <input
+                id="checkpoint-every"
+                type="number"
+                required
+                min={1}
+                value={form.checkpoint_every_n}
+                onChange={(e) =>
+                  handleFormChange("checkpoint_every_n", e.target.value)
+                }
+                placeholder="e.g. 10"
+                style={inputStyle}
+              />
+            </div>
+
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                display: "flex",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="submit"
+                disabled={isCreating}
+                style={{
+                  backgroundColor: "var(--color-accent)",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "var(--radius-sm)",
+                  padding: "var(--spacing-xs) var(--spacing-lg)",
+                  fontFamily: "var(--font-family)",
+                  fontSize: "0.875rem",
+                  fontWeight: 600,
+                  cursor: isCreating ? "not-allowed" : "pointer",
+                  opacity: isCreating ? 0.7 : 1,
+                }}
+              >
+                {isCreating ? "Creating…" : "Create Job"}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        {/* Job list */}
+        <section aria-labelledby="active-jobs-heading">
+          <h2
+            id="active-jobs-heading"
+            style={{
+              fontSize: "1.25rem",
+              fontWeight: 600,
+              marginBottom: "var(--spacing-md)",
+            }}
+          >
+            Active Jobs
+          </h2>
+
+          {jobs.length === 0 ? (
+            <p style={{ color: "var(--color-text-secondary)" }}>
+              No jobs found. Create a job above to get started.
+            </p>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--spacing-md)",
+              }}
+            >
+              {jobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  sseState={activeJobId === job.id ? sseState : null}
+                  onStart={(id) => void handleStart(id)}
+                  isStarting={startingJobId === job.id}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Pagination — load more */}
+          {nextCursor !== null && (
+            <div style={{ marginTop: "var(--spacing-lg)", textAlign: "center" }}>
+              <button
+                type="button"
+                disabled={isLoadingMore}
+                onClick={() => void handleLoadMore()}
+                style={{
+                  backgroundColor: "transparent",
+                  color: "var(--color-accent)",
+                  border: "1px solid var(--color-accent)",
+                  borderRadius: "var(--radius-sm)",
+                  padding: "var(--spacing-xs) var(--spacing-lg)",
+                  fontFamily: "var(--font-family)",
+                  fontSize: "0.875rem",
+                  fontWeight: 600,
+                  cursor: isLoadingMore ? "not-allowed" : "pointer",
+                  opacity: isLoadingMore ? 0.7 : 1,
+                }}
+              >
+                {isLoadingMore ? "Loading…" : "Load More"}
+              </button>
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Shared input style (inline — no CSS file modification allowed)
+// ---------------------------------------------------------------------------
+
+const inputStyle: React.CSSProperties = {
+  backgroundColor: "var(--color-bg)",
+  color: "var(--color-text-primary)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-sm)",
+  padding: "var(--spacing-xs) var(--spacing-sm)",
+  fontFamily: "var(--font-family)",
+  fontSize: "0.875rem",
+  width: "100%",
+};
