@@ -214,7 +214,9 @@ describe("getJobs", () => {
     }
   });
 
-  it("returns { ok: false, error } on HTTP 500", async () => {
+  it("returns { ok: false, error } on non-2xx response — parses RFC 7807 body", async () => {
+    // HTTP status 500 but the response body contains the problemDetail fixture
+    // (status: 404). The assertion checks the parsed body, not the HTTP status.
     mockFetch.mockResolvedValue(mockResponse(500, problemDetail, false));
 
     const result = await getJobs();

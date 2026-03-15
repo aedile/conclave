@@ -2,8 +2,8 @@
  * ErrorBoundary — global React error boundary with RFC 7807 toast rendering.
  *
  * Catches unhandled React render errors and displays a human-readable
- * remediation card. Also exports a standalone RFC7807Toast component for
- * use in non-error-boundary contexts (e.g., API call failures).
+ * remediation card. When the toast auto-dismisses, a persistent fallback
+ * UI is shown so the screen is never blank.
  *
  * CONSTITUTION: WCAG 2.1 AA — error region uses role="alert" for
  * assertive announcement. Auto-dismiss timer is cleared on unmount.
@@ -13,147 +13,26 @@
  * - Fake timer deadlock: no timer interaction at module level
  * - Conflicting live-region nesting: role="alert" is its own container,
  *   NOT nested inside aria-live="polite"
+ * - Blank screen after toast dismiss: persistent fallback UI shown when
+ *   hasError is true but toastVisible is false
  */
 
 import React, { Component, type ReactNode } from "react";
 import type { ProblemDetail } from "../api/client";
+import { RFC7807Toast } from "./RFC7807Toast";
+
+// ---------------------------------------------------------------------------
+// Re-export for consumers that previously imported from here
+// ---------------------------------------------------------------------------
+
+export { RFC7807Toast } from "./RFC7807Toast";
+export type { RFC7807ToastProps } from "./RFC7807Toast";
 
 // ---------------------------------------------------------------------------
 // Auto-dismiss timeout (ms)
 // ---------------------------------------------------------------------------
 
 const TOAST_DISMISS_MS = 5000;
-
-// ---------------------------------------------------------------------------
-// RFC 7807 Toast component
-// ---------------------------------------------------------------------------
-
-interface RFC7807ToastProps {
-  /** The RFC 7807 problem detail to display. */
-  problem: ProblemDetail | null;
-  /** Callback when the user manually dismisses the toast. */
-  onDismiss: () => void;
-  /** Whether the toast is visible. */
-  visible: boolean;
-}
-
-/**
- * RFC7807Toast — renders an RFC 7807 Problem Detail as a human-readable card.
- *
- * Displays the `title` as the heading and `detail` as the description.
- * Auto-dismisses after TOAST_DISMISS_MS. Supports manual close via button.
- *
- * @param problem - The RFC 7807 error payload.
- * @param onDismiss - Callback to clear the error state.
- * @param visible - Controls visibility.
- */
-export function RFC7807Toast({
-  problem,
-  onDismiss,
-  visible,
-}: RFC7807ToastProps): JSX.Element | null {
-  if (!visible || problem === null) {
-    return null;
-  }
-
-  const isOomError =
-    problem.detail.toLowerCase().includes("reduction_factor") ||
-    problem.detail.toLowerCase().includes("out of memory");
-
-  return (
-    <div
-      role="alert"
-      style={{
-        position: "fixed",
-        top: "var(--spacing-lg)",
-        right: "var(--spacing-lg)",
-        zIndex: 1000,
-        minWidth: "20rem",
-        maxWidth: "32rem",
-        backgroundColor: "var(--color-surface)",
-        border: "1px solid var(--color-error)",
-        borderRadius: "var(--radius-md)",
-        padding: "var(--spacing-md)",
-        boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-        fontFamily: "var(--font-family)",
-        color: "var(--color-text-primary)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: "var(--spacing-sm)",
-        }}
-      >
-        <div style={{ flex: 1 }}>
-          <p
-            style={{
-              color: "var(--color-error)",
-              fontWeight: 600,
-              marginBottom: "var(--spacing-xs)",
-            }}
-          >
-            {problem.title}
-            {problem.status > 0 && (
-              <span
-                style={{
-                  marginLeft: "var(--spacing-xs)",
-                  fontSize: "0.875rem",
-                  fontWeight: 400,
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                (HTTP {problem.status})
-              </span>
-            )}
-          </p>
-          <p
-            style={{
-              fontSize: "0.875rem",
-              color: "var(--color-text-secondary)",
-              marginBottom: isOomError ? "var(--spacing-sm)" : 0,
-            }}
-          >
-            {problem.detail}
-          </p>
-          {isOomError && (
-            <p
-              style={{
-                fontSize: "0.875rem",
-                color: "var(--color-warning)",
-                backgroundColor: "rgba(251,191,36,0.1)",
-                padding: "var(--spacing-xs) var(--spacing-sm)",
-                borderRadius: "var(--radius-sm)",
-              }}
-            >
-              Remediation: reduce the number of epochs or the batch size to
-              lower memory usage.
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss"
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--color-text-secondary)",
-            fontSize: "1.25rem",
-            lineHeight: 1,
-            padding: "0 var(--spacing-xs)",
-            flexShrink: 0,
-          }}
-        >
-          ×
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // ErrorBoundary state
@@ -177,7 +56,8 @@ interface ErrorBoundaryProps {
  * ErrorBoundary — React class component that catches unhandled render errors.
  *
  * Renders children normally when no error has occurred. On error, captures
- * the thrown value and renders an RFC7807Toast.
+ * the thrown value and renders an RFC7807Toast for TOAST_DISMISS_MS, then
+ * transitions to a persistent fallback UI so the screen is never blank.
  *
  * Must be a class component — React's `componentDidCatch` API is only
  * available on class components.
@@ -244,13 +124,65 @@ export default class ErrorBoundary extends Component<
   override render(): ReactNode {
     const { hasError, problem, toastVisible } = this.state;
 
-    if (hasError) {
+    if (hasError && toastVisible) {
       return (
         <RFC7807Toast
           problem={problem}
           onDismiss={this.handleDismiss}
           visible={toastVisible}
         />
+      );
+    }
+
+    // Persistent fallback — shown after toast auto-dismisses or after manual
+    // dismiss. Prevents a blank screen when hasError is true but toast is gone.
+    if (hasError && !toastVisible) {
+      return (
+        <main
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "100vh",
+            gap: "var(--spacing-md)",
+            fontFamily: "var(--font-family)",
+            color: "var(--color-text-primary)",
+            backgroundColor: "var(--color-bg)",
+            padding: "var(--spacing-xl)",
+          }}
+        >
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+            Something went wrong
+          </h1>
+          <p
+            style={{
+              color: "var(--color-text-secondary)",
+              fontSize: "0.875rem",
+              maxWidth: "32rem",
+              textAlign: "center",
+            }}
+          >
+            {problem?.detail}
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{
+              backgroundColor: "var(--color-accent)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              padding: "var(--spacing-xs) var(--spacing-lg)",
+              fontFamily: "var(--font-family)",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Reload page
+          </button>
+        </main>
       );
     }
 

@@ -62,9 +62,12 @@ body {
   min-height: 100vh;
 }
 
-/* Focus indicators — WCAG 2.1 AA: visible focus on all interactive elements */
+/* Focus indicators — WCAG 2.1 AA: visible focus on all interactive elements.
+ * Uses indigo-400 (#818cf8) which achieves ~5:1 contrast on dark surfaces,
+ * exceeding the WCAG 1.4.11 non-text contrast requirement of 3:1.
+ * (indigo-600 #4f46e5 only achieves ~2.6:1 — fails WCAG 1.4.11.) */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid #818cf8;
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }

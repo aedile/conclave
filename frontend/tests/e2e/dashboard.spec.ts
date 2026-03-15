@@ -9,6 +9,11 @@
  * These tests require the built app (npm run build && npm run preview).
  * In CI the webServer config in playwright.config.ts handles this.
  *
+ * CI NOTE (D2): Playwright e2e tests require browser binaries and a running
+ * backend. They are deferred from the main CI pipeline until a dedicated e2e
+ * CI job is established (separate from the Vitest unit/integration gate).
+ * Tracked as a future CI task — do NOT add these to ci.yml in this PR.
+ *
  * Mocking strategy:
  *   - /health → 200 (vault unsealed, allows /dashboard access)
  *   - /jobs → paginated job list with one TRAINING job

@@ -15,6 +15,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -134,6 +135,14 @@ const failedJob: JobResponse = {
   artifact_path: null,
   error_msg: "CUDA out of memory",
   checkpoint_every_n: 2,
+};
+
+/** Shared RFC 7807 error fixture. */
+const apiErrorFixture = {
+  type: "about:blank",
+  title: "Internal Server Error",
+  status: 500,
+  detail: "Unexpected database error.",
 };
 
 // ---------------------------------------------------------------------------
@@ -663,8 +672,11 @@ describe("Dashboard — RFC 7807 error handling", () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
-      expect(screen.getByText(/internal server error/i)).toBeInTheDocument();
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      // Scope text assertion to the alert element to avoid matching the
+      // AssertiveAnnouncement aria-live region which also contains the title.
+      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -683,6 +695,86 @@ describe("Dashboard — RFC 7807 error handling", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/resource not found/i)).toBeInTheDocument();
+    });
+  });
+
+  it("renders error toast when startJob fails", async () => {
+    const user = userEvent.setup();
+
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [queuedJob], next_cursor: null },
+    });
+    mockStartJob.mockResolvedValue({ ok: false, error: apiErrorFixture });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /start/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /start/i }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+    });
+  });
+
+  it("renders error toast when createJob fails", async () => {
+    const user = userEvent.setup();
+
+    mockCreateJob.mockResolvedValue({ ok: false, error: apiErrorFixture });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText(/table name/i), "customers");
+    await user.type(screen.getByLabelText(/parquet path/i), "/data/customers.parquet");
+    await user.type(screen.getByLabelText(/total epochs/i), "10");
+    await user.type(screen.getByLabelText(/checkpoint every/i), "2");
+
+    await user.click(screen.getByRole("button", { name: /create job/i }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+    });
+  });
+
+  it("renders error toast when loadJobs with cursor fails and resets isLoadingMore", async () => {
+    const user = userEvent.setup();
+
+    mockGetJobs
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { items: [queuedJob], next_cursor: 42 },
+      })
+      .mockResolvedValue({ ok: false, error: apiErrorFixture });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /load more/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+    });
+
+    // Load More button should be re-enabled (isLoadingMore reset to false)
+    await waitFor(() => {
+      const loadMoreBtn = screen.getByRole("button", { name: /load more/i });
+      expect(loadMoreBtn).not.toBeDisabled();
     });
   });
 });

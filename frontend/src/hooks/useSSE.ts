@@ -13,7 +13,7 @@
  * ```
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { JobStatus } from "../api/client";
 
 // ---------------------------------------------------------------------------
@@ -79,14 +79,14 @@ const INITIAL_STATE: SSEState = {
  * When `jobId` is `null`, no connection is opened and the returned state
  * contains all-null fields.
  *
+ * Malformed SSE payloads (invalid JSON) are caught and result in a FAILED
+ * status with an error message; the EventSource is closed in that case.
+ *
  * @param jobId - The numeric job ID to stream, or `null` to skip.
  * @returns Current SSE state with status, progress, epoch counters, and error.
  */
 export function useSSE(jobId: number | null): SSEState {
   const [state, setState] = useState<SSEState>(INITIAL_STATE);
-  // Hold a ref to the EventSource so we can close it in cleanup without
-  // capturing stale closure values.
-  const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (jobId === null) {
@@ -95,10 +95,21 @@ export function useSSE(jobId: number | null): SSEState {
     }
 
     const es = new EventSource(`/jobs/${jobId}/stream`);
-    esRef.current = es;
 
     const handleProgress = (event: MessageEvent<string>): void => {
-      const payload = JSON.parse(event.data) as ProgressPayload;
+      let payload: ProgressPayload;
+      try {
+        payload = JSON.parse(event.data) as ProgressPayload;
+      } catch (e) {
+        console.warn("[useSSE] Malformed progress payload:", e);
+        setState((prev) => ({
+          ...prev,
+          status: "FAILED",
+          error: "Received malformed progress data from server.",
+        }));
+        es.close();
+        return;
+      }
       setState({
         status: payload.status,
         percent: payload.percent,
@@ -109,7 +120,19 @@ export function useSSE(jobId: number | null): SSEState {
     };
 
     const handleComplete = (event: MessageEvent<string>): void => {
-      const payload = JSON.parse(event.data) as CompletePayload;
+      let payload: CompletePayload;
+      try {
+        payload = JSON.parse(event.data) as CompletePayload;
+      } catch (e) {
+        console.warn("[useSSE] Malformed complete payload:", e);
+        setState((prev) => ({
+          ...prev,
+          status: "FAILED",
+          error: "Received malformed completion data from server.",
+        }));
+        es.close();
+        return;
+      }
       setState({
         status: payload.status,
         percent: payload.percent,
@@ -121,7 +144,19 @@ export function useSSE(jobId: number | null): SSEState {
     };
 
     const handleError = (event: MessageEvent<string>): void => {
-      const payload = JSON.parse(event.data) as ErrorPayload;
+      let payload: ErrorPayload;
+      try {
+        payload = JSON.parse(event.data) as ErrorPayload;
+      } catch (e) {
+        console.warn("[useSSE] Malformed error payload:", e);
+        setState((prev) => ({
+          ...prev,
+          status: "FAILED",
+          error: "Received malformed error data from server.",
+        }));
+        es.close();
+        return;
+      }
       setState((prev) => ({
         ...prev,
         status: "FAILED",
@@ -142,7 +177,6 @@ export function useSSE(jobId: number | null): SSEState {
       es.removeEventListener("complete", handleComplete as unknown as EventListener);
       es.removeEventListener("error", handleError as unknown as EventListener);
       es.close();
-      esRef.current = null;
     };
   }, [jobId]);
 

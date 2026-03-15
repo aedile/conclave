@@ -198,7 +198,8 @@ export type StartJobResult =
 async function parseProblemDetail(response: Response): Promise<ProblemDetail> {
   try {
     return (await response.json()) as ProblemDetail;
-  } catch {
+  } catch (e) {
+    console.warn("[parseProblemDetail] Failed to parse error body:", e);
     return {
       type: "about:blank",
       title: "Error",

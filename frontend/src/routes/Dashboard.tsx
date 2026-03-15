@@ -6,7 +6,8 @@
  * refresh reconnects to the running stream automatically.
  *
  * CONSTITUTION:
- *   - WCAG 2.1 AA: aria-live regions, progressbar roles, labelled forms.
+ *   - WCAG 2.1 AA: aria-live regions, progressbar roles, labelled forms,
+ *     required-field indicators, assertive announcement for errors.
  *   - No hardcoded colours — exclusively uses CSS custom properties.
  *   - document.title set on mount.
  *   - prefers-reduced-motion respected via global.css @media rule.
@@ -26,10 +27,10 @@ import {
   type JobResponse,
   type ProblemDetail,
 } from "../api/client";
-import { RFC7807Toast } from "../components/ErrorBoundary";
+import { RFC7807Toast } from "../components/RFC7807Toast";
 import JobCard from "../components/JobCard";
 import { useSSE } from "../hooks/useSSE";
-import { PoliteAnnouncement } from "../components/AriaLive";
+import { AssertiveAnnouncement, PoliteAnnouncement } from "../components/AriaLive";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -37,6 +38,8 @@ import { PoliteAnnouncement } from "../components/AriaLive";
 
 const LOCAL_STORAGE_KEY = "conclave_active_job_id";
 const TERMINAL_STATUSES = new Set(["COMPLETE", "FAILED"]);
+/** Auto-dismiss duration for the Dashboard's standalone error toast (ms). */
+const DASHBOARD_TOAST_DISMISS_MS = 8000;
 
 // ---------------------------------------------------------------------------
 // Create Job form state
@@ -89,12 +92,31 @@ export default function Dashboard(): JSX.Element {
   const [form, setForm] = useState<CreateJobFormState>(EMPTY_FORM);
   const [isCreating, setIsCreating] = useState(false);
 
+  // Form validation error (for NaN guards on integer fields)
+  const [formValidationError, setFormValidationError] = useState<string | null>(null);
+
   // Announcement text for screen readers (aria-live polite region)
   const [announcement, setAnnouncement] = useState("");
   const announcementRef = useRef("");
 
   // SSE streaming state
   const sseState = useSSE(activeJobId);
+
+  // -------------------------------------------------------------------------
+  // Auto-dismiss for the standalone error toast
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!errorVisible) return;
+
+    const timer = setTimeout(() => {
+      setErrorVisible(false);
+    }, DASHBOARD_TOAST_DISMISS_MS);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [errorVisible]);
 
   // -------------------------------------------------------------------------
   // Side effects from SSE state
@@ -203,13 +225,27 @@ export default function Dashboard(): JSX.Element {
     e: React.FormEvent<HTMLFormElement>,
   ): Promise<void> => {
     e.preventDefault();
+    setFormValidationError(null);
+
+    const totalEpochs = parseInt(form.total_epochs, 10);
+    if (isNaN(totalEpochs)) {
+      setFormValidationError("Total Epochs must be a valid integer.");
+      return;
+    }
+
+    const checkpointEveryN = parseInt(form.checkpoint_every_n, 10);
+    if (isNaN(checkpointEveryN)) {
+      setFormValidationError("Checkpoint Every must be a valid integer.");
+      return;
+    }
+
     setIsCreating(true);
 
     const params: CreateJobParams = {
       table_name: form.table_name,
       parquet_path: form.parquet_path,
-      total_epochs: parseInt(form.total_epochs, 10),
-      checkpoint_every_n: parseInt(form.checkpoint_every_n, 10),
+      total_epochs: totalEpochs,
+      checkpoint_every_n: checkpointEveryN,
     };
 
     const result = await createJob(params);
@@ -244,6 +280,12 @@ export default function Dashboard(): JSX.Element {
         visible={errorVisible}
         onDismiss={() => setErrorVisible(false)}
       />
+
+      {/* Assertive announcement for API errors — interrupts screen readers for
+          critical failures. Separate container from role="alert" toast. */}
+      <AssertiveAnnouncement>
+        {errorVisible && apiError !== null ? apiError.title : ""}
+      </AssertiveAnnouncement>
 
       {/* Hidden aria-live region for progress announcements.
           IMPORTANT: This is a separate container from role="alert" — no nesting. */}
@@ -301,12 +343,30 @@ export default function Dashboard(): JSX.Element {
               gap: "var(--spacing-md)",
             }}
           >
+            {/* Form validation error */}
+            {formValidationError !== null && (
+              <div
+                role="alert"
+                style={{
+                  gridColumn: "1 / -1",
+                  color: "var(--color-error)",
+                  fontSize: "0.875rem",
+                  padding: "var(--spacing-xs) 0",
+                }}
+              >
+                {formValidationError}
+              </div>
+            )}
+
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
               <label
                 htmlFor="table-name"
                 style={{ fontSize: "0.875rem", fontWeight: 500 }}
               >
-                Table Name
+                Table Name{" "}
+                <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
+                  *
+                </span>
               </label>
               <input
                 id="table-name"
@@ -324,7 +384,10 @@ export default function Dashboard(): JSX.Element {
                 htmlFor="parquet-path"
                 style={{ fontSize: "0.875rem", fontWeight: 500 }}
               >
-                Parquet Path
+                Parquet Path{" "}
+                <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
+                  *
+                </span>
               </label>
               <input
                 id="parquet-path"
@@ -344,7 +407,10 @@ export default function Dashboard(): JSX.Element {
                 htmlFor="total-epochs"
                 style={{ fontSize: "0.875rem", fontWeight: 500 }}
               >
-                Total Epochs
+                Total Epochs{" "}
+                <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
+                  *
+                </span>
               </label>
               <input
                 id="total-epochs"
@@ -365,7 +431,10 @@ export default function Dashboard(): JSX.Element {
                 htmlFor="checkpoint-every"
                 style={{ fontSize: "0.875rem", fontWeight: 500 }}
               >
-                Checkpoint Every (epochs)
+                Checkpoint Every (epochs){" "}
+                <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
+                  *
+                </span>
               </label>
               <input
                 id="checkpoint-every"

@@ -7,6 +7,8 @@
  *
  * CONSTITUTION: WCAG 2.1 AA — all interactive elements are keyboard accessible,
  * progress bar has required ARIA attributes, status badges use semantic colours.
+ * prefers-reduced-motion is respected via window.matchMedia so that inline
+ * styles do not override the @media CSS block.
  */
 
 import type { JobResponse } from "../api/client";
@@ -39,6 +41,24 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Reduced motion helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether the user has requested reduced motion.
+ *
+ * Evaluated lazily inside the component to avoid module-load failures in
+ * environments where `window.matchMedia` is unavailable (e.g. jsdom tests).
+ * Returns false (motion enabled) when the API is not present.
+ */
+function checkPrefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -56,6 +76,10 @@ export default function JobCard({
   onStart,
   isStarting,
 }: JobCardProps): JSX.Element {
+  // Evaluate reduced-motion preference inside render so tests can stub
+  // window.matchMedia after module load without errors at import time.
+  const prefersReducedMotion = checkPrefersReducedMotion();
+
   // Use SSE state if available and training, otherwise fall back to job snapshot
   const isStreaming = sseState !== null && sseState.status !== null;
   const displayStatus = isStreaming ? (sseState.status ?? job.status) : job.status;
@@ -156,9 +180,9 @@ export default function JobCard({
                   : displayStatus === "COMPLETE"
                     ? "var(--color-success)"
                     : "var(--color-accent)",
-              transition: "width 0.3s ease",
-              // Respect prefers-reduced-motion
-              // (handled via global.css @media block)
+              // Respect prefers-reduced-motion: window.matchMedia check takes
+              // precedence over inline style so @media rules cannot be bypassed.
+              transition: prefersReducedMotion ? "none" : "width 0.3s ease",
             }}
           />
         </div>
