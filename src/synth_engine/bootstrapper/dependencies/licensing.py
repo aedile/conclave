@@ -35,6 +35,10 @@ LICENSE_EXEMPT_PATHS: frozenset[str] = frozenset(
         "/openapi.json",
         "/license/challenge",
         "/license/activate",
+        # Security ops endpoints — must be reachable for emergency protocols
+        # regardless of license state.
+        "/security/shred",
+        "/security/keys/rotate",
     }
 )
 

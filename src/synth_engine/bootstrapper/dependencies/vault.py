@@ -36,6 +36,11 @@ EXEMPT_PATHS: frozenset[str] = frozenset(
         "/openapi.json",
         "/license/challenge",
         "/license/activate",
+        # Security ops endpoints — shred must be reachable even when sealed
+        # (to support emergency key destruction); rotate checks vault state
+        # internally and returns 423 if sealed.
+        "/security/shred",
+        "/security/keys/rotate",
     }
 )
 
