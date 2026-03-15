@@ -8,6 +8,8 @@
  * - ES module mocking: vi.mock() at module level with factory function
  * - Fake timers deadlock: vi.useFakeTimers() only in specific tests
  * - Timer cleanup: verify useEffect cleanup is exercised on unmount
+ *
+ * ADV-060: MockEventSource imported from shared helpers/mock-event-source.ts
  */
 
 import {
@@ -35,40 +37,10 @@ vi.mock("../api/client", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// MockEventSource — same pattern as useSSE.test.ts
+// MockEventSource — imported from shared utility (ADV-060)
 // ---------------------------------------------------------------------------
 
-type EventListener = (event: { data: string }) => void;
-
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-  url: string;
-  private listeners: Record<string, EventListener[]> = {};
-  onerror: ((event: Event) => void) | null = null;
-
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-
-  addEventListener(type: string, listener: EventListener): void {
-    if (!this.listeners[type]) this.listeners[type] = [];
-    this.listeners[type].push(listener);
-  }
-
-  removeEventListener(type: string, listener: EventListener): void {
-    if (this.listeners[type]) {
-      this.listeners[type] = this.listeners[type].filter((l) => l !== listener);
-    }
-  }
-
-  simulateEvent(type: string, data: unknown): void {
-    const event = { data: JSON.stringify(data) } as { data: string };
-    (this.listeners[type] ?? []).forEach((h) => h(event));
-  }
-
-  close = vi.fn();
-}
+import { MockEventSource } from "./helpers/mock-event-source";
 
 vi.stubGlobal("EventSource", MockEventSource);
 
@@ -162,7 +134,7 @@ function renderDashboard() {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  MockEventSource.instances = [];
+  MockEventSource.reset();
   localStorage.clear();
   mockGetJobs.mockReset();
   mockGetJob.mockReset();
