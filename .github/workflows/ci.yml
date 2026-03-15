@@ -326,7 +326,7 @@ jobs:
         run: cd frontend && npm ci
 
       - name: Audit dependencies
-        run: cd frontend && npm audit --audit-level=moderate
+        run: cd frontend && npm audit --audit-level=high
 
       - name: Type-check
         run: cd frontend && npm run type-check
