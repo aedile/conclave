@@ -21,6 +21,8 @@ Drain (delete) rows when their target task is completed.
 | ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
 | ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
 | ADV-062 | DevOps T6.1 | Phase 6 hardening | ADVISORY | E2E CI job rebuilds frontend from scratch (npm ci + playwright.config.ts webServer runs build+preview). Two full frontend builds per CI run. Introduce build-artifact handoff between frontend and e2e jobs when wall-clock time becomes a concern. |
+| ADV-064 | QA P6-T6.2 | Phase 6 hardening | ADVISORY | `except (UnicodeDecodeError, ValueError)` branch in `RequestBodyLimitMiddleware` cannot be directly hit because `bytes.decode(errors="replace")` never raises `UnicodeDecodeError`. Branch is defensive resilience code; not directly testable with current decode strategy. Documented with comment in test. |
+| ADV-065 | DevOps P6-T6.2 | Phase 6 hardening | ADVISORY | `zap_test.db` SQLite file created by the ZAP CI job is not explicitly cleaned up — discarded implicitly when the GitHub Actions runner resets. Benign in CI but add cleanup step if local ZAP testing is ever added. |
 
 ---
 
@@ -1167,3 +1169,52 @@ This is the fourth consecutive round with no UI surface to review, which is cons
 
 **DevOps** (Round 3 — PASS):
 The Round 3 fixes were clean and precise — both ImportError guards were correctly converted to `sys.stderr.write()` with no residual `print()` calls, and the credential variable substitution pattern in `worktree_create.sh` is exactly right. The security posture of this diff is strong for a pre-framework bootstrap phase: no secrets, no PII, no bypass flags, and the `.env.local` validation in `pre_tool_use.sh` shows deliberate defense-in-depth thinking (rejecting command substitution in sourced files is non-trivial and is the right call). The one open operational risk is the absent CI pipeline — with tests now in the repository, there is no automated guard ensuring they stay green across branches. That gap should be closed at the start of Phase 1 alongside `pyproject.toml`, not deferred further; the longer CI is absent, the more likely a regression will slip into `main` undetected.
+
+---
+
+### [2026-03-15] P6-T6.2 — NIST SP 800-88 Erasure, OWASP Validation, LLM Fuzz Testing
+
+**Summary**: Implemented three security validation features for the Conclave Engine:
+
+1. **AC1 — NIST SP 800-88 Cryptographic Erasure**: 4 integration tests in `tests/security/test_nist_erasure.py` prove the mathematical guarantee: PII stored via ALE is never plaintext in the DB, KEK bytes are all 0x00 after `VaultState.seal()`, ciphertext raises `InvalidToken` after shred, and `pg_stat_activity` contains no plaintext PII. Tests use `pytest-postgresql` in pg_ctl mode with `shutil.which("pg_ctl")` skip guard and fictional PII data (e.g., "FICTIONAL-SSN-123-45-6789").
+
+2. **AC2/AC3 — JSON fuzz + NaN/Infinity fuzz**: `RequestBodyLimitMiddleware` (pure ASGI, NOT `BaseHTTPMiddleware`) enforces 1 MiB body size limit (HTTP 413) and 100-level JSON nesting depth limit (HTTP 400). `_sanitize_for_json()` in `errors.py` prevents `ValueError` crashes when Pydantic validation errors contain NaN/Infinity input values. 13 security fuzz tests in `tests/security/test_fuzzing.py` + 24 unit tests in `tests/unit/test_request_limits.py`.
+
+3. **AC4 — OWASP ZAP baseline scan**: `zap-baseline` CI job added to `.github/workflows/ci.yml`. SHA-pinned `zaproxy/action-baseline@v0.15.0` (SHA: `de8ad967d3548d44ef623df22cf95c3b0baf8b25`). Baseline scan is informational (`fail_action: false`) — finds CI-environment artefacts (HSTS absent on HTTP-only uvicorn). `.zap/rules.tsv` suppresses IGNORE/WARN rules with documented justifications.
+
+**Key architectural insight — Body replay pattern**: `BaseHTTPMiddleware.call_next()` creates an internal ASGI channel and does NOT forward `request._receive`. Consuming `request.stream()` in `BaseHTTPMiddleware.dispatch()` drains the underlying ASGI `receive` channel; the inner app then receives an empty body. The fix: implement as pure ASGI callable, buffer the body, then replace `receive` with a `_replay_receive` closure that returns buffered bytes on first call and falls back to the original `receive` for subsequent messages (disconnect, websocket upgrades).
+
+**Quality gates**: ruff PASS, mypy PASS (73 source files clean), bandit PASS (0 HIGH/MEDIUM), 693 unit tests PASS, 95.91% coverage (exceeds 90% gate).
+
+**Architecture** (PASS):
+- PASS: `RequestBodyLimitMiddleware` is pure ASGI — no `BaseHTTPMiddleware` limitations.
+- PASS: Middleware placement documented in `main.py` — outermost (last `add_middleware()`) per LIFO order.
+- PASS: `_measure_json_depth()` is a structural scanner only — does not parse JSON, only measures bracket depth. Structurally invalid JSON is rejected by the route handler.
+- PASS: `_sanitize_for_json()` in `errors.py` is a defensive utility — does not change the validation error; only ensures it is JSON-serializable.
+- PASS: `tests/security/` package created; `tests/security/__init__.py` makes it a proper Python package.
+- PASS: NIST erasure tests use fictional PII strings exclusively (Pattern 9 compliance).
+- PASS: `VaultState.reset()` in autouse fixture prevents vault state leaking between tests (Pattern 6).
+
+**QA** (PASS):
+- PASS: 24 unit tests for `RequestBodyLimitMiddleware` cover all branches including: Content-Length fast-path, streaming accumulation, JSON depth check, non-JSON content type bypass, empty body bypass, body replay fallback, non-HTTP scope forwarding, non-integer Content-Length warning, http.disconnect handling.
+- PASS: `_measure_json_depth()` tested with escaped brackets in strings, escaped quotes, backslash before non-quote, mixed array/object nesting, depth-101 boundary.
+- PASS: Fuzz tests cover depth 101/500/1000 rejection, depth 100 acceptance, 1 MiB+1 rejection, exact 1 MiB acceptance, server alive after rejection.
+- PASS: NaN/Infinity tests use `warnings.catch_warnings()` to suppress numpy RuntimeWarning in profiler (project filterwarnings treats all warnings as errors).
+- ADVISORY (ADV-062): The `except (UnicodeDecodeError, ValueError)` branch in `RequestBodyLimitMiddleware` (the defensive block for non-UTF-8 bodies) cannot be directly hit because `bytes.decode(errors="replace")` never raises `UnicodeDecodeError`. The branch is defensive resilience code. Coverage for this specific branch is intentionally excluded from the 90% gate. The test `test_invalid_utf8_body_logs_warning_and_forwards` documents the limitation in a docstring.
+
+**DevOps** (PASS):
+- PASS: `zap-baseline` job is SHA-pinned (`de8ad967d3548d44ef623df22cf95c3b0baf8b25`) per supply-chain hardening policy.
+- PASS: `fail_action: false` is justified — production runs behind TLS/nginx; ZAP on raw HTTP is informational.
+- PASS: ZAP report uploaded as artifact (`retention-days: 90`), consistent with SBOM retention policy.
+- PASS: Background uvicorn started with `/tmp/uvicorn.pid`, stopped via `if: always()` step to prevent orphaned processes.
+- PASS: Health check loop (30 × 2s) is deterministic and exits with code 1 if API does not start.
+- PASS: `VAULT_SEAL_SALT` is a fictional base64 value (`emFwLWNpLXRlc3Qtc2FsdC1maWN0aW9uYWw=` = "zap-ci-test-salt-fictional") — not a real secret.
+- ADVISORY (ADV-063): The `zap_test.db` SQLite file created by the ZAP job is not cleaned up after the job completes. It lives in the runner's working directory and is discarded when the runner resets — not a real issue, but could be made explicit with a cleanup step.
+
+**Retrospective Notes**:
+
+- **BaseHTTPMiddleware body consumption is a footgun**: The `BaseHTTPMiddleware.call_next()` design is widely misunderstood. Consuming `request.body()` or `request.stream()` in `dispatch()` works for response inspection but silently breaks the inner app for request body inspection. This pattern is not obvious from Starlette's documentation. Any future middleware that needs to inspect AND forward the request body MUST use pure ASGI with the body replay pattern. Document this explicitly in ADR-0024.
+
+- **NaN in validation error responses**: FastAPI's default `RequestValidationError` handler reflects raw input values. When `json.loads` is given `NaN` as a bare token (not a string), Python's JSON library raises `ValueError` at parse time — but when Pydantic stores the error context, it may store Python's `float('nan')`. This means the error response serialization can fail with `ValueError: Out of range float values are not JSON compliant`. The `_sanitize_for_json()` pattern is the correct defense.
+
+- **Pattern 9 (fictional data) vigilance**: All test fixtures in `test_nist_erasure.py` and `test_fuzzing.py` use clearly fictional PII strings ("FICTIONAL-SSN-123-45-6789", "FICTIONAL-ACCOUNT-42", etc.) prefixed with "FICTIONAL-". This pattern should be mandatory for all integration tests touching PII-adjacent columns.
