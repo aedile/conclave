@@ -79,6 +79,28 @@ These principles guide your higher-level reasoning and interaction.
    - You _WILL_ prioritize usability, accessibility (WCAG 2.1 AA), and a clean, intuitive visual appeal.
    - You _WILL_ raise concerns if a requested change would negatively impact the general user experience or accessibility.
 
+## **Section 4: Programmatic Enforcement Principle (Priority 0.5)**
+
+This principle governs the Constitution itself and all future amendments.
+
+1. **Every directive must have a programmatic gate:** Every requirement in this Constitution MUST have a corresponding automated check, CI gate, pre-commit hook, or verifiable artifact. A Constitutional requirement that relies solely on agent discipline or honor system is **incomplete**.
+2. **Amendments require enforcement mechanisms:** When a new Amendment to this Constitution is ratified, the ratifying party MUST simultaneously identify and implement its enforcement mechanism. An amendment without a designated enforcement mechanism MUST be labeled `[ADVISORY — no programmatic gate]` until one is added.
+3. **Enforcement inventory:** The table below maps each Constitutional priority to its enforcement mechanism. This table MUST be updated when priorities are added or amended.
+
+| Priority | Directive | Enforcement Mechanism |
+|----------|-----------|----------------------|
+| 0 | Security | `gitleaks`, `detect-secrets`, `bandit` in pre-commit + CI |
+| 0.5 | Programmatic Enforcement | This table — self-referential; PM verifies at phase kickoff |
+| 1 | Quality Gates unbreakable | `ruff`, `mypy`, `pytest --cov-fail-under=90`, `pre-commit` cannot be skipped |
+| 2 | Source control / PRs | Pre-commit `--no-verify` forbidden; branch protection on `main` |
+| 3 | TDD Red/Green/Refactor | `test:` commit before `feat:` commit — auditable in git log |
+| 4 | 90%+ test coverage | `pytest --cov-fail-under=90` in CI; build fails below threshold |
+| 5 | Code quality / typing | `ruff`, `mypy --strict` in pre-commit + CI |
+| 6 | Documentation currency | `docs-gate` CI job — every PR branch must contain a `docs:` commit |
+| 7 | Retrospectives | `docs: update RETRO_LOG` commit required per task — auditable in git log |
+| 8 | Project management | Task tracker updated per task; PM verifies at phase kickoff |
+| 9 | UI/UX / Accessibility | `ui-ux-reviewer` agent spawned on every task — findings committed |
+
 ## **Final Mandate: Conflict and Blockers**
 
 - **Priority is Law:** If any two rules in this Constitution conflict, the rule with the lower-numbered priority (e.g., Priority 1) _ALWAYS_ wins over the rule with the higher-numbered priority (e.g., Priority 3).

@@ -287,3 +287,41 @@ jobs:
         run: |
           find scripts/ .claude/hooks/ -name "*.sh" -print0 \
             | xargs -0 shellcheck --severity=warning
+
+  # ---------------------------------------------------------------------------
+  # Docs gate — enforces Constitution Priority 6 (Documentation currency)
+  # Every PR branch must contain at least one commit beginning with "docs:"
+  # If no documentation was changed, the commit message must be:
+  #   docs: no documentation changes required — <one-sentence justification>
+  # This gate has no Python dependencies and runs immediately on PR open.
+  # ---------------------------------------------------------------------------
+  docs-gate:
+    name: Documentation Gate (Constitution Priority 6)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Verify docs commit present on PR branch
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          echo "Scanning commits from ${BASE} to ${HEAD} for docs: prefix..."
+          DOCS_COMMITS=$(git log "${BASE}..${HEAD}" --format="%s" | grep -c "^docs:" || true)
+          if [ "$DOCS_COMMITS" -eq 0 ]; then
+            echo ""
+            echo "ERROR: No 'docs:' commit found on this PR branch."
+            echo ""
+            echo "Constitution Priority 6 requires every PR to contain at least one"
+            echo "commit beginning with 'docs:'. If no documentation changed, add:"
+            echo ""
+            echo "  docs: no documentation changes required — <one-sentence justification>"
+            echo ""
+            echo "See CONSTITUTION.md Section 4 and CLAUDE.md Rule 9."
+            exit 1
+          fi
+          echo "Found ${DOCS_COMMITS} docs: commit(s). Constitution Priority 6: PASS."

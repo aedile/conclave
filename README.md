@@ -42,12 +42,12 @@ src/synth_engine/
 ├── bootstrapper/       FastAPI app factory, DI wiring, global middleware
 ├── modules/
 │   ├── ingestion/      PostgreSQL read-only adapter, privilege pre-flight check
-│   ├── mapping/        Schema reflection, DAG, Kahn's topological sort         [Phase 3.5]
-│   ├── subsetting/     FK traversal, SubsettingEngine, Saga-pattern EgressWriter [Phase 3.5]
+│   ├── mapping/        Schema reflection, DAG, Kahn's topological sort
+│   ├── subsetting/     FK traversal, SubsettingEngine, Saga-pattern EgressWriter
 │   ├── masking/        Deterministic FPE registry, collision prevention, LUHN
-│   ├── profiler/       Statistical distributions, marginal histograms           [Phase 4]
-│   ├── synthesizer/    SDV/CTGAN training loop, checkpointing, Huey tasks       [Phase 4]
-│   └── privacy/        DP-SGD wiring, OOM guardrails, Epsilon accountant        [Phase 4]
+│   ├── profiler/       Statistical distributions, covariance, ProfileDelta    [Phase 4 ✅]
+│   ├── synthesizer/    EphemeralStorageClient, OOM guardrails, CTGAN engine   [Phase 4 🔄]
+│   └── privacy/        DP-SGD wiring, Epsilon accountant                      [Phase 4 ⏳]
 └── shared/             Cross-cutting: Vault, ALE encryption, audit logger, JWT
 ```
 
@@ -77,7 +77,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Active Phase: 3.5 — Technical Debt Sprint**
+**Active Phase: 4 — Advanced Generative AI & Differential Privacy**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -86,8 +86,8 @@ Security is Priority Zero — it overrides every other consideration.
 | 1 — CI/CD & Quality Gates | ✅ Complete | Pre-commit hooks, Docker hardening, air-gap bundler |
 | 2 — Foundational Architecture | ✅ Complete | FastAPI bootstrapper, PostgreSQL+ALE, JWT, Vault, WORM logger |
 | 3 — The "Thin Slice" | ✅ Complete | Ingestion, relational mapping, deterministic masking, subsetting+Saga, E2E tests |
-| **3.5 — Tech Debt Sprint** | 🔄 **In Progress** | Module cohesion refactor, Virtual FK, CLI entrypoint, advisory sweep |
-| 4 — Generative AI & DP | ⏳ Blocked by 3.5 | SDV/CTGAN training, DP-SGD, Epsilon accountant |
+| 3.5 — Technical Debt Sprint | ✅ Complete | Module cohesion refactor, Virtual FK, CLI entrypoint, advisory sweep |
+| **4 — Generative AI & DP** | 🔄 **In Progress** | T4.0 ADR, T4.1 storage, T4.2a profiler, T4.3a OOM guardrails complete; T4.2b synthesizer next |
 | 5 — Orchestration & UI | ⏳ Pending | Task API, React SPA, offline licensing |
 | 6 — Integration & Audit | ⏳ Pending | E2E synthesis tests, NIST erasure, handover |
 
@@ -102,8 +102,13 @@ The Phase 3 "Thin Slice" pipeline is fully operational at the library level:
 - **`DeterministicMaskingEngine`** — masks Names, Emails, SSNs, Credit Cards, Phone Numbers deterministically with collision prevention and LUHN compliance
 - **`SubsettingEngine`** — traverses FK graph from a seed query, applies masking via injected callback, writes to target with Saga rollback
 - **Integration tests** — pytest-postgresql ephemeral source/target DBs, FK integrity verified, masking determinism verified
+- **`conclave-subset` CLI** — fully operational; connects read-only to source PostgreSQL, subsets relationally, masks deterministically, egresses with Saga rollback
 
-A minimal CLI entrypoint (`conclave-subset`) is in progress as part of Phase 3.5.
+Phase 4 generative AI components now in active development:
+
+- **`StatisticalProfiler`** — profiles DataFrames (histograms, covariance matrices, nullability rates); `compare()` produces `ProfileDelta` for drift detection
+- **`EphemeralStorageClient`** — uploads/downloads Parquet files to MinIO ephemeral bucket via injectable `StorageBackend` Protocol; `FORCE_CPU` fallback tested and operational
+- **`OOM Guardrail`** — `check_memory_feasibility()` pre-flight check rejects jobs that would exhaust available RAM before training starts
 
 ---
 
@@ -171,12 +176,18 @@ configuration for deployment on an isolated network with no internet access.
 
 ## Development Process
 
-This project runs an autonomous TDD workflow governed by `CONSTITUTION.md` and `CLAUDE.md`:
+This project runs an autonomous TDD workflow governed by a two-layer governance model:
+
+- **`CONSTITUTION.md`** — The binding priority hierarchy for all agents. Security is Priority 0. Every directive has a programmatic enforcement mechanism (Priority 0.5). Immutable except by explicit ratification.
+- **`CLAUDE.md`** — The operational PM/developer workflow. Defines how the PM orchestrates subagents, delegates implementation, manages the backlog, and runs the review cycle. Living document; amended after retrospectives.
+
+The workflow itself:
 
 - **Red → Green → Refactor** — tests are written before implementation, always
 - **4-parallel-reviewer pattern** — every task is reviewed by QA, DevOps, Architecture, and
   UI/UX agents in parallel before merge
 - **90% coverage gate** — enforced in CI; cannot be bypassed
+- **docs-gate** — every PR must contain at least one `docs:` commit (Constitution Priority 6)
 - **Living retrospective log** — `docs/RETRO_LOG.md` captures every review finding and
   open advisory item
 - **ADR-driven decisions** — architectural decisions are documented in `docs/adr/`
@@ -197,7 +208,7 @@ priority hierarchy.
 │   ├── adr/                Architecture Decision Records
 │   ├── backlog/            Phase-by-phase task backlog
 │   ├── RETRO_LOG.md        Living review ledger and advisory tracking
-│   └── EXECUTION_PLAN.md   Full project Gantt and dependency map
+│   └── retired/            Retired documents (EXECUTION_PLAN.md)
 ├── .claude/agents/         Specialized AI reviewer definitions
 ├── scripts/                Utility scripts (ChromaDB seeding, etc.)
 ├── spikes/                 Exploratory prototypes (not production code)

@@ -29,6 +29,30 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-14] Governance Enforcement Sprint — docs/governance-enforcement branch
+
+**Summary**: Docs/chore-only sprint. No src/ files modified. All four reviewers SKIP per scope gate.
+
+**Changes committed**:
+- `chore`: Retired `docs/EXECUTION_PLAN.md` to `docs/retired/`
+- `docs`: Added Section 4 (Programmatic Enforcement Principle, Priority 0.5) to CONSTITUTION.md; enforcement inventory table maps all 10 priorities to their gates
+- `docs`: Added Rules 9–13 to CLAUDE.md PM Planning Rules (docs gate, RETRO_LOG learning, advisory drain cadence, phase execution authority, PR review automation)
+- `docs`: Added Step 0 (Pre-Task Learning Scan) to software-developer.md — mandatory RETRO_LOG scan before reading task spec
+- `docs`: Upgraded architecture-reviewer.md model from sonnet to opus — architectural decisions compound across phases; opus-level reasoning warranted
+- `chore`: Added `docs-gate` CI job to ci.yml — enforces Constitution Priority 6; every PR must contain at least one `docs:` commit; exits 1 if absent
+- `docs`: Comprehensive README update — Phase 4 current state (Phase 3.5 complete, T4.0–T4.3a done), two-layer governance model (CONSTITUTION.md + CLAUDE.md), docs/retired/ reference added, EXECUTION_PLAN.md reference removed
+
+**Architecture** (SKIP): No structural src/ changes. Scope gate: no src/synth_engine/ files touched.
+
+**QA** (SKIP): No testable code introduced.
+
+**DevOps** (SKIP with PASS on CI gate): docs-gate job correctly SHA-pinned, pull_request-only conditional, uses `|| true` to handle grep exit code, fails with actionable error message.
+
+**UI/UX** (SKIP): No UI surface area.
+
+**Retrospective**:
+This sprint closes the documentation-drift failure pattern identified in Phase 3 retrospectives by making it mechanically impossible to merge a PR without a `docs:` commit. The self-referential enforcement inventory table in CONSTITUTION.md Section 4 is the key artifact: it turns an honor-system expectation into an auditable contract. The RETRO_LOG Step 0 mandate for software-developer agents closes the institutional-memory gap that produced repeated Rule 7 and Rule 8 violations. Architecture-reviewer model upgrade from sonnet to opus reflects the asymmetric cost of structural mistakes — cheap to get right, expensive to unwind.
+
 ### [2026-03-14] P4-T4.2a — Statistical Profiler
 
 **Architecture** (FINDING, 2 fixed):
