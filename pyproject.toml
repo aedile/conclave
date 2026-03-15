@@ -180,10 +180,6 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-fail-under=90",
     "--tb=short",
-    # Disable pytest-postgresql plugin when libpq is not installed (unit-test
-    # environments without the integration group). Integration tests that need
-    # PostgreSQL must be run explicitly with `pytest -m integration`.
-    "-p", "no:pytest_postgresql",
 ]
 markers = [
     "unit: Fast, isolated unit tests with no external dependencies",
