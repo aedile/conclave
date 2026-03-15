@@ -21,12 +21,47 @@ Drain (delete) rows when their target task is completed.
 | ADV-021 | QA P2-D2 | Before Phase 3/4 TypeDecorator usage | `EncryptedString` NULL passthrough, empty-string, and unicode/multi-byte PII paths are not exercised at the integration level (only unit-tested). Also: `Fernet.InvalidToken` propagation through SQLAlchemy on a live connection is untested. Write targeted integration tests for these edge cases before additional TypeDecorators are added in Phase 3/4. |
 | ADV-035 | DevOps T3.5.4 | T4.x (masking configuration) | `_CLI_MASKING_SALT` in `bootstrapper/cli.py` is a hardcoded fallback determinism seed (documented as non-secret). When Phase 4 introduces the production `MASKING_SALT` path, the CLI must be updated to inject it from environment/Vault rather than relying on the hardcoded fallback. Remove the hardcoded fallback or gate it behind a strict non-production check. |
 | ADV-036 | DevOps T3.5.4 | T5.1 (CLI hardening) | The CLI's `except Exception` boundary forwards `str(exc)` from potentially deep SQLAlchemy stack frames directly to the operator. As the engine grows, those exception messages could include table names, column names, or query fragments from customer schemas. Revisit the exception sanitisation boundary at T5.1 when the CLI is hardened for production use. |
-| ADV-037 | Arch+QA P4-T4.1 | T4.2b | **BLOCKER (CLAUDE.md Rule 8)**: `EphemeralStorageClient` wiring deferred — `MinioStorageBackend` is not wired into the bootstrapper because `SynthesisEngine` does not yet exist. `TODO(T4.2b)` comment added to `bootstrapper/main.py`. Must be completed before T4.2b merges; T4.2b is a Phase 4 entry gate for this wiring. |
 | ADV-038 | Arch PR #32 | Before pr-reviewer goes live | No ADR documents the governance decision to permit AI-posted GitHub PR approvals. ADR should cover: problem solved, scope of authority (approve yes, merge never), escalation path when gates cannot be evaluated. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-14] Task P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
+
+**Summary**: Implements the synthesizer core per ADR-0017. `SynthesisEngine` trains per-table CTGAN models via SDV 1.x `CTGANSynthesizer(metadata=..., epochs=...)` and generates synthetic DataFrames. `ModelArtifact` serialises trained models via pickle. `apply_fk_post_processing()` eliminates orphan FK values using seeded `np.random.default_rng`. ADV-037 BLOCKER drained: `EphemeralStorageClient` + `SynthesisEngine` wired into `bootstrapper/main.py` as lazy factory functions.
+
+**Changes committed**:
+- `test:`: 26 unit tests for `SynthesisEngine`, `ModelArtifact`, FK post-processing; 6 integration tests using real CTGAN on 100-row Faker dataset; import-linter boundary test
+- `feat:`: `engine.py`, `models.py`, `__init__.py` (lazy imports); `bootstrapper/main.py` factory functions; `pyproject.toml` sdv dependency + filterwarnings; root `conftest.py` collection-time warning suppression
+
+**Architecture** (PASS):
+- synthesizer-imports-ingestion PASS: import-linter: 4 contracts kept, 0 broken. Synthesizer has no ingestion/masking/subsetting imports.
+- ADV-037 drain PASS: `build_ephemeral_storage_client()` and `build_synthesis_engine()` added to bootstrapper/main.py with `TYPE_CHECKING` annotations.
+- module-cohesion PASS: `engine.py`, `models.py` correctly placed in `modules/synthesizer/`.
+- Retrospective: Eager imports in `__init__.py` trigger SDV/rdt at collection time under `-W error`. Future modules with heavy optional deps must use lazy imports in `__init__.py` to prevent DeprecationWarning during pytest collection.
+
+**QA** (PASS):
+- unit-tests PASS: 26/26 pass; 94% total coverage (>=90% gate).
+- integration-tests PASS: 6/6 pass — real CTGAN training (2 epochs), schema match, row count, save/load round-trip, import-linter boundary.
+- MagicMock-pickle guard PASS: `_PicklableModelStub` used for save/load tests; MagicMock retained for non-pickle tests.
+- seeded-PRNG PASS: `apply_fk_post_processing` uses `np.random.default_rng(rng_seed)`.
+- edge-cases PASS: empty DataFrame, empty parent_pks, n_rows=0, FileNotFoundError guards all present.
+- bandit PASS: 0 HIGH/MEDIUM findings.
+- Retrospective: Python 3.14 + pytest-asyncio 0.26.x incompatibility with CLI `-W error`. The `event_loop_policy` session-scoped autouse fixture calls `asyncio.get_event_loop_policy()` which fires a DeprecationWarning. CLI `-W error` is applied AFTER ini `filterwarnings` by pytest's `apply_warning_filters`, inserting at position 0 (first-match-wins), overriding all ignore entries. Quality gates run WITHOUT CLI `-W error`; the ini `"error"` entry provides the same protection when no CLI `-W` is present. This is a pytest-asyncio 0.26.x + Python 3.14 known issue.
+
+**DevOps** (PASS):
+- no-pii PASS: all fixture data via `Faker()` with seed.
+- credentials PASS: `aws_secret_access_key` in tests marked `# pragma: allowlist secret`.
+- dependency-audit PASS: `sdv >=1.17.0,<2.0.0` with `python = ">=3.14,<3.15"` marker (SDV metadata incorrectly excludes Python 3.14).
+- pre-commit PASS: all hooks pass.
+- Retrospective: SDV pyproject metadata incorrectly declares `python < 3.14` but installs on 3.14. Poetry requires explicit `python` marker override. Pattern for future deps with overly-conservative Python version metadata.
+
+**UI/UX** (SKIP): No UI surface area.
+
+**ADV-037 drain**: Confirmed drained. `EphemeralStorageClient` and `SynthesisEngine` wired into `bootstrapper/main.py` as lazy factory functions.
 
 ---
 
