@@ -135,6 +135,10 @@ Once the user approves a phase plan, the PM has execution authority over all tas
 **Rule 13 — PR review automation.**
 After spawning the four parallel review agents (qa, devops, arch, ui-ux) and after CI is green, the PM MUST spawn the `pr-reviewer` subagent. The pr-reviewer reads the PR diff, verifies all review commits are present, checks CI status via `gh pr checks`, and posts a structured summary comment via `gh pr comment`. If all gates are green, the pr-reviewer posts `gh pr review --approve` to satisfy branch protection, at which point auto-merge fires. The PM does not wait for human approval — the pr-reviewer IS the approval gate.
 
+**Rule 14 — ChromaDB seeding after every RETRO_LOG update.**
+(Task B — Added 2026-03-15)
+After committing a `docs: update RETRO_LOG` commit, the PM MUST run `poetry run python3 scripts/seed_chroma_retro.py` to persist the new findings to ChromaDB. This keeps the learning system current. Failure to seed means the software-developer Step 0 chroma query will return stale results.
+
 ---
 
 ## Core Philosophy
@@ -591,6 +595,7 @@ BEFORE CODING:     Read task spec → Check Open Advisory Items table for items 
 WHILE CODING:      Minimal implementation → Pass tests → Refactor
 BEFORE COMMIT:     git status → git diff → ruff → mypy → pytest → vulture → pre-commit
 AFTER CODE:        Spawn qa/ui-ux/devops reviewers in ONE parallel message (+ arch-reviewer if structural) → review: commits + RETRO_LOG update → add unassigned advisories to Open Advisory Items table → drain rows whose target task is now complete
+AFTER RETRO_LOG UPDATE:  Run scripts/seed_chroma_retro.py to persist new retrospective findings to ChromaDB "Retrospectives" collection — keeps learning system current
 COMMIT MESSAGE:    type: description (test:, feat:, fix:, refactor:, review:, docs:, chore:)
 NEVER:             --no-verify, skip hooks, commit PII, dead code, untyped code
 ALWAYS:            TDD, 90% coverage, type hints, docstrings, clean workspace, review commits
