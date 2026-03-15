@@ -391,6 +391,11 @@ def _register_routes(app: FastAPI) -> None:
 # if the task is not registered.
 from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: F401, E402
 
+# This import registers ``rotate_ale_keys_task`` with the shared Huey instance
+# so the Huey worker process discovers the task at startup (ADR-0020).
+# Do NOT remove — the worker will silently drop key rotation jobs otherwise.
+from synth_engine.shared.security import rotation as _security_rotation  # noqa: F401, E402
+
 #: Module-level application instance for use by uvicorn.
 #: ``uvicorn synth_engine.bootstrapper.main:app`` picks up this singleton.
 app = create_app()

@@ -356,5 +356,5 @@ def test_shred_renders_ciphertext_unrecoverable(
             loaded = session.get(ShredTestRecord, record_id)
             _ = loaded.pii_value if loaded else None  # Force decrypt
 
-    with pytest.raises((InvalidToken, RuntimeError, Exception)):
+    with pytest.raises((InvalidToken, RuntimeError)):
         _try_decrypt_after_shred()

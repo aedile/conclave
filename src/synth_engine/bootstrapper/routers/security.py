@@ -33,6 +33,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.shared.security.ale import get_fernet
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.security.rotation import rotate_ale_keys_task
 from synth_engine.shared.security.vault import VaultState
@@ -98,7 +99,7 @@ async def shred_vault() -> JSONResponse:
             action="shred",
             details={"note": "Master KEK zeroized — all ALE ciphertext is now unrecoverable"},
         )
-    except (ValueError, RuntimeError) as exc:
+    except ValueError as exc:
         _logger.warning("Audit logging failed during CRYPTO_SHRED; proceeding: %s", exc)
 
     # Seal (zeroize KEK) — idempotent-safe
@@ -133,15 +134,17 @@ async def rotate_keys(body: RotateRequest) -> JSONResponse:
     1. Verifies the vault is currently unsealed (rotation requires the current KEK).
     2. Emits a ``KEY_ROTATION_REQUESTED`` audit event.
     3. Generates a fresh Fernet key for the new ALE encryption.
-    4. Enqueues a Huey task (``rotate_ale_keys_task``) that decrypts all
+    4. Wraps the new Fernet key using the current vault KEK via Fernet wrapping
+       so that it is never passed to the broker in plaintext.
+    5. Enqueues a Huey task (``rotate_ale_keys_task``) that decrypts all
        existing ciphertext with the current ALE key and re-encrypts it with
        the new key.
-    5. Returns ``202 Accepted`` immediately — the actual rotation runs in the
+    6. Returns ``202 Accepted`` immediately — the actual rotation runs in the
        Huey worker background.
 
-    The ``new_passphrase`` in the request body is logged to the audit trail to
-    document operator intent.  It is NOT used to derive the new Fernet key;
-    a random key is generated for the re-encryption.
+    The presence of ``new_passphrase`` in the request body is noted in the
+    audit trail to document operator intent.  It is NOT used to derive the
+    new Fernet key; a random key is generated for the re-encryption.
 
     Args:
         body: JSON body containing ``new_passphrase``.
@@ -172,15 +175,23 @@ async def rotate_keys(body: RotateRequest) -> JSONResponse:
             actor="operator",
             resource="ale_keys",
             action="rotate",
-            details={"note": "ALE key rotation initiated via /security/keys/rotate"},
+            details={
+                "note": "ALE key rotation initiated via /security/keys/rotate",
+                "passphrase_provided": str(bool(body.new_passphrase)),
+            },
         )
-    except (ValueError, RuntimeError) as exc:
+    except ValueError as exc:
         _logger.warning("Audit logging failed during KEY_ROTATION_REQUESTED; proceeding: %s", exc)
 
     # Generate a fresh Fernet key for the new ALE encryption
     from cryptography.fernet import Fernet
 
-    new_fernet_key = Fernet.generate_key().decode()
+    new_fernet_key = Fernet.generate_key()
+
+    # Wrap the new key with the current vault KEK so it is never stored in the
+    # broker (Redis) in plaintext.  The Huey worker unwraps it using the same
+    # vault Fernet before constructing the new Fernet instance.
+    wrapped_key = get_fernet().encrypt(new_fernet_key).decode()
 
     # Read DATABASE_URL for the Huey task (task runs in a separate worker process)
     database_url = os.environ.get("DATABASE_URL", "")
@@ -190,8 +201,8 @@ async def rotate_keys(body: RotateRequest) -> JSONResponse:
             "Ensure DATABASE_URL is configured in the Huey worker environment."
         )
 
-    # Enqueue the Huey background task
-    rotate_ale_keys_task(database_url, new_fernet_key)
+    # Enqueue the Huey background task with the KEK-wrapped new key
+    rotate_ale_keys_task(database_url, wrapped_key)
 
     _logger.info(
         "KEY_ROTATION_REQUESTED: ALE key rotation task enqueued. "

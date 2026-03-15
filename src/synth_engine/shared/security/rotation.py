@@ -13,6 +13,9 @@ Security properties
 -------------------
 - The old Fernet key is only held in memory for the duration of the task and
   is not persisted anywhere.
+- The new Fernet key is transmitted to the task as a KEK-wrapped ciphertext
+  (encrypted with the current vault Fernet) so that it is never stored in the
+  Huey broker (Redis) in plaintext.
 - Re-encryption is performed row-by-row within explicit transactions so that a
   partial failure leaves the database in a consistent, recoverable state (rows
   that were already rotated keep the new ciphertext; rows that were not touched
@@ -203,7 +206,7 @@ def rotate_ale_keys(
 @huey.task()  # type: ignore[untyped-decorator]
 def rotate_ale_keys_task(
     database_url: str,
-    new_fernet_key: str,
+    wrapped_fernet_key: str,
 ) -> dict[str, int]:
     """Huey background task: rotate all ALE-encrypted columns.
 
@@ -215,13 +218,18 @@ def rotate_ale_keys_task(
     2. Derive the old Fernet from the current vault KEK (vault must be unsealed
        in the worker process — the same passphrase that unseals the API server
        must also unseal the Huey worker).
-    3. Build the new Fernet from ``new_fernet_key`` (a freshly generated
-       URL-safe base64 Fernet key).
-    4. Call :func:`rotate_ale_keys` to re-encrypt all columns.
+    3. Unwrap ``wrapped_fernet_key`` using the current vault Fernet (it was
+       wrapped by the API handler to avoid storing a plaintext key in Redis).
+    4. Build the new Fernet from the unwrapped key bytes.
+    5. Call :func:`rotate_ale_keys` to re-encrypt all columns.
 
     Args:
         database_url: SQLAlchemy-compatible database URL for the target DB.
-        new_fernet_key: URL-safe base64-encoded Fernet key for the new ALE key.
+        wrapped_fernet_key: KEK-wrapped (Fernet-encrypted) URL-safe base64-encoded
+            Fernet key for the new ALE key.  The API handler encrypts the raw key
+            with the current vault Fernet before enqueuing; this task unwraps it
+            using the same vault Fernet before constructing the new
+            :class:`~cryptography.fernet.Fernet` instance.
 
     Returns:
         Dict mapping ``"<table>.<column>"`` to rows rotated.
@@ -233,7 +241,11 @@ def rotate_ale_keys_task(
     """
     engine = get_engine(database_url)
     old_fernet = get_fernet()  # derives from current vault KEK or ALE_KEY env
-    new_fernet = Fernet(new_fernet_key.encode())
+
+    # Unwrap the new key: it was wrapped with the vault Fernet by the API handler
+    # to prevent the raw key from appearing in the Redis broker payload.
+    unwrapped_key: bytes = old_fernet.decrypt(wrapped_fernet_key.encode())
+    new_fernet = Fernet(unwrapped_key)
 
     try:
         return rotate_ale_keys(

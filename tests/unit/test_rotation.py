@@ -347,8 +347,8 @@ def test_rotate_ale_keys_task_is_huey_decorated() -> None:
     from synth_engine.shared.security.rotation import rotate_ale_keys_task
 
     assert callable(rotate_ale_keys_task), "rotate_ale_keys_task must be callable"
-    # Huey wraps tasks with a Wrapper class that exposes the original function via .func
-    assert hasattr(rotate_ale_keys_task, "func") or callable(rotate_ale_keys_task)
+    # Huey exposes .call_local() for synchronous in-process task invocation (no broker)
+    assert hasattr(rotate_ale_keys_task, "call_local")
 
 
 def test_rotate_ale_keys_task_calls_rotate_ale_keys(
@@ -365,6 +365,11 @@ def test_rotate_ale_keys_task_calls_rotate_ale_keys(
     engine_mock = MagicMock()
     mock_results: dict[str, int] = {"test_table.secret": 5}
 
+    # Wrap the new key with the old Fernet, matching what the API handler does.
+    # The task unwraps it internally — passing a plain key would raise InvalidToken.
+    old_fernet_instance = Fernet(ale_key_old.encode())
+    wrapped_key = old_fernet_instance.encrypt(ale_key_new.encode()).decode()
+
     with (
         patch(
             "synth_engine.shared.security.rotation.get_engine",
@@ -372,7 +377,7 @@ def test_rotate_ale_keys_task_calls_rotate_ale_keys(
         ) as mock_get_engine,
         patch(
             "synth_engine.shared.security.rotation.get_fernet",
-            return_value=Fernet(ale_key_old.encode()),
+            return_value=old_fernet_instance,
         ),
         patch(
             "synth_engine.shared.security.rotation.rotate_ale_keys",
@@ -380,7 +385,7 @@ def test_rotate_ale_keys_task_calls_rotate_ale_keys(
         ) as mock_rotate,
     ):
         # call_local() executes the task synchronously without Huey broker
-        result = rotate_ale_keys_task.call_local("sqlite:///test.db", ale_key_new)
+        result = rotate_ale_keys_task.call_local("sqlite:///test.db", wrapped_key)
 
     mock_get_engine.assert_called_once_with("sqlite:///test.db")
     assert mock_rotate.called
