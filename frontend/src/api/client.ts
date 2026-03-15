@@ -104,3 +104,240 @@ export async function getHealth(): Promise<
 
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// RFC 7807 Problem Detail — structured error format used by all job endpoints
+// ---------------------------------------------------------------------------
+
+/** RFC 7807 Problem Detail error object returned by job API endpoints. */
+export interface ProblemDetail {
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+}
+
+// ---------------------------------------------------------------------------
+// Job API types
+// ---------------------------------------------------------------------------
+
+/** Job status values as returned by the backend. */
+export type JobStatus = "QUEUED" | "TRAINING" | "COMPLETE" | "FAILED";
+
+/**
+ * A single synthesis job as returned by the backend.
+ *
+ * Maps exactly to the backend's `JobResponse` schema.
+ */
+export interface JobResponse {
+  id: number;
+  status: JobStatus;
+  current_epoch: number;
+  total_epochs: number;
+  table_name: string;
+  parquet_path: string;
+  artifact_path: string | null;
+  error_msg: string | null;
+  checkpoint_every_n: number;
+}
+
+/** Paginated job list response from GET /jobs. */
+export interface JobListResponse {
+  items: JobResponse[];
+  next_cursor: number | null;
+}
+
+/** Payload for creating a new synthesis job. */
+export interface CreateJobParams {
+  table_name: string;
+  parquet_path: string;
+  total_epochs: number;
+  checkpoint_every_n: number;
+}
+
+/** Accepted response from POST /jobs/{id}/start. */
+export interface StartJobResponse {
+  status: "accepted";
+  job_id: number;
+}
+
+// ---------------------------------------------------------------------------
+// Discriminated union result types for job endpoints
+// ---------------------------------------------------------------------------
+
+/** Result type for GET /jobs. */
+export type GetJobsResult =
+  | { ok: true; data: JobListResponse }
+  | { ok: false; error: ProblemDetail };
+
+/** Result type for GET /jobs/{id}. */
+export type GetJobResult =
+  | { ok: true; data: JobResponse }
+  | { ok: false; error: ProblemDetail };
+
+/** Result type for POST /jobs. */
+export type CreateJobResult =
+  | { ok: true; data: JobResponse }
+  | { ok: false; error: ProblemDetail };
+
+/** Result type for POST /jobs/{id}/start. */
+export type StartJobResult =
+  | { ok: true; data: StartJobResponse }
+  | { ok: false; error: ProblemDetail };
+
+// ---------------------------------------------------------------------------
+// Shared helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse an RFC 7807 error body or create a generic one from the HTTP status.
+ *
+ * @param response - The failed HTTP response.
+ * @returns A `ProblemDetail` describing the failure.
+ */
+async function parseProblemDetail(response: Response): Promise<ProblemDetail> {
+  try {
+    return (await response.json()) as ProblemDetail;
+  } catch (e) {
+    console.warn("[parseProblemDetail] Failed to parse error body:", e);
+    return {
+      type: "about:blank",
+      title: "Error",
+      status: response.status,
+      detail: `Unexpected server response: HTTP ${response.status}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Job API functions
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /jobs — retrieve a paginated list of synthesis jobs.
+ *
+ * @param after - Optional cursor for forward pagination.
+ * @returns Discriminated union of paginated job list or RFC 7807 error.
+ */
+export async function getJobs(after?: number): Promise<GetJobsResult> {
+  const url = after !== undefined ? `/jobs?after=${after}&limit=20` : "/jobs?limit=20";
+  let response: Response;
+
+  try {
+    response = await fetch(url);
+  } catch {
+    return {
+      ok: false,
+      error: {
+        type: "about:blank",
+        title: "Network Error",
+        status: 0,
+        detail: "Unable to connect to the server.",
+      },
+    };
+  }
+
+  if (response.ok) {
+    const data = (await response.json()) as JobListResponse;
+    return { ok: true, data };
+  }
+
+  return { ok: false, error: await parseProblemDetail(response) };
+}
+
+/**
+ * GET /jobs/{jobId} — retrieve a single synthesis job.
+ *
+ * @param jobId - The numeric ID of the job.
+ * @returns Discriminated union of job data or RFC 7807 error.
+ */
+export async function getJob(jobId: number): Promise<GetJobResult> {
+  let response: Response;
+
+  try {
+    response = await fetch(`/jobs/${jobId}`);
+  } catch {
+    return {
+      ok: false,
+      error: {
+        type: "about:blank",
+        title: "Network Error",
+        status: 0,
+        detail: "Unable to connect to the server.",
+      },
+    };
+  }
+
+  if (response.ok) {
+    const data = (await response.json()) as JobResponse;
+    return { ok: true, data };
+  }
+
+  return { ok: false, error: await parseProblemDetail(response) };
+}
+
+/**
+ * POST /jobs — create a new synthesis job.
+ *
+ * @param params - Job creation parameters.
+ * @returns Discriminated union of created job or RFC 7807 error.
+ */
+export async function createJob(params: CreateJobParams): Promise<CreateJobResult> {
+  let response: Response;
+
+  try {
+    response = await fetch("/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+  } catch {
+    return {
+      ok: false,
+      error: {
+        type: "about:blank",
+        title: "Network Error",
+        status: 0,
+        detail: "Unable to connect to the server.",
+      },
+    };
+  }
+
+  if (response.status === 201 || response.ok) {
+    const data = (await response.json()) as JobResponse;
+    return { ok: true, data };
+  }
+
+  return { ok: false, error: await parseProblemDetail(response) };
+}
+
+/**
+ * POST /jobs/{jobId}/start — transition a QUEUED job to TRAINING.
+ *
+ * @param jobId - The numeric ID of the job to start.
+ * @returns Discriminated union of accepted response or RFC 7807 error.
+ */
+export async function startJob(jobId: number): Promise<StartJobResult> {
+  let response: Response;
+
+  try {
+    response = await fetch(`/jobs/${jobId}/start`, { method: "POST" });
+  } catch {
+    return {
+      ok: false,
+      error: {
+        type: "about:blank",
+        title: "Network Error",
+        status: 0,
+        detail: "Unable to connect to the server.",
+      },
+    };
+  }
+
+  if (response.ok) {
+    const data = (await response.json()) as StartJobResponse;
+    return { ok: true, data };
+  }
+
+  return { ok: false, error: await parseProblemDetail(response) };
+}

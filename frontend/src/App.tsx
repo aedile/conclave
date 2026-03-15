@@ -12,11 +12,15 @@
  *   2. If response is 423 Locked → redirect to /unseal
  *   3. If response is 200 OK → allow /dashboard access
  *   4. If network error → redirect to /unseal (safe default)
+ *
+ * ErrorBoundary wraps the Routes tree so any unhandled React render error
+ * is caught and displayed as an RFC 7807 remediation card.
  */
 
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { getHealth } from "./api/client";
+import ErrorBoundary from "./components/ErrorBoundary";
 import Dashboard from "./routes/Dashboard";
 import Unseal from "./routes/Unseal";
 
@@ -87,23 +91,26 @@ function RouterGuard({ children }: { children: React.ReactNode }) {
  * App — root application component.
  *
  * Uses React Router v6 declarative routing with the RouterGuard wrapper
- * protecting the /dashboard route.
+ * protecting the /dashboard route. The ErrorBoundary wraps all routes
+ * so any unhandled render error is caught gracefully.
  */
 export default function App() {
   return (
-    <Routes>
-      <Route path="/unseal" element={<Unseal />} />
-      <Route
-        path="/dashboard"
-        element={
-          <RouterGuard>
-            <Dashboard />
-          </RouterGuard>
-        }
-      />
-      {/* Default: redirect root and unknown paths to /unseal */}
-      <Route path="/" element={<Navigate to="/unseal" replace />} />
-      <Route path="*" element={<Navigate to="/unseal" replace />} />
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/unseal" element={<Unseal />} />
+        <Route
+          path="/dashboard"
+          element={
+            <RouterGuard>
+              <Dashboard />
+            </RouterGuard>
+          }
+        />
+        {/* Default: redirect root and unknown paths to /unseal */}
+        <Route path="/" element={<Navigate to="/unseal" replace />} />
+        <Route path="*" element={<Navigate to="/unseal" replace />} />
+      </Routes>
+    </ErrorBoundary>
   );
 }
