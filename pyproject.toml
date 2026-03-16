@@ -57,7 +57,7 @@ pillow = ">=12.0.0,<13.0.0"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
 pytest-cov = "^6.1"
-pytest-asyncio = ">=0.24.0,<1.0.0"
+pytest-asyncio = ">=1.3.0,<2.0.0"
 ruff = "^0.11"
 mypy = "^1.15"
 bandit = { version = "^1.8", extras = ["toml"] }
@@ -221,18 +221,19 @@ markers = [
 ]
 filterwarnings = [
     # Baseline: all warnings are errors — future regressions fail the build.
+    # Note: when -W error is passed on the command line, pytest's apply_warning_filters
+    # prepends the cmdline filter AFTER config_filters, meaning cmdline -W error ends up
+    # at the TOP of the filter chain and overrides all "ignore" entries below.
+    # To restore correct precedence for -W error runs, tests/conftest.py defines an
+    # autouse fixture (_suppress_third_party_deprecation_warnings) that prepends the
+    # critical "ignore" filters INSIDE each test's catch_warnings context, placing them
+    # above the cmdline -W error.  The entries below serve as documentation and take
+    # effect when pytest is run without an explicit -W error cmdline override.
     "error",
-    # pytest-asyncio 0.26.x uses asyncio.get/set_event_loop_policy internally.
-    # These APIs are deprecated in Python 3.14 for removal in 3.16.  The calls
-    # live inside the pytest-asyncio plugin; we cannot fix them.
-    # Note: Python's warnings._deprecated() uses stacklevel=3, so the warning
-    # is attributed to the asyncio stdlib module (not pytest_asyncio.plugin).
-    # The filter omits the module scope to match regardless of reported origin.
-    "ignore:'asyncio.get_event_loop_policy' is deprecated:DeprecationWarning",
-    "ignore:'asyncio.set_event_loop_policy' is deprecated:DeprecationWarning",
     # chromadb 1.5.x uses asyncio.iscoroutinefunction (deprecated in 3.14 for
     # removal in 3.16; the fix is inspect.iscoroutinefunction).  Scoped to the
     # chromadb telemetry sub-package; we cannot change third-party code.
+    # Also handled by the conftest.py autouse fixture for -W error compatibility.
     "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
     # SDV 1.x and its dependencies (rdt, copulas) emit DeprecationWarnings
     # from third-party code paths that we cannot fix.  Suppressed to keep

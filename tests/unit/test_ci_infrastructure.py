@@ -247,11 +247,17 @@ class TestADV052AlembicMigration:
 class TestADV066ZeroWarningPolicy:
     """ADV-066: Zero-warning policy must be active in all CI environments.
 
-    The policy is implemented via ``pyproject.toml filterwarnings = ["error", ...]``
-    rather than bare ``-W error`` CLI flags.  Bare CLI flags override ALL ini-file
-    ignore rules (Python processes CLI -W flags before ini filters), causing
-    spurious failures from third-party DeprecationWarnings in SDV/opacus/torch.
-    The ini-file approach is the correct and complete implementation.
+    ``-W error`` CLI flags ARE processed by Python after ini-file ``filterwarnings``
+    entries.  Because ``warnings.filterwarnings()`` prepends to the filter chain,
+    ``-W error`` ends up at the TOP and overrides every ``"ignore"`` entry in
+    ``pyproject.toml``, causing spurious failures from third-party
+    DeprecationWarnings in SDV/opacus/torch/chromadb.
+
+    The correct fix — implemented in ``tests/conftest.py`` — is the autouse
+    fixture ``_suppress_third_party_deprecation_warnings``.  It adds ``"ignore"``
+    filters inside a ``warnings.catch_warnings()`` context per test, so they are
+    prepended AFTER ``-W error`` is already in the chain.  This restores correct
+    precedence without removing the zero-warning enforcement.
     """
 
     def test_pyproject_filterwarnings_has_error_baseline(self) -> None:
