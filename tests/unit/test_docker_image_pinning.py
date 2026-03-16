@@ -7,13 +7,10 @@ security (ADV-014).
 Tests are file-inspection tests: they read the configuration files and assert
 structural invariants. They do NOT require a running Docker daemon.
 
-Known exception — pgbouncer/pgbouncer:1.23.1:
-    This tag does NOT exist in Docker Hub (confirmed 2026-03-16 via Docker
-    Registry v2 API). The pgbouncer/pgbouncer image only has versions up to
-    1.15.0. SHA-256 pinning cannot be applied to a non-existent tag; a digest
-    cannot be fabricated. The pgbouncer line is excluded from blanket pinning
-    checks. A dedicated test verifies the WARNING comment is present. This
-    constitutes a partial resolution of ADV-014 pending image reference fix.
+ADV-015 (resolved P18-T18.2):
+    The phantom tag ``pgbouncer/pgbouncer:1.23.1`` was replaced with
+    ``edoburu/pgbouncer:v1.23.1-p3`` and SHA-256 pinned. See ADR-0031.
+    All 9 external service images in docker-compose.yml are now pinned.
 """
 
 import re
@@ -28,14 +25,6 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent.parent
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 DOCKER_COMPOSE = REPO_ROOT / "docker-compose.yml"
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# pgbouncer/pgbouncer:1.23.1 does not exist in Docker Hub; its image line
-# cannot be SHA-256 pinned. Excluded from blanket checks; tracked separately.
-_PGBOUNCER_UNPINNABLE_MARKER = "pgbouncer/pgbouncer:1.23.1"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,8 +54,9 @@ def _extract_image_lines(compose_text: str) -> list[str]:
 
     Excludes:
     - ``conclave-engine:latest`` — locally built image, no upstream registry.
-    - ``pgbouncer/pgbouncer:1.23.1`` — tag does not exist in Docker Hub; cannot
-      be SHA-256 pinned until the image reference is corrected to a valid tag.
+
+    All external service images (including edoburu/pgbouncer since ADV-015
+    resolution in P18-T18.2) are now SHA-256 pinned and included in checks.
 
     Args:
         compose_text: Full text of the docker-compose.yml.
@@ -77,9 +67,7 @@ def _extract_image_lines(compose_text: str) -> list[str]:
     return [
         line.strip()
         for line in compose_text.splitlines()
-        if line.strip().startswith("image:")
-        and "conclave-engine" not in line
-        and _PGBOUNCER_UNPINNABLE_MARKER not in line
+        if line.strip().startswith("image:") and "conclave-engine" not in line
     ]
 
 
@@ -193,10 +181,11 @@ class TestDockerComposeSHA256Pinning:
     def test_all_external_image_lines_have_sha256_digest(self) -> None:
         """Every external service image in docker-compose.yml must be SHA-256 pinned.
 
-        Excludes:
-        - ``conclave-engine:latest`` — locally built image, no registry source.
-        - ``pgbouncer/pgbouncer:1.23.1`` — tag does not exist in Docker Hub;
-          cannot be pinned. Tracked in RETRO_LOG as ADV-014 partial residual.
+        Excludes ``conclave-engine:latest`` — locally built image, no registry source.
+
+        All 9 external service images are now SHA-256 pinned following ADV-015
+        resolution (P18-T18.2): edoburu/pgbouncer:v1.23.1-p3 replaces the phantom
+        pgbouncer/pgbouncer:1.23.1 tag and is pinned to its SHA-256 digest.
         """
         content = DOCKER_COMPOSE.read_text()
         image_lines = _extract_image_lines(content)
@@ -213,22 +202,59 @@ class TestDockerComposeSHA256Pinning:
             + "\nAll external service images must use image:tag@sha256:<digest> format."
         )
 
-    def test_pgbouncer_invalid_tag_is_documented(self) -> None:
-        """pgbouncer/pgbouncer:1.23.1 is an invalid tag — must have WARNING comment.
+    def test_phantom_pgbouncer_tag_absent(self) -> None:
+        """The phantom tag pgbouncer/pgbouncer:1.23.1 must NOT exist in docker-compose.yml.
 
-        The tag pgbouncer/pgbouncer:1.23.1 does not exist in Docker Hub. The
-        image line cannot be SHA-256 pinned until corrected. This test verifies
-        that the WARNING comment is present to alert operators, preventing
-        silent use of a non-existent image reference.
+        This tag does not exist in Docker Hub (confirmed via Registry v2 API, 2026-03-16).
+        It was replaced with edoburu/pgbouncer:v1.23.1-p3 in P18-T18.2 (ADR-0031, ADV-015).
         """
         content = DOCKER_COMPOSE.read_text()
-        assert _PGBOUNCER_UNPINNABLE_MARKER in content, (
-            "pgbouncer/pgbouncer:1.23.1 reference not found in docker-compose.yml"
+        assert "pgbouncer/pgbouncer:1.23.1" not in content, (
+            "docker-compose.yml still references the phantom tag pgbouncer/pgbouncer:1.23.1. "
+            "This tag does not exist in Docker Hub and must not reappear. "
+            "The replacement is edoburu/pgbouncer:v1.23.1-p3 (ADR-0031)."
         )
-        # Verify the WARNING comment documenting the invalid tag is present
-        assert "WARNING(P17-T17.1)" in content, (
-            "pgbouncer image line must have a WARNING(P17-T17.1) comment documenting "
-            "that the tag does not exist in Docker Hub and cannot be SHA-256 pinned."
+
+    def test_pgbouncer_uses_edoburu_image(self) -> None:
+        """pgbouncer service must use edoburu/pgbouncer:v1.23.1-p3.
+
+        The community-maintained edoburu/pgbouncer image provides PgBouncer 1.23.1
+        and replaces the non-existent official pgbouncer/pgbouncer:1.23.1 tag.
+        See ADR-0031 for the substitution rationale.
+        """
+        content = DOCKER_COMPOSE.read_text()
+        assert "edoburu/pgbouncer" in content, (
+            "docker-compose.yml must reference edoburu/pgbouncer as the pgbouncer service image. "
+            "See ADR-0031 for the substitution rationale."
+        )
+
+    def test_pgbouncer_image_sha256_pinned(self) -> None:
+        """edoburu/pgbouncer image line must include a SHA-256 digest.
+
+        Resolves ADV-015: pgbouncer is now fully SHA-256 pinned as part of the
+        complete 9-of-9 external service image pinning.
+        """
+        content = DOCKER_COMPOSE.read_text()
+        for line in content.splitlines():
+            if "edoburu/pgbouncer" in line and line.strip().startswith("image:"):
+                assert _SHA256_PATTERN.search(line), (
+                    f"edoburu/pgbouncer image line is not SHA-256 pinned: {line.strip()!r}\n"
+                    "Format must be: image: edoburu/pgbouncer:tag@sha256:<digest>"
+                )
+                return
+        pytest.fail("No edoburu/pgbouncer image line found in docker-compose.yml")
+
+    def test_no_warning_p17_t17_1_comment(self) -> None:
+        """WARNING(P17-T17.1) comment must not remain in docker-compose.yml.
+
+        The temporary WARNING marker from P17-T17.1 was a placeholder for ADV-015.
+        Now that ADV-015 is resolved in P18-T18.2, the marker must be removed.
+        """
+        content = DOCKER_COMPOSE.read_text()
+        assert "WARNING(P17-T17.1)" not in content, (
+            "docker-compose.yml still contains WARNING(P17-T17.1) comment. "
+            "This was a temporary ADV-015 marker; it must be removed after the "
+            "pgbouncer image fix in P18-T18.2."
         )
 
     def test_redis_image_pinned(self) -> None:

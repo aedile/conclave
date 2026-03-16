@@ -191,16 +191,15 @@ services:
   #   - userlist.txt is mounted read-only; replace plaintext password with
   #     SCRAM-SHA-256 hashes for production deployments.
   #
-  # WARNING(P17-T17.1): The tag `pgbouncer/pgbouncer:1.23.1` does NOT exist
-  # in Docker Hub (confirmed 2026-03-16 via Registry v2 API — tag unknown).
-  # The pgbouncer/pgbouncer image on Docker Hub only has versions up to 1.15.0.
-  # This image reference MUST be replaced with a valid image before production
-  # deployment. Candidates: edoburu/pgbouncer:v1.23.1-p3 (verified available).
-  # SHA-256 pinning CANNOT be applied until the image reference is corrected.
-  # Tracked as open advisory in RETRO_LOG (ADV-014 partial — pgbouncer blocker).
+  # Image: edoburu/pgbouncer:v1.23.1-p3 (ADR-0031, resolves ADV-015).
+  # The original pgbouncer/pgbouncer image (phantom tag 1.23.1) does not exist in Docker Hub.
+  # edoburu/pgbouncer is the community-maintained image with PgBouncer 1.23.1.
+  # Digest obtained 2026-03-16 via Docker Registry v2 API (no Docker daemon needed).
+  # To refresh: docker pull edoburu/pgbouncer:v1.23.1-p3 &&
+  #   docker inspect --format='{{index .RepoDigests 0}}' edoburu/pgbouncer:v1.23.1-p3
   # ---------------------------------------------------------------------------
   pgbouncer:
-    image: pgbouncer/pgbouncer:1.23.1
+    image: edoburu/pgbouncer:v1.23.1-p3@sha256:377dec3c0e4a66a1077ec043e16a26ed5702a6d954011a7983a1457c2e070b1d  # v1.23.1-p3
     environment:
       DATABASES_HOST: postgres
       DATABASES_PORT: "5432"
@@ -212,7 +211,12 @@ services:
       PGBOUNCER_AUTH_TYPE: md5
       PGBOUNCER_AUTH_FILE: /etc/pgbouncer/userlist.txt
     volumes:
-      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+      # Operators MUST copy userlist.txt.example to userlist.txt and populate
+      # it with a SCRAM-SHA-256 hash before deploying (see example file for
+      # instructions).  userlist.txt is git-ignored; userlist.txt.example is
+      # tracked and serves as the default mount so docker-compose up does not
+      # fail on a fresh checkout when the real credentials file is absent.
+      - ./pgbouncer/userlist.txt.example:/etc/pgbouncer/userlist.txt:ro
     depends_on:
       postgres:
         condition: service_healthy
