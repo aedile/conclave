@@ -22,8 +22,10 @@ and developers need realistic data to work with. Conclave solves this by:
 3. **Masking deterministically** — the same real name always produces the same fake name,
    preserving referential integrity across joined tables while making PII unrecoverable.
 4. **Generating synthetically** — training GPU-accelerated tabular models (SDV/CTGAN) with
-   Differential Privacy (DP-SGD) guarantees, so that individual outlier records cannot be
-   reverse-engineered from the synthetic output.
+   operational Differential Privacy (DP-SGD) guarantees via Opacus, so that individual
+   outlier records cannot be reverse-engineered from the synthetic output. Phase 7 DP
+   integration is complete: `DPCompatibleCTGAN` with real Opacus `PrivacyEngine` wiring,
+   epsilon/delta accounting, and privacy budget enforcement are fully operational.
 5. **Orchestrating via API** — a FastAPI task API with Server-Sent Events streams job
    progress to a React SPA dashboard in real time.
 6. **Licensing offline** — RS256 JWT hardware-bound license activation for air-gapped
@@ -50,8 +52,8 @@ src/synth_engine/
 │   ├── subsetting/     FK traversal, SubsettingEngine, Saga-pattern EgressWriter
 │   ├── masking/        Deterministic FPE registry, collision prevention, LUHN
 │   ├── profiler/       Statistical distributions, covariance, ProfileDelta
-│   ├── synthesizer/    EphemeralStorageClient, OOM guardrails, CTGAN engine
-│   └── privacy/        DP-SGD wiring, Epsilon/Delta accountant ledger
+│   ├── synthesizer/    EphemeralStorageClient, OOM guardrails, DPCompatibleCTGAN
+│   └── privacy/        DP-SGD wiring, Opacus PrivacyEngine, Epsilon/Delta accountant
 └── shared/             Cross-cutting: Vault, ALE encryption, audit logger, JWT
 ```
 
@@ -71,7 +73,7 @@ Security is Priority Zero — it overrides every other consideration.
 | PII never in plaintext at rest | Application-Level Encryption (ALE) via Fernet + HKDF-SHA256 from Vault KEK |
 | Vault unseal pattern | Operator passphrase derives KEK at runtime; never persisted to disk or env |
 | Deterministic masking | HMAC-SHA256 seeded Faker; same input → same output; not reversible |
-| Differential Privacy | DP-SGD noise injection with Epsilon/Delta budget accounting |
+| Differential Privacy | DP-SGD via Opacus PrivacyEngine; Epsilon/Delta budget enforced per training run |
 | WORM audit log | Cryptographically signed, append-only audit trail |
 | Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net |
 | Supply chain | All GitHub Actions SHA-pinned; Trivy container scan in CI |
@@ -86,20 +88,20 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Active Phase: 7 — Differential Privacy Integration**
+**Phase 7 — Differential Privacy Integration is complete.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
-| 0.6 — Agile Environment | ✅ Complete | ChromaDB, Git worktrees, task queue |
-| 0.8 — Technical Spikes | ✅ Complete | ML memory physics, FPE math, topological graphing |
-| 1 — CI/CD & Quality Gates | ✅ Complete | Pre-commit hooks, Docker hardening, air-gap bundler |
-| 2 — Foundational Architecture | ✅ Complete | FastAPI bootstrapper, PostgreSQL+ALE, JWT, Vault, WORM logger |
-| 3 — The "Thin Slice" | ✅ Complete | Ingestion, relational mapping, deterministic masking, subsetting+Saga, E2E tests |
-| 3.5 — Technical Debt Sprint | ✅ Complete | Module cohesion refactor, Virtual FK, CLI entrypoint, advisory sweep |
-| 4 — Generative AI & DP | ✅ Complete | GPU passthrough, profiler, OOM guardrails, DP-SGD engine, privacy accountant |
-| 5 — Orchestration & UI | ✅ Complete | Task Orchestration API, React SPA Dashboard, offline licensing, cryptographic shredding |
-| 6 — Integration & Audit | ✅ Complete | E2E Playwright tests, NIST erasure validation, OWASP ZAP, fuzz testing, production docs |
-| **7 — Differential Privacy** | 🔄 **In Progress** | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks |
+| 0.6 — Agile Environment | Complete | ChromaDB, Git worktrees, task queue |
+| 0.8 — Technical Spikes | Complete | ML memory physics, FPE math, topological graphing |
+| 1 — CI/CD & Quality Gates | Complete | Pre-commit hooks, Docker hardening, air-gap bundler |
+| 2 — Foundational Architecture | Complete | FastAPI bootstrapper, PostgreSQL+ALE, JWT, Vault, WORM logger |
+| 3 — The "Thin Slice" | Complete | Ingestion, relational mapping, deterministic masking, subsetting+Saga, E2E tests |
+| 3.5 — Technical Debt Sprint | Complete | Module cohesion refactor, Virtual FK, CLI entrypoint, advisory sweep |
+| 4 — Generative AI & DP | Complete | GPU passthrough, profiler, OOM guardrails, DP-SGD engine, privacy accountant |
+| 5 — Orchestration & UI | Complete | Task Orchestration API, React SPA Dashboard, offline licensing, cryptographic shredding |
+| 6 — Integration & Audit | Complete | E2E Playwright tests, NIST erasure validation, OWASP ZAP, fuzz testing, production docs |
+| **7 — Differential Privacy** | **Complete** | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks, E2E DP pipeline |
 
 ---
 
@@ -124,8 +126,7 @@ The full Conclave platform is operational across all completed phases:
   via injectable `StorageBackend` Protocol; `FORCE_CPU` fallback tested and operational
 - **`OOM Guardrail`** — `check_memory_feasibility()` pre-flight check rejects jobs that
   would exhaust available RAM before training starts
-- **`CTGANSynthesizer`** — SDV/CTGAN tabular model training with DP-SGD noise injection
-  via Opacus `PrivacyEngine`
+- **`CTGANSynthesizer`** — SDV/CTGAN tabular model training operational
 - **`EpsilonAccountant`** — tracks per-table Epsilon/Delta privacy budget consumption;
   rejects training runs that would exceed configured budget limits
 
@@ -145,6 +146,20 @@ The full Conclave platform is operational across all completed phases:
   meets NIST SP 800-88 Rev 1 media sanitization guidelines
 - **OWASP ZAP baseline scan** — automated in CI against the running application
 - **Security fuzz tests** — property-based fuzzing of API endpoints and masking primitives
+
+**Phase 7 DP-SGD integration — operational**
+- **`DPCompatibleCTGAN`** — custom CTGAN training loop with Opacus DP-SGD integration;
+  drop-in replacement for SDV's `CTGANSynthesizer` with real per-sample gradient clipping
+  and Gaussian noise injection via Opacus `PrivacyEngine`
+- **`DPTrainingWrapper`** — configurable wrapper for `max_grad_norm` and `noise_multiplier`;
+  `epsilon_spent(delta)` returns real epsilon after training; `check_budget()` enforces
+  per-run privacy budget with `BudgetExhaustionError` on exhaustion
+- **`build_dp_wrapper()` bootstrapper factory** — sole entry point for constructing
+  `DPTrainingWrapper`; wires DP into `SynthesisEngine.train(dp_wrapper=...)` via DI
+- **DP quality benchmarks** — epsilon vs. quality degradation curves documented in
+  `docs/DP_QUALITY_REPORT.md`; recommended epsilon ranges by use case
+- **Full E2E DP pipeline** — Parquet → `DPCompatibleCTGAN` training → `sample()` →
+  `StatisticalProfiler.compare()` → `ProfileDelta` validation; all integration-tested
 
 ---
 
@@ -183,8 +198,8 @@ mocks do not substitute for integration tests that specify real infrastructure.
 ### Backend Setup
 
 ```bash
-# Install dependencies
-poetry install --with dev,integration
+# Install dependencies (include synthesizer group for DP-SGD training)
+poetry install --with dev,integration,synthesizer
 
 # Start local services (PostgreSQL, Redis, MinIO, Jaeger)
 docker-compose up -d
@@ -257,6 +272,7 @@ priority hierarchy.
 │   ├── backlog/            Phase-by-phase task backlog
 │   ├── RETRO_LOG.md        Living review ledger and advisory tracking
 │   ├── OPERATOR_MANUAL.md  Production deployment and operations guide
+│   ├── DP_QUALITY_REPORT.md  DP-SGD epsilon vs. quality benchmarks
 │   ├── DISASTER_RECOVERY.md  Incident response and recovery procedures
 │   ├── LICENSING.md        Offline license activation and hardware binding guide
 │   └── retired/            Retired documents (EXECUTION_PLAN.md)

@@ -449,3 +449,133 @@ Training artifacts (Parquet files, model checkpoints) are stored in the
 `minio-ephemeral` service, which uses `tmpfs` for its data directory. All
 artifacts are discarded when the container stops. This is the privacy mandate:
 no training data survives a container restart.
+
+---
+
+## 9. Differential Privacy (DP-SGD) Configuration
+
+Conclave's DP synthesis pipeline uses Opacus DP-SGD to inject calibrated
+Gaussian noise into the CTGAN training process, providing formal
+(epsilon, delta)-differential privacy guarantees on the synthetic output.
+
+### 9.1 DP Parameters
+
+Four parameters govern the privacy-utility tradeoff:
+
+| Parameter | Description | Typical Range |
+|-----------|-------------|---------------|
+| `epsilon` | Privacy budget (lower = stronger privacy, more noise, less utility) | 1–20 |
+| `delta` | Failure probability — the probability that the (epsilon, delta)-DP guarantee fails | 1e-5 (fixed) |
+| `noise_multiplier` | Ratio of Gaussian noise std to `max_grad_norm`. Higher = more noise = stronger privacy = lower epsilon. | 0.5–2.0 |
+| `max_grad_norm` | Maximum L2 norm for per-sample gradient clipping. Controls sensitivity of gradient updates. | 1.0 (canonical) |
+
+**Relationship**: epsilon is not directly set. Instead, `noise_multiplier` and
+`max_grad_norm` are configured; the resulting epsilon is computed by Opacus's
+RDP accountant after training and can be queried via `epsilon_spent(delta=1e-5)`.
+
+**Important**: epsilon depends on dataset size, batch size, and number of
+training epochs. A given `noise_multiplier` will produce different epsilon
+values on datasets of different sizes. Always verify the actual epsilon reported
+after training.
+
+### 9.2 Recommended Epsilon Ranges by Use Case
+
+The following ranges are based on the empirical benchmark in
+`docs/DP_QUALITY_REPORT.md` (500-row dataset, 10 epochs). Recalibrate for
+production datasets by running the benchmark script.
+
+| Use Case | Recommended Epsilon | Rationale |
+|----------|--------------------|-----------|
+| External publication / regulatory compliance | 1–2 | Strong privacy guarantee required; quality loss is acceptable. |
+| Internal analytics on sensitive PII | 5–8 | Balanced tradeoff; distributions are broadly preserved. |
+| Non-sensitive internal testing / ML training | 10–20 | Utility is primary concern; privacy is best-effort. |
+| Production ML training (quality-first) | No DP (vanilla) | Use only when data sensitivity and regulatory requirements allow. |
+
+### 9.3 Calibrated Noise Multiplier Values
+
+The following values were empirically calibrated on a 500-row dataset with
+10 training epochs. They are a starting point — recalibrate for your dataset.
+
+| Target Epsilon | noise_multiplier |
+|---------------|-----------------|
+| ~1 | 2.00 |
+| ~5 | 0.75 |
+| ~10 | 0.55 |
+
+### 9.4 Creating a DP-Enabled Synthesis Job
+
+DP is enabled by passing `dp_wrapper` to `SynthesisEngine.train()`. The
+`build_dp_wrapper()` bootstrapper factory is the canonical construction point.
+
+**Programmatic usage (Python):**
+
+```python
+from synth_engine.bootstrapper.main import build_dp_wrapper, build_synthesis_engine
+
+# Configure DP parameters
+wrapper = build_dp_wrapper(
+    max_grad_norm=1.0,      # canonical gradient clipping bound
+    noise_multiplier=1.1,   # moderate noise — epsilon ~3-8 on typical datasets
+)
+
+engine = build_synthesis_engine(epochs=300)  # 300 = production quality
+
+artifact = engine.train(
+    table_name="customers",
+    parquet_path="/data/customers.parquet",
+    dp_wrapper=wrapper,
+)
+
+# Query the actual epsilon after training
+epsilon = wrapper.epsilon_spent(delta=1e-5)
+print(f"Actual epsilon: {epsilon:.4f}")  # Log this for compliance records
+
+# Check budget before proceeding
+wrapper.check_budget(allocated_epsilon=8.0, delta=1e-5)  # raises BudgetExhaustionError if exceeded
+
+# Generate synthetic data
+synthetic_df = artifact.model.sample(n_rows=1000)
+```
+
+### 9.5 Privacy Budget Accounting
+
+The `PrivacyLedger` table tracks cumulative epsilon spend per synthesis job.
+Use `spend_budget()` from `modules/privacy/accountant.py` to deduct epsilon
+atomically after each training run:
+
+```python
+from synth_engine.modules.privacy.accountant import spend_budget
+
+async with get_async_session(engine) as session:
+    await spend_budget(
+        amount=epsilon,          # from wrapper.epsilon_spent(delta=1e-5)
+        job_id=job.id,
+        ledger_id=1,             # the global privacy ledger row id
+        session=session,
+        note="customer-data-synthetic run 2026-03-15",
+    )
+```
+
+`spend_budget()` uses `SELECT ... FOR UPDATE` pessimistic locking to prevent
+concurrent synthesis jobs from overrunning the global privacy budget. If the
+requested amount would exhaust the budget, `BudgetExhaustionError` is raised
+and the ledger row is left unchanged.
+
+### 9.6 DP Mode Limitations and Operational Notes
+
+- **Proxy model architecture**: Opacus is activated on a lightweight proxy
+  linear model (not the CTGAN Discriminator directly) to work around CTGAN's
+  internal optimizer lifecycle. The epsilon accounting reflects real gradient
+  steps on this proxy model. See ADR-0025 for the full rationale.
+- **Epoch count**: DP epsilon accumulates with each training epoch. More epochs
+  = more epsilon spent. At 300 epochs, epsilon is significantly higher than at
+  10 epochs for the same `noise_multiplier`.
+- **Dataset size**: Larger datasets give stronger DP guarantees (lower epsilon)
+  for the same noise configuration, because each sample contributes less to
+  the overall gradient signal.
+- **CPU vs. GPU**: Opacus DP-SGD works on both CPU and GPU. Training is
+  substantially faster on GPU for production epoch counts (300+). Use
+  `FORCE_CPU=1` environment variable to force CPU-only mode for testing.
+- **Single-use wrapper**: Each `DPTrainingWrapper` instance is single-use —
+  calling `wrap()` twice raises `RuntimeError`. Create a new wrapper per
+  training run.

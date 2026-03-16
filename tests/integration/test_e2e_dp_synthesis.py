@@ -28,6 +28,7 @@ Task: P7-T7.5 — Phase 7 E2E Test & Retrospective
 
 from __future__ import annotations
 
+import asyncio
 import math
 import tempfile
 import warnings
@@ -134,9 +135,7 @@ class TestE2EDPSynthesisPipeline:
         assert isinstance(synthetic_df, pd.DataFrame), (
             f"sample() must return pd.DataFrame, got {type(synthetic_df)}"
         )
-        assert len(synthetic_df) == 50, (
-            f"Expected 50 synthetic rows, got {len(synthetic_df)}"
-        )
+        assert len(synthetic_df) == 50, f"Expected 50 synthetic rows, got {len(synthetic_df)}"
 
     def test_e2e_dp_synthesis_schema_matches_source(
         self, persons_parquet: str, persons_df: pd.DataFrame
@@ -164,8 +163,7 @@ class TestE2EDPSynthesisPipeline:
             synthetic_df = artifact.model.sample(n_rows=60)
 
         assert set(synthetic_df.columns) == set(persons_df.columns), (
-            f"Column mismatch: expected {set(persons_df.columns)}, "
-            f"got {set(synthetic_df.columns)}"
+            f"Column mismatch: expected {set(persons_df.columns)}, got {set(synthetic_df.columns)}"
         )
 
     def test_e2e_dp_synthesis_no_all_nan_columns(
@@ -253,9 +251,7 @@ class TestE2EDPSynthesisPipeline:
                 "with valid data in both source and synthetic profiles."
             )
 
-    def test_e2e_dp_synthesis_epsilon_positive_after_pipeline(
-        self, persons_parquet: str
-    ) -> None:
+    def test_e2e_dp_synthesis_epsilon_positive_after_pipeline(self, persons_parquet: str) -> None:
         """E2E: epsilon_spent > 0 after the complete DP synthesis pipeline.
 
         After the full pipeline (train → sample), the DPTrainingWrapper must
@@ -303,8 +299,8 @@ class TestE2EFKPostProcessing:
     ) -> None:
         """FK post-processing replaces orphan FK values with valid parent PKs.
 
-        Generates a synthetic table, then introduces orphan FK values manually,
-        then verifies that apply_fk_post_processing() eliminates all orphans.
+        Generates a synthetic table, then verifies that apply_fk_post_processing()
+        correctly replaces all values outside ``valid_pks`` with valid ones.
 
         This completes the FK post-processing arm of the E2E pipeline:
         DP-CTGAN train → sample → apply_fk_post_processing → zero orphan FKs.
@@ -330,8 +326,7 @@ class TestE2EFKPostProcessing:
         # Use a known set of valid parent PKs (first 30 IDs from the source fixture)
         valid_pks = set(range(1, 31))
 
-        # Introduce synthetic rows with an 'id' column that may contain orphan values.
-        # We test FK post-processing on the 'id' column to simulate FK patching.
+        # Apply FK post-processing on the 'id' column to simulate FK patching.
         result = apply_fk_post_processing(
             child_df=synthetic_df,
             fk_column="id",
@@ -359,30 +354,29 @@ class TestE2EFKPostProcessing:
 class TestPrivacyAccountantLedger:
     """AC2: Verify privacy accountant spend_budget() deducts epsilon after DP training."""
 
-    def test_spend_budget_deducts_epsilon_after_real_training(
-        self, persons_parquet: str
-    ) -> None:
+    def test_spend_budget_deducts_epsilon_after_real_training(self, persons_parquet: str) -> None:
         """AC2: spend_budget() atomically deducts epsilon from a PrivacyLedger.
 
         This test exercises the full accountant integration:
           1. Train DPCompatibleCTGAN with DPTrainingWrapper (real Opacus run).
           2. Read epsilon_spent from the wrapper.
           3. Call spend_budget() with the actual epsilon spent.
-          4. Verify the ledger's total_spent_epsilon was decremented by exactly
+          4. Verify the ledger's total_spent_epsilon was incremented by exactly
              the amount passed.
 
-        Uses an in-memory SQLite database (via aiosqlite) — no PostgreSQL
-        required.  The accountant's async interface is invoked via asyncio.run().
+        Uses an in-memory SQLite database via the shared get_async_engine /
+        get_async_session helpers — matches the session type that accountant.py
+        expects (sqlalchemy.ext.asyncio.AsyncSession, not SQLModel's wrapper)
+        to avoid DeprecationWarning from SQLModel's session.execute() override.
         """
-        import asyncio
-
-        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import AsyncSession
         from sqlmodel import SQLModel
-        from sqlmodel.ext.asyncio.session import AsyncSession
 
         from synth_engine.bootstrapper.main import build_dp_wrapper, build_synthesis_engine
         from synth_engine.modules.privacy.accountant import spend_budget
         from synth_engine.modules.privacy.ledger import PrivacyLedger
+        from synth_engine.shared.db import get_async_engine
 
         wrapper = build_dp_wrapper(max_grad_norm=1.0, noise_multiplier=1.1)
         engine_synth = build_synthesis_engine(epochs=2)
@@ -395,41 +389,41 @@ class TestPrivacyAccountantLedger:
                 dp_wrapper=wrapper,
             )
 
-        epsilon_spent = wrapper.epsilon_spent(delta=1e-5)
+        epsilon_from_wrapper = wrapper.epsilon_spent(delta=1e-5)
 
-        assert epsilon_spent > 0.0, (
-            f"Precondition: epsilon_spent must be > 0 after DP training, got {epsilon_spent}"
+        assert epsilon_from_wrapper > 0.0, (
+            f"Precondition: epsilon_spent must be > 0 after DP training, got {epsilon_from_wrapper}"
         )
-        assert math.isfinite(epsilon_spent), (
-            f"Precondition: epsilon_spent must be finite, got {epsilon_spent}"
+        assert math.isfinite(epsilon_from_wrapper), (
+            f"Precondition: epsilon_spent must be finite, got {epsilon_from_wrapper}"
         )
 
-        # Set up an in-memory async SQLite DB for the accountant test
-        async def _run_accountant_test() -> tuple[float, float]:
-            """Create ledger, spend epsilon, return (before, after) total_spent."""
-            db_engine = create_async_engine(
-                "sqlite+aiosqlite:///:memory:",
-                echo=False,
-            )
+        async def _run_accountant_test() -> float:
+            """Create ledger, spend epsilon, return total_spent from ledger."""
+            db_engine = get_async_engine("sqlite+aiosqlite:///:memory:")
             async with db_engine.begin() as conn:
                 await conn.run_sync(SQLModel.metadata.create_all)
 
-            # Seed a PrivacyLedger row with plenty of budget
-            allocated = epsilon_spent * 10.0  # ensure budget is not exhausted
+            # Seed a PrivacyLedger row with plenty of budget.
+            # Use plain SQLAlchemy AsyncSession (not SQLModel's wrapper) so that
+            # accountant.py's session.execute() call does not raise a
+            # DeprecationWarning.  Use commit() + refresh() to get the
+            # auto-generated id — avoids MissingGreenlet on expired instances.
+            allocated = epsilon_from_wrapper * 10.0
+            async with AsyncSession(db_engine, expire_on_commit=False) as session:
+                ledger = PrivacyLedger(
+                    total_allocated_epsilon=allocated,
+                    total_spent_epsilon=0.0,
+                )
+                session.add(ledger)
+                await session.commit()
+                await session.refresh(ledger)
+                ledger_id = ledger.id
 
-            async with AsyncSession(db_engine) as session:
-                async with session.begin():
-                    ledger = PrivacyLedger(
-                        total_allocated_epsilon=allocated,
-                        total_spent_epsilon=0.0,
-                    )
-                    session.add(ledger)
-                ledger_id = ledger.id  # type: ignore[union-attr]
-
-            # Spend the epsilon
-            async with AsyncSession(db_engine) as session:
+            # Spend the epsilon via the accountant
+            async with AsyncSession(db_engine, expire_on_commit=False) as session:
                 await spend_budget(
-                    amount=epsilon_spent,
+                    amount=epsilon_from_wrapper,
                     job_id=1,
                     ledger_id=ledger_id,
                     session=session,
@@ -437,46 +431,42 @@ class TestPrivacyAccountantLedger:
                 )
 
             # Read back the ledger to verify deduction
-            async with AsyncSession(db_engine) as session:
-                async with session.begin():
-                    from sqlalchemy import select
-
-                    result = await session.execute(
-                        select(PrivacyLedger).where(
-                            PrivacyLedger.id == ledger_id  # type: ignore[arg-type]
-                        )
+            async with AsyncSession(db_engine, expire_on_commit=False) as session:
+                result = await session.execute(
+                    select(PrivacyLedger).where(
+                        PrivacyLedger.id == ledger_id  # type: ignore[arg-type]
                     )
-                    updated_ledger = result.scalar_one()
-                    return float(updated_ledger.total_spent_epsilon)
+                )
+                updated_ledger = result.scalar_one()
+                return float(updated_ledger.total_spent_epsilon)
 
         total_spent = asyncio.run(_run_accountant_test())
 
         # The ledger's total_spent_epsilon must equal the epsilon we spent
-        assert abs(total_spent - epsilon_spent) < 1e-9, (
-            f"spend_budget() must deduct exactly epsilon_spent={epsilon_spent:.6f} "
+        assert abs(total_spent - epsilon_from_wrapper) < 1e-9, (
+            f"spend_budget() must deduct exactly epsilon={epsilon_from_wrapper:.6f} "
             f"from the ledger; ledger shows total_spent={total_spent:.6f} "
-            f"(delta={abs(total_spent - epsilon_spent):.2e})"
+            f"(delta={abs(total_spent - epsilon_from_wrapper):.2e})"
         )
 
-    def test_spend_budget_raises_on_budget_exhaustion(
-        self, persons_parquet: str
-    ) -> None:
+    def test_spend_budget_raises_on_budget_exhaustion(self, persons_parquet: str) -> None:
         """AC2: spend_budget() raises BudgetExhaustionError when budget is exhausted.
 
         Trains with DP, then attempts to spend more epsilon than the ledger
         allows.  Verifies that BudgetExhaustionError propagates correctly
         from the accountant layer.
-        """
-        import asyncio
 
-        from sqlalchemy.ext.asyncio import create_async_engine
+        Uses plain SQLAlchemy AsyncSession (not SQLModel's wrapper) to avoid
+        DeprecationWarning from SQLModel's session.execute() override.
+        """
+        from sqlalchemy.ext.asyncio import AsyncSession
         from sqlmodel import SQLModel
-        from sqlmodel.ext.asyncio.session import AsyncSession
 
         from synth_engine.bootstrapper.main import build_dp_wrapper, build_synthesis_engine
         from synth_engine.modules.privacy.accountant import spend_budget
         from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
         from synth_engine.modules.privacy.ledger import PrivacyLedger
+        from synth_engine.shared.db import get_async_engine
 
         wrapper = build_dp_wrapper(max_grad_norm=1.0, noise_multiplier=1.1)
         engine_synth = build_synthesis_engine(epochs=2)
@@ -489,32 +479,31 @@ class TestPrivacyAccountantLedger:
                 dp_wrapper=wrapper,
             )
 
-        epsilon_spent = wrapper.epsilon_spent(delta=1e-5)
-        assert epsilon_spent > 0.0, "Precondition: must have spent some epsilon."
+        epsilon_from_wrapper = wrapper.epsilon_spent(delta=1e-5)
+        assert epsilon_from_wrapper > 0.0, "Precondition: must have spent some epsilon."
 
         async def _run_exhaustion_test() -> None:
             """Attempt to spend more epsilon than the ledger allows."""
-            db_engine = create_async_engine(
-                "sqlite+aiosqlite:///:memory:",
-                echo=False,
-            )
+            db_engine = get_async_engine("sqlite+aiosqlite:///:memory:")
             async with db_engine.begin() as conn:
                 await conn.run_sync(SQLModel.metadata.create_all)
 
-            # Seed a ledger with an absurdly small budget — guaranteed to be exceeded
-            async with AsyncSession(db_engine) as session:
-                async with session.begin():
-                    ledger = PrivacyLedger(
-                        total_allocated_epsilon=1e-10,
-                        total_spent_epsilon=0.0,
-                    )
-                    session.add(ledger)
-                ledger_id = ledger.id  # type: ignore[union-attr]
+            # Seed a ledger with an absurdly small budget — guaranteed to be exceeded.
+            # Use commit() + refresh() to retrieve the auto-generated id.
+            async with AsyncSession(db_engine, expire_on_commit=False) as session:
+                ledger = PrivacyLedger(
+                    total_allocated_epsilon=1e-10,
+                    total_spent_epsilon=0.0,
+                )
+                session.add(ledger)
+                await session.commit()
+                await session.refresh(ledger)
+                ledger_id = ledger.id
 
-            # Attempt to spend epsilon_spent — this must exceed 1e-10
-            async with AsyncSession(db_engine) as session:
+            # Attempt to spend epsilon_from_wrapper — this must exceed 1e-10
+            async with AsyncSession(db_engine, expire_on_commit=False) as session:
                 await spend_budget(
-                    amount=epsilon_spent,
+                    amount=epsilon_from_wrapper,
                     job_id=2,
                     ledger_id=ledger_id,
                     session=session,
@@ -523,9 +512,7 @@ class TestPrivacyAccountantLedger:
         with pytest.raises(BudgetExhaustionError):
             asyncio.run(_run_exhaustion_test())
 
-    def test_epsilon_wrapper_value_is_positive_and_finite(
-        self, persons_parquet: str
-    ) -> None:
+    def test_epsilon_wrapper_value_is_positive_and_finite(self, persons_parquet: str) -> None:
         """AC2 (wrapper): epsilon_spent() is positive and finite after real DP training.
 
         Separate guard to verify the DPTrainingWrapper reports a reasonable
@@ -547,12 +534,6 @@ class TestPrivacyAccountantLedger:
 
         epsilon = wrapper.epsilon_spent(delta=1e-5)
 
-        assert isinstance(epsilon, float), (
-            f"epsilon_spent() must return float, got {type(epsilon)}"
-        )
-        assert epsilon > 0.0, (
-            f"epsilon_spent() must be > 0 after real DP training, got {epsilon}"
-        )
-        assert math.isfinite(epsilon), (
-            f"epsilon_spent() must be finite, got {epsilon}"
-        )
+        assert isinstance(epsilon, float), f"epsilon_spent() must return float, got {type(epsilon)}"
+        assert epsilon > 0.0, f"epsilon_spent() must be > 0 after real DP training, got {epsilon}"
+        assert math.isfinite(epsilon), f"epsilon_spent() must be finite, got {epsilon}"
