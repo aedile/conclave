@@ -19,6 +19,24 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P12-T12.1 — Stale Remote Branch Cleanup & README Final Status
+
+**Changes**: 70 stale remote feature branches pruned (2 physically deleted from GitHub,
+68 pruned from local tracking refs). README.md updated to mark Phase 11 Complete and
+Phase 12 In Progress. docs/BACKLOG.md updated to index Phase 12.
+
+**Reviews**:
+- QA: PASS — all 4 AC verified; recommended enabling GitHub auto-delete head branches
+- UI/UX: SKIP — no UI components
+- DevOps: PASS — branch deletion safe; echoed auto-delete recommendation
+- Architecture: PASS — documentation structure consistent
+
+**Retrospective Note**: The 70 stale branches accumulated over 11 phases because GitHub's
+"Automatically delete head branches" setting was not enabled. This is a one-time cleanup.
+The DevOps and QA reviewers both recommended enabling this setting to prevent recurrence.
+
+---
+
 ### [2026-03-16] Phase 11 End-of-Phase Retrospective
 
 **Phase Goal**: Close the documentation-to-reality gap identified in the Phase 10 end-of-phase
