@@ -208,7 +208,7 @@ services:
       PGBOUNCER_POOL_MODE: transaction
       PGBOUNCER_MAX_CLIENT_CONN: "100"
       PGBOUNCER_DEFAULT_POOL_SIZE: "10"
-      PGBOUNCER_AUTH_TYPE: md5
+      PGBOUNCER_AUTH_TYPE: scram-sha-256  # ADV-016: upgraded from md5 (deprecated in PostgreSQL 14+)
       PGBOUNCER_AUTH_FILE: /etc/pgbouncer/userlist.txt
     volumes:
       # Operators MUST copy userlist.txt.example to userlist.txt and populate

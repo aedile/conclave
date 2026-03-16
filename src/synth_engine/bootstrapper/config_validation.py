@@ -11,6 +11,9 @@ Required in all deployment modes:
 Required additionally in production mode (``ENV=production`` or
 ``CONCLAVE_ENV=production``):
   - ``ARTIFACT_SIGNING_KEY`` — hex-encoded HMAC key for ModelArtifact pickle signing.
+  - ``MASKING_SALT``         — secret salt for deterministic HMAC masking.  Without
+    this, production masking falls back to a hardcoded development salt, making
+    masked values reversible by anyone with access to the source code.
 
 Design rationale (ADV-077):
   Without a startup check, a misconfigured production instance will start
@@ -25,6 +28,7 @@ Design rationale (ADV-077):
 CONSTITUTION Priority 0: Security — fail-fast prevents silent misconfiguration
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P9-T9.1 — Advisory Drain + Startup Validation (ADV-077)
+Task: P19-T19.2 — Security Hardening: MASKING_SALT production enforcement
 """
 
 from __future__ import annotations
@@ -36,7 +40,10 @@ _ALWAYS_REQUIRED: tuple[str, ...] = (
     "AUDIT_KEY",
 )
 
-_PRODUCTION_REQUIRED: tuple[str, ...] = ("ARTIFACT_SIGNING_KEY",)
+_PRODUCTION_REQUIRED: tuple[str, ...] = (
+    "ARTIFACT_SIGNING_KEY",
+    "MASKING_SALT",
+)
 
 
 def _is_production() -> bool:
@@ -63,7 +70,7 @@ def validate_config() -> None:
 
     Checks that all required environment variables are set and non-empty.
     In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
-    also validates that ``ARTIFACT_SIGNING_KEY`` is present.
+    also validates that ``ARTIFACT_SIGNING_KEY`` and ``MASKING_SALT`` are present.
 
     Collects ALL missing variables before raising so that the operator
     receives a complete list in a single error message — not just the first

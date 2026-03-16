@@ -555,6 +555,56 @@ requirement.
 
 ---
 
+### 8.8 Reverse Proxy and X-Forwarded-For Trust
+
+> **WARNING — Security Requirement**: Conclave's FastAPI application does **not**
+> validate that `X-Forwarded-For` headers originate from a trusted reverse proxy.
+> An attacker who can reach the application directly can spoof their IP address
+> by including an arbitrary `X-Forwarded-For` header in their request.
+
+**Mandatory deployment requirement:** In production, Conclave **MUST** be deployed
+behind a trusted reverse proxy (nginx, Caddy, HAProxy, AWS ALB, etc.). The proxy
+must:
+
+1. **Strip** any `X-Forwarded-For` header sent by the client.
+2. **Re-set** `X-Forwarded-For` to the actual connecting client IP.
+3. **Not** be directly reachable from the public internet by untrusted clients.
+
+Never expose the Conclave application port (default: 8000) directly to the internet.
+Bind it to a loopback or internal interface and let the reverse proxy handle
+public-facing TLS termination and header management.
+
+**Sample nginx configuration:**
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name conclave.example.com;
+
+    # TLS termination (see section 8.1)
+    ssl_certificate     /etc/ssl/certs/conclave.crt;
+    ssl_certificate_key /etc/ssl/private/conclave.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+
+        # Strip any X-Forwarded-For the client may have injected,
+        # then set it to the real remote address.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP       $remote_addr;
+        proxy_set_header Host            $host;
+
+        # Do not pass the original Forwarded header.
+        proxy_set_header Forwarded "";
+    }
+}
+```
+
+**Risk if omitted:** Without a trusted reverse proxy, any client may set
+`X-Forwarded-For: 127.0.0.1` to appear as a loopback address, potentially
+bypassing IP-based access controls or audit log accuracy.
+
+
 ## 9. Differential Privacy (DP-SGD) Configuration
 
 Conclave's DP synthesis pipeline uses Opacus DP-SGD to inject calibrated

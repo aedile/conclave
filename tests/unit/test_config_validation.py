@@ -34,7 +34,7 @@ _BASE_ENV = {
 _PROD_ENV = {
     **_BASE_ENV,
     "ARTIFACT_SIGNING_KEY": "cafecafecafecafecafecafecafecafe",
-    "MASKING_SALT": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+    "MASKING_SALT": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
 }
 
 
@@ -382,8 +382,11 @@ def test_operator_manual_documents_trusted_proxy_requirement() -> None:
     assert "X-Forwarded-For" in content, (
         "OPERATOR_MANUAL.md must document X-Forwarded-For header handling"
     )
-    assert "trusted" in content.lower() and "proxy" in content.lower(), (
-        "OPERATOR_MANUAL.md must warn about the trusted reverse proxy requirement"
+    assert "trusted" in content.lower(), (
+        "OPERATOR_MANUAL.md must warn about trusted proxy requirement"
+    )
+    assert "proxy" in content.lower(), (
+        "OPERATOR_MANUAL.md must mention reverse proxy in the trusted proxy section"
     )
 
 
