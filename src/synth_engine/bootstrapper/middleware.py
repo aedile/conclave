@@ -16,12 +16,16 @@ Middleware evaluation order (LIFO — last added = outermost):
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 
 from synth_engine.bootstrapper.dependencies.csp import CSPMiddleware
 from synth_engine.bootstrapper.dependencies.licensing import LicenseGateMiddleware
 from synth_engine.bootstrapper.dependencies.request_limits import RequestBodyLimitMiddleware
 from synth_engine.bootstrapper.dependencies.vault import SealGateMiddleware
+
+_logger = logging.getLogger(__name__)
 
 
 def setup_middleware(app: FastAPI) -> None:
