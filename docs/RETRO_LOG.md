@@ -19,6 +19,37 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 15 End-of-Phase Retrospective
+
+**Phase Goal**: Fix frontend test coverage gate (85.66% < 90%), enforce coverage in CI,
+clean up stale remote branches, and update README Phase 14 completion. No new features.
+
+**Exit Criteria Verification**:
+- Frontend test coverage gate passes: 97.35% lines/statements (T15.1 — PR #80).
+- Frontend coverage enforced in CI: `npm run test:coverage` already in pipeline (verified).
+- README current with Phase 14 completion and Phase 15 status (T15.2 — PR #81).
+- All stale remote branches cleaned: 8 deleted, only main remains (T15.2 — PR #81).
+- All quality gates passing. Open advisory count: **0**.
+- Phase 15 end-of-phase retrospective completed (this entry).
+
+**What went well**:
+1. Root cause analysis was precise: two non-source files (eslint.config.js, vite-env.d.ts)
+   dragging down coverage denominator, plus 3 untested catch blocks in useSSE.ts.
+2. Fix was minimal and targeted: 62 lines added (3 tests + 2 config exclusions + helper method).
+3. CI already enforced `npm run test:coverage` — the gate existed but was failing silently
+   because prior PRs didn't fail on it (no required status checks). Now verified working.
+
+**What could improve**:
+1. The coverage gate was broken since Phase 14 T14.2 (when eslint.config.js was created)
+   but was not caught because the Phase 14 acceptance criteria said "npm run lint passes"
+   rather than "npm run test:coverage passes". Lesson: phase exit criteria should explicitly
+   include coverage verification for both backend AND frontend.
+2. Stale branches continue to accumulate. The "Automatically delete head branches" GitHub
+   setting should be enabled to prevent this permanently. This has been noted in Phase 12
+   and Phase 15 retrospectives — it should now be treated as a standing action item.
+
+---
+
 ### [2026-03-16] P15-T15.2 — README Phase 14 Completion & Operational Cleanup
 
 **Changes**: Updated README.md Phase 14 → Complete, Phase 15 → In Progress. Updated
