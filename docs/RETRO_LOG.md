@@ -24,6 +24,49 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P20-T20.3 — Frontend Accessibility Production Readiness
+
+**Changes**:
+- `frontend/src/components/RFC7807Toast.tsx`: Upgraded to `role="alertdialog"` + `aria-modal="true"` +
+  always-present container with `hidden` attribute. Added `aria-describedby`, `tabIndex={-1}`, focus
+  transfer on show. Removed redundant `aria-live="assertive"` (implicit in alertdialog).
+- `frontend/src/hooks/useFocusTrap.ts`: New hook trapping Tab/Shift+Tab within toast modal.
+- `frontend/src/styles/global.css`: All inline `style=` from Dashboard (26), Unseal (12), JobCard,
+  AriaLive, ErrorBoundary extracted to BEM CSS classes. `@keyframes spin` moved from inline JSX.
+- `frontend/src/routes/Dashboard.tsx`, `Unseal.tsx`, `components/JobCard.tsx`, `AriaLive.tsx`,
+  `ErrorBoundary.tsx`: Inline styles replaced with class references.
+- Tests: RFC7807Toast.test.tsx (new), useFocusTrap.test.tsx (new), Dashboard.test.tsx and
+  ErrorBoundary.test.tsx updated for `role="alertdialog"`.
+
+**Quality Gates**: ESLint PASS, 157/157 Vitest tests PASS, 98.75% coverage. pre-commit PASS.
+
+**Review**: QA FINDING (4 fixed), DevOps PASS, UI/UX FINDING (1 blocker + 2 advisory, all fixed)
+
+**QA** (FINDING — 4 items fixed):
+1. Weak `aria-labelledby` assertion — now checks specific value `"rfc7807-toast-title"`.
+2. Weak `aria-label` progressbar assertion — now checks `"Job 1 progress"`.
+3. Missing edge cases: `visible=true + problem=null` and zero-focusable-elements tests added.
+4. Missing AriaLive base class assertion — `.aria-live-region` now verified.
+Advisory: redundant `aria-live="assertive"` on alertdialog removed (double-announcement risk).
+
+**DevOps** (PASS): No secrets, no PII, gitleaks clean. CSP positive: JSX `<style>` block removed
+from Unseal.tsx, reducing `unsafe-inline` surface area.
+
+**UI/UX** (FINDING — 3 items fixed):
+1. BLOCKER: `:focus { outline: none }` — agent reported already using `:focus-visible` on branch; verified.
+2. Advisory: `aria-describedby="rfc7807-toast-detail"` added to alertdialog container.
+3. Advisory: Focus transfer on toast appearance via `useEffect` + `containerRef.focus()`.
+
+**Retrospective Note**:
+The inline-style extraction (AC3) was the largest mechanical change — 38 `style=` attributes moved to
+BEM classes in global.css. Two intentional inline styles remain (JobCard status badge color token and
+progress fill width) because they are dynamic runtime values. The always-present container pattern
+(T17.2 retro) is now the established pattern for all `role="alert"` and `role="alertdialog"` elements
+in the project. The redundant `aria-live` removal is a subtle but important fix: `alertdialog` carries
+implicit assertive semantics, and the explicit attribute caused NVDA+Firefox double-announcement.
+
+---
+
 ### [2026-03-16] Phase 19 End-of-Phase Retrospective
 
 **Phase Goal**: Fix critical correctness and security findings from the Phase 18 roast,
