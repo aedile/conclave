@@ -19,6 +19,40 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 14 End-of-Phase Retrospective
+
+**Phase Goal**: Fix 8 failing integration tests (Constitution Priority 4 violation), restore
+frontend ESLint configuration for ESLint 9.x, finalize README Phase 13 status, and add missing
+nosec justifications. No new features.
+
+**Exit Criteria Verification**:
+- All integration tests pass: 0 failures, 0 errors (T14.1 — PR #77).
+- Frontend linting operational: `npm run lint` passes with 0 errors (T14.2 — PR #78).
+- All nosec annotations have written justification (T14.2 — PR #78).
+- README current with Phase 13 completion and Phase 14 status (T14.3 — PR #79).
+- All quality gates passing. Open advisory count: **0**.
+- Phase 14 end-of-phase retrospective completed (this entry).
+
+**What went well**:
+1. T14.1 fixed all 8 integration test failures in a single PR. Root causes were well-diagnosed:
+   TIMESTAMPTZ mismatch, Decimal vs float assertions, missing DatabaseJanitor, SSE initial event.
+2. Review agents caught two actionable issues in T14.2 (stale nosec B604, missing CI lint step)
+   that would have left the ESLint gate advisory-only. Both were fixed before merge.
+3. Zero open advisories throughout the phase — the advisory table remained clean.
+
+**What could improve**:
+1. The integration test failures (T14.1) were pre-existing and should have been caught earlier.
+   The two-gate test policy (CLAUDE.md) was not enforced in prior phases when these tests first
+   broke. Lesson: integration test failures should be P0 blockers at the phase where they break,
+   not deferred to a later cleanup phase.
+2. The ESLint configuration gap (T14.2) existed since Phase 5 when the React SPA was introduced.
+   `npm run lint` was defined in package.json but had no config file to lint against. Lesson:
+   when adding a lint script, the corresponding config must ship in the same PR.
+3. The nosec B604 on engine.py:62 was a rule-lookup error from an earlier phase. Lesson: nosec
+   annotations should be verified against actual bandit output, not inferred.
+
+---
+
 ### [2026-03-16] P14-T14.3 — README Phase 13 Completion & Phase 14 Status
 
 **Changes**: Updated README.md line 93 from Phase 13 in-progress to Phase 14 in-progress.
