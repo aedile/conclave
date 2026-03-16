@@ -12,12 +12,44 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-
-*No open advisory items.*
+| ADV-017 | T19.4 | TBD | BLOCKER | Dockerfile inline `# comment` after `FROM ... AS name` causes BuildKit parse error |
+| ADV-018 | T19.4 | TBD | BLOCKER | docker-compose.yml redis `cap_drop: ALL` incompatible with redis:7-alpine user-switching |
+| ADV-019 | T19.4 | TBD | BLOCKER | docker-compose.yml pgbouncer `DATABASES_HOST` should be `DB_HOST` for edoburu/pgbouncer |
+| ADV-020 | T19.4 | TBD | ADVISORY | cli.py `sslmode=require` enforced for internal Docker hostnames; postgres has no SSL |
+| ADV-021 | T19.4 | TBD | BLOCKER | bootstrapper/cli.py `col.get('primary_key', 0)` always 0; FK traversal never fires; fix: use `Inspector.get_pk_constraint()` |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P19-T19.4 — Live E2E Pipeline Validation
+
+**Changes**:
+- `docs/E2E_VALIDATION.md`: All TODO markers replaced with live terminal output from
+  Docker Compose execution on 2026-03-16. 5 findings documented.
+- `pyproject.toml`: Added `huey` to mypy `ignore_missing_imports` (pre-existing gate fix).
+- `src/synth_engine/shared/task_queue.py`: Removed stale `# type: ignore[import-untyped]`.
+- `tests/unit/test_seed_sample_data.py`: Test updated from TODO-marker check to evidence check.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 974 unit tests PASS (96.30% coverage).
+
+**E2E Results**:
+- Docker postgres: HEALTHY. MinIO: UP. Redis: FAILING (cap_drop). pgbouncer: FAILING (env vars).
+- Seed script: SUCCESS — 100 customers, 250 orders, 888 order_items, 250 payments.
+- conclave-subset CLI: exit 0, but only seed table written (FK traversal broken).
+- 5 findings documented as ADV-017 through ADV-021.
+
+**Review**: Skipped for this task — docs/infrastructure validation only, no production code logic changed.
+
+**Retrospective Note**:
+The live E2E validation fulfilled its purpose: it discovered 5 real infrastructure/correctness
+issues that would have remained hidden without actually running the system. The most critical
+finding (ADV-021: FK traversal broken) means the subsetting engine's CLI path has never
+actually traversed foreign keys. This was masked because integration tests use the
+SubsettingEngine directly with a pre-built SchemaTopology, bypassing the CLI's topology
+loading path. Future E2E validation should be a phase-exit gate, not an optional task.
 
 ---
 
