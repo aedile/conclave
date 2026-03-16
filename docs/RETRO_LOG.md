@@ -12,9 +12,6 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-017 | T19.4 | T20.2 | BLOCKER | Dockerfile inline `# comment` after `FROM ... AS name` causes BuildKit parse error |
-| ADV-018 | T19.4 | T20.2 | BLOCKER | docker-compose.yml redis `cap_drop: ALL` incompatible with redis:7-alpine user-switching |
-| ADV-019 | T19.4 | T20.2 | BLOCKER | docker-compose.yml pgbouncer `DATABASES_HOST` should be `DB_HOST` for edoburu/pgbouncer |
 | ADV-020 | T19.4 | T20.4 | ADVISORY | cli.py `sslmode=require` enforced for internal Docker hostnames; postgres has no SSL |
 
 ---
@@ -22,6 +19,41 @@ Drain (delete) rows when their target task is completed.
 ## Task Reviews
 
 ---
+
+### [2026-03-16] P20-T20.2 — Integration Test Expansion (Real Infrastructure)
+
+**Changes**:
+- `Dockerfile`: ADV-017 fix — inline comments moved off `FROM...AS` lines.
+- `docker-compose.yml`: ADV-018 fix — `cap_drop: ALL` removed from redis. ADV-019 fix — `DATABASES_HOST` → `DB_HOST` for pgbouncer.
+- `docs/adr/ADR-0031-pgbouncer-image-substitution.md`: Amendment correcting `DATABASES_HOST` → `DB_HOST`.
+- `tests/integration/test_t20_2_new_integration.py`: 5 new integration tests (ingestion preflight x2, subsetting FK traversal, masking deterministic, real SDV/CTGAN training).
+- `tests/unit/test_t20_2_caplog_assertions.py`: 5 caplog assertion tests for failure path logging.
+- `tests/unit/test_docker_image_pinning.py`: Updated for ADV-017 comment placement.
+- `pyproject.toml`: `slow` and `synthesizer` markers registered.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 995 unit tests PASS (96.80% coverage), 79 integration tests PASS. pre-commit PASS.
+
+**ADV drain**: ADV-017, ADV-018, ADV-019 (all BLOCKER) drained.
+
+**Review**: QA FINDING (2 fixed), DevOps FINDING (3 fixed)
+
+**QA** (FINDING — 2 items fixed):
+1. Missing positive assertion on preflight readonly test — added `SELECT 1` execution after preflight.
+2. Missing orders row_count assertion on FK traversal test — added `result.row_counts.get("orders") == 2`.
+
+**DevOps** (FINDING — 3 items fixed):
+1. BLOCKER: CTGAN test missing `@pytest.mark.synthesizer` — added (prevents silent CI skip).
+2. Advisory: `slow` marker description corrected (no CI exclusion claim).
+3. Advisory: ADR-0031 amended — `DATABASES_HOST` → `DB_HOST` with amendment section.
+
+**Retrospective Note**:
+The integration test expansion fulfills the Phase 20 roast's core finding: mock-only tests masked real
+infrastructure incompatibilities for 19 phases. The CTGAN synthesizer marker finding is particularly
+instructive — `pytest.importorskip` provides a graceful local fallback but becomes a silent skip in CI
+when the test isn't routed to the correct job. Future tests using `importorskip` for optional
+dependencies should always also carry the corresponding CI routing marker. The ADR-0031 staleness
+finding confirms the Phase 19 retro pattern: ADRs capturing configuration snapshots go stale when
+those configs change without atomic ADR amendment.
 
 ### [2026-03-16] P20-T20.1 — Exception Handling & Warning Suppression Fixes
 
