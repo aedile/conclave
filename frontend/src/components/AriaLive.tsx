@@ -10,6 +10,9 @@
  * IMPORTANT: Do NOT nest `role="alert"` inside `aria-live="polite"`.
  * Use separate containers. The assertive variant IS effectively an alert
  * region but does not use role="alert" to avoid duplicate announcements.
+ *
+ * P20-T20.3 AC3: Inline styles extracted to .aria-live-region CSS class
+ * in global.css.
  */
 
 import type { ReactNode } from "react";
@@ -46,8 +49,7 @@ export function PoliteAnnouncement({
     <div
       aria-live="polite"
       aria-atomic="true"
-      className={className}
-      style={{ position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap" }}
+      className={`aria-live-region${className ? ` ${className}` : ""}`}
     >
       {children}
     </div>
@@ -71,8 +73,7 @@ export function AssertiveAnnouncement({
     <div
       aria-live="assertive"
       aria-atomic="true"
-      className={className}
-      style={{ position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap" }}
+      className={`aria-live-region${className ? ` ${className}` : ""}`}
     >
       {children}
     </div>

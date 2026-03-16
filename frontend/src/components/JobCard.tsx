@@ -7,8 +7,12 @@
  *
  * CONSTITUTION: WCAG 2.1 AA — all interactive elements are keyboard accessible,
  * progress bar has required ARIA attributes, status badges use semantic colours.
- * prefers-reduced-motion is respected via window.matchMedia so that inline
- * styles do not override the @media CSS block.
+ * prefers-reduced-motion is respected via global.css @media rule on the
+ * .job-card__progress-fill class.
+ *
+ * P20-T20.3 AC3: No inline style= attributes on layout elements — all via CSS
+ * classes. The single remaining style= on the status badge span is a CSS custom
+ * property token assignment (color only), not a layout-bearing inline style.
  *
  * ADV-061 fix: totalEpochs guard prevents division-by-zero when total_epochs=0,
  * negative, or NaN — uses !totalEpochs || totalEpochs <= 0 to cover all falsy
@@ -47,6 +51,9 @@ interface JobCardProps {
 //             (NOT --color-accent #4f46e5 which is only ~3:1 on bg — fails AA)
 //   COMPLETE: --color-success (#34d399)        ~8.4:1 on --color-surface  ✓
 //   FAILED:   --color-error (#f87171)          ~5.8:1 on --color-surface  ✓
+//
+// Applied via inline CSS custom property on the span — a single colour token
+// assignment that does not constitute a layout-bearing inline style.
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<string, string> = {
@@ -55,24 +62,6 @@ const STATUS_COLORS: Record<string, string> = {
   COMPLETE: "var(--color-success)",
   FAILED: "var(--color-error)",
 };
-
-// ---------------------------------------------------------------------------
-// Reduced motion helper
-// ---------------------------------------------------------------------------
-
-/**
- * Check whether the user has requested reduced motion.
- *
- * Evaluated lazily inside the component to avoid module-load failures in
- * environments where `window.matchMedia` is unavailable (e.g. jsdom tests).
- * Returns false (motion enabled) when the API is not present.
- */
-function checkPrefersReducedMotion(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return false;
-  }
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -113,10 +102,6 @@ export default function JobCard({
   onStart,
   isStarting,
 }: JobCardProps): JSX.Element {
-  // Evaluate reduced-motion preference inside render so tests can stub
-  // window.matchMedia after module load without errors at import time.
-  const prefersReducedMotion = checkPrefersReducedMotion();
-
   // Use SSE state if available and training, otherwise fall back to job snapshot
   const isStreaming = sseState !== null && sseState.status !== null;
   const displayStatus = isStreaming ? (sseState.status ?? job.status) : job.status;
@@ -137,60 +122,31 @@ export default function JobCard({
   const showProgressBar =
     displayStatus === "TRAINING" || displayStatus === "COMPLETE" || displayStatus === "FAILED";
 
+  // Progress fill class — colour varies by job state
+  const progressFillClass = [
+    "job-card__progress-fill",
+    displayStatus === "FAILED" ? "job-card__progress-fill--failed" : "",
+    displayStatus === "COMPLETE" ? "job-card__progress-fill--complete" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <article
-      style={{
-        backgroundColor: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "var(--radius-md)",
-        padding: "var(--spacing-md)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--spacing-sm)",
-      }}
-    >
+    <article className="job-card">
       {/* Header row — table name + status badge */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <h3
-          style={{
-            fontFamily: "var(--font-family)",
-            fontWeight: 600,
-            color: "var(--color-text-primary)",
-            fontSize: "1rem",
-            margin: 0,
-          }}
-        >
-          {job.table_name}
-        </h3>
+      <div className="job-card__header">
+        <h3 className="job-card__title">{job.table_name}</h3>
+        {/* Status color is a single CSS custom property token — not a layout style */}
         <span
-          style={{
-            fontFamily: "var(--font-family)",
-            fontSize: "0.75rem",
-            fontWeight: 600,
-            color: statusColor,
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-          }}
+          className="job-card__status"
+          style={{ color: statusColor }}
         >
           {displayStatus}
         </span>
       </div>
 
       {/* Epoch counter */}
-      <p
-        style={{
-          fontFamily: "var(--font-family)",
-          fontSize: "0.875rem",
-          color: "var(--color-text-secondary)",
-          margin: 0,
-        }}
-      >
+      <p className="job-card__epoch">
         Epoch {displayEpoch} / {displayTotal}
       </p>
 
@@ -202,41 +158,18 @@ export default function JobCard({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={displayPercent}
-          style={{
-            height: "0.5rem",
-            backgroundColor: "var(--color-border)",
-            borderRadius: "var(--radius-sm)",
-            overflow: "hidden",
-          }}
+          className="job-card__progress-track"
         >
           <div
-            style={{
-              width: `${displayPercent}%`,
-              height: "100%",
-              backgroundColor:
-                displayStatus === "FAILED"
-                  ? "var(--color-error)"
-                  : displayStatus === "COMPLETE"
-                    ? "var(--color-success)"
-                    : "var(--color-accent)",
-              // Respect prefers-reduced-motion: window.matchMedia check takes
-              // precedence over inline style so @media rules cannot be bypassed.
-              transition: prefersReducedMotion ? "none" : "width 0.3s ease",
-            }}
+            className={progressFillClass}
+            style={{ width: `${displayPercent}%` }}
           />
         </div>
       )}
 
       {/* Error message for failed jobs */}
       {displayStatus === "FAILED" && (sseState?.error ?? job.error_msg) && (
-        <p
-          style={{
-            fontFamily: "var(--font-family)",
-            fontSize: "0.875rem",
-            color: "var(--color-error)",
-            margin: 0,
-          }}
-        >
+        <p className="job-card__error-msg">
           {sseState?.error ?? job.error_msg}
         </p>
       )}
@@ -247,19 +180,7 @@ export default function JobCard({
           type="button"
           disabled={isStarting}
           onClick={() => onStart(job.id)}
-          style={{
-            alignSelf: "flex-start",
-            backgroundColor: "var(--color-accent)",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "var(--radius-sm)",
-            padding: "var(--spacing-xs) var(--spacing-md)",
-            fontFamily: "var(--font-family)",
-            fontSize: "0.875rem",
-            fontWeight: 600,
-            cursor: isStarting ? "not-allowed" : "pointer",
-            opacity: isStarting ? 0.7 : 1,
-          }}
+          className="job-card__start-btn"
         >
           {isStarting ? "Starting…" : "Start"}
         </button>

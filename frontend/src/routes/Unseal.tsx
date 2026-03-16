@@ -18,6 +18,10 @@
  *   - EMPTY_PASSPHRASE: passphrase field was blank
  *   - ALREADY_UNSEALED: vault is already open
  *   - CONFIG_ERROR: server-side configuration problem → contact admin
+ *
+ * P20-T20.3 AC3: No inline style= attributes — all layout via CSS classes.
+ * The input border state (error/normal) is handled by the
+ * .unseal-form__input--error modifier class.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -132,44 +136,19 @@ export default function Unseal() {
     <main
       id="main-content"
       tabIndex={-1}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "100vh",
-        padding: "var(--spacing-lg)",
-        backgroundColor: "var(--color-bg)",
-      }}
+      className="unseal-main"
     >
       <section
         aria-labelledby="unseal-heading"
-        style={{
-          width: "100%",
-          maxWidth: "420px",
-          backgroundColor: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-md)",
-          padding: "var(--spacing-xl)",
-        }}
+        className="unseal-card"
       >
         <h1
           id="unseal-heading"
-          style={{
-            fontSize: "1.5rem",
-            fontWeight: 700,
-            color: "var(--color-text-primary)",
-            marginBottom: "var(--spacing-xs)",
-          }}
+          className="unseal-card__title"
         >
           Conclave Engine
         </h1>
-        <p
-          style={{
-            color: "var(--color-text-secondary)",
-            marginBottom: "var(--spacing-xl)",
-            fontSize: "0.875rem",
-          }}
-        >
+        <p className="unseal-card__subtitle">
           Enter the operator passphrase to unseal the vault.
         </p>
 
@@ -188,54 +167,30 @@ export default function Unseal() {
           {error && (
             <div
               id="unseal-error"
-              style={{
-                backgroundColor: "rgba(248, 113, 113, 0.12)",
-                border: "1px solid var(--color-error)",
-                borderRadius: "var(--radius-sm)",
-                padding: "var(--spacing-sm) var(--spacing-md)",
-                color: "var(--color-error)",
-                fontSize: "0.875rem",
-                marginBottom: "var(--spacing-md)",
-              }}
+              className="unseal-status__error"
             >
               {error.message}
             </div>
           )}
 
           {successMessage && (
-            <div
-              style={{
-                backgroundColor: "rgba(52, 211, 153, 0.12)",
-                border: "1px solid var(--color-success)",
-                borderRadius: "var(--radius-sm)",
-                padding: "var(--spacing-sm) var(--spacing-md)",
-                color: "var(--color-success)",
-                fontSize: "0.875rem",
-                marginBottom: "var(--spacing-md)",
-              }}
-            >
+            <div className="unseal-status__success">
               {successMessage}
             </div>
           )}
         </div>
 
         <form onSubmit={(e) => void handleSubmit(e)} noValidate>
-          <div style={{ marginBottom: "var(--spacing-lg)" }}>
+          <div className="unseal-form__field">
             <label
               htmlFor="passphrase"
-              style={{
-                display: "block",
-                fontWeight: 600,
-                fontSize: "0.875rem",
-                color: "var(--color-text-primary)",
-                marginBottom: "var(--spacing-xs)",
-              }}
+              className="unseal-form__label"
             >
               Operator Passphrase{" "}
               {/* Visible required indicator — aria-hidden so SR reads aria-required */}
               <span
                 aria-hidden="true"
-                style={{ color: "var(--color-error)" }}
+                className="unseal-form__required-indicator"
               >
                 *
               </span>
@@ -253,16 +208,7 @@ export default function Unseal() {
               aria-invalid={error !== null}
               aria-required="true"
               placeholder="Enter passphrase"
-              style={{
-                width: "100%",
-                padding: "var(--spacing-sm) var(--spacing-md)",
-                backgroundColor: "var(--color-bg)",
-                border: `1px solid ${error ? "var(--color-error)" : "var(--color-border)"}`,
-                borderRadius: "var(--radius-sm)",
-                color: "var(--color-text-primary)",
-                fontSize: "1rem",
-                transition: "border-color 0.15s ease",
-              }}
+              className={`unseal-form__input${error ? " unseal-form__input--error" : ""}`}
             />
           </div>
 
@@ -270,25 +216,7 @@ export default function Unseal() {
             type="submit"
             disabled={isLoading}
             aria-disabled={isLoading}
-            style={{
-              width: "100%",
-              padding: "var(--spacing-sm) var(--spacing-md)",
-              backgroundColor: isLoading
-                ? "var(--color-border)"
-                : "var(--color-accent)",
-              color: "white",
-              border: "none",
-              borderRadius: "var(--radius-sm)",
-              fontSize: "1rem",
-              fontWeight: 600,
-              cursor: isLoading ? "not-allowed" : "pointer",
-              transition: "background-color 0.15s ease",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "var(--spacing-sm)",
-              minHeight: "2.75rem",
-            }}
+            className={`unseal-form__submit${isLoading ? " unseal-form__submit--loading" : ""}`}
           >
             {isLoading ? (
               <>
@@ -299,15 +227,7 @@ export default function Unseal() {
                  */}
                 <span
                   aria-hidden="true"
-                  style={{
-                    display: "inline-block",
-                    width: "1rem",
-                    height: "1rem",
-                    border: "2px solid rgba(255,255,255,0.3)",
-                    borderTopColor: "white",
-                    borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                  }}
+                  className="unseal-form__spinner"
                 />
                 <span>Unsealing…</span>
               </>
@@ -316,13 +236,6 @@ export default function Unseal() {
             )}
           </button>
         </form>
-
-        {/* CSS keyframe for the loading spinner */}
-        <style>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
       </section>
     </main>
   );

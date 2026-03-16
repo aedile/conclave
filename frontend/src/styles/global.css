@@ -4,6 +4,10 @@
  * Typography: Inter (local WOFF2) with system font fallback.
  * Contrast: All text meets WCAG 2.1 AA minimum 4.5:1 ratio.
  * Focus indicators: Visible on all interactive elements.
+ *
+ * P20-T20.3 AC3: All component layout extracted from inline style= to BEM classes.
+ * Components covered: RFC7807Toast, Dashboard, Unseal, JobCard, AriaLive,
+ * ErrorBoundary fallback.
  */
 
 @import "./fonts.css";
@@ -119,6 +123,18 @@ body {
   z-index: 9999;
 }
 
+/* ---------------------------------------------------------------------------
+ * Keyframe animations
+ * @keyframes spin — loading spinner for Unseal button
+ * prefers-reduced-motion: stops rotation when user opts out of motion
+ * ---------------------------------------------------------------------------*/
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Respect user motion preferences — stop spinner animation when reduced motion is preferred */
 @media (prefers-reduced-motion: reduce) {
   @keyframes spin {
@@ -126,4 +142,532 @@ body {
       transform: none;
     }
   }
+
+  /* Disable progress fill transition for reduced motion */
+  .job-card__progress-fill {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * AriaLive — visually hidden live region container
+ * Used by PoliteAnnouncement and AssertiveAnnouncement components.
+ * ---------------------------------------------------------------------------*/
+
+.aria-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * RFC7807Toast — dismissible error notification card
+ * role="alertdialog" + aria-modal="true" per P20-T20.3 AC4.
+ * Always-present container pattern: hidden attribute used for visibility
+ * (T17.2 retro — prevents NVDA+Firefox from swallowing repeat announcements).
+ * ---------------------------------------------------------------------------*/
+
+.rfc7807-toast {
+  position: fixed;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  z-index: 1000;
+  max-width: 420px;
+  width: calc(100% - 2 * var(--spacing-md));
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.rfc7807-toast__inner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+}
+
+.rfc7807-toast__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.rfc7807-toast__title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-error);
+  margin-bottom: var(--spacing-xs);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.rfc7807-toast__status {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.rfc7807-toast__detail {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.rfc7807-toast__dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.rfc7807-toast__dismiss:hover {
+  color: var(--color-text-primary);
+}
+
+/* ---------------------------------------------------------------------------
+ * ErrorBoundary fallback — persistent fallback UI after toast auto-dismisses
+ * Prevents blank screen on unhandled render error.
+ * ---------------------------------------------------------------------------*/
+
+.error-boundary-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--spacing-xl);
+  gap: var(--spacing-md);
+  text-align: center;
+}
+
+.error-boundary-fallback__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-error);
+}
+
+.error-boundary-fallback__detail {
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary);
+  max-width: 480px;
+}
+
+.error-boundary-fallback__reload {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.error-boundary-fallback__reload:hover {
+  background-color: var(--color-accent-hover);
+}
+
+/* ---------------------------------------------------------------------------
+ * JobCard — individual synthesis job display card
+ * ---------------------------------------------------------------------------*/
+
+.job-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+}
+
+.job-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-xs);
+}
+
+.job-card__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+/* Status badge — single CSS custom property color token applied inline.
+ * The inline style= on this element is a color-only token assignment, not
+ * a layout-bearing style. See JobCard.tsx for rationale. */
+.job-card__status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.job-card__epoch {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.job-card__progress-track {
+  height: 0.5rem;
+  background-color: var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Progress fill — width is set by dynamic inline style (displayPercent%).
+ * This is a dynamic computed value that cannot be expressed as a static
+ * CSS class; the inline style= for width is necessary and intentional. */
+.job-card__progress-fill {
+  height: 100%;
+  background-color: var(--color-accent-text);
+  border-radius: var(--radius-sm);
+  transition: width 0.3s ease;
+}
+
+.job-card__progress-fill--failed {
+  background-color: var(--color-error);
+}
+
+.job-card__progress-fill--complete {
+  background-color: var(--color-success);
+}
+
+.job-card__error-msg {
+  font-size: 0.875rem;
+  color: var(--color-error);
+  margin-bottom: var(--spacing-sm);
+}
+
+.job-card__start-btn {
+  padding: var(--spacing-xs) var(--spacing-md);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.job-card__start-btn:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.job-card__start-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+ * Dashboard — main post-unseal monitoring interface
+ * ---------------------------------------------------------------------------*/
+
+.dashboard-main {
+  min-height: 100vh;
+  background-color: var(--color-bg);
+  padding: var(--spacing-xl) var(--spacing-md);
+}
+
+.dashboard-content {
+  max-width: 800px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.dashboard-header__title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.dashboard-header__subtitle {
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary);
+}
+
+.dashboard-section__heading {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-md);
+}
+
+/* Create Job form */
+.dashboard-form {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* Form validation error region — always in DOM (T17.2 always-present pattern).
+ * Padding collapses to 0 when not active so layout is unaffected when empty. */
+.dashboard-form__error {
+  font-size: 0.875rem;
+  color: var(--color-error);
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+
+.dashboard-form__error--active {
+  background-color: rgba(248, 113, 113, 0.12);
+  border: 1px solid var(--color-error);
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.dashboard-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.dashboard-form__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.dashboard-form__required-indicator {
+  color: var(--color-error);
+}
+
+.dashboard-form__input {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: 1rem;
+  font-family: var(--font-family);
+  transition: border-color 0.15s ease;
+}
+
+.dashboard-form__input:focus {
+  border-color: var(--color-accent-text);
+  outline: none;
+}
+
+.dashboard-form__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dashboard-form__submit {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.dashboard-form__submit:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.dashboard-form__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Job list */
+.dashboard-jobs__empty {
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary);
+}
+
+.dashboard-jobs__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* Pagination */
+.dashboard-pagination {
+  margin-top: var(--spacing-md);
+  display: flex;
+  justify-content: center;
+}
+
+/* WCAG fix: uses --color-accent-text (#818cf8, ~6.3:1 on --color-bg)
+ * instead of --color-accent (#4f46e5, ~3:1 on --color-bg which fails
+ * WCAG 1.4.3 for text on a transparent/dark background). */
+.dashboard-pagination__btn {
+  background: none;
+  border: none;
+  color: var(--color-accent-text);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: var(--spacing-xs) var(--spacing-md);
+  transition: color 0.15s ease;
+}
+
+.dashboard-pagination__btn:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+.dashboard-pagination__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+ * Unseal — vault passphrase entry screen
+ * ---------------------------------------------------------------------------*/
+
+.unseal-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--spacing-lg);
+  background-color: var(--color-bg);
+}
+
+.unseal-card {
+  width: 100%;
+  max-width: 420px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xl);
+}
+
+.unseal-card__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.unseal-card__subtitle {
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-xl);
+  font-size: 0.875rem;
+}
+
+/* Status messages (error and success) */
+.unseal-status__error {
+  background-color: rgba(248, 113, 113, 0.12);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--color-error);
+  font-size: 0.875rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.unseal-status__success {
+  background-color: rgba(52, 211, 153, 0.12);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--color-success);
+  font-size: 0.875rem;
+  margin-bottom: var(--spacing-md);
+}
+
+/* Form field */
+.unseal-form__field {
+  margin-bottom: var(--spacing-lg);
+}
+
+.unseal-form__label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.unseal-form__required-indicator {
+  color: var(--color-error);
+}
+
+.unseal-form__input {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: 1rem;
+  font-family: var(--font-family);
+  transition: border-color 0.15s ease;
+}
+
+.unseal-form__input--error {
+  border-color: var(--color-error);
+}
+
+.unseal-form__input:focus {
+  border-color: var(--color-accent-text);
+  outline: none;
+}
+
+/* Submit button */
+.unseal-form__submit {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  min-height: 2.75rem;
+}
+
+.unseal-form__submit--loading {
+  background-color: var(--color-border);
+  cursor: not-allowed;
+}
+
+.unseal-form__submit:hover:not(:disabled):not(.unseal-form__submit--loading) {
+  background-color: var(--color-accent-hover);
+}
+
+/* Loading spinner — decorative, aria-hidden in markup */
+.unseal-form__spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }

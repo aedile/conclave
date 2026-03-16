@@ -5,13 +5,16 @@
  * remediation card. When the toast auto-dismisses, a persistent fallback
  * UI is shown so the screen is never blank.
  *
- * CONSTITUTION: WCAG 2.1 AA — error region uses role="alert" for
- * assertive announcement. Auto-dismiss timer is cleared on unmount.
+ * CONSTITUTION: WCAG 2.1 AA — error region uses role="alertdialog" for
+ * modal notification (via RFC7807Toast). Auto-dismiss timer is cleared on
+ * unmount.
+ *
+ * P20-T20.3 AC3: No inline style= attributes — all layout via CSS classes.
  *
  * Guards against:
  * - Timer cleanup: dismiss timer stored in instance variable, cleared on reset
  * - Fake timer deadlock: no timer interaction at module level
- * - Conflicting live-region nesting: role="alert" is its own container,
+ * - Conflicting live-region nesting: role="alertdialog" is its own container,
  *   NOT nested inside aria-live="polite"
  * - Blank screen after toast dismiss: persistent fallback UI shown when
  *   hasError is true but toastVisible is false
@@ -138,47 +141,17 @@ export default class ErrorBoundary extends Component<
     // dismiss. Prevents a blank screen when hasError is true but toast is gone.
     if (hasError && !toastVisible) {
       return (
-        <main
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            minHeight: "100vh",
-            gap: "var(--spacing-md)",
-            fontFamily: "var(--font-family)",
-            color: "var(--color-text-primary)",
-            backgroundColor: "var(--color-bg)",
-            padding: "var(--spacing-xl)",
-          }}
-        >
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+        <main className="error-boundary-fallback">
+          <h1 className="error-boundary-fallback__title">
             Something went wrong
           </h1>
-          <p
-            style={{
-              color: "var(--color-text-secondary)",
-              fontSize: "0.875rem",
-              maxWidth: "32rem",
-              textAlign: "center",
-            }}
-          >
+          <p className="error-boundary-fallback__detail">
             {problem?.detail}
           </p>
           <button
             type="button"
             onClick={() => window.location.reload()}
-            style={{
-              backgroundColor: "var(--color-accent)",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "var(--radius-sm)",
-              padding: "var(--spacing-xs) var(--spacing-lg)",
-              fontFamily: "var(--font-family)",
-              fontSize: "0.875rem",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
+            className="error-boundary-fallback__reload"
           >
             Reload page
           </button>
