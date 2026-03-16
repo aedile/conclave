@@ -19,6 +19,30 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P14-T14.1 — Fix Integration Test Failures (DP, Privacy Accountant, SSE)
+
+**Changes**: Fixed 8 pre-existing integration test failures across 4 root causes:
+1. PyTorch/Opacus UserWarning treated as error — added filterwarnings in conftest.py
+2. Decimal vs float comparison in epsilon assertions — changed to Decimal literals
+3. SSE initial 0% progress event not in expected set — added 0 to expected_possible
+4. Privacy accountant PostgreSQL fixture missing DatabaseJanitor — added CREATE DATABASE lifecycle
+5. PrivacyLedger/PrivacyTransaction TIMESTAMP → TIMESTAMPTZ for timezone-aware datetimes
+
+Result: 72 integration tests pass (0 failures, 0 errors). 809 unit tests pass (96.24% coverage).
+
+**Reviews**:
+- QA: PASS — all 8 tests fixed, Decimal comparisons correct, DatabaseJanitor lifecycle proper
+- UI/UX: SKIP — backend models and test infrastructure only
+- DevOps: PASS — no secrets, TIMESTAMPTZ backward-compatible, migration SQL documented
+- Architecture: PASS — no cross-module imports, migration path documented for future production
+
+**Retrospective Note**: The Decimal/float mismatch was introduced in Phase 8 (ADV-050) when
+PrivacyLedger switched to NUMERIC(20,10) columns but test assertions were not updated. The
+TIMESTAMPTZ issue was latent — only surfaced with real PostgreSQL. Lesson: when changing ORM
+column types, grep test assertions for literal comparisons against affected fields.
+
+---
+
 ### [2026-03-16] Phase 13 End-of-Phase Retrospective
 
 **Phase Goal**: Fix the broken pre-commit ruff gate caused by `.vulture_whitelist.py`
