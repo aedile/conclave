@@ -23,6 +23,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 13: Pre-commit Repair & README Finalization](backlog/phase-13.md)
 *   [Phase 14: Integration Test Repair & Frontend Lint Fix](backlog/phase-14.md)
 *   [Phase 15: Frontend Coverage Gate & Operational Polish](backlog/phase-15.md)
+*   [Phase 16: Migration Drift, Supply Chain & Accessibility Polish](backlog/phase-16.md)
 
 ---
 
@@ -133,3 +134,8 @@ This document serves as the top-level index for all project phases and their con
 ### [Phase 15: Frontend Coverage Gate & Operational Polish](backlog/phase-15.md)
 *   **Task 15.1:** Frontend Test Coverage Gate Repair.
 *   **Task 15.2:** README Phase 14 Completion & Operational Cleanup.
+
+### [Phase 16: Migration Drift, Supply Chain & Accessibility Polish](backlog/phase-16.md)
+*   **Task 16.1:** Alembic Migration 003: Epsilon Column Precision Fix.
+*   **Task 16.2:** Frontend Supply Chain & Nosec Accuracy.
+*   **Task 16.3:** WCAG Skip Navigation, README Update & Branch Cleanup.
