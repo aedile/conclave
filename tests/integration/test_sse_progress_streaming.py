@@ -76,8 +76,11 @@ class TestSSEProgressStreaming:
         - At least one 'progress' event is received.
         - A 'complete' event is received.
         - The percent values in progress events are monotonically increasing.
-        - All observed percent values match the expected epoch-derived values
-          (10, 20, 50) before the job transitions to COMPLETE (100).
+        - All observed percent values match the expected epoch-derived values.
+          The SSE stream polls immediately on first request, so the initial
+          QUEUED state (current_epoch=0) produces a 0% progress event.
+          Subsequent polls may capture 10%, 20%, or 50% depending on timing.
+          All of {0, 10, 20, 50} are valid observable values before COMPLETE.
         """
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
@@ -185,9 +188,11 @@ class TestSSEProgressStreaming:
                 f"Progress percents are not sequential: {progress_percents}"
             )
 
-        # All observed progress percents must be one of the expected values
-        # derived from the job steps (10%, 20%, 50% for epochs 1, 2, 5 of 10).
-        expected_possible = {10, 20, 50}
+        # All observed progress percents must be one of the expected values.
+        # 0% is included because the SSE stream polls immediately: the first poll
+        # captures the QUEUED state (current_epoch=0, total_epochs=10 → 0%).
+        # Subsequent polls may capture 10%, 20%, or 50% depending on timing.
+        expected_possible = {0, 10, 20, 50}
         for pct in progress_percents:
             assert pct in expected_possible, (
                 f"Unexpected percent value {pct}; expected one of {expected_possible}. "

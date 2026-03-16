@@ -32,6 +32,7 @@ Task: P6-T6.1 — E2E Generative Synthesis Subsystem Tests
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from decimal import Decimal
 
 import pytest
 import pytest_asyncio
@@ -183,7 +184,9 @@ async def test_spend_budget_raises_on_exhaustion(
     async with get_async_session(sqlite_async_engine) as s:
         ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         unchanged_ledger = ledger_result.scalar_one()
-        assert unchanged_ledger.total_spent_epsilon == 0.8, (
+        # PrivacyLedger stores epsilon as Decimal(20, 10) — compare with Decimal
+        # to avoid "Decimal('0.8000000000') == 0.8" float comparison failure.
+        assert unchanged_ledger.total_spent_epsilon == Decimal("0.8"), (
             f"Ledger must not be modified on exhaustion. "
             f"Expected 0.8, got {unchanged_ledger.total_spent_epsilon}"
         )
@@ -221,7 +224,9 @@ async def test_spend_budget_exact_boundary_allowed(
     async with get_async_session(sqlite_async_engine) as s:
         ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         final_ledger = ledger_result.scalar_one()
-        assert abs(final_ledger.total_spent_epsilon - 1.0) < 1e-9, (
+        # PrivacyLedger stores epsilon as Decimal(20, 10) — subtract Decimal to
+        # avoid "TypeError: unsupported operand type(s) for -: 'decimal.Decimal' and 'float'".
+        assert abs(final_ledger.total_spent_epsilon - Decimal("1.0")) < Decimal("1e-9"), (
             f"Expected total_spent_epsilon == 1.0, got {final_ledger.total_spent_epsilon}"
         )
 

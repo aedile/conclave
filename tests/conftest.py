@@ -71,6 +71,13 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
       helpers emit ``ResourceWarning`` when the engine is GC-collected without an
       explicit ``engine.dispose()`` call.  These are intentionally short-lived
       test engines.
+    * ``opacus`` 1.5.x: emits ``UserWarning`` about secure RNG being disabled
+      when ``secure_mode=False`` (the default for non-production experimentation).
+      Cannot be changed in third-party code.
+    * ``torch`` 2.10+: emits ``UserWarning`` from full backward hooks registered
+      by Opacus when no input tensor requires gradients.  This is an Opacus
+      internal implementation detail fired through ``torch.utils.hooks`` during
+      DP-SGD backward passes. Cannot be changed in third-party code.
 
     Yields:
         None — this is a setup/teardown fixture with no yielded value.
@@ -110,6 +117,25 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
         warnings.filterwarnings(
             "ignore",
             category=ResourceWarning,
+        )
+
+        # -----------------------------------------------------------------------
+        # opacus 1.5.x: secure RNG disabled advisory warning (non-production mode)
+        # -----------------------------------------------------------------------
+        warnings.filterwarnings(
+            "ignore",
+            message="Secure RNG turned off",
+            category=UserWarning,
+        )
+
+        # -----------------------------------------------------------------------
+        # torch 2.10+ / Opacus: full backward hook fires when no inputs require
+        # gradients.  This is an Opacus internal detail; we cannot fix it upstream.
+        # -----------------------------------------------------------------------
+        warnings.filterwarnings(
+            "ignore",
+            message="Full backward hook is firing when gradients are computed",
+            category=UserWarning,
         )
 
         yield
