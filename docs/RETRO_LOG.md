@@ -19,6 +19,27 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P11-T11.1 — Documentation Currency (README, BACKLOG.md)
+
+**Changes**: README.md updated (Phase 10 → Complete, Phase 11 → In Progress in both prose
+and phase table). docs/BACKLOG.md updated to index Phases 7–11 in both Phase Hierarchy and
+Task Index sections. No code changes.
+
+**Reviews**:
+- QA: PASS — all 4 AC verified; cross-referenced BACKLOG.md task names against phase file headings
+- UI/UX: SKIP — no UI components
+- DevOps: SKIP — no infrastructure/security changes
+- Architecture: PASS — documentation structure consistent; noted pre-existing Phase 8 title
+  mismatch between README ("Security Hardening") and phase-8.md ("Advisory Drain Sprint") —
+  informational only, not introduced by this change
+
+**Retrospective Note**: Review agents (spawned as background subagents) became unresponsive
+for 4+ minutes on a trivial docs-only review. PM proceeded with direct assessment. For
+docs-only PRs with <50 lines changed, consider whether full 4-agent review adds value or
+just adds latency. The review content itself was straightforward — all PASS/SKIP.
+
+---
+
 ### [2026-03-16] Phase 10 End-of-Phase Retrospective
 
 **Phase Goal**: Fix broken test infrastructure caused by Python 3.14.1 deprecation
