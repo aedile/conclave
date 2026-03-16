@@ -10,6 +10,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 1: Project Initialization & Quality Gates](backlog/phase-1.md)
 *   [Phase 2: Foundational Architecture & Shared Services](backlog/phase-2.md)
 *   [Phase 3: The "Thin Slice" (Rapid ROI)](backlog/phase-3.md)
+*   [Phase 3.5: Technical Debt Sprint](backlog/phase-3.5.md)
 *   [Phase 4: Advanced Generative AI & Differential Privacy](backlog/phase-4.md)
 *   [Phase 5: Orchestration, UI, & Licensing](backlog/phase-5.md)
 *   [Phase 6: Integration, Audit & Finalization](backlog/phase-6.md)
@@ -59,6 +60,13 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 3.3 [Dev C]:** Build Deterministic Masking Engine (Format-preserving algorithms, collision prevention, LUHN).
 *   **Task 3.4 [Dev D]:** Build Subsetting & Materialization Core (Relational transversal, Saga rollbacks, secure egress).
 *   **Task 3.5 [Dev A]:** Execute E2E Integration Tests for Subsetting workflow (`@axe-core/playwright`, `pytest-postgresql`).
+
+### [Phase 3.5: Technical Debt Sprint](backlog/phase-3.5.md)
+*   **Task 3.5.1 [Dev A]:** Supply Chain & CI Hardening (SHA-pin Actions, Trivy, pg_ctl).
+*   **Task 3.5.2 [Dev B]:** Module Cohesion Refactor (extract mapping/ and subsetting/).
+*   **Task 3.5.3 [Dev C]:** SchemaTopology Immutability & Virtual FK Support.
+*   **Task 3.5.4 [Dev D]:** Bootstrapper Wiring & Minimal CLI Entrypoint (conclave-subset).
+*   **Task 3.5.5 [Dev A]:** Advisory Sweep (remaining open items).
 
 ### [Phase 4: Advanced Generative AI & Differential Privacy](backlog/phase-4.md)
 *   **Task 4.1 [Dev A]:** Integrate GPU Passthrough and Ephemeral Object/Blob storage.
