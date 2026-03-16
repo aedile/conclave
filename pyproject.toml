@@ -243,6 +243,7 @@ markers = [
     "unit: Fast, isolated unit tests with no external dependencies",
     "integration: Tests requiring live databases or external services (Task 2.2)",
     "synthesizer: Synthesizer integration tests requiring the synthesizer dependency group (SDV, torch, Opacus)",
+    "slow: marks tests as slow-running (for local filtering, not automatically excluded in CI)",
 ]
 filterwarnings = [
     # Baseline: all warnings are errors — future regressions fail the build.

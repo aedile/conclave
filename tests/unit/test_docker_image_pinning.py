@@ -129,19 +129,43 @@ class TestDockerfileSHA256Pinning:
         )
 
     def test_version_tag_preserved_as_comment(self) -> None:
-        """Each pinned FROM line must retain its human-readable version tag comment.
+        """Each pinned FROM line must have a human-readable version tag comment nearby.
 
-        The SHA-256 digest is opaque; the version tag comment preserves intent
-        and makes future bumps reviewable.
+        The SHA-256 digest is opaque; a version tag comment preserves intent and
+        makes future bumps reviewable.
+
+        ADV-017 fix: BuildKit rejects inline ``# comment`` after ``AS stage-name``.
+        The approved format is to place the version comment on the line immediately
+        preceding the FROM directive.  This test accepts the comment on EITHER:
+
+        - The FROM line itself:
+          ``FROM image:tag@sha256:... AS name  # tag``
+        - The line immediately before the FROM:
+          ``# tag``
+          ``FROM image:tag@sha256:... AS name``
         """
-        content = DOCKERFILE.read_text()
-        from_lines = _extract_from_lines(content)
-        for line in from_lines:
-            if not _SHA256_PATTERN.search(line):
+        all_lines = DOCKERFILE.read_text().splitlines()
+        for i, line in enumerate(all_lines):
+            stripped = line.strip()
+            if not stripped.upper().startswith("FROM"):
+                continue
+            if not _SHA256_PATTERN.search(stripped):
                 continue  # Non-pinned lines caught by other tests
-            assert "#" in line, (
-                f"Pinned FROM line is missing a version tag comment: {line!r}\n"
-                "Format must be: FROM image:tag@sha256:<digest> # tag-for-humans"
+            # Accept comment on this line OR on the immediately preceding non-empty line.
+            preceding_line = ""
+            for j in range(i - 1, -1, -1):
+                candidate = all_lines[j].strip()
+                if candidate:
+                    preceding_line = candidate
+                    break
+            has_inline_comment = "#" in stripped
+            has_preceding_comment = preceding_line.startswith("#") and len(preceding_line) > 1
+            assert has_inline_comment or has_preceding_comment, (
+                f"Pinned FROM line is missing a version tag comment "
+                f"(neither inline nor on preceding line): {stripped!r}\n"
+                "Accepted formats:\n"
+                "  1. Inline:    FROM image:tag@sha256:<digest> AS name  # tag\n"
+                "  2. Preceding: # tag  (on the line immediately before FROM)"
             )
 
     def test_node_from_line_pinned(self) -> None:
