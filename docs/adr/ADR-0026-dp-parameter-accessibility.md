@@ -83,13 +83,12 @@ If a tooltip icon (e.g., an info icon "?") is placed adjacent to the input, it M
 - A `<button>` element (not a `<div>` or `<span>`), so it receives focus via Tab.
 - Labelled with `aria-label="Help for [parameter name]"`.
 - Toggling a `<div role="tooltip" id="<param>-tooltip">` element on click and on Enter/Space keypress.
-- The tooltip `div` MUST be linked to the button via `aria-describedby` on the button element.
+- The tooltip trigger button needs only an `aria-label`; do NOT add `aria-describedby` pointing to the tooltip on the button (the input already references it via Pattern 1).
 
 ```html
 <button
   type="button"
   aria-label="Help for Privacy Budget (epsilon)"
-  aria-describedby="epsilon-tooltip"
   class="help-icon-btn"
 >
   ?
@@ -97,7 +96,7 @@ If a tooltip icon (e.g., an info icon "?") is placed adjacent to the input, it M
 <div
   id="epsilon-tooltip"
   role="tooltip"
-  hidden
+  class="tooltip tooltip--hidden"
 >
   Epsilon (ε) is the privacy budget for differential privacy. It quantifies the
   maximum multiplicative difference in the probability of any output between a
@@ -106,8 +105,12 @@ If a tooltip icon (e.g., an info icon "?") is placed adjacent to the input, it M
 </div>
 ```
 
-The tooltip is shown/hidden by toggling the `hidden` attribute. Escape key MUST close
-any open tooltip and return focus to the trigger button.
+The tooltip visibility is toggled via CSS class (e.g., `.tooltip--hidden { visibility: hidden; position: absolute; }`) rather than the HTML `hidden` attribute. The `hidden` attribute removes the element from the accessibility tree, breaking `aria-describedby` linkage. CSS `visibility: hidden` hides the tooltip visually while keeping it accessible to assistive technology when referenced by `aria-describedby`.
+
+**Focus management rules:**
+- Focus MUST remain on the trigger `<button>` when the tooltip is shown. The tooltip div is display-only and must not contain focusable children.
+- Do not call `focus()` on the tooltip div or set `tabindex` on it.
+- The tooltip MUST close when the trigger button loses focus (`onBlur` event), in addition to closing on Escape. This prevents persistent open tooltips from obscuring subsequent form fields for keyboard and screen reader users.
 
 ### Pattern 3 — Live validation error messages
 
