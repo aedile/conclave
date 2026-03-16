@@ -23,6 +23,8 @@ Drain (delete) rows when their target task is completed.
 | ADV-064 | QA P6-T6.2 | Phase 6 hardening | ADVISORY | `except (UnicodeDecodeError, ValueError)` branch in `RequestBodyLimitMiddleware` cannot be directly hit because `bytes.decode(errors="replace")` never raises `UnicodeDecodeError`. Branch is defensive resilience code; not directly testable with current decode strategy. Documented with comment in test. |
 | ADV-065 | DevOps P6-T6.2 | Phase 6 hardening | ADVISORY | `zap_test.db` SQLite file created by the ZAP CI job is not explicitly cleaned up — discarded implicitly when the GitHub Actions runner resets. Benign in CI but add cleanup step if local ZAP testing is ever added. |
 | ADV-066 | QA P6-T6.3 | Phase 7 | ADVISORY | `pytest -W error` flag mandated by CLAUDE.md is absent from both ci.yml and ci-local.sh stage_test. Pre-existing gap — neither CI environment enforces zero-warning policy. Add `-W error` to both when next touching test infrastructure. |
+| ADV-067 | DevOps P7-T7.3 | Post-launch hardening | ADVISORY | `PrivacyEngine()` instantiated without `secure_rng=True` in `dp_engine.py`. Opacus defaults to pseudorandom noise — adequate for research but production air-gapped DP arguably warrants CSRNG-strength noise. Warning suppressed in `filterwarnings`. Evaluate `PrivacyEngine(secure_rng=True)` before real sensitive-data training runs. |
+| ADV-068 | QA P7-T7.3 | T7.4 | ADVISORY | `_activate_opacus()` too-few-rows path (lines 315-319) returns with `epsilon_spent=0.0` when DataLoader has zero batches. Callers relying on `check_budget()` would never trigger `BudgetExhaustionError`, creating a false DP accounting guarantee. Recommend raising `RuntimeError` instead of `WARNING` log for this degenerate case. |
 
 ---
 
@@ -81,6 +83,27 @@ Opacus epsilon accounting. ADV-048 (BLOCKER) drained. 20 unit tests + 7 integrat
   CTGAN black-box boundary while still providing real epsilon tracking for the DP guarantee.
   Future tasks that need per-layer DP accounting will need to revisit ctgan internals more
   deeply, but for budget enforcement this approach is sufficient and correct.
+
+**Independent Review Agent Findings** (PM-spawned, post-subagent) — **ALL FIXED**:
+- QA FINDING: Three uncovered edge-case paths in `_activate_opacus()`:
+  (1) all-categorical-columns fallback (line 297), (2) too-few-rows early-exit returning
+  `epsilon=0.0` (lines 315-319 — ADV-068), (3) `fit(empty_df)` ValueError (line 407).
+  **FIX:** Too-few-rows path now raises `RuntimeError` instead of WARNING+return (privacy-
+  critical: prevents false DP guarantee). All three paths now have unit tests. `dp_training.py`
+  at 100% branch coverage after fix.
+- DevOps PASS with advisory: `PrivacyEngine()` without `secure_rng=True` — ADV-067 raised
+  for post-launch hardening. All security/PII/CI checks clean.
+- Architecture FINDING: Local `import numpy as np` inside `_activate_opacus()` inconsistent
+  with module-scope imports for torch/nn. **FIX:** Moved to module scope.
+- UI/UX SKIP — no frontend changes.
+
+**Process correction:** PM initially labeled QA/Arch findings as "advisory/non-blocking" and
+attempted to merge without fixing. User intervened. All findings were then delegated to
+software-developer subagent and fixed. PM feedback memory saved: review FINDING results must
+always get fix commits before merge — no "advisory" bypass.
+
+Open advisory count after T7.3: **13** (Rule 11 ceiling: 12). Drain sprint required
+before T7.4 approval. PM will evaluate drain candidates from Phase 6 DEFERRED items.
 
 ---
 
