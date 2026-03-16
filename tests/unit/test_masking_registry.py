@@ -238,3 +238,117 @@ def test_registry_handles_all_column_types() -> None:
         result = registry.mask(value, col_type, f"t.{col_type.value}")
         assert isinstance(result, str)
         assert len(result) > 0
+
+
+# ---------------------------------------------------------------------------
+# Finding 2: FIRST_NAME, LAST_NAME, ADDRESS ColumnType members
+# ---------------------------------------------------------------------------
+
+
+def test_column_type_first_name_exists() -> None:
+    """ColumnType.FIRST_NAME enum member is defined with value 'first_name'."""
+    assert ColumnType.FIRST_NAME == "first_name"
+    assert ColumnType("first_name") is ColumnType.FIRST_NAME
+
+
+def test_column_type_last_name_exists() -> None:
+    """ColumnType.LAST_NAME enum member is defined with value 'last_name'."""
+    assert ColumnType.LAST_NAME == "last_name"
+    assert ColumnType("last_name") is ColumnType.LAST_NAME
+
+
+def test_column_type_address_exists() -> None:
+    """ColumnType.ADDRESS enum member is defined with value 'address'."""
+    assert ColumnType.ADDRESS == "address"
+    assert ColumnType("address") is ColumnType.ADDRESS
+
+
+def test_registry_mask_first_name_is_deterministic() -> None:
+    """Registry produces the same masked first name for the same (value, salt) pair."""
+    registry = MaskingRegistry()
+    result_a = registry.mask("Alice", ColumnType.FIRST_NAME, "t.first_name")
+    registry.reset()
+    result_b = registry.mask("Alice", ColumnType.FIRST_NAME, "t.first_name")
+    assert result_a == result_b
+
+
+def test_registry_mask_last_name_is_deterministic() -> None:
+    """Registry produces the same masked last name for the same (value, salt) pair."""
+    registry = MaskingRegistry()
+    result_a = registry.mask("Smith", ColumnType.LAST_NAME, "t.last_name")
+    registry.reset()
+    result_b = registry.mask("Smith", ColumnType.LAST_NAME, "t.last_name")
+    assert result_a == result_b
+
+
+def test_registry_mask_address_is_deterministic() -> None:
+    """Registry produces the same masked address for the same (value, salt) pair."""
+    registry = MaskingRegistry()
+    result_a = registry.mask("123 Main St", ColumnType.ADDRESS, "t.address")
+    registry.reset()
+    result_b = registry.mask("123 Main St", ColumnType.ADDRESS, "t.address")
+    assert result_a == result_b
+
+
+def test_registry_first_name_produces_non_empty_string() -> None:
+    """Registry dispatches FIRST_NAME to mask_first_name and returns a non-empty string."""
+    registry = MaskingRegistry()
+    result = registry.mask("Bob", ColumnType.FIRST_NAME, "customers.first_name")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_registry_last_name_produces_non_empty_string() -> None:
+    """Registry dispatches LAST_NAME to mask_last_name and returns a non-empty string."""
+    registry = MaskingRegistry()
+    result = registry.mask("Jones", ColumnType.LAST_NAME, "customers.last_name")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_registry_address_produces_non_empty_string() -> None:
+    """Registry dispatches ADDRESS to mask_address and returns a non-empty string."""
+    registry = MaskingRegistry()
+    result = registry.mask("456 Elm Ave", ColumnType.ADDRESS, "customers.address")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_registry_first_name_max_length_respected() -> None:
+    """Registry forwards max_length to mask_first_name."""
+    registry = MaskingRegistry()
+    result = registry.mask("Alice", ColumnType.FIRST_NAME, "t.first_name", max_length=3)
+    assert len(result) <= 3
+
+
+def test_registry_last_name_max_length_respected() -> None:
+    """Registry forwards max_length to mask_last_name."""
+    registry = MaskingRegistry()
+    result = registry.mask("Smith", ColumnType.LAST_NAME, "t.last_name", max_length=3)
+    assert len(result) <= 3
+
+
+def test_registry_address_max_length_respected() -> None:
+    """Registry forwards max_length to mask_address."""
+    registry = MaskingRegistry()
+    result = registry.mask("123 Main St", ColumnType.ADDRESS, "t.address", max_length=10)
+    assert len(result) <= 10
+
+
+def test_registry_handles_all_column_types_including_new() -> None:
+    """Registry can mask every ColumnType (including FIRST_NAME, LAST_NAME, ADDRESS)."""
+    registry = MaskingRegistry()
+    test_cases: list[tuple[str, ColumnType]] = [
+        ("Alice Smith", ColumnType.NAME),
+        ("alice@example.com", ColumnType.EMAIL),
+        ("123-45-6789", ColumnType.SSN),
+        ("4111111111111111", ColumnType.CREDIT_CARD),
+        ("555-867-5309", ColumnType.PHONE),
+        ("Alice", ColumnType.FIRST_NAME),
+        ("Smith", ColumnType.LAST_NAME),
+        ("123 Main St", ColumnType.ADDRESS),
+    ]
+    for value, col_type in test_cases:
+        result = registry.mask(value, col_type, f"t.{col_type.value}")
+        assert isinstance(result, str), f"Expected str for {col_type}"
+        assert len(result) > 0, f"Expected non-empty result for {col_type}"

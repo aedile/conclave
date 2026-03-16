@@ -72,7 +72,8 @@ def mask_address(value: str, salt: str, max_length: int | None = None) -> str:
         max_length: Optional VARCHAR constraint; output is truncated if exceeded.
 
     Returns:
-        A deterministic fake street address string.
+        A deterministic fake street address string.  Note: Faker.address()
+        may produce multi-line output containing newline characters.
     """
     return mask_value(value, salt, lambda f: f.address(), max_length=max_length)
 

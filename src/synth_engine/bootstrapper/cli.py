@@ -92,6 +92,10 @@ if not _CLI_MASKING_SALT:
 # (Faker.first_name()/last_name()) rather than mask_name (Faker.name()),
 # which produces "First Last" (two words) — incorrect for single-component columns.
 # address uses mask_address (Faker.address()) rather than mask_name.
+#
+# Type reflects call-site usage: only (value, salt) are passed through the dict.
+# Registered functions may accept additional optional params (e.g. max_length)
+# which are unused in this CLI path.
 _COLUMN_MASKS: dict[str, dict[str, Callable[[str, str], str]]] = {
     "customers": {
         "first_name": mask_first_name,
