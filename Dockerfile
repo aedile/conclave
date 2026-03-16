@@ -5,7 +5,9 @@
 # =============================================================================
 # Digest pinned 2026-03-16 via Docker Registry v2 API (ADV-014 resolved).
 # To refresh: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
-FROM node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa AS frontend-builder # 20-alpine
+# ADV-017 fix: comment moved above FROM to prevent BuildKit inline-comment parse error.
+# node:20-alpine
+FROM node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa AS frontend-builder
 
 WORKDIR /frontend
 
@@ -21,7 +23,9 @@ RUN mkdir -p dist
 # =============================================================================
 # Digest pinned 2026-03-16 via Docker Registry v2 API (ADV-014 resolved).
 # To refresh: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
-FROM python:3.14-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456 AS python-builder # 3.14-slim
+# ADV-017 fix: comment moved above FROM to prevent BuildKit inline-comment parse error.
+# python:3.14-slim
+FROM python:3.14-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456 AS python-builder
 
 WORKDIR /build
 
@@ -61,7 +65,9 @@ RUN pip install --no-cache-dir --prefix=/install --no-deps .
 # Digest pinned 2026-03-16 via Docker Registry v2 API (ADV-014 resolved).
 # Same digest as python-builder stage — intentional for split-brain prevention.
 # To refresh: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
-FROM python:3.14-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456 AS final # 3.14-slim
+# ADV-017 fix: comment moved above FROM to prevent BuildKit inline-comment parse error.
+# python:3.14-slim
+FROM python:3.14-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456 AS final
 
 # ---- Security: install tini (PID-1 init) and gosu (privilege drop) ---------
 # tini reaps zombie processes; gosu drops from root to appuser before exec.

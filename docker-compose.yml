@@ -10,7 +10,7 @@
 #   - read_only: true              — immutable container rootfs
 #   - tmpfs for /tmp, /run/secrets — writable scratch space without persistent
 #                                    storage on the rootfs
-#   - cap_drop: ALL + cap_add selective — least-privilege capability model
+#   - cap_drop: ALL + cap_add selective — least-privilege capability model (app, minio; NOT redis — ADV-018)
 #   - no-new-privileges security opt  — prevents privilege escalation via SUID
 #   - Docker secrets skeleton          — secrets injected at runtime, not baked in
 #   - Log rotation                     — bounded disk usage for json-file logs
@@ -123,8 +123,10 @@ services:
     # To refresh: docker pull redis:7-alpine && docker inspect --format='{{index .RepoDigests 0}}' redis:7-alpine
     image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065  # 7-alpine
     command: redis-server --save "" --appendonly no
-    cap_drop:
-      - ALL
+    # ADV-018 fix: cap_drop: ALL removed — redis:7-alpine requires user-switching
+    # capabilities at startup (setuid/setgid). cap_drop: ALL prevented this and
+    # caused container startup failures. Other hardening (read_only, no-new-privileges,
+    # no external port) is retained.
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -201,7 +203,7 @@ services:
   pgbouncer:
     image: edoburu/pgbouncer:v1.23.1-p3@sha256:377dec3c0e4a66a1077ec043e16a26ed5702a6d954011a7983a1457c2e070b1d  # v1.23.1-p3
     environment:
-      DATABASES_HOST: postgres
+      DB_HOST: postgres  # ADV-019 fix: edoburu/pgbouncer uses DB_HOST, not DATABASES_HOST
       DATABASES_PORT: "5432"
       DATABASES_USER: conclave
       DATABASES_DBNAME: conclave
