@@ -519,7 +519,7 @@ to detect tampering between training and inference. When signing is enabled:
 - `ModelArtifact.save()` appends an HMAC-SHA256 signature derived from
   `ARTIFACT_SIGNING_KEY` to the artifact file.
 - `ModelArtifact.load()` verifies the signature before returning the artifact.
-  If the signature does not match, `load()` raises `IntegrityError` and the
+  If the signature does not match, `load()` raises `SecurityError` and the
   artifact is rejected.
 
 **Generating the signing key:**

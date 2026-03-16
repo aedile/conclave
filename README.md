@@ -167,7 +167,7 @@ The full Conclave platform is operational across all completed phases:
 
 **Phase 8 security hardening — operational**
 - **HMAC artifact signing** — `ModelArtifact.save()` / `load()` sign and verify artifacts
-  with `ARTIFACT_SIGNING_KEY`; tampering raises `IntegrityError` at load time
+  with `ARTIFACT_SIGNING_KEY`; tampering raises `SecurityError` at load time
 - **Alembic migrations** — database schema managed via Alembic; `alembic upgrade head`
   applies all pending migrations before first start and after updates
 - **Startup config validation** — `validate_config()` runs at boot; missing required
