@@ -39,67 +39,22 @@ ADR: ADR-0017 (CTGAN + Opacus; per-table training strategy)
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import logging
 import os
 import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) ensures only self-produced artifacts are trusted before unpickling
 from dataclasses import dataclass, field
 from typing import Any
 
+from synth_engine.shared.security.hmac_signing import (
+    HMAC_DIGEST_SIZE,
+    SecurityError,
+    compute_hmac,
+    verify_hmac,
+)
+
+__all__ = ["ModelArtifact", "SecurityError"]
+
 _logger = logging.getLogger(__name__)
-
-#: Size of the HMAC-SHA256 digest in bytes (fixed: 256 bits / 8 = 32 bytes).
-_HMAC_DIGEST_SIZE: int = 32
-
-
-class SecurityError(Exception):
-    """Raised when a security invariant is violated.
-
-    Currently used exclusively by :class:`ModelArtifact` to signal HMAC
-    signature verification failures.  Inherits from :exc:`Exception` so callers
-    can catch it with a broad ``except Exception`` if needed, but it is also
-    narrow enough to be caught on its own.
-
-    Example::
-
-        try:
-            artifact = ModelArtifact.load(path, signing_key=key)
-        except SecurityError as exc:
-            logger.error("Artifact tampering detected: %s", exc)
-            raise
-    """
-
-
-def _compute_hmac(key: bytes, payload: bytes) -> bytes:
-    """Compute HMAC-SHA256 over ``payload`` using ``key``.
-
-    Args:
-        key: Raw signing key bytes.  Must be non-empty.
-        payload: The bytes to authenticate.
-
-    Returns:
-        32-byte raw HMAC-SHA256 digest.
-    """
-    return hmac.new(key, payload, hashlib.sha256).digest()
-
-
-def _verify_hmac(key: bytes, payload: bytes, expected_digest: bytes) -> bool:
-    """Verify an HMAC-SHA256 digest using a constant-time comparison.
-
-    Uses :func:`hmac.compare_digest` to prevent timing-oracle attacks.
-
-    Args:
-        key: Raw signing key bytes.
-        payload: The bytes over which the HMAC was originally computed.
-        expected_digest: The 32-byte HMAC digest to verify against.
-
-    Returns:
-        ``True`` if the computed digest matches ``expected_digest``.
-        ``False`` otherwise.
-    """
-    actual_digest = _compute_hmac(key, payload)
-    return hmac.compare_digest(actual_digest, expected_digest)
 
 
 @dataclass
@@ -170,7 +125,7 @@ class ModelArtifact:
         payload = pickle.dumps(self, protocol=pickle.HIGHEST_PROTOCOL)  # nosec B301 — payload is self-produced; HMAC signing below authenticates it before any future load
 
         if signing_key is not None:
-            signature = _compute_hmac(signing_key, payload)
+            signature = compute_hmac(signing_key, payload)
             data = signature + payload
             _logger.info(
                 "ModelArtifact for table '%s' saved with HMAC-SHA256 signature to %s",
@@ -226,14 +181,14 @@ class ModelArtifact:
             raw = f.read()
 
         if signing_key is not None:
-            if len(raw) <= _HMAC_DIGEST_SIZE:
+            if len(raw) <= HMAC_DIGEST_SIZE:
                 raise SecurityError(
                     "HMAC verification failed: file is too short to contain a valid "
-                    f"HMAC header (expected >{_HMAC_DIGEST_SIZE} bytes, got {len(raw)})."
+                    f"HMAC header (expected >{HMAC_DIGEST_SIZE} bytes, got {len(raw)})."
                 )
-            stored_digest = raw[:_HMAC_DIGEST_SIZE]
-            payload = raw[_HMAC_DIGEST_SIZE:]
-            if not _verify_hmac(signing_key, payload, stored_digest):
+            stored_digest = raw[:HMAC_DIGEST_SIZE]
+            pickle_payload = raw[HMAC_DIGEST_SIZE:]
+            if not verify_hmac(signing_key, pickle_payload, stored_digest):
                 raise SecurityError(
                     "HMAC verification failed: the artifact signature does not match "
                     "the provided signing key.  The artifact may have been tampered "
@@ -241,9 +196,9 @@ class ModelArtifact:
                 )
             _logger.info("ModelArtifact HMAC-SHA256 signature verified for path %s.", path)
         else:
-            payload = raw
+            pickle_payload = raw
 
-        artifact = pickle.loads(payload)  # noqa: S301  # nosec B301 — payload is either unsigned (trusted caller) or HMAC-verified above; not user-supplied data
+        artifact = pickle.loads(pickle_payload)  # noqa: S301  # nosec B301 — payload is either unsigned (trusted caller) or HMAC-verified above; not user-supplied data
         _logger.info(
             "ModelArtifact for table '%s' loaded from %s",
             artifact.table_name,
