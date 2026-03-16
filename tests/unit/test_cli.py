@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -532,6 +532,9 @@ class TestLoadTopologyPrimaryKeyFix:
     not bypass it via SubsettingEngine mocks.
     """
 
+    # Dummy source DSN — no real DB is contacted (create_engine is mocked).
+    _SRC_DSN = "postgresql+psycopg2://user:pass@localhost/src"  # pragma: allowlist secret
+
     def _make_mock_reflector(
         self,
         tables: list[str],
@@ -566,9 +569,9 @@ class TestLoadTopologyPrimaryKeyFix:
         mock_reflector.get_pk_constraint.side_effect = lambda t, **kw: pk_constraints_by_table.get(
             t, {"constrained_columns": []}
         )
-        mock_reflector.get_foreign_keys.side_effect = lambda t, **kw: (
-            fks_by_table or {}
-        ).get(t, [])
+        mock_reflector.get_foreign_keys.side_effect = lambda t, **kw: (fks_by_table or {}).get(
+            t, []
+        )
 
         return mock_reflector
 
@@ -606,7 +609,7 @@ class TestLoadTopologyPrimaryKeyFix:
                 return_value=mock_reflector,
             ),
         ):
-            topology = _load_topology("postgresql+psycopg2://user:pass@localhost/src")  # pragma: allowlist secret
+            topology = _load_topology(self._SRC_DSN)
 
         persons_cols = {col.name: col for col in topology.columns["persons"]}
         assert persons_cols["id"].primary_key >= 1, (
@@ -651,7 +654,7 @@ class TestLoadTopologyPrimaryKeyFix:
                 return_value=mock_reflector,
             ),
         ):
-            _load_topology("postgresql+psycopg2://user:pass@localhost/src")  # pragma: allowlist secret
+            _load_topology(self._SRC_DSN)
 
         # get_pk_constraint must be called once per table
         assert mock_reflector.get_pk_constraint.call_count == len(tables), (
@@ -693,7 +696,7 @@ class TestLoadTopologyPrimaryKeyFix:
                 return_value=mock_reflector,
             ),
         ):
-            topology = _load_topology("postgresql+psycopg2://user:pass@localhost/src")  # pragma: allowlist secret
+            topology = _load_topology(self._SRC_DSN)
 
         cols = {col.name: col for col in topology.columns["order_items"]}
         assert cols["order_id"].primary_key >= 1, (
@@ -738,7 +741,7 @@ class TestLoadTopologyPrimaryKeyFix:
                 return_value=mock_reflector,
             ),
         ):
-            topology = _load_topology("postgresql+psycopg2://user:pass@localhost/src")  # pragma: allowlist secret
+            topology = _load_topology(self._SRC_DSN)
 
         cols = {col.name: col for col in topology.columns["log_entries"]}
         assert cols["ts"].primary_key == 0
@@ -777,7 +780,7 @@ class TestLoadTopologyPrimaryKeyFix:
             ),
         ):
             # Must not raise
-            topology = _load_topology("postgresql+psycopg2://user:pass@localhost/src")  # pragma: allowlist secret
+            topology = _load_topology(self._SRC_DSN)
 
         cols = {col.name: col for col in topology.columns["strange_table"]}
         assert cols["col1"].primary_key == 0

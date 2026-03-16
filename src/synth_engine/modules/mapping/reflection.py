@@ -19,6 +19,12 @@ ADV-012 compliance:
   incrementing integers (1, 2, ...).  Callers MUST use ``>= 1``, not ``== 1``,
   to identify PK membership.
 
+ADV-021 fix (T20.1): Added ``get_pk_constraint()`` method.  The bootstrapper's
+``_load_topology()`` previously used ``col.get('primary_key', 0)`` which is
+unreliable because some SQLAlchemy backends (notably PostgreSQL via psycopg2)
+do not include a ``primary_key`` key in column dicts.  The fix uses
+``get_pk_constraint()`` to obtain the definitive list of PK column names.
+
 ADV-023 fix: The SQLAlchemy inspector is now cached in ``__init__`` via a
 single ``inspect(engine)`` call.  The three methods ``get_tables()``,
 ``get_columns()``, and ``get_foreign_keys()`` share ``self._inspector`` rather
@@ -29,6 +35,7 @@ CONSTITUTION Priority 0: Security -- no external calls, no PII exposure.
 Task: P3-T3.2 -- Relational Mapping & Topological Sort
 Task: P3.5-T3.5.2 -- Module Cohesion Refactor (moved from modules/ingestion/)
 Task: P3.5-T3.5.3 -- Virtual Foreign Key (VFK) support
+Task: P20-T20.1 -- ADV-021 FK Traversal Fix (get_pk_constraint method)
 ADV-023, ADV-024: Inspector caching and type-ignore justifications (T3.4).
 """
 
@@ -199,6 +206,12 @@ class SchemaReflector:
         ``0`` means not part of a PK; values ``>= 1`` indicate PK membership
         (ADV-012: use ``>= 1``, not ``== 1``, to support composite PKs).
 
+        Note (ADV-021): the ``primary_key`` field is present in SQLAlchemy's
+        column dicts for SQLite but may be absent for PostgreSQL backends.
+        Callers that need reliable PK detection must use
+        :meth:`get_pk_constraint` and cross-reference the column name against
+        the ``constrained_columns`` list.
+
         Args:
             table: Unquoted table name in the target schema.
             schema: PostgreSQL schema name. Defaults to ``"public"``.
@@ -221,3 +234,25 @@ class SchemaReflector:
             and ``referred_columns`` keys at minimum.
         """
         return cast(list[dict[str, Any]], self._inspector.get_foreign_keys(table, schema=schema))
+
+    def get_pk_constraint(self, table: str, schema: str = "public") -> dict[str, Any]:
+        """Return the primary key constraint for the given table.
+
+        Uses SQLAlchemy's ``Inspector.get_pk_constraint()`` which reliably
+        returns PK column names regardless of the database backend — unlike
+        ``get_columns()``, which may or may not include a ``primary_key`` key
+        depending on the backend (ADV-021).
+
+        Args:
+            table: Unquoted table name in the target schema.
+            schema: PostgreSQL schema name. Defaults to ``"public"``.
+
+        Returns:
+            A dict with at minimum a ``constrained_columns`` key containing
+            a list of column name strings that form the primary key.  Returns
+            ``{"constrained_columns": []}`` for tables with no PK constraint.
+        """
+        return cast(
+            dict[str, Any],
+            self._inspector.get_pk_constraint(table, schema=schema),
+        )

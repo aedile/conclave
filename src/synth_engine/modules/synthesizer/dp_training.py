@@ -39,6 +39,7 @@ Task: P7-T7.3 — Opacus End-to-End Wiring (Phase 3 now activates real Opacus
   PrivacyEngine on a linear model trained on the processed data, giving
   meaningful Epsilon accounting after training).
 ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
+Task: P20-T20.1 — AC2 Targeted warning suppression (filterwarnings vs simplefilter)
 """
 
 from __future__ import annotations
@@ -51,6 +52,14 @@ import numpy as np
 import pandas as pd
 
 _logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Opacus warning pattern constants (ADR-0017a / T20.1 AC2)
+# ---------------------------------------------------------------------------
+#: Opacus "Secure RNG turned off" warning — accepted per ADR-0017a.
+_OPACUS_SECURE_RNG_PATTERN = ".*Secure RNG turned off.*"
+#: Opacus batch-size/poisson sampling advisory — informational, not actionable.
+_OPACUS_BATCH_PATTERN = ".*Expected.*batch.*"
 
 # ---------------------------------------------------------------------------
 # Deferred imports — SDV and ctgan must be in the synthesizer dependency group.
@@ -337,7 +346,12 @@ class DPCompatibleCTGAN:
         )
 
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            # T20.1 AC2: targeted suppression for known Opacus activation warnings
+            # (ADR-0017a: "Secure RNG turned off" and batch-size advisory).
+            warnings.filterwarnings(
+                "ignore", message=_OPACUS_SECURE_RNG_PATTERN, category=UserWarning
+            )
+            warnings.filterwarnings("ignore", message=_OPACUS_BATCH_PATTERN, category=UserWarning)
             dp_optimizer = self._dp_wrapper.wrap(
                 optimizer=optimizer,
                 model=proxy_model,
@@ -454,7 +468,9 @@ class DPCompatibleCTGAN:
 
         _logger.info("DPCompatibleCTGAN: starting CTGAN.fit().")
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            # T20.1 AC2: targeted suppression for CTGAN/SDV training noise warnings.
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            warnings.filterwarnings("ignore", category=UserWarning)
             ctgan_model.fit(processed_df, discrete_columns=discrete_columns)
 
         self._ctgan_model = ctgan_model
@@ -500,7 +516,9 @@ class DPCompatibleCTGAN:
 
         # Reverse-transform from processed space back to original schema
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            # T20.1 AC2: targeted suppression for SDV reverse_transform noise.
+            warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
             result: pd.DataFrame = self._data_processor.reverse_transform(synthetic_processed)
 
         _logger.info(

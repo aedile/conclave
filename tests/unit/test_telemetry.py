@@ -164,11 +164,7 @@ def test_redact_url_exception_type_is_narrowed() -> None:
     from pathlib import Path
 
     telemetry_path = (
-        Path(__file__).parent.parent.parent
-        / "src"
-        / "synth_engine"
-        / "shared"
-        / "telemetry.py"
+        Path(__file__).parent.parent.parent / "src" / "synth_engine" / "shared" / "telemetry.py"
     )
     source = telemetry_path.read_text()
     tree = ast.parse(source)
