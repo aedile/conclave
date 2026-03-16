@@ -14,20 +14,43 @@ Drain (delete) rows when their target task is completed.
 |----|--------|-------------|----------|----------|
 | ADV-040 | DevOps T4.2b | Phase 6 security hardening | DEFERRED | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. PM justification: artifact trust boundary is internal-only through Phase 5; HMAC wiring deferred to Phase 6 hardening sprint when external storage is considered. |
 | ADV-050 | Arch T4.4 | Phase 6 hardening | DEFERRED | `Float` column type for `total_allocated_epsilon`/`total_spent_epsilon` in `PrivacyLedger`. Floating-point accumulation across many small additions introduces budget drift. PM justification: at current scale (1–10 epsilon range, tens of jobs) float64 drift is sub-microsecond. Revisit if sub-0.01 epsilon granularity or high-concurrency workloads become a product requirement. |
-| ADV-052 | DevOps T5.1 | Phase 6 hardening | DEFERRED | No Alembic migration for `connection` and `setting` tables. PM justification: Alembic infrastructure not yet established; air-gapped deployment uses SQLModel.metadata.create_all() at startup. Migration creation blocked until Alembic is initialized (Phase 6). |
 | ADV-054 | Arch T5.2 | Phase 6 hardening | DEFERRED | `LicenseError.status_code` embeds HTTP semantics in `shared/security/licensing.py`, inconsistent with ADR-0008 framework-boundary pattern. PM justification: pragmatic — only one status code (403) is used, and the pattern matches VaultState's ValueError approach. Revisit if licensing error taxonomy grows. |
 | ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
 | ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
-| ADV-062 | DevOps T6.1 | Phase 6 hardening | ADVISORY | E2E CI job rebuilds frontend from scratch (npm ci + playwright.config.ts webServer runs build+preview). Two full frontend builds per CI run. Introduce build-artifact handoff between frontend and e2e jobs when wall-clock time becomes a concern. |
-| ADV-065 | DevOps P6-T6.2 | Phase 6 hardening | ADVISORY | `zap_test.db` SQLite file created by the ZAP CI job is not explicitly cleaned up — discarded implicitly when the GitHub Actions runner resets. Benign in CI but add cleanup step if local ZAP testing is ever added. |
-| ADV-066 | QA P6-T6.3 | Phase 7 | ADVISORY | `pytest -W error` flag mandated by CLAUDE.md is absent from both ci.yml and ci-local.sh stage_test. Pre-existing gap — neither CI environment enforces zero-warning policy. Add `-W error` to both when next touching test infrastructure. |
 | ADV-067 | DevOps P7-T7.3 | Post-launch hardening | ADVISORY | `PrivacyEngine()` instantiated without `secure_rng=True` in `dp_engine.py`. Opacus defaults to pseudorandom noise — adequate for research but production air-gapped DP arguably warrants CSRNG-strength noise. Warning suppressed in `filterwarnings`. Evaluate `PrivacyEngine(secure_rng=True)` before real sensitive-data training runs. |
-| ADV-069 | DevOps P7-T7.5 | Phase 8 | ADVISORY | CI synthesizer-integration-test job uses explicit file list rather than marker-based routing. New synthesizer test files must be manually added to ci.yml — maintenance liability as test suite grows. Switch to `pytest -m synthesizer` marker split for self-maintaining CI routing. |
 | ADV-071 | Arch P7-T7.5 | Phase 8 | ADVISORY | `BudgetExhaustionError` imported directly from `modules/privacy/dp_engine` by callers. Should be re-exported from `modules/privacy/__init__.py` to provide a stable public catch target without reaching into internal module files. |
+| ADV-073 | DevOps P8-T8.4 | Post-launch | ADVISORY | Synthesizer test files `test_synthesizer_integration.py` and `test_dp_training_integration.py` carry only `pytest.mark.synthesizer`, not dual `[pytest.mark.integration, pytest.mark.synthesizer]`. Inconsistent with `test_e2e_dp_synthesis.py` which carries both. Dual markers improve discoverability. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P8-T8.4 — CI Infrastructure (ADV-052, ADV-062, ADV-065, ADV-066, ADV-069)
+
+**Summary**: Drained 5 CI infrastructure advisories. Alembic migration 002 for connection/setting
+tables (manual DDL, air-gapped CI). Frontend build artifact handoff via upload/download-artifact
+(SHA-pinned). ZAP test DB cleanup. Zero-warning policy documented (pyproject.toml filterwarnings
+approach). Marker-based synthesizer test routing (`pytest -m synthesizer` / `-m "not synthesizer"`).
+
+**QA** (FINDING — 1 blocker, fixed): `test_frontend_job_uploads_build_artifact` checked
+`"upload-artifact"` globally instead of `"frontend-dist"` specifically. Fixed to check artifact
+name. Added negative test for `_has_synthesizer_marker()`.
+**Architecture** (PASS): Migration 002 correctly chains from 001, includes index and server_default.
+Manual DDL matches ORM definitions. False-positive finding resolved on verification.
+**UI/UX** (SKIP): No frontend changes.
+**DevOps** (PASS): SHA pins verified against GitHub API. Bandit clean. All 5 advisory drains
+correctly implemented. No secrets, no PII.
+
+**Advisories drained**: ADV-052, ADV-062, ADV-065, ADV-066, ADV-069. Remaining: 8.
+**New advisory**: ADV-073 (synthesizer test marker consistency).
+
+**Retrospective Notes**:
+- Inspection-based CI tests must be scoped to specific job sections, not full YAML files.
+- Manual Alembic migrations require side-by-side ORM comparison; consider `alembic check` in CI.
+- SHA pin verification against GitHub API is working correctly and should continue for all new actions.
+- When draining CI routing advisories, test both the inclusion AND exclusion sides.
 
 ---
 
