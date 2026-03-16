@@ -69,7 +69,7 @@ set_stage_status() {
 # get_stage_status <stage>
 get_stage_status() {
     local _var="STAGE_STATUS_${1//-/_}"
-    eval "printf '%s' \"\${${_var}:-SKIP}\""
+    eval "printf '%s' \"\${${_var}:-}\""
 }
 
 # set_stage_elapsed <stage> <value>
