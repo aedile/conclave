@@ -12,17 +12,53 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-040 | DevOps T4.2b | Phase 6 security hardening | DEFERRED | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. PM justification: artifact trust boundary is internal-only through Phase 5; HMAC wiring deferred to Phase 6 hardening sprint when external storage is considered. |
-| ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
-| ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
-| ADV-067 | DevOps P7-T7.3 | Post-launch hardening | ADVISORY | `PrivacyEngine()` instantiated without `secure_rng=True` in `dp_engine.py`. Opacus defaults to pseudorandom noise — adequate for research but production air-gapped DP arguably warrants CSRNG-strength noise. Warning suppressed in `filterwarnings`. Evaluate `PrivacyEngine(secure_rng=True)` before real sensitive-data training runs. |
 | ADV-073 | DevOps P8-T8.4 | Post-launch | ADVISORY | Synthesizer test files `test_synthesizer_integration.py` and `test_dp_training_integration.py` carry only `pytest.mark.synthesizer`, not dual `[pytest.mark.integration, pytest.mark.synthesizer]`. Inconsistent with `test_e2e_dp_synthesis.py` which carries both. Dual markers improve discoverability. |
 | ADV-074 | QA P8-T8.3 | Post-launch | ADVISORY | `spend_budget(amount=1e-11)` produces `Decimal("1.1e-11")` via `Decimal(str(float))` — scientific-notation edge case not tested. May surface with very small epsilon values in production. |
 | ADV-075 | DevOps P8-T8.3 | Post-launch | ADVISORY | `_render_qr_code` fallback logs raw Pillow/qrcode exception at WARNING level. If libraries embed filesystem paths in error messages, this becomes internal-path disclosure. Consider logging `type(exc).__name__` only. |
+| ADV-076 | QA P8-T8.2 | Post-launch | ADVISORY | `ModelArtifact.save()` raises `ValueError` for empty signing_key but `load()` raises `SecurityError` — asymmetric empty-key handling undocumented. Harmonize or document the deliberate design choice. |
+| ADV-077 | DevOps P8-T8.2 | Post-launch | ADVISORY | `signing_key=None` is opt-in, not enforced at boot. No bootstrapper startup check requires `ARTIFACT_SIGNING_KEY` in production. Add fail-fast presence check in bootstrapper when deployment mode is production. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P8-T8.2 — Security Hardening (ADV-040, ADV-057, ADV-058, ADV-067)
+
+**Summary**: Drained ADV-040, ADV-057, ADV-058, ADV-067. Added HMAC-SHA256 signing to
+ModelArtifact pickle serialization (ADV-040). Source maps disabled in production builds
+(ADV-057). esbuild >=0.25.0 pinned via npm overrides (ADV-058). Opacus secure_mode evaluated
+and documented in ADR-0017a — deferred due to torchcsprng unavailability (ADV-067).
+HMAC primitives extracted to shared/security/hmac_signing.py per ADR-0001.
+ARTIFACT_SIGNING_KEY documented in .env.example.
+
+**QA** (FINDING → fixed): Missing test for load(unsigned, key=key) and missing direct
+primitive tests for compute_hmac/verify_hmac. Fixed: added test_hmac_signing.py (5 tests)
+and test_load_unsigned_artifact_with_key_raises_security_error. Advisory: empty-key
+asymmetry between save (ValueError) and load (SecurityError) undocumented.
+
+**Architecture** (FINDING → fixed): Test file imported SecurityError from synthesizer/models
+instead of canonical shared/security. Fixed: import path corrected, __all__ annotated as
+backward-compat shim.
+
+**UI/UX** (SKIP): No template/route/form changes. Build config only.
+
+**DevOps** (PASS): HMAC implementation correct — constant-time comparison, anti-downgrade
+via _looks_signed, reject-on-empty-key. No secrets committed. esbuild CVE mitigated.
+Advisory: signing_key=None opt-in, no bootstrapper enforcement in production.
+
+**Advisories drained**: ADV-040, ADV-057, ADV-058, ADV-067. Remaining: 5.
+**New advisories**: ADV-076 (empty-key asymmetry), ADV-077 (signing key not enforced at boot).
+
+**Lessons learned**:
+- When extracting primitives to shared/, the test file must import from the canonical
+  location — it's the demonstration of "how to use this." Re-exports via __all__ are
+  backward-compat shims, not the primary import path.
+- Shared security primitives need their own test file independent of consumers.
+  "Covered by integration" is not the same as "contract specified."
+- The _looks_signed anti-downgrade heuristic is a mature defensive pattern worth
+  replicating in other contexts where format detection prevents bypass.
 
 ---
 

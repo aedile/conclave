@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   server: {
     proxy: {
@@ -22,7 +22,8 @@ export default defineConfig({
   build: {
     // Target modern browsers — no legacy polyfills needed for air-gapped deployment
     target: "es2020",
-    // Emit source maps for production debugging (strip in hardened builds)
-    sourcemap: true,
+    // ADV-057: Disable source maps in production to prevent internal source disclosure.
+    // Development builds retain source maps for debugging convenience.
+    sourcemap: mode !== "production",
   },
-});
+}));

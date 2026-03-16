@@ -8,22 +8,86 @@ Design principles:
   - Pickle serialisation: consistent with SDV's own model persistence approach
     and avoids a hard dependency on torch.save (which would require the full
     torch runtime at load time even for metadata-only operations).
+  - HMAC-SHA256 signing (ADV-040): when a ``signing_key`` is provided, the
+    pickle payload is prepended with a 32-byte HMAC-SHA256 signature.  On
+    load, the signature is verified before unpickling.  This ensures only
+    self-produced artifacts are trusted — an artifact with a missing or
+    incorrect signature raises :exc:`SecurityError` rather than silently
+    executing an attacker-controlled pickle stream.
   - Metadata captured at train time: column names, dtypes, and nullable flags
     are stored in the artifact so that :meth:`SynthesisEngine.generate` can
     enforce schema consistency without re-reading the source Parquet file.
 
+File format (signed):
+  bytes 0-31   : HMAC-SHA256 signature (32 bytes, raw binary)
+  bytes 32-end : pickle payload
+
+File format (unsigned, backward-compatible):
+  bytes 0-end  : pickle payload (no signature prefix)
+
+The two formats are distinguished by the ``signing_key`` argument at call time:
+  - ``signing_key`` provided → signed format expected/produced
+  - ``signing_key`` omitted  → unsigned format expected/produced
+
+Loading a signed file without a key raises :exc:`SecurityError` — the engine
+detects the HMAC header by checking whether the file starts with non-pickle
+bytes followed by valid pickle magic at byte 32, preventing silent bypass of
+signature verification.
+
 Task: P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
+Task: P8-T8.2  — Security Hardening (ADV-040: HMAC-SHA256 pickle signing)
 ADR: ADR-0017 (CTGAN + Opacus; per-table training strategy)
 """
 
 from __future__ import annotations
 
 import logging
-import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; not user-supplied data
+import os
+import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) ensures only self-produced artifacts are trusted before unpickling
 from dataclasses import dataclass, field
 from typing import Any
 
+from synth_engine.shared.security.hmac_signing import (
+    HMAC_DIGEST_SIZE,
+    SecurityError,
+    compute_hmac,
+    verify_hmac,
+)
+
+# SecurityError is re-exported here for backward compat; canonical: synth_engine.shared.security
+__all__ = ["ModelArtifact", "SecurityError"]
+
 _logger = logging.getLogger(__name__)
+
+#: Pickle protocol-2+ opcode byte (``0x80``).  All artifacts produced by
+#: :meth:`ModelArtifact.save` use ``pickle.HIGHEST_PROTOCOL`` (≥ 2), so a
+#: valid unsigned payload always begins with this byte.
+_PICKLE_OPCODE: int = 0x80
+
+
+def _looks_signed(raw: bytes) -> bool:
+    """Heuristically detect whether *raw* is a signed (HMAC-prefixed) artifact.
+
+    A signed file has 32 bytes of raw HMAC digest followed by a pickle payload
+    that starts with the pickle protocol-2+ opcode (``0x80``).  An unsigned
+    file starts directly with the opcode.
+
+    This check is deliberately conservative: it only returns ``True`` when the
+    evidence is unambiguous (byte 0 is not a pickle opcode AND byte 32 is the
+    pickle opcode AND the file is long enough to contain both parts).
+
+    Args:
+        raw: The full raw bytes read from the artifact file.
+
+    Returns:
+        ``True`` if the file appears to be a signed artifact, ``False``
+        otherwise.
+    """
+    return (
+        len(raw) > HMAC_DIGEST_SIZE
+        and raw[0] != _PICKLE_OPCODE
+        and raw[HMAC_DIGEST_SIZE] == _PICKLE_OPCODE
+    )
 
 
 @dataclass
@@ -43,11 +107,15 @@ class ModelArtifact:
 
     Example::
 
+        signing_key = bytes.fromhex(os.environ["ARTIFACT_SIGNING_KEY"])
+
         engine = SynthesisEngine()
         artifact = engine.train("customers", "/tmp/customers.parquet")
-        artifact.save("/artifacts/customers.pkl")
+        artifact.save("/artifacts/customers.pkl", signing_key=signing_key)
 
-        loaded = ModelArtifact.load("/artifacts/customers.pkl")
+        loaded = ModelArtifact.load(
+            "/artifacts/customers.pkl", signing_key=signing_key
+        )
         df = engine.generate(loaded, n_rows=500)
     """
 
@@ -57,55 +125,139 @@ class ModelArtifact:
     column_dtypes: dict[str, str] = field(default_factory=dict)
     column_nullables: dict[str, bool] = field(default_factory=dict)
 
-    def save(self, path: str) -> str:
-        """Serialise the artifact to a pickle file.
+    def save(self, path: str, *, signing_key: bytes | None = None) -> str:
+        """Serialise the artifact to a pickle file, optionally with HMAC signing.
 
-        Uses Python's standard ``pickle`` module for portability.  The saved
-        file can be loaded with :meth:`load` on any machine with the same
-        Python and SDV version.
+        When ``signing_key`` is provided, the output file format is::
+
+            [32-byte HMAC-SHA256 over the pickle payload] + [pickle payload]
+
+        This ensures that :meth:`load` can verify the artifact's integrity and
+        authenticity before unpickling — defending against tampered or
+        adversarially crafted pickle files.
+
+        When ``signing_key`` is ``None``, the file is written without a
+        signature (backward-compatible unsigned format).
 
         Args:
             path: Filesystem path where the artifact will be written.
                 Parent directories must already exist.
+            signing_key: Raw signing key bytes for HMAC-SHA256 authentication.
+                Use ``bytes.fromhex(os.environ["ARTIFACT_SIGNING_KEY"])`` for
+                production wiring.  If ``None``, the artifact is saved unsigned
+                (backward-compatible mode).  An empty bytes value (``b""``) is
+                rejected with :exc:`ValueError` because an empty key provides
+                no security.
 
         Returns:
             The ``path`` argument unchanged, allowing callers to chain:
-            ``saved_path = artifact.save(path)``.
+            ``saved_path = artifact.save(path, signing_key=key)``.
 
         Raises:
+            ValueError: If ``signing_key`` is an empty bytes value.
             OSError: If the parent directory does not exist or write
                 permission is denied.
         """
+        if signing_key is not None and len(signing_key) == 0:
+            raise ValueError(
+                "signing_key must not be empty. "
+                "Provide a key of at least 32 bytes or pass signing_key=None "
+                "to save an unsigned artifact."
+            )
+
+        payload = pickle.dumps(self, protocol=pickle.HIGHEST_PROTOCOL)  # nosec B301 — payload is self-produced; HMAC signing below authenticates it before any future load
+
+        if signing_key is not None:
+            signature = compute_hmac(signing_key, payload)
+            data = signature + payload
+            _logger.info(
+                "ModelArtifact for table '%s' saved with HMAC-SHA256 signature to %s",
+                self.table_name,
+                path,
+            )
+        else:
+            data = payload
+            _logger.info(
+                "ModelArtifact for table '%s' saved (unsigned) to %s",
+                self.table_name,
+                path,
+            )
+
         with open(path, "wb") as f:
-            pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
-        _logger.info("ModelArtifact for table '%s' saved to %s", self.table_name, path)
+            f.write(data)
+
         return path
 
     @classmethod
-    def load(cls, path: str) -> ModelArtifact:
+    def load(cls, path: str, *, signing_key: bytes | None = None) -> ModelArtifact:
         """Deserialise a :class:`ModelArtifact` from a pickle file.
+
+        When ``signing_key`` is provided, the file is expected to begin with a
+        32-byte HMAC-SHA256 signature over the remainder.  The signature is
+        verified via :func:`hmac.compare_digest` before unpickling.  If
+        verification fails, :exc:`SecurityError` is raised and the pickle data
+        is never executed.
+
+        When ``signing_key`` is ``None``, the file is loaded in unsigned mode
+        (backward-compatible).  If the file appears to be signed (i.e., it
+        carries an HMAC header), :exc:`SecurityError` is raised to prevent
+        silent downgrade attacks — an attacker cannot bypass verification by
+        simply omitting the key.
 
         Args:
             path: Filesystem path previously written by :meth:`save`.
+            signing_key: Raw signing key bytes.  Must match the key used at
+                :meth:`save` time.  If ``None``, unsigned mode is used.
 
         Returns:
             The deserialised :class:`ModelArtifact` instance.
 
         Raises:
             FileNotFoundError: If no file exists at ``path``.
+            SecurityError: If HMAC verification fails for any reason:
+                wrong key, tampered payload, signed file loaded without a key,
+                or unsigned file loaded with a key.
             pickle.UnpicklingError: If the file is not a valid pickle or was
                 produced by an incompatible version.
         """
-        import os
-
         if not os.path.exists(path):
             raise FileNotFoundError(f"ModelArtifact file not found: {path}")
 
         with open(path, "rb") as f:
-            artifact = pickle.load(f)  # noqa: S301  # nosec B301 — loading self-produced artifacts signed by this codebase; not user-supplied data
+            raw = f.read()
+
+        if signing_key is not None:
+            if len(raw) <= HMAC_DIGEST_SIZE:
+                raise SecurityError(
+                    "HMAC verification failed: file is too short to contain a valid "
+                    f"HMAC header (expected >{HMAC_DIGEST_SIZE} bytes, got {len(raw)})."
+                )
+            stored_digest = raw[:HMAC_DIGEST_SIZE]
+            pickle_payload = raw[HMAC_DIGEST_SIZE:]
+            if not verify_hmac(signing_key, pickle_payload, stored_digest):
+                raise SecurityError(
+                    "HMAC verification failed: the artifact signature does not match "
+                    "the provided signing key.  The artifact may have been tampered "
+                    "with or was signed with a different key."
+                )
+            _logger.info("ModelArtifact HMAC-SHA256 signature verified for path %s.", path)
+        else:
+            # No key provided — check whether the file appears to be signed.
+            # A signed file cannot be silently downgraded to unsigned mode;
+            # that would allow an attacker to bypass HMAC verification by
+            # simply omitting the key.
+            if _looks_signed(raw):
+                raise SecurityError(
+                    "HMAC verification failed: the artifact appears to be signed "
+                    "(HMAC header detected) but no signing_key was provided. "
+                    "Pass the signing_key used at save time to load this artifact."
+                )
+            pickle_payload = raw
+
+        artifact = pickle.loads(pickle_payload)  # noqa: S301  # nosec B301 — payload is either unsigned (trusted caller) or HMAC-verified above; not user-supplied data
         _logger.info(
             "ModelArtifact for table '%s' loaded from %s",
             artifact.table_name,
             path,
         )
-        return artifact  # type: ignore[no-any-return]  # pickle.load returns Any; artifact is ModelArtifact by convention
+        return artifact  # type: ignore[no-any-return]  # pickle.loads returns Any; artifact is ModelArtifact by convention
