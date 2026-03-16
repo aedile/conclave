@@ -19,6 +19,47 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 9 End-of-Phase Retrospective
+
+**Phase Goal**: Harden the codebase for production readiness. Drain remaining 5 advisories,
+strengthen operational infrastructure, and close correctness gaps. No new features.
+
+**Exit Criteria Verification**:
+- All 5 remaining advisories drained (ADV-073–077). Open count: **0**.
+- Operator manual current with Phase 6–8 changes (T9.2 — 160+ lines added).
+- Bootstrapper main.py decomposed below 200 LOC (T9.3 — 533→183 LOC).
+- All quality gates passing. 809 tests, 96.23% coverage.
+
+**What went well**:
+1. Advisory drain was clean — T9.1 closed all 5 advisories in a single task without
+   creating new ones. The advisory system is now at equilibrium.
+2. T9.3 bootstrapper decomposition was a pure refactor — zero test modifications required,
+   import-linter contracts held, backward compat preserved via re-exports.
+3. Review agents caught 5 real documentation errors in T9.2 (wrong exception class,
+   wrong DB credentials, over-claimed validation scope, env var misclassification).
+4. ADR-0027 was created proactively for the re-export pattern, making architectural
+   decisions discoverable.
+
+**What could improve**:
+1. T9.2 documentation was drafted from memory, not verified against source code, leading
+   to 4 factual errors caught by reviewers. Documentation that references specific code
+   artifacts (exception names, env var names, function signatures) should be mechanically
+   verified before committing.
+2. The Docker-secrets cluster in main.py couldn't be extracted due to test-patch closure
+   semantics. This is an architectural tax that would be resolved by migrating tests to
+   patch at the definition site rather than the import site.
+3. lifecycle.py _lifespan hook has no unit test coverage (pre-existing gap, now more
+   visible after decomposition).
+
+**Process observations**:
+- Phase 9 was 3 tasks across advisory drain, documentation, and architecture. This is the
+  right scope for a hardening sprint — focused, no new features, no new debt.
+- Open advisory count has been at 0 since T9.1 merged. The project is debt-free.
+- The 4-reviewer pattern continues to surface genuine issues: T9.2 had 5 findings across
+  QA and DevOps, T9.3 had 2 findings across Architecture and DevOps. Zero false positives.
+
+---
+
 ### [2026-03-16] P9-T9.3 — Bootstrapper Decomposition
 
 **Summary**: Decomposed `bootstrapper/main.py` from 533 LOC (20 KB) to 183 LOC by
