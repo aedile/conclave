@@ -43,6 +43,7 @@ from sqlmodel import Field, SQLModel
 from synth_engine.shared.db import get_engine
 from synth_engine.shared.security.ale import EncryptedString
 from synth_engine.shared.security.vault import VaultState
+from tests.conftest_types import PostgreSQLProc
 
 # ---------------------------------------------------------------------------
 # pytest-postgresql process fixture
@@ -123,7 +124,7 @@ def _reset_vault() -> Generator[None]:
 # ---------------------------------------------------------------------------
 
 
-def _create_database(proc: factories.postgresql_proc) -> None:  # type: ignore[valid-type]
+def _create_database(proc: PostgreSQLProc) -> None:
     """Create the integration test database using psycopg2.
 
     Connects to the ``postgres`` maintenance database on the ephemeral
@@ -171,7 +172,7 @@ def ale_env_key() -> str:
 
 @pytest.fixture(scope="module")
 def _provision_test_db(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[None]:
     """Create the test database once per module and drop it on teardown.
 
@@ -211,7 +212,7 @@ def _provision_test_db(
 
 @pytest.fixture
 def db_engine(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
     _provision_test_db: None,
     ale_env_key: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -259,7 +260,7 @@ def vault_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def vault_db_engine(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
     _provision_test_db: None,
     vault_env: None,
     monkeypatch: pytest.MonkeyPatch,

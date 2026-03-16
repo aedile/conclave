@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import os
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,9 +31,9 @@ from synth_engine.shared.security.vault import VaultState
 
 
 @pytest.fixture(autouse=True)
-def _reset_vault() -> None:
+def _reset_vault() -> Generator[None]:
     """Seal and clear vault KEK after every test."""
-    yield  # type: ignore[misc]
+    yield
     VaultState.reset()
 
 

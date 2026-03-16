@@ -45,7 +45,7 @@ import logging
 import os
 import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) ensures only self-produced artifacts are trusted before unpickling
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from synth_engine.shared.security.hmac_signing import (
     HMAC_DIGEST_SIZE,
@@ -269,4 +269,4 @@ class ModelArtifact:
             artifact.table_name,
             path,
         )
-        return artifact  # type: ignore[no-any-return]  # pickle.loads returns Any; artifact is ModelArtifact by convention
+        return cast("ModelArtifact", artifact)

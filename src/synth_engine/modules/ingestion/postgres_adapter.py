@@ -28,7 +28,7 @@ Task: P3-T3.1 — Target Ingestion Engine
 from __future__ import annotations
 
 from collections.abc import Generator
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import Engine, MetaData, Table, create_engine, inspect, text
 
@@ -85,12 +85,7 @@ class SchemaInspector:
             List of column descriptor dicts from SQLAlchemy reflection.
         """
         inspector = inspect(self._engine)
-        # Justification for ignore[return-value] below: SQLAlchemy inspect()
-        # returns TypedDict-like ReflectedColumn structs; dict[str, Any] is the
-        # documented public shape callers rely on. Importing the private
-        # SQLAlchemy types would add an undocumented private API dependency
-        # that breaks across minor versions.
-        return inspector.get_columns(table_name, schema=schema)  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], inspector.get_columns(table_name, schema=schema))
 
     def get_foreign_keys(self, table_name: str, schema: str = "public") -> list[dict[str, Any]]:
         """Return foreign key metadata for the given table.
@@ -103,12 +98,7 @@ class SchemaInspector:
             List of FK descriptor dicts from SQLAlchemy reflection.
         """
         inspector = inspect(self._engine)
-        # Justification for ignore[return-value] below: SQLAlchemy inspect()
-        # returns TypedDict-like ReflectedForeignKeyConstraint structs;
-        # dict[str, Any] is the documented public shape callers rely on.
-        # Importing the private SQLAlchemy types would add an undocumented
-        # private API dependency that breaks across minor versions.
-        return inspector.get_foreign_keys(table_name, schema=schema)  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], inspector.get_foreign_keys(table_name, schema=schema))
 
 
 class PostgresIngestionAdapter:

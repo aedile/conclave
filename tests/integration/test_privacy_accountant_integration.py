@@ -46,6 +46,7 @@ from synth_engine.modules.privacy.accountant import spend_budget
 from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
 from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
 from synth_engine.shared.db import get_async_engine, get_async_session
+from tests.conftest_types import PostgreSQLProc
 
 # ---------------------------------------------------------------------------
 # pytest-postgresql process fixture
@@ -83,7 +84,7 @@ def _require_postgresql() -> None:
 
 @pytest_asyncio.fixture()
 async def pg_async_engine(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
 ) -> AsyncGenerator[AsyncEngine]:
     """Provide an async SQLAlchemy engine connected to the ephemeral PostgreSQL instance.
 

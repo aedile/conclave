@@ -20,6 +20,45 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P18-T18.1 — Type Ignore Suppression Audit & Reduction
+
+**Changes**:
+- `tests/conftest_types.py`: New module providing `PostgreSQLProc` type alias (`pytest_postgresql.executor.PostgreSQLExecutor`) — eliminates the need to annotate with `factories.postgresql_proc` (a function, not a type).
+- 8 integration/security test files: Replaced all 36 `[valid-type]` suppressions with `PostgreSQLProc` type alias.
+- 12 `src/` files: Eliminated 9 suppressions via `cast()` (SQLAlchemy inspector returns, pickle.loads, boto3 Body.read()), `sqlmodel.col()` (SQLModel column expressions in jobs router), and if/else type narrowing (tasks.py checkpoint_dir). Added written justification to all 15 remaining suppressions.
+- 11 test files: Eliminated `[misc]` suppressions by correcting fixture return types from `-> None` to `-> Generator[None, None, None]` / `-> Iterator[None]` (mypy requires a Generator return type annotation on yield-bearing functions). Fixed `@contextmanager` helpers in test_sse.py.
+
+**Counts**:
+- `src/`: 24 → 15 (target ≤15: PASS)
+- `tests/`: 147 → 98 (target ≤100: PASS)
+
+**Quality gates**: mypy strict PASS, ruff PASS, bandit PASS, 842 unit tests PASS (96.25% coverage), 72 integration tests PASS.
+
+**Review**: QA FINDING (advisory), DevOps PASS, Architecture PASS
+
+**QA** (FINDING — advisory, non-blocking per Rule 16):
+dead-code PASS. reachable-handlers PASS. exception-specificity PASS. silent-failures PASS.
+coverage-gate PASS — 96.25% total. edge-cases PASS. meaningful-asserts PASS.
+FINDING (advisory): (1) Commit message says "100", RETRO_LOG says "98", actual measured count
+is "~99". Minor inconsistency — all within target ≤100. (2) 7 `# type: ignore[misc]`
+suppressions in `tests/unit/test_sse.py` lack written justification comments — pre-existing
+debt, not introduced by this task. Batched per Rule 16.
+
+**DevOps** (PASS):
+hardcoded-credentials PASS. no-pii-in-code PASS. supply-chain PASS — no new dependencies.
+ci-observability PASS — mypy strict mode unchanged. secrets-hygiene PASS.
+
+**Architecture** (PASS):
+file-placement PASS — `tests/conftest_types.py` correctly placed at test root for cross-directory
+import. naming-conventions PASS. dependency-direction PASS — no circular imports introduced.
+abstraction-level PASS — `PostgreSQLProc` alias eliminates 36 redundant suppressions.
+interface-contracts PASS.
+
+**Retrospective Note**: The ruff formatter repeatedly converted single-symbol `from X import Y  # type: ignore` lines into multi-line block imports, moving the comment to the symbol line (where mypy cannot see it). The fix was to place the `# type: ignore` on the `from X import (  # type: ignore` line itself and let ruff format the block body without comments. This is the canonical pattern for type-ignored block imports.
+
+---
+
+
 ### [2026-03-16] Phase 17 End-of-Phase Retrospective
 
 **Phase Goal**: Close ADV-014 Docker base image pinning debt, fix Dashboard WCAG

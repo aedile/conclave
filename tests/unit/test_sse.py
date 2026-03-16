@@ -8,6 +8,7 @@ Task: P5-T5.1 — Task Orchestration API Core (DevOps fix)
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -45,8 +46,8 @@ def _session_factory_for(job: Any | None) -> Any:
     session = MagicMock()
     session.get.return_value = job
 
-    @contextmanager  # type: ignore[misc]
-    def _factory() -> Any:
+    @contextmanager
+    def _factory() -> Iterator[MagicMock]:
         yield session
 
     return _factory
@@ -138,8 +139,8 @@ class TestJobEventStream:
 
         call_count = 0
 
-        @contextmanager  # type: ignore[misc]
-        def _cycling_factory() -> Any:
+        @contextmanager
+        def _cycling_factory() -> Iterator[MagicMock]:
             nonlocal call_count
             session = MagicMock()
             session.get.return_value = job_training if call_count == 0 else job_complete

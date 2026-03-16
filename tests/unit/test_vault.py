@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import os
+from collections.abc import Generator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -20,9 +21,9 @@ from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture(autouse=True)
-def reset_vault_state() -> None:
+def reset_vault_state() -> Generator[None]:
     """Reset VaultState class-level state after each test for isolation."""
-    yield  # type: ignore[misc]
+    yield
     # Teardown: import lazily so the fixture works even before impl exists
     try:
         from synth_engine.shared.security.vault import VaultState

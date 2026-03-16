@@ -68,7 +68,9 @@ class TestDPCompatibleCTGANSchemaIntegration:
 
     def test_fit_and_sample_returns_dataframe(self, persons_df: pd.DataFrame) -> None:
         """fit() + sample() must return a pd.DataFrame."""
-        from sdv.metadata import SingleTableMetadata  # type: ignore[import-untyped]
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
+        )
 
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 
@@ -87,7 +89,9 @@ class TestDPCompatibleCTGANSchemaIntegration:
 
     def test_sample_returns_correct_row_count(self, persons_df: pd.DataFrame) -> None:
         """sample(n_rows=N) must return exactly N rows."""
-        from sdv.metadata import SingleTableMetadata  # type: ignore[import-untyped]
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
+        )
 
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 
@@ -110,7 +114,9 @@ class TestDPCompatibleCTGANSchemaIntegration:
         Per Known Failure Pattern: return-value assertions must check BOTH
         schema (column names) AND content (row count). This test covers schema.
         """
-        from sdv.metadata import SingleTableMetadata  # type: ignore[import-untyped]
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
+        )
 
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 
@@ -133,7 +139,9 @@ class TestDPCompatibleCTGANSchemaIntegration:
 
         Per Known Failure Pattern: return-value assertions must check content.
         """
-        from sdv.metadata import SingleTableMetadata  # type: ignore[import-untyped]
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
+        )
 
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 
@@ -184,7 +192,9 @@ class TestDPCompatibleCTGANVanillaQuality:
 
         Uses ProfileDelta.compare() from the profiler module per AC-5.
         """
-        from sdv.metadata import SingleTableMetadata  # type: ignore[import-untyped]
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
+        )
 
         from synth_engine.modules.profiler.profiler import StatisticalProfiler
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
@@ -234,7 +244,9 @@ class TestDPCompatibleCTGANVanillaQuality:
         Per Known Failure Pattern: return-value assertions check both schema
         and content (row count).
         """
-        from sdv.metadata import SingleTableMetadata  # type: ignore[import-untyped]
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
+        )
 
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 
@@ -257,7 +269,9 @@ class TestDPCompatibleCTGANVanillaQuality:
         Per Known Failure Pattern: return-value assertions check both schema
         (dtypes) and content (row count).
         """
-        from sdv.metadata import SingleTableMetadata  # type: ignore[import-untyped]
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
+        )
 
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 

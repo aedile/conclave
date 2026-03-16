@@ -13,6 +13,7 @@ Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,9 +58,9 @@ class _TestPlainModel(SQLModel, table=True):  # type: ignore[call-arg]
 
 
 @pytest.fixture(autouse=True)
-def _reset_vault() -> None:
+def _reset_vault() -> Generator[None]:
     """Seal vault and clear ALE_KEY after every test."""
-    yield  # type: ignore[misc]
+    yield
     from synth_engine.shared.security.vault import VaultState
 
     VaultState.reset()

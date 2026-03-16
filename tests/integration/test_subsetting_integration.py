@@ -35,6 +35,7 @@ from synth_engine.shared.schema_topology import (
     ForeignKeyInfo,
     SchemaTopology,
 )
+from tests.conftest_types import PostgreSQLProc
 
 # ---------------------------------------------------------------------------
 # pytest-postgresql process fixture
@@ -78,7 +79,7 @@ _VFK_TARGET_DBNAME = "conclave_vfk_target"
 
 
 def _connect_pg(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str = "postgres",
 ) -> psycopg2.extensions.connection:
     """Open a psycopg2 superuser connection to the ephemeral PG instance.
@@ -101,7 +102,7 @@ def _connect_pg(
     return conn
 
 
-def _create_database(proc: factories.postgresql_proc, dbname: str) -> None:  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+def _create_database(proc: PostgreSQLProc, dbname: str) -> None:
     """Create a database if it does not already exist.
 
     Args:
@@ -116,7 +117,7 @@ def _create_database(proc: factories.postgresql_proc, dbname: str) -> None:  # t
     conn.close()
 
 
-def _drop_database(proc: factories.postgresql_proc, dbname: str) -> None:  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+def _drop_database(proc: PostgreSQLProc, dbname: str) -> None:
     """Terminate connections and drop a database.
 
     Args:
@@ -136,7 +137,7 @@ def _drop_database(proc: factories.postgresql_proc, dbname: str) -> None:  # typ
 
 
 def _create_three_table_schema(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str,
     with_serial: bool = False,
 ) -> None:
@@ -180,7 +181,7 @@ def _create_three_table_schema(
 
 
 def _populate_source(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str,
 ) -> None:
     """Populate a source database with 10 departments, 30 employees, 60 salaries.
@@ -262,7 +263,7 @@ def _make_three_table_topology() -> SchemaTopology:
 
 @pytest.fixture(scope="module")
 def subsetting_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[tuple[str, str]]:
     """Create source and target databases; yield their connection URLs.
 
@@ -393,7 +394,7 @@ def subsetting_dbs(
 
 @pytest.fixture(scope="module")
 def rollback_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[tuple[str, str]]:
     """Create isolated source and target databases for the Saga rollback test.
 
@@ -438,7 +439,7 @@ def rollback_dbs(
 
 @pytest.fixture(scope="module")
 def vfk_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[tuple[str, str]]:
     """Create source and target DBs with NO physical FK constraints for VFK test.
 

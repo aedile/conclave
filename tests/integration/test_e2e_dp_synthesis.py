@@ -31,6 +31,7 @@ from __future__ import annotations
 import math
 import tempfile
 import warnings
+from collections.abc import Generator
 from pathlib import Path
 
 import pandas as pd
@@ -75,7 +76,7 @@ def persons_df() -> pd.DataFrame:
 
 
 @pytest.fixture
-def persons_parquet(persons_df: pd.DataFrame) -> str:
+def persons_parquet(persons_df: pd.DataFrame) -> Generator[str]:
     """Write persons_df to a temporary Parquet file.
 
     Returns:
@@ -85,7 +86,7 @@ def persons_parquet(persons_df: pd.DataFrame) -> str:
     with tempfile.TemporaryDirectory() as tmpdir:
         path = str(Path(tmpdir) / "persons.parquet")
         persons_df.to_parquet(path, index=False, engine="pyarrow")
-        yield path  # type: ignore[misc]
+        yield path
 
 
 # ---------------------------------------------------------------------------

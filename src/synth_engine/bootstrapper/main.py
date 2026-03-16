@@ -68,7 +68,7 @@ _SECRETS_DIR = Path("/run/secrets")
 try:
     from synth_engine.modules.synthesizer.storage import MinioStorageBackend
 except ImportError:  # pragma: no cover — synthesizer group not installed
-    MinioStorageBackend = None  # type: ignore[assignment,misc]
+    MinioStorageBackend = None  # type: ignore[assignment,misc]  # conditional import fallback: None when synthesizer group absent; type narrowed at call sites
 
 
 def _read_secret(name: str) -> str:

@@ -231,10 +231,12 @@ def _run_synthesis_job_impl(
     last_ckpt_path: str | None = None
 
     # Determine whether to use an explicit checkpoint_dir or a temp dir.
-    _tmp_dir_ctx = tempfile.TemporaryDirectory() if checkpoint_dir is None else None
-    effective_checkpoint_dir: str = (
-        checkpoint_dir if checkpoint_dir is not None else _tmp_dir_ctx.name  # type: ignore[union-attr]
-    )
+    if checkpoint_dir is not None:
+        _tmp_dir_ctx: tempfile.TemporaryDirectory[str] | None = None
+        effective_checkpoint_dir: str = checkpoint_dir
+    else:
+        _tmp_dir_ctx = tempfile.TemporaryDirectory()
+        effective_checkpoint_dir = _tmp_dir_ctx.name
 
     try:
         while completed_epochs < total:
@@ -314,7 +316,7 @@ def _run_synthesis_job_impl(
 # ---------------------------------------------------------------------------
 
 
-@huey.task()  # type: ignore[untyped-decorator]
+@huey.task()  # type: ignore[untyped-decorator]  # huey.task() has no type stub; unfixable without upstream py.typed marker
 def run_synthesis_job(job_id: int) -> None:
     """Huey background task: run a synthesis training job by ID.
 
