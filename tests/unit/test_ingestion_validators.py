@@ -7,6 +7,7 @@ CONSTITUTION Priority 0: Security — SSL enforcement is mandatory for remote co
   Error messages MUST NOT expose embedded credentials from connection URLs.
 CONSTITUTION Priority 3: TDD — tests updated for DevOps security finding (P3-T3.1).
 Task: P3-T3.1 — Target Ingestion Engine
+Task: P20-T20.4 — Architecture Tightening (ADV-020: configurable sslmode)
 """
 
 from __future__ import annotations
@@ -163,3 +164,80 @@ class TestValidateConnectionString:
             validate_connection_string(url)
         assert "s3cr3t" not in str(exc_info.value)
         assert "adm" not in str(exc_info.value)
+
+
+class TestValidateConnectionStringDockerSslOverride:
+    """Tests for ADV-020: configurable sslmode enforcement via CONCLAVE_SSL_REQUIRED.
+
+    ADV-020 finding: sslmode=require is enforced for all non-loopback hosts,
+    which blocks internal Docker hostnames (e.g. ``postgres``, ``db``) that
+    communicate over the Docker bridge network without SSL configured.
+
+    Fix: When the ``CONCLAVE_SSL_REQUIRED`` environment variable is set to
+    ``false`` (case-insensitive), the validator skips the sslmode enforcement
+    for remote hosts. This allows Docker Compose deployments to use internal
+    hostnames without SSL while production deployments (default: SSL required)
+    remain secure.
+
+    Security note: ``CONCLAVE_SSL_REQUIRED=false`` is ONLY safe for:
+    - Docker bridge networks (single-host, traffic never leaves kernel stack)
+    - Development/test environments
+
+    Production deployments MUST leave ``CONCLAVE_SSL_REQUIRED`` unset or
+    set to ``true``.
+    """
+
+    def test_docker_hostname_allowed_when_ssl_not_required(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Docker internal hostname passes validation when CONCLAVE_SSL_REQUIRED=false.
+
+        Arrange: Set CONCLAVE_SSL_REQUIRED=false to simulate Docker Compose environment.
+        Act: validate_connection_string with Docker internal hostname (no sslmode).
+        Assert: No ValueError raised.
+        """
+        monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
+        # Should not raise — Docker bridge network, SSL not required
+        validate_connection_string("postgresql+psycopg2://user:pass@postgres:5432/conclave")
+
+    def test_docker_hostname_allowed_case_insensitive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CONCLAVE_SSL_REQUIRED=FALSE (uppercase) is treated as false."""
+        monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "FALSE")
+        validate_connection_string("postgresql+psycopg2://user:pass@db:5432/mydb")
+
+    def test_remote_host_still_requires_ssl_when_env_var_is_true(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Explicit CONCLAVE_SSL_REQUIRED=true still enforces sslmode=require."""
+        monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "true")
+        with pytest.raises(ValueError, match="sslmode=require"):
+            validate_connection_string(
+                "postgresql+psycopg2://user:pass@db.example.com:5432/prod"
+            )
+
+    def test_remote_host_still_requires_ssl_when_env_var_absent(self) -> None:
+        """Default behaviour (no env var) enforces sslmode=require for remote hosts."""
+        # No monkeypatch — CONCLAVE_SSL_REQUIRED is not set in the test environment
+        # Ensure any prior test does not leak env state by testing the default path
+        with pytest.raises(ValueError, match="sslmode=require"):
+            validate_connection_string(
+                "postgresql+psycopg2://user:pass@db.example.com:5432/prod"
+            )
+
+    def test_ssl_override_false_still_rejects_invalid_scheme(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CONCLAVE_SSL_REQUIRED=false does not bypass scheme validation."""
+        monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
+        with pytest.raises(ValueError, match="unsupported scheme"):
+            validate_connection_string("mysql://user:pass@db:3306/mydb")
+
+    def test_ssl_override_false_still_rejects_malformed_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CONCLAVE_SSL_REQUIRED=false does not bypass URL format validation."""
+        monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
+        with pytest.raises(ValueError, match="Invalid"):
+            validate_connection_string("not-a-url")
