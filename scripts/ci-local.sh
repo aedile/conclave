@@ -192,7 +192,10 @@ run_stage() {
     set_stage_elapsed "$name" "$_elapsed"
 
     if [[ $_exit_code -eq 0 ]]; then
-        set_stage_status "$name" "PASS"
+        _current="$(get_stage_status "$name")"
+        if [[ "$_current" != "SKIP" ]]; then
+            set_stage_status "$name" "PASS"
+        fi
         print_pass "${name} completed in ${_elapsed}s"
     else
         set_stage_status "$name" "FAIL"

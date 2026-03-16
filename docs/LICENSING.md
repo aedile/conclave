@@ -68,7 +68,7 @@ differ across container restarts, invalidating the license.
 
 ## 2. Challenge/Response Activation Flow
 
-Activation uses a three-step protocol:
+Activation uses a four-step protocol:
 
 ```text
 [Air-gapped machine]                    [Internet-connected device]

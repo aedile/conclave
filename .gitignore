@@ -62,3 +62,6 @@ secrets/*.key
 secrets/*.pem
 secrets/*.p12
 secrets/*.pfx
+
+# CI-generated artefacts — NEVER commit
+sbom.json
