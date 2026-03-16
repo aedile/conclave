@@ -90,7 +90,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Phase 12 — Final Hygiene & Tooling Polish is in progress.**
+**Phase 13 — Pre-commit Repair & README Finalization is in progress.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -108,7 +108,8 @@ Security is Priority Zero — it overrides every other consideration.
 | **9 — Docs & Advisory Drain** | **Complete** | Operator manual refresh, advisory drain, observability |
 | **10 — Test Infrastructure Repair & Final Polish** | **Complete** | Stale TODO drain, README updates, test infrastructure repair |
 | **11 — Documentation Currency & Workspace Hygiene** | **Complete** | Documentation updates, workspace cleanup, architectural gap ADR |
-| **12 — Final Hygiene & Tooling Polish** | **In Progress** | Stale branch cleanup, vulture whitelist, README currency |
+| **12 — Final Hygiene & Tooling Polish** | **Complete** | Stale branch cleanup, vulture whitelist, README currency |
+| **13 — Pre-commit Repair & README Finalization** | **In Progress** | Fix ruff/vulture whitelist gate, README Phase 12 completion |
 
 ---
 
