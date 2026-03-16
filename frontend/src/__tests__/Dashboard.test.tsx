@@ -864,3 +864,110 @@ describe("Dashboard — aria-live regions", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// WCAG Form Aria Parity (T17.2)
+// ---------------------------------------------------------------------------
+
+describe("Dashboard — WCAG form aria attributes (T17.2)", () => {
+  it("all 4 form inputs have aria-required='true'", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      const tableInput = screen.getByLabelText(/table name/i);
+      const parquetInput = screen.getByLabelText(/parquet path/i);
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+
+      expect(tableInput).toHaveAttribute("aria-required", "true");
+      expect(parquetInput).toHaveAttribute("aria-required", "true");
+      expect(epochsInput).toHaveAttribute("aria-required", "true");
+      expect(checkpointInput).toHaveAttribute("aria-required", "true");
+    });
+  });
+
+  it("total_epochs input has aria-invalid='true' when validation fails with non-integer value", async () => {
+    const user = userEvent.setup();
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText(/table name/i), "customers");
+    await user.type(
+      screen.getByLabelText(/parquet path/i),
+      "/data/customers.parquet",
+    );
+    // Type non-integer to trigger validation error on total_epochs
+    await user.type(screen.getByLabelText(/total epochs/i), "abc");
+    await user.type(screen.getByLabelText(/checkpoint every/i), "2");
+
+    await user.click(screen.getByRole("button", { name: /create job/i }));
+
+    await waitFor(() => {
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      expect(epochsInput).toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("checkpoint_every_n input has aria-invalid='true' when validation fails with non-integer value", async () => {
+    const user = userEvent.setup();
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText(/table name/i), "customers");
+    await user.type(
+      screen.getByLabelText(/parquet path/i),
+      "/data/customers.parquet",
+    );
+    await user.type(screen.getByLabelText(/total epochs/i), "10");
+    // Type non-integer to trigger validation error on checkpoint_every_n
+    await user.type(screen.getByLabelText(/checkpoint every/i), "abc");
+
+    await user.click(screen.getByRole("button", { name: /create job/i }));
+
+    await waitFor(() => {
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+      expect(checkpointInput).toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("aria-invalid is absent (or false) on form inputs before any validation attempt", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      const tableInput = screen.getByLabelText(/table name/i);
+      const parquetInput = screen.getByLabelText(/parquet path/i);
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+
+      // Before any submission, no input should be marked invalid
+      expect(tableInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(parquetInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(epochsInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(checkpointInput).not.toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("asterisk required indicators in form labels are wrapped with aria-hidden='true'", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      // Query for all span elements with aria-hidden="true" inside the form
+      // The form should have 4 such spans (one per required field label)
+      const hiddenAsterisks = document.querySelectorAll(
+        'form span[aria-hidden="true"]',
+      );
+      expect(hiddenAsterisks.length).toBeGreaterThanOrEqual(4);
+      hiddenAsterisks.forEach((span) => {
+        expect(span.textContent).toBe("*");
+      });
+    });
+  });
+});
