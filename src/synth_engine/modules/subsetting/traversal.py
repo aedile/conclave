@@ -129,8 +129,9 @@ class DagTraversal:
     def _execute_seed(self, seed_query: str) -> list[dict[str, Any]]:
         """Execute the seed query and return its rows as a list of dicts.
 
-        The seed query is provided by the caller (SubsettingEngine) and is
-        treated as a complete, pre-validated SQL statement.
+        The seed query is supplied by the caller (SubsettingEngine) from
+        bootstrapper-controlled configuration and is not constructed from
+        user input.
 
         Args:
             seed_query: A SQL SELECT statement returning seed rows.
