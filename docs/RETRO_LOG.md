@@ -24,6 +24,43 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 8 End-of-Phase Retrospective — Advisory Drain Sprint
+
+**Phase goal**: Clear all 16 open advisories to zero. No new feature work.
+
+**Result**: All 16 original advisories drained across 5 tasks (T8.1–T8.5). 5 new advisories
+(ADV-073–077) emerged during reviews — all tagged "Post-launch ADVISORY" severity. Net
+advisory count reduced from 16 to 5.
+
+**Acceptance criteria audit (Rule 4)**:
+- T8.1: PASS — EncryptedString integration tests + RequestBodyLimitMiddleware branch resolved
+- T8.2: PASS — HMAC signing, source maps, esbuild CVE, Opacus ADR
+- T8.3: PASS — Numeric(20,10) epsilon columns, LicenseError status_code removed, BudgetExhaustionError re-export
+- T8.4: PASS — Alembic, CI artifact handoff, ZAP cleanup, -W error, marker routing
+- T8.5: PASS — FORCE_CPU documented, DP accessibility design note
+
+**Process observations**:
+1. Parallel execution across worktrees enabled T8.2/T8.3/T8.4 to overlap, reducing wall-clock time.
+   Merge conflicts on RETRO_LOG were the primary coordination cost — acceptable given the parallelism benefit.
+2. The advisory drain sprint model worked well: focused scope, clear acceptance criteria per ADV,
+   no feature creep. Worth replicating for future debt clearance.
+3. Review agents continue to surface genuine findings (3 blockers across T8.2 reviews, 2 across T8.4).
+   The review → fix → re-review cycle adds rigor without excessive overhead.
+4. New advisories (5) emerged at a healthy rate — each represents a real observation, not
+   over-reporting. All are low-severity post-launch items.
+5. ChromaDB seeding (Rule 14) was executed after RETRO_LOG updates, keeping the learning system current.
+
+**Remaining open advisories (5)**:
+- ADV-073: Synthesizer test marker inconsistency (dual markers)
+- ADV-074: Scientific-notation Decimal edge case in spend_budget
+- ADV-075: qr_code exception logging disclosure risk
+- ADV-076: ModelArtifact empty-key save/load asymmetry
+- ADV-077: ARTIFACT_SIGNING_KEY not enforced at boot
+
+**Phase 8 exit status**: COMPLETE. All quality gates passing. Advisory count: 5.
+
+---
+
 ### [2026-03-16] P8-T8.2 — Security Hardening (ADV-040, ADV-057, ADV-058, ADV-067)
 
 **Summary**: Drained ADV-040, ADV-057, ADV-058, ADV-067. Added HMAC-SHA256 signing to
