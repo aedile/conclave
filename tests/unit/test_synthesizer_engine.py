@@ -532,19 +532,28 @@ class TestSynthesisEngineWithDPWrapper:
         )
 
     def test_train_accepts_dp_wrapper_kwarg(self) -> None:
-        """train() must accept an optional dp_wrapper keyword argument without error."""
+        """train() must accept an optional dp_wrapper keyword argument without error.
+
+        T7.3: When dp_wrapper is provided, DPCompatibleCTGAN is used instead of
+        CTGANSynthesizer.  Both are patched so no real SDV calls occur.
+        """
         from synth_engine.modules.synthesizer.engine import SynthesisEngine
         from synth_engine.modules.synthesizer.models import ModelArtifact
 
         mock_dp_wrapper = MagicMock()
         mock_dp_wrapper.check_budget.return_value = None
+        mock_dp_wrapper.max_grad_norm = 1.0
+        mock_dp_wrapper.noise_multiplier = 1.1
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
         ):
-            mock_instance = MagicMock()
-            mock_ctgan.return_value = mock_instance
+            mock_ctgan.return_value = MagicMock()
+            mock_dp_instance = MagicMock()
+            mock_dp_instance.fit.return_value = mock_dp_instance
+            mock_dp_ctgan.return_value = mock_dp_instance
 
             df = self._make_persons_df()
             parquet_path = str(Path(tmpdir) / "persons.parquet")
@@ -558,6 +567,7 @@ class TestSynthesisEngineWithDPWrapper:
             )
 
         assert isinstance(result, ModelArtifact)
+        assert mock_dp_ctgan.called, "DPCompatibleCTGAN must be used when dp_wrapper is provided."
 
     def test_train_without_dp_wrapper_still_works(self) -> None:
         """train() without dp_wrapper must behave identically to pre-T4.3b behavior."""
@@ -580,12 +590,19 @@ class TestSynthesisEngineWithDPWrapper:
 
         assert isinstance(result, ModelArtifact)
 
-    def test_train_with_dp_wrapper_logs_advisory(self, caplog: pytest.LogCaptureFixture) -> None:
-        """train() with dp_wrapper must log an advisory about deferred SDV integration.
+    def test_train_with_dp_wrapper_routes_to_dp_compatible_ctgan(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """train() with dp_wrapper must route to DPCompatibleCTGAN (T7.3 wiring).
 
-        Since SDV's internal fit() does not expose the optimizer for wrapping,
-        the engine logs an advisory and proceeds. The dp_wrapper API is fully
-        implemented; SDV internal wiring is deferred per ADR-0017 risk note.
+        T4.3b logged a deferral warning because SDV's CTGANSynthesizer.fit()
+        did not expose its optimizer for Opacus wrapping.  T7.3 replaces that
+        warning path with actual routing to DPCompatibleCTGAN.
+
+        This test verifies:
+        - DPCompatibleCTGAN is constructed with the dp_wrapper argument.
+        - DPCompatibleCTGAN.fit() is called.
+        - CTGANSynthesizer is NOT used when dp_wrapper is provided.
         """
         import logging
 
@@ -594,14 +611,19 @@ class TestSynthesisEngineWithDPWrapper:
 
         mock_dp_wrapper = MagicMock()
         mock_dp_wrapper.check_budget.return_value = None
+        mock_dp_wrapper.max_grad_norm = 1.0
+        mock_dp_wrapper.noise_multiplier = 1.1
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
-            caplog.at_level(logging.WARNING, logger="synth_engine.modules.synthesizer.engine"),
+            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
+            caplog.at_level(logging.INFO, logger="synth_engine.modules.synthesizer.engine"),
         ):
-            mock_instance = MagicMock()
-            mock_ctgan.return_value = mock_instance
+            mock_ctgan.return_value = MagicMock()
+            mock_dp_instance = MagicMock()
+            mock_dp_instance.fit.return_value = mock_dp_instance
+            mock_dp_ctgan.return_value = mock_dp_instance
 
             df = self._make_persons_df()
             parquet_path = str(Path(tmpdir) / "persons.parquet")
@@ -615,12 +637,16 @@ class TestSynthesisEngineWithDPWrapper:
             )
 
         assert isinstance(result, ModelArtifact)
-        # An advisory warning must be logged when dp_wrapper is provided but
-        # cannot be applied to SDV's internal training loop
-        advisory_logged = any("dp_wrapper" in record.message.lower() for record in caplog.records)
-        assert advisory_logged, (
-            "Expected a log message mentioning dp_wrapper when dp_wrapper is provided. "
-            f"Actual log records: {[r.message for r in caplog.records]}"
+        # T7.3: DPCompatibleCTGAN must be called when dp_wrapper is provided
+        assert mock_dp_ctgan.called, "DPCompatibleCTGAN must be used when dp_wrapper is not None."
+        # T7.3: CTGANSynthesizer must NOT be called in the DP path
+        assert not mock_ctgan.called, (
+            "CTGANSynthesizer must NOT be called when dp_wrapper is provided."
+        )
+        # T7.3: dp_wrapper must be passed to DPCompatibleCTGAN constructor
+        _, kwargs = mock_dp_ctgan.call_args
+        assert kwargs.get("dp_wrapper") is mock_dp_wrapper, (
+            "DPCompatibleCTGAN must receive the dp_wrapper argument."
         )
 
     def test_train_dp_wrapper_none_default(self) -> None:
