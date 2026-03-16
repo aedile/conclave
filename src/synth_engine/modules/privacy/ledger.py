@@ -16,7 +16,11 @@ Design notes
 ------------
 - Integer primary keys are used (not UUID) because ``SELECT FOR UPDATE``
   on a single known row-ID is the simplest and most performant lock target.
-- ``last_updated`` carries timezone-aware UTC datetimes.
+- ``last_updated`` and ``timestamp`` carry timezone-aware UTC datetimes stored
+  as ``TIMESTAMP WITH TIME ZONE`` (TIMESTAMPTZ) in PostgreSQL.  Using
+  ``DateTime(timezone=True)`` ensures the column accepts timezone-aware
+  datetimes from Python's ``datetime.now(UTC)``.  SQLite stores these as text
+  and ignores the timezone parameter — both dialects work correctly.
 - Both models extend ``SQLModel`` directly (not ``BaseModel``) because
   ``BaseModel`` provides UUID PKs — these tables require integer PKs.
   Both patterns share the same ``SQLModel.metadata`` registry so Alembic
@@ -38,6 +42,11 @@ Design notes
               ALTER COLUMN total_spent_epsilon     TYPE NUMERIC(20, 10);
           ALTER TABLE privacy_transaction
               ALTER COLUMN epsilon_spent TYPE NUMERIC(20, 10);
+      The ``last_updated`` and ``timestamp`` columns may also need:
+          ALTER TABLE privacy_ledger
+              ALTER COLUMN last_updated TYPE TIMESTAMPTZ;
+          ALTER TABLE privacy_transaction
+              ALTER COLUMN timestamp TYPE TIMESTAMPTZ;
 
 Import boundaries:
   Must NOT import from any other module in ``modules/``, from
@@ -55,6 +64,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import Column
+from sqlalchemy import DateTime as SADateTime
 from sqlalchemy import Numeric as SANumeric
 from sqlmodel import Field, SQLModel
 
@@ -64,6 +74,14 @@ from sqlmodel import Field, SQLModel
 # scale=10:     preserves 10 decimal digits of fractional precision.
 # ---------------------------------------------------------------------------
 _EPSILON_NUMERIC = SANumeric(precision=20, scale=10)
+
+# ---------------------------------------------------------------------------
+# Timezone-aware timestamp column type.
+# timezone=True → TIMESTAMP WITH TIME ZONE (TIMESTAMPTZ) on PostgreSQL.
+# asyncpg rejects timezone-aware datetimes for TIMESTAMP WITHOUT TIME ZONE;
+# this column type accepts them correctly.
+# ---------------------------------------------------------------------------
+_TIMESTAMPTZ = SADateTime(timezone=True)
 
 
 def _utcnow() -> datetime:
@@ -104,7 +122,8 @@ class PrivacyLedger(SQLModel, table=True):
             (ADV-050).
         last_updated: UTC timestamp of the most recent update to this row.
             Updated automatically by SQLAlchemy's ``onupdate`` hook on every
-            UPDATE statement.
+            UPDATE statement.  Stored as ``TIMESTAMP WITH TIME ZONE``
+            (TIMESTAMPTZ) to accept timezone-aware Python datetimes.
 
     Example::
 
@@ -135,7 +154,13 @@ class PrivacyLedger(SQLModel, table=True):
     )
     last_updated: datetime = Field(
         default_factory=_utcnow,
-        sa_column_kwargs={"onupdate": _utcnow},
+        sa_column=Column(
+            "last_updated",
+            _TIMESTAMPTZ,
+            nullable=False,
+            default=_utcnow,
+            onupdate=_utcnow,
+        ),
     )
 
 
@@ -160,6 +185,8 @@ class PrivacyTransaction(SQLModel, table=True):
             Stored as ``NUMERIC(20, 10)`` to prevent floating-point drift
             (ADV-050).
         timestamp: UTC timestamp when this transaction was committed.
+            Stored as ``TIMESTAMP WITH TIME ZONE`` (TIMESTAMPTZ) to accept
+            timezone-aware Python datetimes.
         note: Optional human-readable annotation (e.g. run label, operator
             comment).  May be ``None``.
 
@@ -185,5 +212,13 @@ class PrivacyTransaction(SQLModel, table=True):
             nullable=False,
         ),
     )
-    timestamp: datetime = Field(default_factory=_utcnow)
+    timestamp: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=Column(
+            "timestamp",
+            _TIMESTAMPTZ,
+            nullable=False,
+            default=_utcnow,
+        ),
+    )
     note: str | None = Field(default=None)
