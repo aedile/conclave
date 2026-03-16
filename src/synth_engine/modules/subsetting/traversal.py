@@ -139,7 +139,7 @@ class DagTraversal:
             List of row dicts from the seed query result.
         """
         with self._engine.connect() as conn:
-            result = conn.execute(text(seed_query))  # nosec B608 — seed_query is a pre-validated application-controlled SELECT; never constructed from user input
+            result = conn.execute(text(seed_query))  # nosec B608 — seed_query is supplied by SubsettingEngine from bootstrapper-controlled configuration; not constructed from user input
             return [dict(row) for row in result.mappings()]
 
     def _fetch_table(
