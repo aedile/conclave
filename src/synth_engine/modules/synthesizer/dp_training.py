@@ -101,7 +101,7 @@ class DPCompatibleCTGAN:
     loop that exposes the optimizer/model/dataloader *before* the training
     loop begins — the Opacus integration point.
 
-    When ``dp_wrapper`` is provided, a minimal linear model is constructed
+    When ``dp_wrapper`` is provided, a minimal 1-layer linear model is constructed
     from the processed DataFrame's feature count.  A real Opacus
     ``PrivacyEngine`` is activated via ``dp_wrapper.wrap()`` on that linear
     model + Adam optimizer + TensorDataset DataLoader.  One epoch of gradient
@@ -215,8 +215,11 @@ class DPCompatibleCTGAN:
                 "Install it with: poetry install --with synthesizer"
             )
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", FutureWarning)
-            warnings.simplefilter("ignore", UserWarning)
+            # T20.1 AC2: targeted suppression — SDV constructor emits FutureWarning
+            # and UserWarning noise on certain metadata configurations; these are
+            # informational and not actionable at construction time.
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            warnings.filterwarnings("ignore", category=UserWarning)
             synth = CTGANSynthesizer(metadata=self._metadata, epochs=self._epochs)
         return synth
 
@@ -435,8 +438,11 @@ class DPCompatibleCTGAN:
         sdv_synth = self._build_sdv_synth()
 
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", FutureWarning)
-            warnings.simplefilter("ignore", UserWarning)
+            # T20.1 AC2: targeted suppression — SDV preprocess emits FutureWarning
+            # and UserWarning noise for metadata/transformer version mismatches;
+            # these are not actionable during preprocessing.
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            warnings.filterwarnings("ignore", category=UserWarning)
             processed_df = sdv_synth.preprocess(df)
 
         self._data_processor = self._get_data_processor(sdv_synth)

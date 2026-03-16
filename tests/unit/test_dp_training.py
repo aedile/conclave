@@ -878,19 +878,20 @@ class TestWarningTargeting:
     """T20.1 AC2 — blanket warnings.simplefilter('ignore') must be replaced
     with targeted warnings.filterwarnings() specifying Opacus message patterns.
 
-    Parses dp_training.py source to verify no blanket simplefilter("ignore")
-    calls remain.  The targeted filterwarnings() calls must include a message
-    pattern or specific category — not a blanket suppress-all.
+    Parses dp_training.py source to verify no simplefilter calls remain at all
+    — all warning suppression must use filterwarnings() for consistency and
+    auditability.
     """
 
     def test_no_blanket_simplefilter_ignore_in_dp_training(self) -> None:
-        """dp_training.py must not contain warnings.simplefilter('ignore').
+        """dp_training.py must not contain ANY warnings.simplefilter() calls.
 
-        T20.1 AC2: blanket suppression silently hides real Opacus or PyTorch
-        warnings beyond the documented ADR-0017a-approved set.  Each suppression
-        must be targeted via warnings.filterwarnings with a specific message
-        pattern and/or category.
+        T20.1 AC2: simplefilter() in any form (with or without a category
+        argument) must be replaced by filterwarnings() for consistency.
+        This test flags ALL simplefilter() calls, not just the blanket
+        no-category form, to ensure the full migration to filterwarnings.
         """
+        import re
         from pathlib import Path
 
         dp_training_path = (
@@ -903,17 +904,12 @@ class TestWarningTargeting:
         )
         source = dp_training_path.read_text()
 
-        # Check for the exact pattern: simplefilter("ignore") with no category
-        # — this is the blanket form that suppresses ALL warnings indiscriminately.
-        import re
-
-        blanket_pattern = re.compile(
-            r'simplefilter\s*\(\s*["\']ignore["\']\s*\)',
-        )
-        matches = blanket_pattern.findall(source)
+        # Flag any simplefilter call — all should be filterwarnings after T20.1.
+        simplefilter_pattern = re.compile(r"simplefilter\s*\(")
+        matches = simplefilter_pattern.findall(source)
         assert not matches, (
-            f"Found {len(matches)} blanket simplefilter('ignore') call(s) in dp_training.py. "
-            "T20.1 AC2 requires targeted filterwarnings() with message pattern. "
+            f"Found {len(matches)} simplefilter() call(s) in dp_training.py. "
+            "T20.1 AC2 requires all warning suppression to use filterwarnings(). "
             f"Matches: {matches}"
         )
 

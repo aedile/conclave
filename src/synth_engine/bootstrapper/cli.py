@@ -283,9 +283,9 @@ def subset(
         )
         result = engine.run(seed_table=seed_table, seed_query=seed_query)
     except Exception as exc:
-        # Clean error message — never a traceback, never the DSN.
-        click.echo(f"Error: subset run failed: {exc}")
-        sys.exit(1)
+        _logger.exception("subset run failed")
+        click.echo("Error: subset run failed — see logs for details.", err=True)
+        raise SystemExit(1) from exc
 
     # --- Summary output ---
     click.echo("Subset complete.")

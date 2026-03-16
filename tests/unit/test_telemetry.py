@@ -181,3 +181,22 @@ def test_redact_url_exception_type_is_narrowed() -> None:
                     "Found 'except Exception' in telemetry.py — must narrow to specific type "
                     "(e.g. ValueError). T20.1 AC1 requires narrowing broad exception catches."
                 )
+
+
+def test_redact_url_non_value_error_propagates() -> None:
+    """_redact_url() must propagate non-ValueError exceptions from urlparse.
+
+    T20.1 QA finding: the AST test alone is insufficient — a behavioral test
+    is required to verify the narrowed except clause actually lets RuntimeError
+    (and other non-ValueError exceptions) propagate out of _redact_url().
+
+    This guards against an implementation that catches Exception but is not
+    caught by the AST test (e.g. 'except (ValueError, RuntimeError)').
+    """
+    import pytest
+
+    from synth_engine.shared.telemetry import _redact_url
+
+    with patch("synth_engine.shared.telemetry.urlparse", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError, match="boom"):
+            _redact_url("http://jaeger:4317")
