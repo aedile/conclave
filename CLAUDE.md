@@ -219,7 +219,7 @@ poetry run pytest tests/unit/ --cov=src/synth_engine --cov-fail-under=90 -W erro
 poetry run pytest tests/integration/ -v                        # Integration tests (separate gate — must pass independently)
 poetry run bandit -c pyproject.toml -r src/                    # Security scan
 vulture src/                                                   # Dead code (80% confidence)
-vulture src/ --min-confidence 60                               # Advisory: deeper scan
+vulture src/ .vulture_whitelist.py --min-confidence 60         # Advisory: deeper scan (whitelist suppresses framework false positives)
 pre-commit run --all-files                                     # All hooks
 
 # For Python scripts/validation:

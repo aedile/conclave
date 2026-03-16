@@ -19,6 +19,24 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P12-T12.2 — Vulture Whitelist for FastAPI False Positives
+
+**Changes**: Created `.vulture_whitelist.py` (178 lines) suppressing 88 false positives from
+`vulture src/ --min-confidence 60`. Updated CLAUDE.md vulture advisory command to include
+whitelist path. No production source code modified.
+
+**Reviews**:
+- QA: PASS — 0 vulture findings with whitelist; Category G items verified in test suite
+- UI/UX: SKIP — tooling configuration only
+- DevOps: PASS — no secrets, no CI impact
+- Architecture: PASS — all 88 entries confirmed as framework false positives
+
+**Retrospective Note**: The structured whitelist (Categories A–G) makes it maintainable:
+new dead code at 60% confidence will now be immediately visible against a clean baseline.
+This transforms the advisory vulture scan from noise into a useful signal.
+
+---
+
 ### [2026-03-16] P12-T12.1 — Stale Remote Branch Cleanup & README Final Status
 
 **Changes**: 70 stale remote feature branches pruned (2 physically deleted from GitHub,
