@@ -7,6 +7,7 @@ happy-path when the exporter package is available.
 
 CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: P2-T2.1 — Module Bootstrapper, OTEL, Idempotency, Orphan Task Reaper
+Task: P20-T20.1 — Exception Handling & Warning Suppression Fixes
 """
 
 import os
@@ -134,16 +135,53 @@ def test_redact_url_plain_url_unchanged() -> None:
 
 
 def test_redact_url_returns_safe_fallback_on_error() -> None:
-    """_redact_url() returns a safe fallback string when URL parsing raises.
+    """_redact_url() returns a safe fallback string when URL parsing raises ValueError.
 
     The function must never raise an exception, even for malformed input,
     so that logging failures cannot crash the application.
-    """
-    from unittest.mock import patch
 
+    T20.1: The catch must be narrowed to ValueError — the only exception
+    urlparse raises for malformed input — rather than a broad Exception.
+    """
     from synth_engine.shared.telemetry import _redact_url
 
-    with patch("synth_engine.shared.telemetry.urlparse", side_effect=Exception("parse error")):
+    with patch("synth_engine.shared.telemetry.urlparse", side_effect=ValueError("parse error")):
         result = _redact_url("not-a-url")
 
     assert result == "<unparseable endpoint>"
+
+
+def test_redact_url_exception_type_is_narrowed() -> None:
+    """_redact_url() must NOT catch broad Exception — only ValueError.
+
+    T20.1 AC1: The except clause in _redact_url() must be narrowed to
+    a specific exception type.  A non-ValueError exception (e.g. RuntimeError)
+    raised by urlparse must propagate rather than being silently swallowed.
+
+    This test verifies that the broad 'except Exception' has been narrowed.
+    """
+    import ast
+    from pathlib import Path
+
+    telemetry_path = (
+        Path(__file__).parent.parent.parent
+        / "src"
+        / "synth_engine"
+        / "shared"
+        / "telemetry.py"
+    )
+    source = telemetry_path.read_text()
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler):
+            if node.type is None:
+                # Bare 'except:' — forbidden
+                raise AssertionError(
+                    "Found bare 'except:' in telemetry.py — must specify exception type."
+                )
+            if isinstance(node.type, ast.Name) and node.type.id == "Exception":
+                raise AssertionError(
+                    "Found 'except Exception' in telemetry.py — must narrow to specific type "
+                    "(e.g. ValueError). T20.1 AC1 requires narrowing broad exception catches."
+                )
