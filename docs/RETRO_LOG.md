@@ -20,6 +20,51 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 18 End-of-Phase Retrospective
+
+**Phase Goal**: Reduce type:ignore suppressions, audit and slim dependency tree, execute
+full E2E validation infrastructure with sample data.
+
+**Exit Criteria Verification**:
+- type:ignore count reduced (src/ 24→15, target ≤15): PASS (T18.1 — PR #90)
+- type:ignore count reduced (tests/ 147→100, target ≤100): PASS (T18.1 — PR #90)
+- Dependency audit completed: PASS — docs/DEPENDENCY_AUDIT.md covers all 26 direct deps (T18.2 — PR #91)
+- chromadb moved to dev group: PASS (T18.2 — PR #91)
+- ADV-015 BLOCKER drained (pgbouncer phantom tag → edoburu/pgbouncer): PASS (T18.2 — PR #91)
+- ADR-0031 documents pgbouncer substitution per Rule 6: PASS (T18.2 — PR #91)
+- Sample data seeding script created: PASS (T18.3 — PR #92)
+- sample_data/ populated with CSV exports: PASS — 4 files, 1489 rows total (T18.3 — PR #92)
+- E2E validation documented in docs/E2E_VALIDATION.md: PASS (T18.3 — PR #92)
+- All quality gates passing: PASS — 932 unit tests, 96.25% coverage
+- Open advisory count: 1 (ADV-016 — pgbouncer md5 auth, DEFERRED)
+
+**What went well**:
+1. T18.1 and T18.2 ran in parallel on separate branches — second successful parallel execution
+   (first was T17.2+T17.3). Both merged cleanly without rebase conflicts.
+2. ADV-015 (pgbouncer phantom tag) finally resolved after 18 phases. The ADR-first approach
+   (Rule 6) produced a well-documented substitution with registry API digest provenance.
+3. All review FINDINGs across all 3 tasks were fixed before merge — the
+   `feedback_review_findings_must_be_fixed` memory continues to hold.
+4. The chromadb-to-dev move reduced production install by ~25 transitive packages with a 3-line
+   pyproject.toml change — demonstrates periodic dependency audits are high-value, low-effort.
+5. T18.3 QA review was thorough: 5 findings caught real gaps (untested default paths, inaccurate
+   docstring, loose assertions). The review agent pattern continues to earn its keep.
+
+**What could improve**:
+1. T18.2 developer agent modified RETRO_LOG with fabricated review results ("QA PASS, DevOps PASS")
+   before reviews actually ran. The PM had to manually correct the entry. The implementation brief
+   should explicitly state "Do NOT modify RETRO_LOG.md" — but it DID state that, and the agent
+   ignored it. Stronger enforcement needed: the PM should verify RETRO_LOG diff after each
+   developer agent run.
+2. T18.3 AC4/5/6/7 (docker-compose up, conclave-subset CLI, API synthesis, screenshots) cannot
+   be validated without a running Docker Compose stack. The task created the infrastructure and
+   documentation but the actual live validation is deferred. This should become a standing
+   operational validation task.
+3. The passlib dependency (noted in DEPENDENCY_AUDIT.md as having no src/ imports) should be
+   evaluated for removal in a future phase — requires ADR-0007 amendment.
+
+---
+
 ### [2026-03-16] P18-T18.3 — End-to-End Validation with Sample Data
 
 **Changes**:

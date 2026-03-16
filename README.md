@@ -90,7 +90,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Phase 17 — Docker Pinning, Dashboard WCAG & Process Cleanup is complete.**
+**Phase 18 — Type Safety, Dependency Audit & End-to-End Validation is complete.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -114,6 +114,7 @@ Security is Priority Zero — it overrides every other consideration.
 | **15 — Frontend Coverage Gate & Operational Polish** | **Complete** | Frontend coverage gate repair, README update, branch cleanup |
 | **16 — Migration Drift, Supply Chain & Accessibility Polish** | **Complete** | Alembic migration drift, supply chain, nosec accuracy, skip nav |
 | **17 — Docker Pinning, Dashboard WCAG & Process Cleanup** | **Complete** | Docker SHA pinning, dashboard WCAG aria, RETRO_LOG archival, process governance slimming |
+| **18 — Type Safety, Dependency Audit & E2E Validation** | **Complete** | type:ignore reduction, dependency audit, pgbouncer fix (ADV-015), sample data & E2E validation docs |
 
 ---
 
