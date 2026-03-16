@@ -60,9 +60,7 @@ Produce a PR description in this exact format, suitable for passing directly to 
 
 ## Self-Review
 
-- ✅ QA Review: PASS (see `review(qa):` commit)
-- ✅ UI/UX Review: PASS/SKIP (see `review(ui-ux):` commit)
-- ✅ DevOps Review: PASS (see `review(devops):` commit)
+- ✅ Consolidated review commit present: `review: <task> — QA PASS, DevOps PASS, UI/UX PASS[, Arch PASS]`
 
 ## Test Results
 
