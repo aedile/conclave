@@ -180,12 +180,23 @@ class TestRFC7807PureASGIMiddleware:
         )
 
     def test_rfc7807_middleware_has_call_method(self) -> None:
-        """Pure ASGI middleware must implement __call__(scope, receive, send)."""
+        """Pure ASGI middleware instance must be callable with (scope, receive, send)."""
+        import inspect
+
         from synth_engine.bootstrapper.errors import RFC7807Middleware
 
-        assert callable(RFC7807Middleware), (
-            "RFC7807Middleware must implement __call__ for pure ASGI protocol."
+        async def dummy_app(scope: object, receive: object, send: object) -> None:
+            pass
+
+        middleware = RFC7807Middleware(app=dummy_app)  # type: ignore[arg-type]
+        assert callable(middleware), (
+            "RFC7807Middleware instance must be callable for pure ASGI protocol."
         )
+        sig = inspect.signature(middleware.__call__)
+        param_names = list(sig.parameters.keys())
+        assert "scope" in param_names, "RFC7807Middleware.__call__ must accept 'scope'"
+        assert "receive" in param_names, "RFC7807Middleware.__call__ must accept 'receive'"
+        assert "send" in param_names, "RFC7807Middleware.__call__ must accept 'send'"
 
     def test_rfc7807_middleware_does_not_have_dispatch_method(self) -> None:
         """Pure ASGI middleware must NOT have a dispatch() method.
@@ -313,3 +324,61 @@ class TestRFC7807PureASGIMiddleware:
 
         await middleware(scope, dummy_receive, dummy_send)  # type: ignore[arg-type]
         assert "lifespan" in received_scopes
+
+    @pytest.mark.asyncio
+    async def test_pure_asgi_middleware_reraises_when_headers_sent(self) -> None:
+        """Exception raised after headers are sent must propagate out of middleware.
+
+        Once ``http.response.start`` has been sent, the response is committed to
+        a status code.  RFC7807Middleware cannot send a new 500 response at that
+        point — it must re-raise so that the server can terminate the connection.
+
+        Uses a raw ASGI callable that sends ``http.response.start`` first (marking
+        headers as sent) and then raises an exception.  The exception must propagate
+        out of ``RFC7807Middleware.__call__`` rather than being silently swallowed
+        or converted to a 500 JSON response.
+        """
+        from starlette.types import Receive, Scope, Send
+
+        from synth_engine.bootstrapper.errors import RFC7807Middleware
+
+        async def inner_sends_headers_then_raises(
+            scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            # Send the response start (headers committed) before raising.
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [[b"content-type", b"text/plain"]],
+                }
+            )
+            raise RuntimeError("error after headers sent")
+
+        wrapped = RFC7807Middleware(app=inner_sends_headers_then_raises)  # type: ignore[arg-type]
+
+        # Build a minimal ASGI scope for an HTTP GET request.
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/stream",
+            "query_string": b"",
+            "headers": [],
+        }
+
+        sent_messages: list[object] = []
+
+        async def dummy_receive() -> dict[str, str]:  # type: ignore[return]
+            return {}
+
+        async def capturing_send(message: object) -> None:
+            sent_messages.append(message)
+
+        # The middleware MUST re-raise the exception when headers have been sent.
+        with pytest.raises(RuntimeError, match="error after headers sent"):
+            await wrapped(scope, dummy_receive, capturing_send)  # type: ignore[arg-type]
+
+        # Confirm that headers were indeed sent (so the re-raise path was taken).
+        assert any(
+            isinstance(m, dict) and m.get("type") == "http.response.start" for m in sent_messages
+        ), "Expected http.response.start to have been sent before the exception"

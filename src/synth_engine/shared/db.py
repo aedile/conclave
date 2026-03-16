@@ -78,15 +78,11 @@ import uuid
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlmodel import Field, Session, SQLModel
 from sqlmodel._compat import SQLModelConfig
-
-if TYPE_CHECKING:
-    pass
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -210,9 +206,9 @@ def dispose_engines() -> None:
     """Dispose all cached engines and clear the engine caches.
 
     Calls ``engine.dispose()`` on every cached synchronous engine and
-    ``await engine.dispose()`` on every cached asynchronous engine (sync
-    variant — safe to call from non-async contexts) to release connection
-    pool resources.  Both caches are then cleared so subsequent calls to
+    ``async_engine.sync_engine.dispose()`` on every cached asynchronous engine
+    (synchronous variant, safe to call from non-async contexts) to release
+    connection pool resources.  Both caches are then cleared so subsequent calls to
     :func:`get_engine` and :func:`get_async_engine` create fresh engines.
 
     This function is idempotent: calling it on an already-empty cache is
