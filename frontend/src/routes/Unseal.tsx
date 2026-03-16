@@ -130,6 +130,7 @@ export default function Unseal() {
 
   return (
     <main
+      id="main-content"
       style={{
         display: "flex",
         alignItems: "center",

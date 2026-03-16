@@ -91,6 +91,34 @@ body {
   border-width: 0;
 }
 
+/* Skip navigation link — WCAG 2.1 AA 2.4.1 (Bypass Blocks).
+ * Visually hidden until focused. When focused (keyboard navigation),
+ * appears at the top-left of the viewport so users can skip repeated
+ * navigation blocks and jump directly to main content.
+ * z-index: 9999 ensures it renders above all other content on focus. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 9999;
+}
+.skip-link:focus {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: auto;
+  height: auto;
+  padding: 0.75rem 1.5rem;
+  background: var(--color-bg, #1a1a2e);
+  color: var(--color-text-primary, #e0e0e0);
+  font-size: 1rem;
+  text-decoration: underline;
+  z-index: 9999;
+}
+
 /* Respect user motion preferences — stop spinner animation when reduced motion is preferred */
 @media (prefers-reduced-motion: reduce) {
   @keyframes spin {
