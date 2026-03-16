@@ -26,6 +26,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 16: Migration Drift, Supply Chain & Accessibility Polish](backlog/phase-16.md)
 *   [Phase 17: Docker Pinning, Dashboard WCAG & Process Cleanup](backlog/phase-17.md)
 *   [Phase 18: Type Safety, Dependency Audit & E2E Validation](backlog/phase-18.md)
+*   [Phase 19: Production Hardening & Integration Integrity](backlog/phase-19.md)
 
 ---
 
