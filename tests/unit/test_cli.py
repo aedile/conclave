@@ -9,6 +9,7 @@ never echoed in error messages.
 CONSTITUTION Priority 3: TDD RED Phase.
 Task: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
 Task: P20-T20.1 — ADV-021 FK Traversal Fix
+Task: P21-T21.1 — Fix CLI masking config to match sample data schema
 """
 
 from __future__ import annotations
@@ -395,9 +396,9 @@ class TestBuildMaskingTransformer:
     - Factory returns a callable (smoke test).
     - Non-PII tables pass through unchanged (no-mask path).
     - Input dict is never mutated (pure function contract).
-    - PII columns in the 'persons' table are replaced with masked values
-      (QA finding: lines 100-104 of cli.py had zero coverage before this).
-    - None-valued PII columns pass through unchanged (null guard branch).
+    - PII columns in the 'customers' table are replaced with masked values.
+    - None-valued PII columns in 'customers' pass through unchanged (null guard).
+    - Unknown tables ('persons', 'transactions') pass through unchanged.
     """
 
     def test_build_masking_transformer_returns_callable(self) -> None:
@@ -426,8 +427,40 @@ class TestBuildMaskingTransformer:
         transformer("transactions", original_row)
         assert original_row == original_copy
 
-    def test_masking_transformer_masks_pii_columns_for_persons_table(self) -> None:
-        """Transformer replaces PII column values for the 'persons' table."""
+    def test_masking_transformer_masks_pii_columns_for_customers_table(self) -> None:
+        """Transformer replaces PII column values for the 'customers' table.
+
+        P21-T21.1: masking config was updated from 'persons'/'full_name' to
+        'customers' with the correct columns from the sample data schema.
+        """
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        row: dict[str, Any] = {
+            "id": 1,
+            "first_name": "Alice",
+            "last_name": "Smith",
+            "email": "alice@example.com",
+            "ssn": "123-45-6789",
+            "phone": "555-867-5309",
+            "address": "123 Main St",
+        }
+        result = transformer("customers", row)
+        assert result["first_name"] != "Alice"
+        assert result["last_name"] != "Smith"
+        assert result["email"] != "alice@example.com"
+        assert result["ssn"] != "123-45-6789"
+        assert result["phone"] != "555-867-5309"
+        assert result["address"] != "123 Main St"
+        assert result["id"] == 1  # non-PII column unchanged
+
+    def test_masking_transformer_passthrough_for_unknown_persons_table(self) -> None:
+        """'persons' is not a configured PII table — rows pass through unchanged.
+
+        P21-T21.1: the old config had 'persons' as the PII table.  After the fix,
+        'persons' is not in _COLUMN_MASKS.  A row from a 'persons' table must pass
+        through the transformer unchanged.
+        """
         from synth_engine.bootstrapper.cli import _build_masking_transformer
 
         transformer = _build_masking_transformer()
@@ -438,26 +471,30 @@ class TestBuildMaskingTransformer:
             "ssn": "123-45-6789",
         }
         result = transformer("persons", row)
-        assert result["full_name"] != "Alice Smith"
-        assert result["email"] != "alice@example.com"
-        assert result["ssn"] != "123-45-6789"
-        assert result["id"] == 1  # non-PII column unchanged
+        # 'persons' is not configured — entire row passes through unchanged
+        assert result == row
 
     def test_masking_transformer_passthrough_for_none_pii_values(self) -> None:
-        """Transformer passes through None-valued PII columns unchanged."""
+        """Transformer passes through None-valued PII columns in 'customers' unchanged."""
         from synth_engine.bootstrapper.cli import _build_masking_transformer
 
         transformer = _build_masking_transformer()
         row: dict[str, Any] = {
             "id": 1,
-            "full_name": None,
+            "first_name": None,
+            "last_name": None,
             "email": None,
             "ssn": None,
+            "phone": None,
+            "address": None,
         }
-        result = transformer("persons", row)
-        assert result["full_name"] is None
+        result = transformer("customers", row)
+        assert result["first_name"] is None
+        assert result["last_name"] is None
         assert result["email"] is None
         assert result["ssn"] is None
+        assert result["phone"] is None
+        assert result["address"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -831,6 +868,175 @@ class TestSchemaReflectorGetPkConstraint:
 
         mock_inspector.get_pk_constraint.assert_called_once_with("mytable", schema="public")
         assert result == {"constrained_columns": ["id"]}
+
+
+# ---------------------------------------------------------------------------
+# P21-T21.1: Masking config must match sample data schema (customers table)
+# ---------------------------------------------------------------------------
+
+
+class TestColumnMasksConfig:
+    """P21-T21.1 — _COLUMN_MASKS must reference the 'customers' table.
+
+    The sample data schema uses a 'customers' table with columns:
+    first_name, last_name, email, ssn, phone, address.
+
+    The previous config incorrectly referenced 'persons' with 'full_name'.
+    This test class pins the correct config so any future regression is caught.
+    """
+
+    def test_column_masks_has_customers_key(self) -> None:
+        """_COLUMN_MASKS must contain a 'customers' key for the sample data schema."""
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+
+        assert "customers" in _COLUMN_MASKS, (
+            "_COLUMN_MASKS must have a 'customers' key to match sample data schema. "
+            "Previous config incorrectly used 'persons'."
+        )
+
+    def test_column_masks_does_not_have_persons_key(self) -> None:
+        """_COLUMN_MASKS must not contain a stale 'persons' key.
+
+        The sample data schema has no 'persons' table.  A stale 'persons' key
+        means masking silently passes through all rows without masking anything.
+        """
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+
+        assert "persons" not in _COLUMN_MASKS, (
+            "_COLUMN_MASKS must not contain 'persons' — no such table in sample data. "
+            "Stale key causes masking to silently skip all rows."
+        )
+
+    def test_customers_config_has_first_name(self) -> None:
+        """customers masking config must include 'first_name' column."""
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert "first_name" in customers_masks, (
+            "customers masking config must include 'first_name'. "
+            "Sample data has separate first_name/last_name columns (not full_name)."
+        )
+
+    def test_customers_config_has_last_name(self) -> None:
+        """customers masking config must include 'last_name' column."""
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert "last_name" in customers_masks, (
+            "customers masking config must include 'last_name'. "
+            "Sample data has separate first_name/last_name columns (not full_name)."
+        )
+
+    def test_customers_config_has_email(self) -> None:
+        """customers masking config must include 'email' column."""
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert "email" in customers_masks, "customers masking config must include 'email'."
+
+    def test_customers_config_has_ssn(self) -> None:
+        """customers masking config must include 'ssn' column."""
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert "ssn" in customers_masks, "customers masking config must include 'ssn'."
+
+    def test_customers_config_has_phone(self) -> None:
+        """customers masking config must include 'phone' column."""
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert "phone" in customers_masks, "customers masking config must include 'phone'."
+
+    def test_customers_config_has_address(self) -> None:
+        """customers masking config must include 'address' column."""
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert "address" in customers_masks, "customers masking config must include 'address'."
+
+    def test_masking_transformer_masks_customers_pii_columns(self) -> None:
+        """Transformer must replace PII column values for the 'customers' table."""
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        row: dict[str, Any] = {
+            "id": 42,
+            "first_name": "Alice",
+            "last_name": "Smith",
+            "email": "alice@example.com",
+            "ssn": "123-45-6789",
+            "phone": "555-867-5309",
+            "address": "123 Main St, Springfield",
+        }
+        result = transformer("customers", row)
+
+        assert result["id"] == 42, "non-PII id column must be unchanged"
+        assert result["first_name"] != "Alice", "first_name must be masked"
+        assert result["last_name"] != "Smith", "last_name must be masked"
+        assert result["email"] != "alice@example.com", "email must be masked"
+        assert result["ssn"] != "123-45-6789", "ssn must be masked"
+        assert result["phone"] != "555-867-5309", "phone must be masked"
+        assert result["address"] != "123 Main St, Springfield", "address must be masked"
+
+    def test_masking_transformer_customers_is_deterministic(self) -> None:
+        """Masking for 'customers' rows must be deterministic — same input yields same output."""
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        row: dict[str, Any] = {
+            "id": 1,
+            "first_name": "Bob",
+            "last_name": "Jones",
+            "email": "bob@example.com",
+            "ssn": "987-65-4321",
+            "phone": "555-123-4567",
+            "address": "456 Oak Ave",
+        }
+        result_a = transformer("customers", row)
+        result_b = transformer("customers", row)
+
+        assert result_a == result_b, (
+            "Masking transformer must be deterministic: same input must always produce "
+            "the same output. Got different results on two consecutive calls."
+        )
+
+    def test_masking_transformer_customers_none_values_pass_through(self) -> None:
+        """None-valued PII columns in 'customers' must pass through unchanged."""
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        row: dict[str, Any] = {
+            "id": 7,
+            "first_name": None,
+            "last_name": None,
+            "email": None,
+            "ssn": None,
+            "phone": None,
+            "address": None,
+        }
+        result = transformer("customers", row)
+
+        for col in ("first_name", "last_name", "email", "ssn", "phone", "address"):
+            assert result[col] is None, f"None value for '{col}' must pass through unchanged"
+
+    def test_masking_transformer_does_not_mutate_customers_row(self) -> None:
+        """Transformer must not mutate the customers row input dict."""
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        original_row: dict[str, Any] = {
+            "id": 3,
+            "first_name": "Carol",
+            "last_name": "White",
+            "email": "carol@example.com",
+            "ssn": "111-22-3333",
+            "phone": "555-000-0000",
+            "address": "789 Pine Rd",
+        }
+        original_copy = dict(original_row)
+        transformer("customers", original_row)
+        assert original_row == original_copy, "transformer must not mutate the input dict"
 
 
 # ---------------------------------------------------------------------------
