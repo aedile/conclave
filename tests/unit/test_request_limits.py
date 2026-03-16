@@ -479,17 +479,14 @@ class TestRequestBodyLimitMiddleware:
         - A depth-101 body (over limit) returns HTTP 400.
         - A depth-1 body (under limit) is forwarded to the inner app.
         """
-        import json as _json
-        from typing import Any as _Any
-
         inner = AsyncMock()
         middleware = RequestBodyLimitMiddleware(inner)
 
         # Sub-case A: over-limit depth → must return 400
-        deep_obj: dict[str, _Any] = {"v": 1}
+        deep_obj: dict[str, Any] = {"v": 1}
         for _ in range(MAX_JSON_DEPTH):
             deep_obj = {"a": deep_obj}
-        deep_body = _json.dumps(deep_obj).encode()
+        deep_body = json.dumps(deep_obj).encode()
         scope_a = _make_http_scope(content_length=len(deep_body))
         receive_a = _make_receive(deep_body)
         send_a, messages_a = _make_send()
