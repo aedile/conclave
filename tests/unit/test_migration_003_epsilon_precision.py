@@ -136,16 +136,17 @@ class TestMigration003AlterColumns:
         assert "Numeric" in content or "NUMERIC" in content, (
             f"{migration.name}: upgrade must target Numeric / NUMERIC type."
         )
-        assert "20" in content, f"{migration.name}: upgrade must reference precision=20."
-        assert "10" in content, f"{migration.name}: upgrade must reference scale=10."
+        assert "precision=20" in content, f"{migration.name}: upgrade must reference precision=20."
+        assert "scale=10" in content, f"{migration.name}: upgrade must reference scale=10."
 
     def test_downgrade_reverts_to_float(self) -> None:
         """Downgrade must revert epsilon columns back to Float (FLOAT8)."""
         migration = _find_migration_003()
         assert migration is not None, "Migration 003 not found."
         content = migration.read_text(encoding="utf-8")
-        assert "Float" in content or "FLOAT" in content, (
-            f"{migration.name}: downgrade must revert to Float / FLOAT type."
+        assert content.count("type_=sa.Float()") >= 3, (
+            f"{migration.name}: downgrade must use type_=sa.Float() for all 3 epsilon "
+            "columns — bare 'Float' in content is vacuously satisfiable."
         )
 
     def test_privacy_ledger_referenced_in_upgrade(self) -> None:
