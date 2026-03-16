@@ -14,6 +14,7 @@
 
 import {
   act,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -887,24 +888,18 @@ describe("Dashboard — WCAG form aria attributes (T17.2)", () => {
   });
 
   it("total_epochs input has aria-invalid='true' when validation fails with non-integer value", async () => {
-    const user = userEvent.setup();
-
     renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/table name/i), "customers");
-    await user.type(
-      screen.getByLabelText(/parquet path/i),
-      "/data/customers.parquet",
-    );
-    // Type non-integer to trigger validation error on total_epochs
-    await user.type(screen.getByLabelText(/total epochs/i), "abc");
-    await user.type(screen.getByLabelText(/checkpoint every/i), "2");
-
-    await user.click(screen.getByRole("button", { name: /create job/i }));
+    // Leave total_epochs empty (value will be "", parseInt("", 10) === NaN).
+    // Use fireEvent.submit to bypass native HTML5 constraint validation in
+    // JSDOM, which would otherwise suppress the submit event for empty required
+    // number inputs before our custom onSubmit handler can run.
+    const form = document.querySelector("form")!;
+    fireEvent.submit(form);
 
     await waitFor(() => {
       const epochsInput = screen.getByLabelText(/total epochs/i);
@@ -921,16 +916,14 @@ describe("Dashboard — WCAG form aria attributes (T17.2)", () => {
       expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/table name/i), "customers");
-    await user.type(
-      screen.getByLabelText(/parquet path/i),
-      "/data/customers.parquet",
-    );
+    // Type a valid integer for total_epochs so validation passes through to
+    // checkpoint_every_n. Leave checkpoint_every_n empty — fireEvent.submit
+    // bypasses native HTML5 constraint validation, so our custom onSubmit
+    // handler runs and sets formErrorField = "checkpoint_every_n".
     await user.type(screen.getByLabelText(/total epochs/i), "10");
-    // Type non-integer to trigger validation error on checkpoint_every_n
-    await user.type(screen.getByLabelText(/checkpoint every/i), "abc");
 
-    await user.click(screen.getByRole("button", { name: /create job/i }));
+    const form = document.querySelector("form")!;
+    fireEvent.submit(form);
 
     await waitFor(() => {
       const checkpointInput = screen.getByLabelText(/checkpoint every/i);

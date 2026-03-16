@@ -127,7 +127,7 @@ class TestDockerfileSHA256Pinning:
         content = DOCKERFILE.read_text()
         from_lines = _extract_from_lines(content)
         python_digests = [
-            _SHA256_PATTERN.search(line).group()  # type: ignore[union-attr]
+            _SHA256_PATTERN.search(line).group()  # type: ignore[union-attr]  # list comp guard guarantees search() is non-None; mypy cannot infer conditional filter
             for line in from_lines
             if "python" in line and _SHA256_PATTERN.search(line)
         ]

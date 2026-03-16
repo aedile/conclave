@@ -7,7 +7,8 @@
  *
  * CONSTITUTION:
  *   - WCAG 2.1 AA: aria-live regions, progressbar roles, labelled forms,
- *     required-field indicators, assertive announcement for errors.
+ *     required-field indicators (aria-required="true"), error identification
+ *     (aria-invalid on failing inputs), assertive announcement for errors.
  *   - No hardcoded colours — exclusively uses CSS custom properties.
  *   - document.title set on mount.
  *   - prefers-reduced-motion respected via global.css @media rule.
@@ -24,6 +25,13 @@
  * field that triggered the error receives aria-describedby="form-error" so
  * assistive technologies can programmatically associate the message with its
  * input.
+ *
+ * WCAG 1.3.1 / 3.3.1 parity with Unseal.tsx (T17.2):
+ *   - All required inputs carry aria-required="true".
+ *   - Integer fields (total_epochs, checkpoint_every_n) set aria-invalid="true"
+ *     when client-side validation fails, matching the Unseal pattern.
+ *   - Visible asterisks in labels are wrapped with aria-hidden="true" so screen
+ *     readers rely on aria-required instead of reading the literal "*".
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -102,8 +110,8 @@ export default function Dashboard(): JSX.Element {
   const [isCreating, setIsCreating] = useState(false);
 
   // Form validation error (for NaN guards on integer fields).
-  // errorField tracks which input triggered the error so aria-describedby can
-  // be applied to that specific input element.
+  // errorField tracks which input triggered the error so aria-describedby and
+  // aria-invalid can be applied to that specific input element (WCAG 3.3.1).
   const [formValidationError, setFormValidationError] = useState<string | null>(null);
   const [formErrorField, setFormErrorField] = useState<keyof CreateJobFormState | null>(null);
 
@@ -383,6 +391,7 @@ export default function Dashboard(): JSX.Element {
                 style={{ fontSize: "0.875rem", fontWeight: 500 }}
               >
                 Table Name{" "}
+                {/* Visible required indicator — aria-hidden so SR reads aria-required */}
                 <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
                   *
                 </span>
@@ -391,6 +400,7 @@ export default function Dashboard(): JSX.Element {
                 id="table-name"
                 type="text"
                 required
+                aria-required="true"
                 value={form.table_name}
                 onChange={(e) => handleFormChange("table_name", e.target.value)}
                 placeholder="e.g. customers"
@@ -404,6 +414,7 @@ export default function Dashboard(): JSX.Element {
                 style={{ fontSize: "0.875rem", fontWeight: 500 }}
               >
                 Parquet Path{" "}
+                {/* Visible required indicator — aria-hidden so SR reads aria-required */}
                 <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
                   *
                 </span>
@@ -412,6 +423,7 @@ export default function Dashboard(): JSX.Element {
                 id="parquet-path"
                 type="text"
                 required
+                aria-required="true"
                 value={form.parquet_path}
                 onChange={(e) =>
                   handleFormChange("parquet_path", e.target.value)
@@ -427,6 +439,7 @@ export default function Dashboard(): JSX.Element {
                 style={{ fontSize: "0.875rem", fontWeight: 500 }}
               >
                 Total Epochs{" "}
+                {/* Visible required indicator — aria-hidden so SR reads aria-required */}
                 <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
                   *
                 </span>
@@ -436,6 +449,8 @@ export default function Dashboard(): JSX.Element {
                 type="number"
                 required
                 min={1}
+                aria-required="true"
+                aria-invalid={formErrorField === "total_epochs"}
                 value={form.total_epochs}
                 onChange={(e) =>
                   handleFormChange("total_epochs", e.target.value)
@@ -452,6 +467,7 @@ export default function Dashboard(): JSX.Element {
                 style={{ fontSize: "0.875rem", fontWeight: 500 }}
               >
                 Checkpoint Every (epochs){" "}
+                {/* Visible required indicator — aria-hidden so SR reads aria-required */}
                 <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
                   *
                 </span>
@@ -461,6 +477,8 @@ export default function Dashboard(): JSX.Element {
                 type="number"
                 required
                 min={1}
+                aria-required="true"
+                aria-invalid={formErrorField === "checkpoint_every_n"}
                 value={form.checkpoint_every_n}
                 onChange={(e) =>
                   handleFormChange("checkpoint_every_n", e.target.value)
