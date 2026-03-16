@@ -19,6 +19,35 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 12 End-of-Phase Retrospective
+
+**Phase Goal**: Address remaining hygiene findings from Roast #2. Prune stale remote
+branches, update README to reflect Phase 11 completion, and create a vulture whitelist
+to eliminate false positives from advisory dead-code scans. No new features.
+
+**Exit Criteria Verification**:
+- All 70 stale remote branches pruned (T12.1 — PR #73).
+- README current with Phase 11 completion and Phase 12 status.
+- Vulture advisory scan produces meaningful output: 0 findings with whitelist (T12.2 — PR #74).
+- All quality gates passing. Open advisory count: **0**.
+- Phase 12 end-of-phase retrospective completed (this entry).
+
+**What went well**:
+1. Phase 12 was the smallest phase yet — 2 tasks, both completed quickly.
+2. The vulture whitelist transforms the advisory scan from noise (88 false positives) into
+   a useful signal (0 baseline — any new finding is genuine).
+3. Category G items (test-only methods) were properly verified against the test suite before
+   whitelisting, applying the "don't whitelist genuinely dead code" guard.
+
+**What could improve**:
+1. Branch accumulation could have been prevented by enabling GitHub's "Automatically delete
+   head branches" repo setting from the start. Both QA and DevOps reviewers flagged this.
+2. README Phase 12 still says "In Progress" — will need updating after this retrospective.
+   This is a recurring pattern: the README status always lags by one phase. Consider whether
+   the retrospective commit itself should update the README status.
+
+---
+
 ### [2026-03-16] P12-T12.2 — Vulture Whitelist for FastAPI False Positives
 
 **Changes**: Created `.vulture_whitelist.py` (178 lines) suppressing 88 false positives from
