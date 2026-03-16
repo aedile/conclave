@@ -446,6 +446,17 @@ def test_ingestion_preflight_readonly_user_passes_real_postgresql(
     # Must not raise — this is the required read-only path.
     adapter.preflight_check()
 
+    # Positive assertion: verify the adapter's engine remains usable after preflight
+    # (proves the function body actually executed and did not short-circuit before
+    # establishing the connection).
+    from sqlalchemy import text
+
+    with adapter._engine.connect() as conn:
+        row = conn.execute(text("SELECT 1")).scalar()
+    assert row == 1, (
+        f"Engine.execute SELECT 1 returned {row!r} — adapter not usable after preflight_check()"
+    )
+
 
 # ===========================================================================
 # AC2 — Subsetting engine FK traversal against real PostgreSQL schema
@@ -642,6 +653,9 @@ def test_subsetting_fk_traversal_real_postgresql(
     assert result.row_counts["customers"] == 1, (
         f"Expected 1 customer in result, got {result.row_counts['customers']}"
     )
+    assert result.row_counts.get("orders") == 2, (
+        f"Expected SubsetResult.row_counts['orders']==2, got {result.row_counts}"
+    )
 
     # Verify target DB counts via real PostgreSQL
     with tgt_engine.connect() as conn:
@@ -676,6 +690,7 @@ def test_subsetting_fk_traversal_real_postgresql(
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.synthesizer
 def test_real_sdv_ctgan_training_small_dataset() -> None:
     """One integration test exercising the real SDV/CTGAN training path.
 

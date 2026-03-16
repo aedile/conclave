@@ -103,7 +103,7 @@ The `edoburu/pgbouncer` image uses the same environment variable interface as th
 
 | Environment Variable | Value | Purpose |
 |---------------------|-------|---------|
-| `DATABASES_HOST` | `postgres` | PostgreSQL host |
+| `DB_HOST` | `postgres` | PostgreSQL host |
 | `DATABASES_PORT` | `5432` | PostgreSQL port |
 | `DATABASES_USER` | `conclave` | PostgreSQL user |
 | `DATABASES_DBNAME` | `conclave` | Target database |
@@ -120,6 +120,12 @@ No changes to `pgbouncer/userlist.txt` or downstream configuration are required.
 `PGBOUNCER_AUTH_TYPE` was updated from `md5` to `scram-sha-256` as part of T19.2 security
 hardening. PostgreSQL 14+ deprecates md5 authentication in favour of SCRAM-SHA-256. The value
 shown in the compatibility table above reflects the post-amendment state. This resolves ADV-016.
+
+### Amendment — T20.2 (2026-03-16)
+
+The compatibility table originally listed `DATABASES_HOST` as the host environment
+variable for `edoburu/pgbouncer`. ADV-019 demonstrated that the correct variable is
+`DB_HOST`. The table above has been corrected.
 
 ---
 
