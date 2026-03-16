@@ -156,6 +156,83 @@ All 9 new integration tests pass. Bandit, mypy, ruff, pre-commit all pass.
 
 ---
 
+### [2026-03-15] Phase 6 End-of-Phase Retrospective
+
+**Phase:** 6 — Integration, Audit & Finalization
+**Tasks completed:** T6.1 (E2E Generative Synthesis Tests), T6.2 (NIST Erasure, OWASP ZAP, Fuzz Testing), T6.3 (Final Security Remediation, Documentation & Platform Handover)
+**PRs merged:** #50, #51, #52
+**Phase status:** COMPLETE — all 3 tasks delivered, all acceptance criteria verified
+
+#### Exit Criteria Audit
+
+| # | Criterion | Result |
+|---|-----------|--------|
+| 1 | Playwright E2E suite covering React UI → SSE → completion flow | PASS — T6.1 delivered 3 spec files (unseal, dashboard, synthesis-flow) with 9 Playwright tests; axe-core WCAG 2.1 AA scans on all views |
+| 2 | Privacy Ledger epsilon decrement verified in E2E context | PASS — T6.1 integration tests verify spend_budget() epsilon deduction via aiosqlite; DummyMLSynthesizer exercises same API/storage/ledger pathways |
+| 3 | NIST SP 800-88 erasure validation (shred + verify unrecoverable) | PASS — T6.2 delivered tests/security/test_nist_erasure.py |
+| 4 | JSON depth/size fuzz tests (413/400 on nested payloads) | PASS — T6.2 delivered tests/security/test_fuzzing.py with deep JSON and NaN/Infinity tests |
+| 5 | OWASP ZAP baseline scan in CI | PASS — T6.2 added ZAP job to ci.yml |
+| 6 | OPERATOR_MANUAL.md, DISASTER_RECOVERY.md, LICENSING.md | PASS — T6.3 delivered all three documents |
+| 7 | Local CI runner (scripts/ci-local.sh) | PASS — T6.3 delivered as mitigation for GitHub Actions minutes exhaustion; Makefile `ci-local` target added |
+| 8 | All review commits present (qa, ui-ux, devops, arch) | PASS — verified in git log; all 3 tasks have all required review commits |
+| 9 | Unit test coverage >= 90% | PASS — Python: 96%+, Frontend: 95%+ |
+| 10 | Advisory count within Rule 11 ceiling | AT CEILING — 12 open advisories (ceiling is 12). Next advisory triggers mandatory drain sprint. |
+
+#### Acceptance Criteria Cross-Audit (Rule 4)
+
+**T6.1** — All AC met:
+- [x] Playwright E2E suite utilizing @axe-core/playwright
+- [x] Test navigates React UI, uploads dummy schema, initiates generation job
+- [x] UI correctly receives SSE progress updates and displays completion
+- [x] Privacy Ledger (Epsilon) correctly decremented (integration tests via aiosqlite)
+- [x] axe-core accessibility assertions across job configuration and completion flow
+- Note: Playwright route.fulfill() static SSE limitation documented; transient TRAINING state tested via list snapshot fallback
+
+**T6.2** — All AC met:
+- [x] NIST erasure test: seeds PII, calls shred, verifies unrecoverable
+- [x] JSON depth fuzz: nested payloads (depth > 100) rejected with 413/400
+- [x] NaN/Infinity fuzz: float edge cases handled gracefully
+- [x] OWASP ZAP baseline scan added to CI pipeline
+- Note: RequestBodyLimitMiddleware UnicodeDecodeError branch unreachable with current decode strategy (ADV-064)
+
+**T6.3** — All AC met:
+- [x] OPERATOR_MANUAL.md: boot, docker-compose, vault unseal documented
+- [x] DISASTER_RECOVERY.md: Saga rollback, OOM recovery documented
+- [x] LICENSING.md: offline activation protocol documented
+- [x] Air-gap bundler includes generated documentation (Makefile target verified)
+- [x] Local CI script as GitHub Actions replacement (ci-local.sh)
+- Note: LICENSING.md "three-step" → "four-step" count mismatch caught and fixed by QA review
+
+#### Phase 6 Advisories Added
+
+| ID | Severity | Summary |
+|----|----------|---------|
+| ADV-062 | ADVISORY | E2E CI job rebuilds frontend from scratch — two builds per CI run |
+| ADV-064 | ADVISORY | RequestBodyLimitMiddleware UnicodeDecodeError branch unreachable |
+| ADV-065 | ADVISORY | zap_test.db not cleaned up in CI |
+| ADV-066 | ADVISORY | `-W error` absent from ci.yml and ci-local.sh |
+
+#### Advisories Drained in Phase 6
+
+| ID | Summary |
+|----|---------|
+| ADV-059 | Playwright wired into CI (drained T6.1) |
+| ADV-060 | MockEventSource extracted to shared helper (drained T6.1) |
+| ADV-061 | JobCard safePercent guard + TRAINING badge WCAG fix (drained T6.1) |
+
+#### Open Advisory Disposition (Phase 7 Entry)
+
+12 open advisories (at Rule 11 ceiling of 12):
+- 1 BLOCKER: ADV-048 (DP-SGD wiring — resolved by Phase 7 custom training loop)
+- 7 DEFERRED: ADV-021, ADV-040, ADV-050, ADV-052, ADV-054, ADV-057, ADV-058
+- 4 ADVISORY: ADV-062, ADV-064, ADV-065, ADV-066
+
+The DEFERRED items targeting "Phase 6 hardening" are accepted post-launch debt — none block Phase 7
+because Phase 7's scope (DP-SGD integration) is orthogonal to these items. ADV-048 is the sole
+Phase 7 entry gate and will be drained by T7.3 (Opacus end-to-end wiring).
+
+---
+
 ### [2026-03-15] Phase 5 End-of-Phase Retrospective
 
 **Phase:** 5 — Orchestration, UI, & Licensing
