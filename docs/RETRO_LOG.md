@@ -40,13 +40,12 @@ Drain (delete) rows when their target task is completed.
 - pre-commit: PASS (all hooks)
 
 **Reviews**:
-- QA: PASS -- 3 new skip-link tests cover existence, href target, and CSS class;
-  all existing 123 tests continue to pass; coverage 97.36% (above 90% threshold)
-- UI/UX: PASS -- Skip link is first in DOM order, correct href, correct class,
-  uses CSS custom properties for WCAG-compliant contrast; WCAG 2.1 AA 2.4.1
-  Bypass Blocks satisfied; Dashboard and Unseal id="main-content" correct targets
-- DevOps: PASS -- No secrets, no new dependencies, GitHub auto-delete enabled,
-  stale branches absent from origin, pre-commit hooks all pass
+- QA: PASS — 3 new skip-link tests, 126 total, 97.37% coverage
+- UI/UX: FINDING (2 items, both fixed) — (1) main elements needed tabIndex={-1}
+  for proper focus transfer in Firefox/Safari; added to Dashboard.tsx and Unseal.tsx.
+  (2) AssertiveAnnouncement lacked visually-hidden styles; added inline styles
+  matching PoliteAnnouncement pattern in AriaLive.tsx.
+- DevOps: PASS — no secrets, no new dependencies, GitHub auto-delete enabled
 
 **Retrospective Note**: The GitHub "Automatically delete head branches" setting
 had been noted in three consecutive phase retrospectives (Phase 12, Phase 15,

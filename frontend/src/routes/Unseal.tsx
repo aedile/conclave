@@ -131,6 +131,7 @@ export default function Unseal() {
   return (
     <main
       id="main-content"
+      tabIndex={-1}
       style={{
         display: "flex",
         alignItems: "center",
