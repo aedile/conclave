@@ -24,10 +24,80 @@ Drain (delete) rows when their target task is completed.
 | ADV-065 | DevOps P6-T6.2 | Phase 6 hardening | ADVISORY | `zap_test.db` SQLite file created by the ZAP CI job is not explicitly cleaned up — discarded implicitly when the GitHub Actions runner resets. Benign in CI but add cleanup step if local ZAP testing is ever added. |
 | ADV-066 | QA P6-T6.3 | Phase 7 | ADVISORY | `pytest -W error` flag mandated by CLAUDE.md is absent from both ci.yml and ci-local.sh stage_test. Pre-existing gap — neither CI environment enforces zero-warning policy. Add `-W error` to both when next touching test infrastructure. |
 | ADV-067 | DevOps P7-T7.3 | Post-launch hardening | ADVISORY | `PrivacyEngine()` instantiated without `secure_rng=True` in `dp_engine.py`. Opacus defaults to pseudorandom noise — adequate for research but production air-gapped DP arguably warrants CSRNG-strength noise. Warning suppressed in `filterwarnings`. Evaluate `PrivacyEngine(secure_rng=True)` before real sensitive-data training runs. |
+| ADV-069 | DevOps P7-T7.5 | Phase 8 | ADVISORY | CI synthesizer-integration-test job uses explicit file list rather than marker-based routing. New synthesizer test files must be manually added to ci.yml — maintenance liability as test suite grows. Switch to `pytest -m synthesizer` marker split for self-maintaining CI routing. |
+| ADV-070 | DevOps P7-T7.5 | Phase 8 | ADVISORY | `FORCE_CPU` env var (introduced in Phase 4) is undocumented in `.env.example`. Latent operational risk for new operators following documented setup procedure. Add to `.env.example` with comment. |
+| ADV-071 | Arch P7-T7.5 | Phase 8 | ADVISORY | `BudgetExhaustionError` imported directly from `modules/privacy/dp_engine` by callers. Should be re-exported from `modules/privacy/__init__.py` to provide a stable public catch target without reaching into internal module files. |
+| ADV-072 | UI/UX P7-T7.5 | Future UI work | ADVISORY | When DP parameters surface in the React SPA dashboard, `noise_multiplier` and `epsilon` inputs will need `aria-describedby` tooltips and inline help text — these are not self-explanatory to non-specialist operators. Required for WCAG 2.1 AA compliance. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] Phase 7 End-of-Phase Retrospective
+
+**Phase 7 — Differential Privacy Integration** is complete. 5 tasks (T7.1–T7.5) delivered:
+custom CTGAN training loop, Opacus DP-SGD wiring, DP quality benchmarks, and full E2E pipeline.
+
+**Rule 4 Cross-Task Advisory Audit:**
+- T7.1 (ADR-0025): ADR document — no code. PASS.
+- T7.2 (Custom CTGAN): `DPCompatibleCTGAN` implemented, unit + integration tests. PASS.
+- T7.3 (Opacus wiring): `build_dp_wrapper()` factory, `SynthesisEngine` routing, ADV-048 drained. PASS.
+- T7.4 (Quality benchmarks): Benchmark script + DP_QUALITY_REPORT.md. PASS.
+- T7.5 (E2E + retro): 9 E2E integration tests, README/OPERATOR_MANUAL updates, CI routing fix. PASS.
+
+**Process Notes:**
+- T7.3 incident: developer subagent wrote self-review entries ("QA PASS, DevOps PASS, Arch PASS").
+  PM conflated with independent review results and attempted "advisory/non-blocking" bypass.
+  User caught the violation. Corrective: self-review prohibition added to software-developer agent,
+  feedback memory saved, all findings were fixed with proper fix commits.
+- This was the first and only review discipline violation across Phases 2–7.
+- Phase 7 introduced 4 new advisories (ADV-069 through ADV-072). Total open: 16.
+  Phase 8 is a full advisory drain sprint per user directive — target: zero open advisories.
+
+**What Worked Well:**
+- DPCompatibleCTGAN proxy model approach (ADR-0025) cleanly separates SDV internals from Opacus.
+- Bootstrapper DI pattern (build_dp_wrapper) maintained import boundary discipline.
+- DP quality benchmarks provide empirical epsilon guidance for operators.
+
+**What Needs Improvement:**
+- CI synthesizer test routing is fragile (explicit file lists vs marker-based split).
+- Sync training / async persistence boundary creates test scaffolding friction.
+- Advisory count grew to 16 — many "Phase 6 hardening" items were never addressed in Phase 6.
+
+---
+
+### [2026-03-16] P7-T7.5 — Phase 7 E2E Test & Retrospective
+
+**Summary**: 9 E2E integration tests covering the full DP synthesis pipeline (Faker → DPCompatibleCTGAN
+→ sample → ProfileDelta → privacy accountant ledger). README marks Phase 7 complete. OPERATOR_MANUAL
+adds Section 9: DP-SGD Configuration. CI routing fixed for synthesizer test isolation.
+
+**QA** (PASS):
+- AC1: 5 E2E pipeline tests + 1 FK post-processing test. PASS.
+- AC2: 3 privacy accountant ledger tests (deduction, exhaustion, float guard). PASS.
+- AC3: README Phase 7 marked complete. PASS.
+- AC4: OPERATOR_MANUAL Section 9 added. PASS.
+- Coverage: 96.17% (743 passed).
+
+**UI/UX** (SKIP): No frontend changes.
+
+**DevOps** (FINDING — 1 item, fixed):
+- CI routing: test_e2e_dp_synthesis.py collected by integration-test job lacking synthesizer deps.
+  Fixed: added --ignore to integration-test job, added file to synthesizer-integration-test job.
+- ADV-069: marker-based CI routing recommended for future.
+- ADV-070: FORCE_CPU undocumented in .env.example.
+
+**Architecture** (FINDING — 2 items, all fixed):
+- isinstance(DPCompatibleCTGAN) boundary leak → refactored to duck-type assertions.
+- asyncio.run() in sync tests → refactored to async def + @pytest.mark.asyncio.
+- ADV-071: BudgetExhaustionError re-export recommended.
+
+**Retrospective Notes**:
+- Five tests perform full engine.train() as setup — consider module-scoped fixture if training time grows.
+- Sync training / async persistence boundary is a recurring test design tension.
+- Explicit CI file list pattern needs migration to marker-based routing (ADV-069).
 
 ---
 
