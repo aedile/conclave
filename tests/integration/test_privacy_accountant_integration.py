@@ -32,10 +32,12 @@ from __future__ import annotations
 import asyncio
 import shutil
 from collections.abc import AsyncGenerator
+from decimal import Decimal
 
 import pytest
 import pytest_asyncio
 from pytest_postgresql import factories
+from pytest_postgresql.janitor import DatabaseJanitor
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import SQLModel
@@ -85,8 +87,12 @@ async def pg_async_engine(
 ) -> AsyncGenerator[AsyncEngine]:
     """Provide an async SQLAlchemy engine connected to the ephemeral PostgreSQL instance.
 
-    Creates all SQLModel tables, yields the engine, then drops all tables
-    on teardown to leave the test database clean.
+    Creates the test database via ``DatabaseJanitor``, then creates all SQLModel
+    tables, yields the engine, drops all tables, and disposes the engine.
+
+    The ``postgresql_proc`` fixture only starts the server process — it does NOT
+    create the test database.  ``DatabaseJanitor`` is responsible for
+    ``CREATE DATABASE`` / ``DROP DATABASE`` lifecycle management.
 
     Args:
         postgresql_proc: The running pytest-postgresql process executor providing
@@ -99,17 +105,29 @@ async def pg_async_engine(
     proc = postgresql_proc
     password = proc.password or ""
     db_url = f"postgresql+asyncpg://{proc.user}:{password}@{proc.host}:{proc.port}/{proc.dbname}"
-    engine = get_async_engine(db_url)
 
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+    # DatabaseJanitor creates the test database (CREATE DATABASE) and drops it
+    # on __exit__.  Without this, the database named in proc.dbname ("tests" by
+    # default) does not exist and asyncpg raises InvalidCatalogNameError.
+    with DatabaseJanitor(
+        user=proc.user,
+        host=proc.host,
+        port=proc.port,
+        dbname=proc.dbname,
+        version=proc.version,
+        password=password,
+    ):
+        engine = get_async_engine(db_url)
 
-    yield engine
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
 
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
+        yield engine
 
-    await engine.dispose()
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.drop_all)
+
+        await engine.dispose()
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +197,9 @@ async def test_concurrent_spend_budget_for_update_prevents_overrun(
     async with get_async_session(pg_async_engine) as s:
         ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         final_ledger = ledger_result.scalar_one()
-        assert abs(final_ledger.total_spent_epsilon - 5.0) < 1e-9, (
+        # PrivacyLedger stores epsilon as Decimal(20, 10) — use Decimal arithmetic
+        # to avoid "TypeError: unsupported operand for -: 'decimal.Decimal' and 'float'".
+        assert abs(final_ledger.total_spent_epsilon - Decimal("5.0")) < Decimal("1e-9"), (
             f"Expected total_spent_epsilon == 5.0, got {final_ledger.total_spent_epsilon}. "
             "Budget overrun or underrun detected — FOR UPDATE locking may not be working."
         )
@@ -225,12 +245,15 @@ async def test_spend_budget_postgresql_creates_transaction_record(
         )
         transactions = tx_result.scalars().all()
         assert len(transactions) == 1, f"Expected 1 transaction, got {len(transactions)}"
-        assert transactions[0].epsilon_spent == 1.0
+        # PrivacyTransaction stores epsilon as Decimal(20, 10); compare with Decimal.
+        assert transactions[0].epsilon_spent == Decimal("1.0"), (
+            f"Expected epsilon_spent == 1.0, got {transactions[0].epsilon_spent}"
+        )
         assert transactions[0].job_id == 99
 
         ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         updated_ledger = ledger_result.scalar_one()
-        assert updated_ledger.total_spent_epsilon == 1.0, (
+        assert updated_ledger.total_spent_epsilon == Decimal("1.0"), (
             f"Expected 1.0 spent, got {updated_ledger.total_spent_epsilon}"
         )
 
@@ -260,6 +283,7 @@ async def test_spend_budget_postgresql_raises_on_exhaustion(
     async with get_async_session(pg_async_engine) as s:
         ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         unchanged_ledger = ledger_result.scalar_one()
-        assert unchanged_ledger.total_spent_epsilon == 0.95, (
+        # PrivacyLedger stores epsilon as Decimal(20, 10); compare with Decimal.
+        assert unchanged_ledger.total_spent_epsilon == Decimal("0.95"), (
             f"Ledger balance should be 0.95, got {unchanged_ledger.total_spent_epsilon}"
         )
