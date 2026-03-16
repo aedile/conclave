@@ -1,8 +1,10 @@
 /**
- * Vitest unit tests for App router guard behaviour.
+ * Vitest unit tests for App router guard behaviour and WCAG skip navigation.
  *
  * Tests that the RouterGuard redirects to /unseal on 423 or network error,
  * and allows /dashboard access when health returns 200.
+ *
+ * Also tests WCAG 2.1 AA 2.4.1 skip-to-content link (P16-T16.3).
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
@@ -115,5 +117,33 @@ describe("App router guard", () => {
     expect(
       screen.getByRole("heading", { name: /conclave engine/i }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("App skip navigation link — WCAG 2.1 AA 2.4.1", () => {
+  beforeEach(() => {
+    mockNavigate.mockReset();
+    mockGetHealth.mockReset();
+  });
+
+  it("renders a skip-to-content link as the first focusable element", () => {
+    renderApp("/unseal");
+
+    const skipLink = screen.getByRole("link", { name: /skip to main content/i });
+    expect(skipLink).toBeInTheDocument();
+  });
+
+  it("skip link targets #main-content", () => {
+    renderApp("/unseal");
+
+    const skipLink = screen.getByRole("link", { name: /skip to main content/i });
+    expect(skipLink).toHaveAttribute("href", "#main-content");
+  });
+
+  it("skip link has skip-link CSS class for visibility-on-focus styling", () => {
+    renderApp("/unseal");
+
+    const skipLink = screen.getByRole("link", { name: /skip to main content/i });
+    expect(skipLink).toHaveClass("skip-link");
   });
 });
