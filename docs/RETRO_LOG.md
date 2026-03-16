@@ -16,11 +16,51 @@ Drain (delete) rows when their target task is completed.
 | ADV-018 | T19.4 | T20.2 | BLOCKER | docker-compose.yml redis `cap_drop: ALL` incompatible with redis:7-alpine user-switching |
 | ADV-019 | T19.4 | T20.2 | BLOCKER | docker-compose.yml pgbouncer `DATABASES_HOST` should be `DB_HOST` for edoburu/pgbouncer |
 | ADV-020 | T19.4 | T20.4 | ADVISORY | cli.py `sslmode=require` enforced for internal Docker hostnames; postgres has no SSL |
-| ADV-021 | T19.4 | T20.1 | BLOCKER | bootstrapper/cli.py `col.get('primary_key', 0)` always 0; FK traversal never fires; fix: use `Inspector.get_pk_constraint()` |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P20-T20.1 — Exception Handling & Warning Suppression Fixes
+
+**Changes**:
+- `src/synth_engine/shared/telemetry.py`: `except Exception` → `except ValueError` in `_redact_url()`.
+- `src/synth_engine/modules/synthesizer/dp_training.py`: All 7 `warnings.simplefilter("ignore"...)` calls
+  replaced with targeted `warnings.filterwarnings()`. Blanket suppression eliminated entirely.
+  Two module-level constants for Opacus warning patterns.
+- `src/synth_engine/modules/mapping/reflection.py`: New `get_pk_constraint()` method on SchemaReflector.
+- `src/synth_engine/bootstrapper/cli.py`: ADV-021 fix — `col.get('primary_key', 0)` replaced with
+  `Inspector.get_pk_constraint()` via SchemaReflector. Exception sanitization: raw exc no longer
+  shown to CLI users, logged instead.
+- `src/synth_engine/shared/schema_topology.py`: ColumnInfo docstring updated — composite PK ordering
+  contract corrected to reflect ADV-021 fix behavior.
+- Tests: test_cli.py (new, 7 tests), test_dp_training.py (updated), test_telemetry.py (updated).
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 990 unit tests PASS (96.80% coverage). pre-commit PASS.
+
+**ADV drain**: ADV-021 (BLOCKER) drained — FK traversal now uses `get_pk_constraint()`.
+
+**Review**: QA FINDING (2 fixed), DevOps FINDING (2 fixed), Architecture PASS
+
+**QA** (FINDING — 2 items fixed):
+1. Missing behavioral propagation test for `_redact_url` — added `test_redact_url_non_value_error_propagates`.
+2. ColumnInfo docstring inaccuracy — updated to "composite PK members assigned primary_key=1 (ordering not preserved)".
+
+**DevOps** (FINDING — 2 items fixed):
+1. cli.py `except Exception` exposed raw SQLAlchemy text to users — sanitized to generic message + `_logger.exception()`.
+2. Residual `simplefilter("ignore", Category)` calls — all converted to `filterwarnings()`. Test tightened to flag any `simplefilter` call.
+
+**Architecture** (PASS): Import direction valid (bootstrapper→modules). `get_pk_constraint()` fits existing SchemaReflector pattern. No boundary violations.
+
+**Retrospective Note**:
+ADV-021 was the most critical correctness bug in the project's history — FK traversal via the CLI
+path never worked because `Inspector.get_columns()` doesn't include `primary_key` in its return dict
+on PostgreSQL. The fix correctly delegates to `get_pk_constraint()` through SchemaReflector's existing
+API pattern. The AST-based test for exception narrowing is a strong enforcement technique but must be
+paired with behavioral tests (as QA correctly identified). The `simplefilter` → `filterwarnings`
+conversion eliminates all blanket warning suppression in the synthesizer module.
 
 ---
 
