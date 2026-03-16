@@ -19,6 +19,27 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P15-T15.1 — Frontend Test Coverage Gate Repair
+
+**Changes**: Added 3 malformed SSE payload tests for useSSE.ts catch blocks. Excluded
+`eslint.config.js` and `src/vite-env.d.ts` from vitest coverage measurement. Added
+`simulateRawEvent` helper to mock-event-source.ts.
+
+Coverage: 85.66% → 97.35% (all thresholds now exceed 90%). Tests: 120 → 123.
+
+**Reviews**:
+- QA: PASS — coverage gate repaired, 3 new meaningful assertions
+- UI/UX: SKIP — test infrastructure only
+- DevOps: PASS — no secrets, no new dependencies, CI already gates coverage
+
+**Retrospective Note**: The root cause was config files (eslint.config.js, vite-env.d.ts)
+being counted in coverage when they have no executable code. This should have been caught
+in Phase 14 T14.2 when eslint.config.js was created — the file immediately entered the
+coverage denominator. Lesson: when adding new non-source files to a directory measured by
+coverage, check whether the coverage config excludes them.
+
+---
+
 ### [2026-03-16] Phase 14 End-of-Phase Retrospective
 
 **Phase Goal**: Fix 8 failing integration tests (Constitution Priority 4 violation), restore
