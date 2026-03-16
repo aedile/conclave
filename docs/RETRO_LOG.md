@@ -12,7 +12,6 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-021 | QA P2-D2 | Phase 6 hardening | DEFERRED | `EncryptedString` NULL passthrough, empty-string, and unicode/multi-byte PII paths are not exercised at the integration level (only unit-tested). PM justification: `EncryptedString` has not expanded beyond its single use case since Phase 2; no new TypeDecorators are planned for Phase 5. Integration tests deferred to Phase 6 hardening sprint. |
 | ADV-040 | DevOps T4.2b | Phase 6 security hardening | DEFERRED | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. PM justification: artifact trust boundary is internal-only through Phase 5; HMAC wiring deferred to Phase 6 hardening sprint when external storage is considered. |
 | ADV-050 | Arch T4.4 | Phase 6 hardening | DEFERRED | `Float` column type for `total_allocated_epsilon`/`total_spent_epsilon` in `PrivacyLedger`. Floating-point accumulation across many small additions introduces budget drift. PM justification: at current scale (1–10 epsilon range, tens of jobs) float64 drift is sub-microsecond. Revisit if sub-0.01 epsilon granularity or high-concurrency workloads become a product requirement. |
 | ADV-052 | DevOps T5.1 | Phase 6 hardening | DEFERRED | No Alembic migration for `connection` and `setting` tables. PM justification: Alembic infrastructure not yet established; air-gapped deployment uses SQLModel.metadata.create_all() at startup. Migration creation blocked until Alembic is initialized (Phase 6). |
@@ -20,7 +19,6 @@ Drain (delete) rows when their target task is completed.
 | ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
 | ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
 | ADV-062 | DevOps T6.1 | Phase 6 hardening | ADVISORY | E2E CI job rebuilds frontend from scratch (npm ci + playwright.config.ts webServer runs build+preview). Two full frontend builds per CI run. Introduce build-artifact handoff between frontend and e2e jobs when wall-clock time becomes a concern. |
-| ADV-064 | QA P6-T6.2 | Phase 6 hardening | ADVISORY | `except (UnicodeDecodeError, ValueError)` branch in `RequestBodyLimitMiddleware` cannot be directly hit because `bytes.decode(errors="replace")` never raises `UnicodeDecodeError`. Branch is defensive resilience code; not directly testable with current decode strategy. Documented with comment in test. |
 | ADV-065 | DevOps P6-T6.2 | Phase 6 hardening | ADVISORY | `zap_test.db` SQLite file created by the ZAP CI job is not explicitly cleaned up — discarded implicitly when the GitHub Actions runner resets. Benign in CI but add cleanup step if local ZAP testing is ever added. |
 | ADV-066 | QA P6-T6.3 | Phase 7 | ADVISORY | `pytest -W error` flag mandated by CLAUDE.md is absent from both ci.yml and ci-local.sh stage_test. Pre-existing gap — neither CI environment enforces zero-warning policy. Add `-W error` to both when next touching test infrastructure. |
 | ADV-067 | DevOps P7-T7.3 | Post-launch hardening | ADVISORY | `PrivacyEngine()` instantiated without `secure_rng=True` in `dp_engine.py`. Opacus defaults to pseudorandom noise — adequate for research but production air-gapped DP arguably warrants CSRNG-strength noise. Warning suppressed in `filterwarnings`. Evaluate `PrivacyEngine(secure_rng=True)` before real sensitive-data training runs. |
@@ -32,6 +30,26 @@ Drain (delete) rows when their target task is completed.
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P8-T8.1 — Integration Test Gaps (ADV-021, ADV-064)
+
+**Summary**: Drained ADV-021 and ADV-064. Added 4 integration tests for `EncryptedString` edge
+cases (NULL, empty-string, CJK unicode, emoji) against real PostgreSQL via `NullableSensitiveRecord`.
+Removed unreachable `except (UnicodeDecodeError, ValueError)` branch from `RequestBodyLimitMiddleware`
+(dead code per CLAUDE.md). Added depth-check regression test.
+
+**QA** (FINDING — 1 item, fixed): Duplicate inline imports in regression test removed.
+**UI/UX** (SKIP): No frontend changes.
+**DevOps** (PASS): gitleaks, bandit clean. CI routing correct.
+**Architecture** (PASS): NullableSensitiveRecord confined to test file. Dead branch removal consistent with ADR-0024.
+
+**Advisories drained**: ADV-021, ADV-064. Remaining: 14.
+
+**Retrospective Notes**:
+- `NullableSensitiveRecord` + `extend_existing=True` is a reusable pattern for edge-case integration tests.
+- Dead branches with explanatory comments should be flagged as findings at review time, not accumulated.
 
 ---
 

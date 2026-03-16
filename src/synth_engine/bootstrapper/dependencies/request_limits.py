@@ -266,31 +266,20 @@ class RequestBodyLimitMiddleware:
         # JSON depth check — only for application/json content type
         content_type = headers.get(b"content-type", b"").decode("latin-1", errors="replace")
         if "application/json" in content_type and body_bytes:
-            try:
-                body_text = body_bytes.decode("utf-8", errors="replace")
-                depth = _measure_json_depth(body_text)
-                if depth > MAX_JSON_DEPTH:
-                    _logger.warning(
-                        "Request rejected: JSON depth %d exceeds limit %d. Path: %s",
-                        depth,
-                        MAX_JSON_DEPTH,
-                        scope.get("path", ""),
-                    )
-                    body_400 = _400_DEPTH_BODY_TEMPLATE.format(
-                        depth=depth, limit=MAX_JSON_DEPTH
-                    ).encode()
-                    await _send_response(send, 400, body_400)
-                    return
-            except (UnicodeDecodeError, ValueError) as exc:  # pragma: no cover
-                # Unreachable with the current decode strategy: body_bytes.decode("utf-8",
-                # errors="replace") never raises UnicodeDecodeError (the errors="replace"
-                # flag guarantees success), and _measure_json_depth raises no ValueError.
-                # Retained as a defensive catch; excluded from coverage (ADV-064).
+            body_text = body_bytes.decode("utf-8", errors="replace")
+            depth = _measure_json_depth(body_text)
+            if depth > MAX_JSON_DEPTH:
                 _logger.warning(
-                    "Could not decode request body for depth check on %s: %s",
+                    "Request rejected: JSON depth %d exceeds limit %d. Path: %s",
+                    depth,
+                    MAX_JSON_DEPTH,
                     scope.get("path", ""),
-                    exc,
                 )
+                body_400 = _400_DEPTH_BODY_TEMPLATE.format(
+                    depth=depth, limit=MAX_JSON_DEPTH
+                ).encode()
+                await _send_response(send, 400, body_400)
+                return
 
         # Build a "body replay" receive callable that returns the buffered body.
         # The inner app's first call to receive() gets the full body as a single

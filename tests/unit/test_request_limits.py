@@ -446,39 +446,65 @@ class TestRequestBodyLimitMiddleware:
         inner.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_invalid_utf8_body_logs_warning_and_forwards(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Body that cannot be decoded as UTF-8 logs warning and passes through.
+    async def test_valid_json_body_under_depth_limit_forwarded(self) -> None:
+        """A valid JSON body under the depth limit is forwarded to the inner app.
 
-        This covers the except (UnicodeDecodeError, ValueError) block in the
-        JSON depth check.  The middleware must not reject the request — it
-        should let the route handler deal with the invalid encoding.
+        Verifies that the depth check does not incorrectly reject well-formed
+        JSON.  The dead ``except (UnicodeDecodeError, ValueError)`` branch that
+        previously wrapped this block has been removed (ADV-064); this test
+        remains as a straightforward regression guard for the happy path.
         """
         inner = AsyncMock()
         middleware = RequestBodyLimitMiddleware(inner)
 
-        # bytes.decode("utf-8", errors="replace") won't raise UnicodeDecodeError.
-        # To trigger the exception path we need to force it another way.
-        # The branch is reached when `body_bytes.decode("utf-8", errors="replace")`
-        # succeeds but `_measure_json_depth` raises ValueError — which can happen
-        # if the body contains control characters that confuse the scanner in a
-        # way that causes a Python-level error. However, our scanner is purely
-        # character-iteration and should not raise ValueError on any string.
-        #
-        # The most reliable way to reach this branch is via the UnicodeDecodeError
-        # path — but decode with errors="replace" never raises. We therefore test
-        # that a body with binary garbage is NOT rejected by the middleware
-        # (forwarded to inner app), which is the correct observable behavior
-        # even if the specific except branch is not directly hit.
-        # The branch is defensive code for future resilience.
-        #
-        # Send valid JSON — verifies that even unusual bodies pass through.
         body = b'{"key": "value"}'
         scope = _make_http_scope()
         receive = _make_receive(body)
         send, _ = _make_send()
 
         await middleware(scope, receive, send)
+
+        inner.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_depth_check_regression_after_dead_branch_removal(self) -> None:
+        """JSON depth check must reject over-limit requests after ADV-064 cleanup.
+
+        ADV-064 removes the unreachable ``except (UnicodeDecodeError, ValueError)``
+        branch from the JSON depth check block.  This test is an explicit regression
+        guard: it confirms that removing the dead branch does NOT break the happy
+        path (valid JSON forwarded) or the rejection path (over-limit JSON returns 400).
+
+        Covers both sub-cases in one test:
+        - A depth-101 body (over limit) returns HTTP 400.
+        - A depth-1 body (under limit) is forwarded to the inner app.
+        """
+        inner = AsyncMock()
+        middleware = RequestBodyLimitMiddleware(inner)
+
+        # Sub-case A: over-limit depth → must return 400
+        deep_obj: dict[str, Any] = {"v": 1}
+        for _ in range(MAX_JSON_DEPTH):
+            deep_obj = {"a": deep_obj}
+        deep_body = json.dumps(deep_obj).encode()
+        scope_a = _make_http_scope(content_length=len(deep_body))
+        receive_a = _make_receive(deep_body)
+        send_a, messages_a = _make_send()
+
+        await middleware(scope_a, receive_a, send_a)
+
+        inner.assert_not_awaited()
+        assert messages_a[0]["status"] == 400, (
+            "depth check regression: over-limit JSON must return 400 after dead branch removal"
+        )
+
+        # Sub-case B: under-limit depth → must forward to inner app
+        inner.reset_mock()
+        shallow_body = b'{"key": "value"}'
+        scope_b = _make_http_scope(content_length=len(shallow_body))
+        receive_b = _make_receive(shallow_body)
+        send_b, _ = _make_send()
+
+        await middleware(scope_b, receive_b, send_b)
 
         inner.assert_awaited_once()
