@@ -42,18 +42,21 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
     error`` ends up at the TOP of the chain and overrides every ``"ignore"`` entry
     in pyproject.toml.
 
-    The solution is to add the "ignore" filters INSIDE the per-test
-    ``catch_warnings_for_item`` context — i.e., from a fixture body — so they are
-    prepended AFTER ``-W error`` is already at the top, which puts the "ignore"
-    entries ABOVE it and restores correct precedence.
+    The solution is to add the "ignore" filters INSIDE a ``warnings.catch_warnings()``
+    context manager per test, so they are prepended AFTER ``-W error`` is already at
+    the top, which puts the "ignore" entries ABOVE it and restores correct precedence.
+    The ``catch_warnings()`` context manager also guarantees that any mutations to the
+    global filter chain are rolled back when the context exits — regardless of fixture
+    scope.  This is safer than relying on pytest's internal ``catch_warnings_for_item``
+    to restore the state.
 
-    This fixture also calls ``gc.collect()`` in its teardown (after yield) to force
-    GC of any short-lived SQLite engines before the test's ``catch_warnings_for_item``
-    context exits.  Without this, SQLite engines created in helper functions (e.g.,
-    ``_make_connections_app()``) are GC-collected after the test session ends — during
-    ``pytest._ensure_unconfigure`` — where no ``ResourceWarning`` filter is active and
-    ``PytestUnraisableExceptionWarning`` fires, causing a non-zero exit code despite
-    all tests passing.
+    This fixture also calls ``gc.collect()`` in its teardown (after yield, but still
+    inside the ``catch_warnings`` context) to force GC of any short-lived SQLite engines
+    before the context exits.  Without this, SQLite engines created in helper functions
+    (e.g., ``_make_connections_app()``) are GC-collected after the test session ends —
+    during ``pytest._ensure_unconfigure`` — where no ``ResourceWarning`` filter is
+    active and ``PytestUnraisableExceptionWarning`` fires, causing a non-zero exit code
+    despite all tests passing.
 
     The warnings suppressed here are all from third-party packages we cannot modify:
 
@@ -72,51 +75,52 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
     Yields:
         None — this is a setup/teardown fixture with no yielded value.
     """
-    # ---------------------------------------------------------------------------
-    # rdt 1.x (SDV dependency): sre_parse / sre_constants / sre_compile imports
-    # ---------------------------------------------------------------------------
-    warnings.filterwarnings(
-        "ignore",
-        message="module 'sre_parse' is deprecated",
-        category=DeprecationWarning,
-    )
-    warnings.filterwarnings(
-        "ignore",
-        message="module 'sre_constants' is deprecated",
-        category=DeprecationWarning,
-    )
-    warnings.filterwarnings(
-        "ignore",
-        message="module 'sre_compile' is deprecated",
-        category=DeprecationWarning,
-    )
+    with warnings.catch_warnings():
+        # -----------------------------------------------------------------------
+        # rdt 1.x (SDV dependency): sre_parse / sre_constants / sre_compile imports
+        # -----------------------------------------------------------------------
+        warnings.filterwarnings(
+            "ignore",
+            message="module 'sre_parse' is deprecated",
+            category=DeprecationWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="module 'sre_constants' is deprecated",
+            category=DeprecationWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="module 'sre_compile' is deprecated",
+            category=DeprecationWarning,
+        )
 
-    # ---------------------------------------------------------------------------
-    # chromadb 1.5.x: asyncio.iscoroutinefunction at class-definition time
-    # ---------------------------------------------------------------------------
-    warnings.filterwarnings(
-        "ignore",
-        message="'asyncio.iscoroutinefunction' is deprecated",
-        category=DeprecationWarning,
-    )
+        # -----------------------------------------------------------------------
+        # chromadb 1.5.x: asyncio.iscoroutinefunction at class-definition time
+        # -----------------------------------------------------------------------
+        warnings.filterwarnings(
+            "ignore",
+            message="'asyncio.iscoroutinefunction' is deprecated",
+            category=DeprecationWarning,
+        )
 
-    # ---------------------------------------------------------------------------
-    # SQLite ResourceWarning: short-lived in-memory test engines
-    # ---------------------------------------------------------------------------
-    warnings.filterwarnings(
-        "ignore",
-        category=ResourceWarning,
-    )
+        # -----------------------------------------------------------------------
+        # SQLite ResourceWarning: short-lived in-memory test engines
+        # -----------------------------------------------------------------------
+        warnings.filterwarnings(
+            "ignore",
+            category=ResourceWarning,
+        )
 
-    yield
+        yield
 
-    # ---------------------------------------------------------------------------
-    # Force GC after each test to collect short-lived SQLite engines NOW —
-    # while the ResourceWarning filter above is still active in this context.
-    # Without this, CPython defers collection to session teardown (outside our
-    # filter scope), where PytestUnraisableExceptionWarning would fire.
-    # ---------------------------------------------------------------------------
-    gc.collect()
+        # -----------------------------------------------------------------------
+        # Force GC after each test to collect short-lived SQLite engines NOW —
+        # while the ResourceWarning filter above is still active in this context.
+        # Without this, CPython defers collection to session teardown (outside our
+        # filter scope), where PytestUnraisableExceptionWarning would fire.
+        # -----------------------------------------------------------------------
+        gc.collect()
 
 
 # ---------------------------------------------------------------------------
