@@ -20,6 +20,33 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P17-T17.3 — CLAUDE.md Stale References, Backlog Spec Fix & Branch Cleanup
+
+**Changes**:
+- `CLAUDE.md`: 4 stale `AUTONOMOUS_DEVELOPMENT_PROMPT.md` references replaced with current equivalents
+- `docs/backlog/phase-16.md`: "Migration 002" → "Migration 003" (5 occurrences corrected)
+- 4 ADR files: format inconsistency fixed (`**Status**:` → `**Status:**`)
+- `README.md`: Phase 16 → Complete, Phase 17 → In Progress
+- `docs/BACKLOG.md`: Phase 17 indexed
+- 5 stale remote branches deleted (P15-T15.2, P16-T16.1, P16-T16.2, P16-T16.3, fix/P16-T16.3)
+
+**Quality Gates**: Docs-only task. pre-commit: PASS. No Python code changes.
+
+**QA** (PASS): Coverage 96.24% unchanged. All doc cross-references verified internally
+consistent. Phase-16 migration number corrected across all 5 occurrences.
+
+**DevOps** (PASS): gitleaks clean. No new dependencies, env vars, or attack surface.
+docs-gate CI satisfied by docs: commit prefix.
+
+**UI/UX** (SKIP): No UI surface area.
+
+**Retrospective Note**:
+The AUTONOMOUS_DEVELOPMENT_PROMPT.md retirement (Phase 3.5) left 4 stale references that
+survived until Phase 17. Future doc-retirement operations should include a grep-and-replace
+sweep as part of the retirement commit itself to avoid multi-phase cleanup.
+
+---
+
 ### [2026-03-16] P17-T17.1 — Docker Base Image SHA-256 Pinning (ADV-014)
 
 **Changes**:
