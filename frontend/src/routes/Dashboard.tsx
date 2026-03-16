@@ -9,7 +9,7 @@
  *   - WCAG 2.1 AA: aria-live regions, progressbar roles, labelled forms,
  *     required-field indicators (aria-required="true"), error identification
  *     (aria-invalid on failing inputs), assertive announcement for errors.
- *   - No hardcoded colours — exclusively uses CSS custom properties.
+ *   - No inline style= attributes — all layout via CSS classes (P20-T20.3 AC3).
  *   - document.title set on mount.
  *   - prefers-reduced-motion respected via global.css @media rule.
  *
@@ -291,13 +291,7 @@ export default function Dashboard(): JSX.Element {
     <main
       id="main-content"
       tabIndex={-1}
-      style={{
-        minHeight: "100vh",
-        backgroundColor: "var(--color-bg)",
-        color: "var(--color-text-primary)",
-        fontFamily: "var(--font-family)",
-        padding: "var(--spacing-xl)",
-      }}
+      className="dashboard-main"
     >
       {/* RFC 7807 error toast */}
       <RFC7807Toast
@@ -307,38 +301,24 @@ export default function Dashboard(): JSX.Element {
       />
 
       {/* Assertive announcement for API errors — interrupts screen readers for
-          critical failures. Separate container from role="alert" toast. */}
+          critical failures. Separate container from role="alertdialog" toast. */}
       <AssertiveAnnouncement>
         {errorVisible && apiError !== null ? apiError.title : ""}
       </AssertiveAnnouncement>
 
       {/* Hidden aria-live region for progress announcements.
-          IMPORTANT: This is a separate container from role="alert" — no nesting. */}
+          IMPORTANT: This is a separate container from role="alertdialog" — no nesting. */}
       <PoliteAnnouncement>
         {announcement}
       </PoliteAnnouncement>
 
-      <div
-        style={{
-          maxWidth: "60rem",
-          margin: "0 auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--spacing-xl)",
-        }}
-      >
+      <div className="dashboard-content">
         {/* Page heading */}
         <header>
-          <h1
-            style={{
-              fontSize: "1.75rem",
-              fontWeight: 700,
-              marginBottom: "var(--spacing-xs)",
-            }}
-          >
+          <h1 className="dashboard-header__title">
             Conclave Engine
           </h1>
-          <p style={{ color: "var(--color-text-secondary)", margin: 0 }}>
+          <p className="dashboard-header__subtitle">
             Monitor and manage data synthesis jobs.
           </p>
         </header>
@@ -347,26 +327,14 @@ export default function Dashboard(): JSX.Element {
         <section aria-labelledby="create-job-heading">
           <h2
             id="create-job-heading"
-            style={{
-              fontSize: "1.25rem",
-              fontWeight: 600,
-              marginBottom: "var(--spacing-md)",
-            }}
+            className="dashboard-section__heading"
           >
             Create Job
           </h2>
 
           <form
             onSubmit={(e) => void handleCreateJob(e)}
-            style={{
-              backgroundColor: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-md)",
-              padding: "var(--spacing-lg)",
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "var(--spacing-md)",
-            }}
+            className="dashboard-form"
           >
             {/* Form validation error — id="form-error" enables aria-describedby
                 association from the triggering input field (WCAG 1.3.1).
@@ -377,24 +345,19 @@ export default function Dashboard(): JSX.Element {
             <div
               id="form-error"
               role="alert"
-              style={{
-                gridColumn: "1 / -1",
-                color: "var(--color-error)",
-                fontSize: "0.875rem",
-                padding: formValidationError !== null ? "var(--spacing-xs) 0" : "0",
-              }}
+              className={`dashboard-form__error${formValidationError !== null ? " dashboard-form__error--active" : ""}`}
             >
               {formValidationError}
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+            <div className="dashboard-form__field">
               <label
                 htmlFor="table-name"
-                style={{ fontSize: "0.875rem", fontWeight: 500 }}
+                className="dashboard-form__label"
               >
                 Table Name{" "}
                 {/* Visible required indicator — aria-hidden so SR reads aria-required */}
-                <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
+                <span aria-hidden="true" className="dashboard-form__required-indicator">
                   *
                 </span>
               </label>
@@ -406,18 +369,18 @@ export default function Dashboard(): JSX.Element {
                 value={form.table_name}
                 onChange={(e) => handleFormChange("table_name", e.target.value)}
                 placeholder="e.g. customers"
-                style={inputStyle}
+                className="dashboard-form__input"
               />
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+            <div className="dashboard-form__field">
               <label
                 htmlFor="parquet-path"
-                style={{ fontSize: "0.875rem", fontWeight: 500 }}
+                className="dashboard-form__label"
               >
                 Parquet Path{" "}
                 {/* Visible required indicator — aria-hidden so SR reads aria-required */}
-                <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
+                <span aria-hidden="true" className="dashboard-form__required-indicator">
                   *
                 </span>
               </label>
@@ -431,18 +394,18 @@ export default function Dashboard(): JSX.Element {
                   handleFormChange("parquet_path", e.target.value)
                 }
                 placeholder="e.g. /data/customers.parquet"
-                style={inputStyle}
+                className="dashboard-form__input"
               />
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+            <div className="dashboard-form__field">
               <label
                 htmlFor="total-epochs"
-                style={{ fontSize: "0.875rem", fontWeight: 500 }}
+                className="dashboard-form__label"
               >
                 Total Epochs{" "}
                 {/* Visible required indicator — aria-hidden so SR reads aria-required */}
-                <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
+                <span aria-hidden="true" className="dashboard-form__required-indicator">
                   *
                 </span>
               </label>
@@ -459,18 +422,18 @@ export default function Dashboard(): JSX.Element {
                 }
                 placeholder="e.g. 100"
                 aria-describedby={formErrorField === "total_epochs" ? "form-error" : undefined}
-                style={inputStyle}
+                className="dashboard-form__input"
               />
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
+            <div className="dashboard-form__field">
               <label
                 htmlFor="checkpoint-every"
-                style={{ fontSize: "0.875rem", fontWeight: 500 }}
+                className="dashboard-form__label"
               >
                 Checkpoint Every (epochs){" "}
                 {/* Visible required indicator — aria-hidden so SR reads aria-required */}
-                <span aria-hidden="true" style={{ color: "var(--color-error)" }}>
+                <span aria-hidden="true" className="dashboard-form__required-indicator">
                   *
                 </span>
               </label>
@@ -487,32 +450,15 @@ export default function Dashboard(): JSX.Element {
                 }
                 placeholder="e.g. 10"
                 aria-describedby={formErrorField === "checkpoint_every_n" ? "form-error" : undefined}
-                style={inputStyle}
+                className="dashboard-form__input"
               />
             </div>
 
-            <div
-              style={{
-                gridColumn: "1 / -1",
-                display: "flex",
-                justifyContent: "flex-end",
-              }}
-            >
+            <div className="dashboard-form__actions">
               <button
                 type="submit"
                 disabled={isCreating}
-                style={{
-                  backgroundColor: "var(--color-accent)",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "var(--spacing-xs) var(--spacing-lg)",
-                  fontFamily: "var(--font-family)",
-                  fontSize: "0.875rem",
-                  fontWeight: 600,
-                  cursor: isCreating ? "not-allowed" : "pointer",
-                  opacity: isCreating ? 0.7 : 1,
-                }}
+                className="dashboard-form__submit"
               >
                 {isCreating ? "Creating…" : "Create Job"}
               </button>
@@ -524,27 +470,17 @@ export default function Dashboard(): JSX.Element {
         <section aria-labelledby="active-jobs-heading">
           <h2
             id="active-jobs-heading"
-            style={{
-              fontSize: "1.25rem",
-              fontWeight: 600,
-              marginBottom: "var(--spacing-md)",
-            }}
+            className="dashboard-section__heading"
           >
             Active Jobs
           </h2>
 
           {jobs.length === 0 ? (
-            <p style={{ color: "var(--color-text-secondary)" }}>
+            <p className="dashboard-jobs__empty">
               No jobs found. Create a job above to get started.
             </p>
           ) : (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--spacing-md)",
-              }}
-            >
+            <div className="dashboard-jobs__list">
               {jobs.map((job) => (
                 <JobCard
                   key={job.id}
@@ -562,23 +498,12 @@ export default function Dashboard(): JSX.Element {
               instead of --color-accent (#4f46e5, ~3:1 on --color-bg which fails
               WCAG 1.4.3 for text on a transparent/dark background). */}
           {nextCursor !== null && (
-            <div style={{ marginTop: "var(--spacing-lg)", textAlign: "center" }}>
+            <div className="dashboard-pagination">
               <button
                 type="button"
                 disabled={isLoadingMore}
                 onClick={() => void handleLoadMore()}
-                style={{
-                  backgroundColor: "transparent",
-                  color: "var(--color-accent-text)",
-                  border: "1px solid var(--color-accent-text)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "var(--spacing-xs) var(--spacing-lg)",
-                  fontFamily: "var(--font-family)",
-                  fontSize: "0.875rem",
-                  fontWeight: 600,
-                  cursor: isLoadingMore ? "not-allowed" : "pointer",
-                  opacity: isLoadingMore ? 0.7 : 1,
-                }}
+                className="dashboard-pagination__btn"
               >
                 {isLoadingMore ? "Loading…" : "Load More"}
               </button>
@@ -589,18 +514,3 @@ export default function Dashboard(): JSX.Element {
     </main>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Shared input style (inline — no CSS file modification allowed)
-// ---------------------------------------------------------------------------
-
-const inputStyle: React.CSSProperties = {
-  backgroundColor: "var(--color-bg)",
-  color: "var(--color-text-primary)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-sm)",
-  padding: "var(--spacing-xs) var(--spacing-sm)",
-  fontFamily: "var(--font-family)",
-  fontSize: "0.875rem",
-  width: "100%",
-};

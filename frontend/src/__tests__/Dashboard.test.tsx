@@ -645,12 +645,11 @@ describe("Dashboard — RFC 7807 error handling", () => {
     renderDashboard();
 
     await waitFor(() => {
-      // form-error div (role="alert") is always in the DOM but empty here —
-      // pick the toast which is the alert with non-empty textContent.
-      const alerts = screen.getAllByRole("alert");
-      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
-      expect(toastAlert).toBeInTheDocument();
-      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
+      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3).
+      // The form-error div carries role="alert" (in-form validation only).
+      const toast = screen.getByRole("alertdialog");
+      expect(toast).toBeInTheDocument();
+      expect(within(toast).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -690,12 +689,11 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /start/i }));
 
     await waitFor(() => {
-      // form-error div (role="alert") is always in the DOM but empty here —
-      // pick the toast which is the alert with non-empty textContent.
-      const alerts = screen.getAllByRole("alert");
-      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
-      expect(toastAlert).toBeInTheDocument();
-      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
+      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3).
+      // The form-error div carries role="alert" (in-form validation only).
+      const toast = screen.getByRole("alertdialog");
+      expect(toast).toBeInTheDocument();
+      expect(within(toast).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -718,12 +716,11 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /create job/i }));
 
     await waitFor(() => {
-      // form-error div (role="alert") is always in the DOM but empty here —
-      // pick the toast which is the alert with non-empty textContent.
-      const alerts = screen.getAllByRole("alert");
-      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
-      expect(toastAlert).toBeInTheDocument();
-      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
+      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3).
+      // The form-error div carries role="alert" (in-form validation only).
+      const toast = screen.getByRole("alertdialog");
+      expect(toast).toBeInTheDocument();
+      expect(within(toast).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -746,12 +743,11 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /load more/i }));
 
     await waitFor(() => {
-      // form-error div (role="alert") is always in the DOM but empty here —
-      // pick the toast which is the alert with non-empty textContent.
-      const alerts = screen.getAllByRole("alert");
-      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
-      expect(toastAlert).toBeInTheDocument();
-      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
+      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3).
+      // The form-error div carries role="alert" (in-form validation only).
+      const toast = screen.getByRole("alertdialog");
+      expect(toast).toBeInTheDocument();
+      expect(within(toast).getByText(/internal server error/i)).toBeInTheDocument();
     });
 
     // Load More button should be re-enabled (isLoadingMore reset to false)
@@ -819,6 +815,7 @@ describe("Dashboard — accessibility", () => {
       expect(progressBar).toHaveAttribute("aria-valuemin", "0");
       expect(progressBar).toHaveAttribute("aria-valuemax", "100");
       expect(progressBar).toHaveAttribute("aria-valuenow", "50");
+      expect(progressBar).toHaveAttribute("aria-label", "Job 1 progress");
     });
   });
 });
