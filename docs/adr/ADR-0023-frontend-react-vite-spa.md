@@ -1,6 +1,6 @@
 # ADR-0023 — Frontend: React 18 + Vite 6 SPA
 
-**Status**: Accepted
+**Status:** Accepted
 **Date**: 2026-03-15
 **Task**: P5-T5.3 — Build Accessible React SPA & "Vault Unseal" Screen
 **Authors**: Engineering Team

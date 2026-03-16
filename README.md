@@ -90,7 +90,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Phase 16 — Migration Drift, Supply Chain & Accessibility Polish is in progress.**
+**Phase 17 — Docker Pinning, Dashboard WCAG & Process Cleanup is in progress.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -112,7 +112,8 @@ Security is Priority Zero — it overrides every other consideration.
 | **13 — Pre-commit Repair & README Finalization** | **Complete** | Fix ruff/vulture whitelist gate, README Phase 12 completion |
 | **14 — Integration Test Repair & Frontend Lint Fix** | **Complete** | Integration test repair, ESLint 9.x config, nosec justifications |
 | **15 — Frontend Coverage Gate & Operational Polish** | **Complete** | Frontend coverage gate repair, README update, branch cleanup |
-| **16 — Migration Drift, Supply Chain & Accessibility Polish** | **In Progress** | Alembic migration drift, supply chain, nosec accuracy, skip nav |
+| **16 — Migration Drift, Supply Chain & Accessibility Polish** | **Complete** | Alembic migration drift, supply chain, nosec accuracy, skip nav |
+| **17 — Docker Pinning, Dashboard WCAG & Process Cleanup** | **In Progress** | Docker base image SHA pinning, dashboard WCAG 2.1 AA, process cleanup |
 
 ---
 

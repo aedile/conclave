@@ -8,7 +8,7 @@ accuracy, add missing operator documentation, and add WCAG skip navigation. No n
 
 ---
 
-## T16.1 — Alembic Migration 002: Epsilon Column Precision Fix
+## T16.1 — Alembic Migration 003: Epsilon Column Precision Fix
 
 **Priority**: P0 — Correctness risk (Constitution Priority 4 violation). New deployments via
 migrations create FLOAT8 epsilon columns while ORM writes NUMERIC(20,10).
@@ -35,14 +35,14 @@ migrations create FLOAT8 epsilon columns while ORM writes NUMERIC(20,10).
 
 ### Acceptance Criteria
 
-1. New Alembic migration 002 created that ALTERs `total_allocated_epsilon`,
+1. New Alembic migration 003 created that ALTERs `total_allocated_epsilon`,
    `total_spent_epsilon` (PrivacyLedger), and `epsilon_spent` (PrivacyTransaction) from
    `FLOAT8` / `DOUBLE PRECISION` to `NUMERIC(20, 10)`.
 2. `poetry run alembic upgrade head` applies cleanly on a fresh database.
-3. `poetry run alembic downgrade -1` cleanly reverts migration 002.
+3. `poetry run alembic downgrade -1` cleanly reverts migration 003.
 4. ADR-0030 created documenting the Float→Numeric precision decision, rationale
    (ADV-050 accumulation drift), and migration path.
-5. ledger.py docstring migration note (lines 28-44) updated to reference migration 002.
+5. ledger.py docstring migration note (lines 28-44) updated to reference migration 003.
 
 ### Testing & Quality Gates
 
@@ -143,7 +143,7 @@ migrations create FLOAT8 epsilon columns while ORM writes NUMERIC(20,10).
 
 ## Phase 16 Exit Criteria
 
-- Alembic migration 002 applies and reverts cleanly.
+- Alembic migration 003 applies and reverts cleanly.
 - ADR-0030 documents Float→Numeric precision decision.
 - Frontend supply chain: all imports declared as direct devDependencies.
 - nosec B608 justification accurate (caller-contract, not overclaimed validation).

@@ -1,6 +1,6 @@
 # ADR-0016: CLI Framework — click
 
-**Status**: Accepted
+**Status:** Accepted
 **Date**: 2026-03-14
 **Task**: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
 

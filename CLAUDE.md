@@ -40,7 +40,7 @@ The only files the PM may edit directly are:
 - `.claude/agents/*.md` (process amendments to agent prompts — these are meta-configuration, not source code)
 
 ### Approval Gate
-Per AUTONOMOUS_DEVELOPMENT_PROMPT Phase 1: present a plan, list files to create/modify,
+Per the Approval Gate in this CLAUDE.md: present a plan, list files to create/modify,
 list tests to write, estimated commits. **Do not proceed until the user approves.**
 
 ### PM Planning Rules (Phase 2 Retro — Added 2026-03-13)
@@ -202,7 +202,7 @@ Every code change follows this exact sequence - no exceptions:
    - Each agent includes a **Retrospective Note** in their output — included in the commit body
    - Commits required: `review(qa):`, `review(ui-ux):`, `review(devops):`, `review(arch):` (if structural), `docs: update RETRO_LOG`
    - Each commit body is the agent's structured finding (PASS / FINDING / SKIP per item) + Retrospective Note
-   - See `AUTONOMOUS_DEVELOPMENT_PROMPT.md § Phase 4` and `.claude/agents/` for agent definitions
+   - See `.claude/agents/` for agent definitions (AUTONOMOUS_DEVELOPMENT_PROMPT.md is fully retired)
    - Commit: `review(qa): <task> — PASS/FINDING` (+ body with per-item results + Retrospective Note)
    - **After updating RETRO_LOG**: add any advisory findings without a named target task to the **Open Advisory Items** table in `docs/RETRO_LOG.md`; drain (delete) any rows whose target task was just completed
 
@@ -264,7 +264,7 @@ fix/P1-T03-date-parsing-bug
 1. **Create feature branch**: `git checkout -b feat/P0-T03-test-directory`
 2. **Make changes**following TDD, commit to branch
 3. **Push branch**: `git push origin feat/P0-T03-test-directory`
-4. **Create PR via gh CLI** with comprehensive description (see AUTONOMOUS_DEVELOPMENT_PROMPT.md Phase 5)
+4. **Create PR via gh CLI** with comprehensive description (see PR Workflow section in this CLAUDE.md)
 5. **Wait for user review** - DO NOT merge yourself
 6. **Address feedback** if requested, commit to same branch
 7. **After user merges**: Pull main, re-contextualize, next task
@@ -414,7 +414,7 @@ def score_match(synthetic dataset: synthetic dataset, job: JobDescription) -> Ma
 ---
 
 ## Spike-to-Production Promotion Checklist
-(ADV-011 — Added Phase 4 Kickoff 2026-03-14; supersedes reference to retired AUTONOMOUS_DEVELOPMENT_PROMPT.md)
+(ADV-011 — Added Phase 4 Kickoff 2026-03-14; AUTONOMOUS_DEVELOPMENT_PROMPT.md is fully retired — this checklist is the canonical reference)
 
 Before any code from `docs/retired/spikes/` (archived Phase 0.8 spikes) is promoted into `src/synth_engine/`, the promoting developer
 MUST verify ALL of the following. This checklist is mandatory — partial promotion is not permitted.

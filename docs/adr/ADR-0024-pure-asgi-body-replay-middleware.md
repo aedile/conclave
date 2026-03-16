@@ -1,6 +1,6 @@
 # ADR-0024 — Pure ASGI Body-Replay Pattern for Body-Inspecting Middleware
 
-**Status**: Accepted
+**Status:** Accepted
 **Date**: 2026-03-15
 **Task**: P6-T6.2 — NIST SP 800-88 Erasure, OWASP validation, LLM Fuzz Testing
 **Authors**: Engineering Team
