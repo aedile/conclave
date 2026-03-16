@@ -185,9 +185,10 @@ Module boundaries enforced by `import-linter` contracts. File placement verified
 no business logic, no I/O) and is consumed by two or more modules belongs in `shared/`
 rather than any single module — even if it was originally produced by one module.
 Example: `shared/schema_topology.py` is produced by the bootstrapper from
-`SchemaReflector` output and injected into `SubsettingEngine`, `StatisticalProfiler`,
-and `SynthesisEngine` via constructor DI. It lives in `shared/` because it is a
-cross-module data contract, not an ingestion implementation detail.
+`SchemaReflector` output and consumed by `SubsettingEngine` (via
+`modules/subsetting/traversal.py` and `modules/subsetting/core.py`) and
+`bootstrapper/cli.py`. It lives in `shared/` because it is a cross-module
+data contract, not an ingestion implementation detail.
 
 ### Naming: `snake_case.py`, `PascalCase` classes, `SCREAMING_SNAKE` constants, `test_<behavior>` tests.
 
