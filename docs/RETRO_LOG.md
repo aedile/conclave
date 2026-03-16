@@ -12,17 +12,64 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-073 | DevOps P8-T8.4 | Post-launch | ADVISORY | Synthesizer test files `test_synthesizer_integration.py` and `test_dp_training_integration.py` carry only `pytest.mark.synthesizer`, not dual `[pytest.mark.integration, pytest.mark.synthesizer]`. Inconsistent with `test_e2e_dp_synthesis.py` which carries both. Dual markers improve discoverability. |
-| ADV-074 | QA P8-T8.3 | Post-launch | ADVISORY | `spend_budget(amount=1e-11)` produces `Decimal("1.1e-11")` via `Decimal(str(float))` — scientific-notation edge case not tested. May surface with very small epsilon values in production. |
-| ADV-075 | DevOps P8-T8.3 | Post-launch | ADVISORY | `_render_qr_code` fallback logs raw Pillow/qrcode exception at WARNING level. If libraries embed filesystem paths in error messages, this becomes internal-path disclosure. Consider logging `type(exc).__name__` only. |
-| ADV-076 | QA P8-T8.2 | Post-launch | ADVISORY | `ModelArtifact.save()` raises `ValueError` for empty signing_key but `load()` raises `SecurityError` — asymmetric empty-key handling undocumented. Harmonize or document the deliberate design choice. |
-| ADV-077 | DevOps P8-T8.2 | Post-launch | ADVISORY | `signing_key=None` is opt-in, not enforced at boot. No bootstrapper startup check requires `ARTIFACT_SIGNING_KEY` in production. Add fail-fast presence check in bootstrapper when deployment mode is production. |
 
 ---
 
 ## Task Reviews
 
 ---
+
+
+### [2026-03-15] P9-T9.1 — Advisory Drain + Startup Validation (ADV-073–077)
+
+**Summary**: Drained all 5 remaining open advisories (ADV-073 through ADV-077).
+Advisory count: 5 → 0.
+
+**ADV-073 (DRAINED)**: Added `[pytest.mark.integration, pytest.mark.synthesizer]` dual
+markers to `test_synthesizer_integration.py` and `test_dp_training_integration.py`,
+matching the existing pattern in `test_e2e_dp_synthesis.py`.
+
+**ADV-074 (DRAINED)**: Added parametrized `test_spend_budget_scientific_notation_decimal_conversion`
+tests documenting the `Decimal(str(float))` contract boundary for scientific-notation
+epsilon values (1e-11, 1.1e-11, 9.99e-12). Separate async test confirms spend_budget(1e-11)
+does not raise. Tests document that NUMERIC(20,10) precision limits sub-1e-10 DB storage —
+that is a column concern, not a conversion bug.
+
+**ADV-075 (DRAINED)**: In `_render_qr_code()`, changed exception log from raw `exc` to
+`type(exc).__name__` to prevent internal filesystem path disclosure in error messages
+from qrcode/Pillow libraries.
+
+**ADV-076 (DRAINED)**: Added `ValueError` guard at the top of `ModelArtifact.load()` for
+`signing_key=b""` (empty bytes), symmetrically matching the existing guard in `save()`.
+Added `test_load_with_empty_key_raises_value_error` to `test_model_artifact_hmac.py`.
+Updated `load()` docstring Raises section to document the new guard.
+
+**ADV-077 (DRAINED)**: Created `src/synth_engine/bootstrapper/config_validation.py` with
+`validate_config()` that enforces `DATABASE_URL` and `AUDIT_KEY` (always required) plus
+`ARTIFACT_SIGNING_KEY` (production-only, detected via `ENV=production` or
+`CONCLAVE_ENV=production`). Raises `SystemExit` listing ALL missing vars. Wired via
+FastAPI `_lifespan` asynccontextmanager in `main.py` — runs at ASGI server startup, not
+at import time, preserving test isolation. 8 unit tests in `test_config_validation.py`.
+
+**Quality gates**: ruff PASS, mypy PASS, bandit PASS, pytest 808 passed 96.21% coverage.
+**No new advisories emerged.**
+
+**Lessons learned**:
+- FastAPI lifespan hooks are the correct pattern for startup validation: they run at
+  ASGI server boot time, not at `FastAPI()` instantiation or module import, so tests
+  that call `create_app()` are unaffected. Wiring startup validation inside `create_app()`
+  itself causes test regressions when the test environment lacks required env vars.
+- SQLite NUMERIC(20,10) truncates values smaller than 1e-10 to zero — this is expected
+  SQLite behavior and is not a bug in the conversion layer. Tests that verify scientific-
+  notation Decimal conversions should assert the conversion math (pure Python) separately
+  from DB storage assertions, to avoid false precision expectations in unit tests.
+- Empty-key guards should be symmetric across save() and load(): if save() rejects b"",
+  load() must also reject b"" at the same layer (ValueError at boundary) rather than
+  propagating through HMAC verification (SecurityError). Symmetric error types reduce
+  caller confusion.
+
+---
+
 
 ### [2026-03-16] Phase 8 End-of-Phase Retrospective — Advisory Drain Sprint
 

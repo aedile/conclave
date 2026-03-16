@@ -64,7 +64,9 @@ Task 6.2 additions:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -74,6 +76,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
+from synth_engine.bootstrapper.config_validation import validate_config
 from synth_engine.bootstrapper.dependencies.csp import CSPMiddleware
 from synth_engine.bootstrapper.dependencies.licensing import LicenseGateMiddleware
 from synth_engine.bootstrapper.dependencies.request_limits import RequestBodyLimitMiddleware
@@ -273,6 +276,28 @@ class UnsealRequest(BaseModel):
     passphrase: str
 
 
+@contextlib.asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    """FastAPI lifespan hook — startup validation and teardown.
+
+    Runs :func:`~synth_engine.bootstrapper.config_validation.validate_config`
+    at server startup to enforce fail-fast configuration validation before
+    the application accepts any traffic.  This hook is executed by the ASGI
+    server (uvicorn) when the process starts — not at import time — so unit
+    tests that call :func:`create_app` without a live ASGI server are
+    unaffected.
+
+    Args:
+        app: The FastAPI application instance (required by FastAPI lifespan
+            protocol; unused here but part of the interface contract).
+
+    Yields:
+        Control to the application for the duration of its lifetime.
+    """
+    validate_config()
+    yield
+
+
 def create_app() -> FastAPI:
     """Build and return a fully wired FastAPI application.
 
@@ -310,6 +335,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=_lifespan,
     )
 
     FastAPIInstrumentor.instrument_app(app)

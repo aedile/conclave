@@ -213,6 +213,8 @@ class ModelArtifact:
             The deserialised :class:`ModelArtifact` instance.
 
         Raises:
+            ValueError: If ``signing_key`` is an empty bytes value (``b""``).
+                An empty key provides no security and is always rejected.
             FileNotFoundError: If no file exists at ``path``.
             SecurityError: If HMAC verification fails for any reason:
                 wrong key, tampered payload, signed file loaded without a key,
@@ -220,6 +222,13 @@ class ModelArtifact:
             pickle.UnpicklingError: If the file is not a valid pickle or was
                 produced by an incompatible version.
         """
+        if signing_key is not None and len(signing_key) == 0:
+            raise ValueError(
+                "signing_key must not be empty. "
+                "Provide a key of at least 32 bytes or pass signing_key=None "
+                "to load an unsigned artifact."
+            )
+
         if not os.path.exists(path):
             raise FileNotFoundError(f"ModelArtifact file not found: {path}")
 

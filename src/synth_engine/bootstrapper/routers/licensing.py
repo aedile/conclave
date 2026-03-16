@@ -90,7 +90,7 @@ def _render_qr_code(payload: dict[str, str]) -> str:
         # An operator can decode this with `base64 -d` on the command line.
         _logger.warning(
             "qrcode/Pillow rendering failed (%s); returning text fallback for challenge QR code.",
-            exc,
+            type(exc).__name__,
         )
         return base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode("ascii")
 

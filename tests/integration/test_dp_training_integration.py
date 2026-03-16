@@ -25,7 +25,7 @@ import pandas as pd
 import pytest
 from faker import Faker
 
-pytestmark = pytest.mark.synthesizer  # ADV-069: route via -m synthesizer in CI
+pytestmark = [pytest.mark.integration, pytest.mark.synthesizer]  # ADV-073
 
 
 # ---------------------------------------------------------------------------
