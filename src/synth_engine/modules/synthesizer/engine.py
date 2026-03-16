@@ -59,7 +59,7 @@ _DEFAULT_EPOCHS: int = 300
 try:
     from sdv.single_table import CTGANSynthesizer
 except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
-    CTGANSynthesizer = None  # nosec B604 — SDV not installed; synthesis unavailable
+    CTGANSynthesizer = None  # SDV not installed; synthesis unavailable
 
 # ---------------------------------------------------------------------------
 # DPCompatibleCTGAN import — intra-module import (modules/synthesizer/ only).
