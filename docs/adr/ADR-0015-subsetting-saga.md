@@ -1,6 +1,6 @@
 # ADR-0015: Subsetting Traversal and Saga Rollback Design
 
-**Status**: Accepted
+**Status:** Accepted
 **Date**: 2026-03-14
 **Task**: P3-T3.4 — Subsetting & Materialization Core
 **Updated**: P3.5-T3.5.2 — Module Cohesion Refactor (file paths updated)

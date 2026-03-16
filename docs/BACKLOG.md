@@ -24,6 +24,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 14: Integration Test Repair & Frontend Lint Fix](backlog/phase-14.md)
 *   [Phase 15: Frontend Coverage Gate & Operational Polish](backlog/phase-15.md)
 *   [Phase 16: Migration Drift, Supply Chain & Accessibility Polish](backlog/phase-16.md)
+*   [Phase 17: Docker Pinning, Dashboard WCAG & Process Cleanup](backlog/phase-17.md)
 
 ---
 
@@ -139,3 +140,8 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 16.1:** Alembic Migration 003: Epsilon Column Precision Fix.
 *   **Task 16.2:** Frontend Supply Chain & Nosec Accuracy.
 *   **Task 16.3:** WCAG Skip Navigation, README Update & Branch Cleanup.
+
+### [Phase 17: Docker Pinning, Dashboard WCAG & Process Cleanup](backlog/phase-17.md)
+*   **Task 17.1:** Docker Base Image SHA Pinning.
+*   **Task 17.2:** Dashboard WCAG 2.1 AA Improvements.
+*   **Task 17.3:** CLAUDE.md Stale References, Backlog Spec Fix & Branch Cleanup.
