@@ -416,7 +416,7 @@ def score_match(synthetic dataset: synthetic dataset, job: JobDescription) -> Ma
 ## Spike-to-Production Promotion Checklist
 (ADV-011 — Added Phase 4 Kickoff 2026-03-14; supersedes reference to retired AUTONOMOUS_DEVELOPMENT_PROMPT.md)
 
-Before any code from `spikes/` is promoted into `src/synth_engine/`, the promoting developer
+Before any code from `docs/retired/spikes/` (archived Phase 0.8 spikes) is promoted into `src/synth_engine/`, the promoting developer
 MUST verify ALL of the following. This checklist is mandatory — partial promotion is not permitted.
 
 ### Pre-Promotion Gates
@@ -456,8 +456,8 @@ MUST verify ALL of the following. This checklist is mandatory — partial promot
 
 | Spike File | Candidate Code | Known Issues Before Promotion |
 |-----------|----------------|-------------------------------|
-| `spikes/spike_ml_memory.py` | `_process_chunk()`, memory estimation logic | ADV-009: unseeded PRNG (fixed T3.5.5); ADV-011: `FeistelFPE rounds=0` unguarded (spike_fpe_luhn.py) |
-| `spikes/spike_fpe_luhn.py` | `FeistelFPE` class | `rounds=0` is identity transformation (no encryption); must add guard before promotion |
+| `docs/retired/spikes/spike_ml_memory.py` (archived P11-T11.2) | `_process_chunk()`, memory estimation logic | ADV-009: unseeded PRNG (fixed T3.5.5); ADV-011: `FeistelFPE rounds=0` unguarded (spike_fpe_luhn.py) |
+| `docs/retired/spikes/spike_fpe_luhn.py` (archived P11-T11.2) | `FeistelFPE` class | `rounds=0` is identity transformation (no encryption); must add guard before promotion |
 
 ---
 
