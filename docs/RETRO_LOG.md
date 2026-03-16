@@ -19,6 +19,48 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 10 End-of-Phase Retrospective
+
+**Phase Goal**: Fix broken test infrastructure caused by Python 3.14.1 deprecation
+changes in pytest-asyncio, drain the last stale TODO, and bring README to final currency.
+No new features.
+
+**Exit Criteria Verification**:
+- All unit tests pass with `-W error` on Python 3.14.1. 809 passed, 96.24% coverage.
+- No stale TODOs referencing completed tasks (TODO(T4.4) drained with justification).
+- README current with Phase 9 completion and Phase 10 status.
+- All quality gates passing. Open advisory count: **0**.
+- Phase 10 end-of-phase retrospective completed (this entry).
+
+**What went well**:
+1. T10.1 root-cause analysis was thorough — the 3-layer understanding (pytest-asyncio API
+   deprecation + pytest filter precedence + CPython GC timing) led to a robust fix rather
+   than a fragile workaround.
+2. Architecture reviewer caught the `catch_warnings()` omission — a subtle CPython detail
+   that would have been a latent coupling to pytest internals. Fixed proactively.
+3. ADR-0028 was created for the pytest-asyncio major version bump, establishing the
+   decision trail for future maintainers.
+4. T10.2 was clean and fast — comment/documentation only, no code logic changes.
+5. Advisory table remains at 0 open items through both tasks.
+
+**What could improve**:
+1. The QA reviewer flagged that the `TestADV066ZeroWarningPolicy` docstring had become
+   factually inaccurate after T10.1. This is a repeat of the T9.2 pattern: documentation
+   that references specific technical behavior must be mechanically verified against the
+   actual implementation, not trusted from memory.
+2. The broad `ResourceWarning` suppression (no `message=` scope) is an intentional trade-off
+   but could mask genuine resource leaks in future test helpers. Worth revisiting when
+   SQLAlchemy's ResourceWarning message format stabilizes.
+
+**Process observations**:
+- Phase 10 was 2 tasks: one P0 blocker fix and one cleanup task. This is the right scope
+  for a maintenance sprint — surgical, focused, no scope creep.
+- The project has now completed 10 phases (0.6 through 10) with zero open advisories.
+- The 4-reviewer pattern continues to add value even on infrastructure-only changes:
+  T10.1 had 3 findings across QA and Architecture, all fixed before merge.
+
+---
+
 ### [2026-03-16] P10-T10.2 — Drain Stale TODO and Update README Status
 
 **Summary**: Removed stale `TODO(T4.4)` from `bootstrapper/main.py` with justification
