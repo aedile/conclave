@@ -12,6 +12,7 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
+| ADV-016 | P18-T18.2 DevOps review | Future phase | DEFERRED | `PGBOUNCER_AUTH_TYPE: md5` in docker-compose.yml is deprecated in PostgreSQL 14+ in favor of `scram-sha-256`. Pre-existing; not introduced by T18.2. Low risk in air-gapped dev environments but should be upgraded for production parity. |
 
 ---
 
@@ -54,35 +55,24 @@ Drain (delete) rows when their target task is completed.
 
 **ADV drain**: ADV-015 (BLOCKER) drained — pgbouncer phantom tag replaced + SHA-256 pinned.
 
-**Review**: QA PASS, DevOps PASS, UI/UX SKIP (no frontend changes), Architecture PASS
+**Review**: QA FINDING (1 fixed), DevOps FINDING (1 fixed, 1 advisory deferred)
 
-**QA**:
-dead-code PASS — `_PGBOUNCER_UNPINNABLE_MARKER` constant removed; no dead code.
-reachable-handlers PASS — all test branches reachable. exception-specificity PASS.
-silent-failures PASS — no try/except swallows. coverage-gate PASS — 96.24% total.
-edge-cases PASS — phantom tag absence, edoburu presence, SHA-256 format, WARNING removal
-all explicitly tested. meaningful-asserts PASS — all assertions carry descriptive messages.
-backlog-compliance PASS — all 5 ACs addressed: audit doc created, chromadb moved to dev,
-passlib deferred with written justification, poetry install verified, all quality gates pass.
+**QA** (FINDING — 1 item fixed):
+dead-code PASS. coverage-gate PASS — 96.25%. meaningful-asserts PASS. backlog-compliance PASS.
+FINDING: `test_chromadb_present_in_dev_or_scripts_group` was over-permissive — accepted
+chromadb in ANY Poetry group section, not specifically dev. If chromadb were accidentally placed
+in synthesizer or integration group, the test would silently pass. Fixed: tightened to match
+only `[tool.poetry.group.dev.dependencies]`. Error-path testing on file-inspection tests noted
+as advisory — negative-path tests should be standard practice for config-inspection test classes.
 
-**DevOps**:
-hardcoded-credentials PASS — SHA-256 digest is a content hash, not a secret.
-no-pii-in-code PASS. supply-chain PASS — all 9 external service images now SHA-256 pinned
-(ADV-015 resolved; 9/9 complete vs 8/9 in T17.1). digest-provenance PASS — digest obtained
-via Docker Registry v2 API; not fabricated; API call documented in ADR-0031.
-refresh-path PASS — To refresh: comment with exact docker pull and docker inspect
-commands present on edoburu/pgbouncer image line. pyproject-move PASS — chromadb correctly
-absent from poetry install (main) tree; available in dev group. poetry-lock PASS —
-lock regenerated after pyproject.toml changes.
-
-**Architecture**:
-file-placement PASS — DEPENDENCY_AUDIT.md in docs/, ADR-0031 in docs/adr/, test files in
-tests/unit/, no src/ files modified. naming-conventions PASS — ADR follows project numbering
-(0031), DEPENDENCY_AUDIT.md follows project doc naming. dependency-direction PASS — pyproject
-group boundaries maintained; no cross-module violations. abstraction-level PASS — audit doc
-and ADR are clear, single-responsibility documents. adr-compliance PASS — ADR-0031 properly
-documents the technology substitution per Rule 6, references ADV-015, provides rationale and
-alternatives considered. import-linter PASS — 4 contracts kept, 0 broken.
+**DevOps** (FINDING — 1 item fixed, 1 advisory deferred):
+supply-chain PASS — all 9 external images SHA-256 pinned. digest-provenance PASS.
+dependency-audit PASS — chromadb correctly moved, pip-audit found no CVEs.
+FINDING: `pgbouncer/userlist.txt` contained plaintext dev credential (`synth_dev_password`) and
+was git-tracked (pre-existing since P2-T2.2). Inconsistent with Docker secrets pattern. Fixed:
+`git rm --cached`, added to `.gitignore`, created `userlist.txt.example` with SCRAM-SHA-256
+template. ADVISORY: `PGBOUNCER_AUTH_TYPE: md5` is deprecated in PostgreSQL 14+; should migrate
+to `scram-sha-256`. Deferred — pre-existing, not introduced by this diff. Tracked as ADV-016.
 
 **Retrospective Note**:
 The phantom tag problem (pgbouncer/pgbouncer:1.23.1) persisted for 17+ phases because
@@ -92,6 +82,27 @@ validation step (the same pattern used in T17.1 and T18.2) to confirm the tag ex
 before committing. The chromadb move demonstrates that auditing transitive trees
 periodically is worth doing: a 25-package reduction in the production install comes from
 a 3-line change in pyproject.toml.
+
+---
+
+### [2026-03-16] P18-T18.1 — Type Ignore Suppression Audit & Reduction
+
+**Changes**:
+- `tests/conftest_types.py`: New module providing `PostgreSQLProc` type alias — eliminates 36 `[valid-type]` suppressions.
+- 12 `src/` files: Eliminated 9 suppressions via `cast()`, `sqlmodel.col()`, if/else narrowing. Written justification added to all 15 remaining.
+- 20 test files: Corrected fixture return types, replaced `[valid-type]` with PostgreSQLProc alias.
+
+**Counts**: src/ 24→15 (≤15: PASS), tests/ 147→~98 (≤100: PASS).
+
+**Quality gates**: mypy PASS, ruff PASS, bandit PASS, 842 unit tests PASS (96.25%), 72 integration tests PASS.
+
+**Review**: QA FINDING (advisory), DevOps PASS, Architecture PASS
+
+**QA** (FINDING — advisory, batched per Rule 16): Count wording inconsistency (commit "100" vs measured "~99"). 7 pre-existing unjustified suppressions in test_sse.py.
+**DevOps** (PASS): No new deps, no secrets, CI unchanged.
+**Architecture** (PASS): conftest_types.py correctly placed. PostgreSQLProc alias sound.
+
+**Retrospective Note**: Ruff formatter moves `# type: ignore` comments on single-import lines to the symbol line during block-import formatting. The fix: place `# type: ignore` on the `from X import (  # type: ignore` line itself.
 
 ---
 
