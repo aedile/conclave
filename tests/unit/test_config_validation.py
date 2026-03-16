@@ -11,14 +11,19 @@ Contract:
 - Raises ``SystemExit`` with a clear error message listing ALL missing vars when
   any required vars are absent.
 - Returns ``None`` successfully when all required vars are present.
+- Emits a ``logging.WARNING`` when ``CONCLAVE_SSL_REQUIRED=false`` is set in
+  production mode (security misconfiguration guard — ADV-020 / T20.4).
 
 CONSTITUTION Priority 0: Security — fail-fast on missing security-critical config
 CONSTITUTION Priority 3: TDD
 Task: P9-T9.1 — Advisory Drain + Startup Validation (ADV-077)
 Task: P19-T19.2 — Security Hardening: MASKING_SALT production enforcement
+Task: P20-T20.4 — Architecture Tightening (ADV-020: SSL override warning)
 """
 
 from __future__ import annotations
+
+import logging
 
 import pytest
 
@@ -397,6 +402,112 @@ def test_operator_manual_documents_trusted_proxy_requirement() -> None:
     assert "proxy" in content.lower(), (
         "OPERATOR_MANUAL.md must mention reverse proxy in the trusted proxy section"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tests: CONCLAVE_SSL_REQUIRED=false in production emits warning (ADV-020 / T20.4)
+# ---------------------------------------------------------------------------
+
+
+def test_production_ssl_required_false_emits_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """validate_config() emits a WARNING when CONCLAVE_SSL_REQUIRED=false in production.
+
+    CONCLAVE_SSL_REQUIRED=false disables sslmode=require for PostgreSQL connections.
+    This is only acceptable on Docker bridge networks where SSL is terminated at the
+    network layer.  In production mode the operator must be warned explicitly so that
+    the misconfiguration cannot go unnoticed.
+
+    Arrange: all required production vars set; CONCLAVE_SSL_REQUIRED=false; ENV=production.
+    Act: call validate_config().
+    Assert:
+        - No SystemExit is raised (the function succeeds — SSL override is a warning, not fatal).
+        - A WARNING-level log record is emitted containing "CONCLAVE_SSL_REQUIRED=false".
+        - The warning message contains "production" to make the severity clear.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
+    monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+    monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.config_validation"):
+        result = validate_config()
+
+    assert result is None, "validate_config() must not raise when CONCLAVE_SSL_REQUIRED=false"
+
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("CONCLAVE_SSL_REQUIRED=false" in msg for msg in warning_messages), (
+        f"Expected a WARNING log containing 'CONCLAVE_SSL_REQUIRED=false', got: {warning_messages}"
+    )
+    assert any("production" in msg for msg in warning_messages), (
+        "Warning message must mention 'production' to convey severity"
+    )
+
+
+def test_production_ssl_required_true_does_not_warn(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """validate_config() must NOT emit a warning when CONCLAVE_SSL_REQUIRED=true in production.
+
+    The default (unset or "true") means SSL is enforced — no warning is needed.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
+    monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+    monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "true")
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.config_validation"):
+        validate_config()
+
+    ssl_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "CONCLAVE_SSL_REQUIRED" in r.message
+    ]
+    assert not ssl_warnings, "No CONCLAVE_SSL_REQUIRED warning expected when SSL is enabled"
+
+
+def test_development_ssl_required_false_does_not_warn(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """validate_config() must NOT emit a warning when CONCLAVE_SSL_REQUIRED=false in development.
+
+    The SSL override warning is a production-only guard. Development environments
+    commonly run without SSL and must not generate noisy warnings.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv("ENV", "development")
+    monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("MASKING_SALT", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.config_validation"):
+        validate_config()
+
+    ssl_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "CONCLAVE_SSL_REQUIRED" in r.message
+    ]
+    assert not ssl_warnings, "No CONCLAVE_SSL_REQUIRED warning expected in development mode"
 
 
 pytestmark = pytest.mark.unit

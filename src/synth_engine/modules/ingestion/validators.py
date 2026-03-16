@@ -13,12 +13,30 @@ Security context
 - Error messages NEVER expose embedded credentials; ``_sanitize_url`` strips
   userinfo before interpolation (CONSTITUTION Priority 0).
 
-CONSTITUTION Priority 0: Security — SSL enforcement is mandatory for remote connections.
-Task: P3-T3.1 — Target Ingestion Engine
+Docker / development override (ADV-020)
+----------------------------------------
+When the environment variable ``CONCLAVE_SSL_REQUIRED`` is set to ``false``
+(case-insensitive), the sslmode enforcement for remote hosts is bypassed.
+This is required for Docker Compose deployments where containers communicate
+over the Docker bridge network using internal hostnames (e.g. ``postgres``,
+``db``) that are not localhost but are still on a private, single-host
+virtual network where SSL provides no additional security benefit.
+
+``CONCLAVE_SSL_REQUIRED=false`` is ONLY safe for:
+- Docker bridge networks (single-host -- traffic never leaves the kernel).
+- Development and test environments.
+
+Production deployments MUST leave ``CONCLAVE_SSL_REQUIRED`` unset or set to
+``true`` (the default) to maintain mandatory SSL enforcement.
+
+CONSTITUTION Priority 0: Security -- SSL enforcement is mandatory for remote connections.
+Task: P3-T3.1 -- Target Ingestion Engine
+Task: P20-T20.4 -- Architecture Tightening (ADV-020: configurable sslmode)
 """
 
 from __future__ import annotations
 
+import os
 from urllib.parse import parse_qs, urlparse
 
 _LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -32,6 +50,22 @@ _VALID_SCHEMES: frozenset[str] = frozenset(
         "postgres+psycopg2",
     }
 )
+
+
+def _ssl_enforcement_enabled() -> bool:
+    """Return True if SSL enforcement is active (the default).
+
+    Reads the ``CONCLAVE_SSL_REQUIRED`` environment variable.  Returns
+    ``False`` only when the variable is explicitly set to ``false``
+    (case-insensitive), allowing Docker bridge deployments to use internal
+    hostnames without ``sslmode=require``.
+
+    Returns:
+        ``True`` when SSL should be enforced (production default).
+        ``False`` when ``CONCLAVE_SSL_REQUIRED=false`` is set in the environment.
+    """
+    raw = os.environ.get("CONCLAVE_SSL_REQUIRED", "true")
+    return raw.lower() != "false"
 
 
 def _sanitize_url(url: str) -> str:
@@ -91,7 +125,11 @@ def validate_connection_string(url: str) -> None:
         # Loopback connections are exempt from SSL enforcement.
         return
 
-    # Remote host: require sslmode=require in query parameters.
+    # Remote host: require sslmode=require unless the operator has explicitly
+    # disabled SSL enforcement for Docker / development environments.
+    if not _ssl_enforcement_enabled():
+        return
+
     query_params = parse_qs(parsed.query)
     ssl_modes = query_params.get("sslmode", [])
     if "require" not in ssl_modes:

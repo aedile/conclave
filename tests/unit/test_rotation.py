@@ -6,9 +6,12 @@ Tests verify:
 - rotate_ale_keys() orchestrates the full re-encryption workflow.
 - rotate_ale_keys_task() is a Huey task that wraps the orchestrator.
 - Edge cases: no encrypted columns, empty tables, error propagation.
+- OOM safety: re_encrypt_column_values uses batched reads, not fetchall().
+- Input validation: batch_size <= 0 raises ValueError immediately.
 
 CONSTITUTION Priority 3: TDD — Red Phase
 Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
+Task: P20-T20.4 — Architecture Tightening (AC4: OOM safety)
 """
 
 from __future__ import annotations
@@ -259,6 +262,159 @@ def test_re_encrypt_column_values_empty_table(
         new_fernet=new_fernet,
     )
     assert count == 0
+
+
+def test_re_encrypt_column_values_rejects_zero_batch_size(
+    in_memory_engine: object,
+    ale_key_old: str,
+    ale_key_new: str,
+) -> None:
+    """re_encrypt_column_values must raise ValueError for batch_size=0.
+
+    A batch_size of 0 causes fetchmany(0) to return [] immediately, silently
+    processing zero rows. In a security-critical key rotation path this silent
+    failure is unacceptable. The function must raise ValueError before executing
+    any database operations.
+
+    Arrange: in-memory engine (contents irrelevant — error fires before any DB I/O).
+    Act: call re_encrypt_column_values with batch_size=0.
+    Assert: ValueError is raised with a message naming batch_size.
+    """
+    from synth_engine.shared.security.rotation import re_encrypt_column_values
+
+    old_fernet = Fernet(ale_key_old.encode())
+    new_fernet = Fernet(ale_key_new.encode())
+
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        re_encrypt_column_values(
+            engine=in_memory_engine,  # type: ignore[arg-type]
+            table_name="test_rotation_encrypted",
+            column_name="secret",
+            old_fernet=old_fernet,
+            new_fernet=new_fernet,
+            batch_size=0,
+        )
+
+
+def test_re_encrypt_column_values_rejects_negative_batch_size(
+    in_memory_engine: object,
+    ale_key_old: str,
+    ale_key_new: str,
+) -> None:
+    """re_encrypt_column_values must raise ValueError for negative batch_size.
+
+    Negative batch_size values are logically invalid and must be rejected
+    immediately with a clear ValueError.
+    """
+    from synth_engine.shared.security.rotation import re_encrypt_column_values
+
+    old_fernet = Fernet(ale_key_old.encode())
+    new_fernet = Fernet(ale_key_new.encode())
+
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        re_encrypt_column_values(
+            engine=in_memory_engine,  # type: ignore[arg-type]
+            table_name="test_rotation_encrypted",
+            column_name="secret",
+            old_fernet=old_fernet,
+            new_fernet=new_fernet,
+            batch_size=-5,
+        )
+
+
+# ---------------------------------------------------------------------------
+# OOM safety: re_encrypt_column_values must use batched reads (AC4 — T20.4)
+# ---------------------------------------------------------------------------
+
+
+def test_re_encrypt_column_values_uses_batched_reads(
+    in_memory_engine: object,
+    ale_key_old: str,
+    ale_key_new: str,
+) -> None:
+    """re_encrypt_column_values must process rows in batches, not via fetchall().
+
+    AC4 (T20.4): The original implementation calls conn.execute(select_sql).fetchall()
+    which loads ALL rows into memory at once — an OOM risk for large encrypted tables.
+    The fixed implementation must use fetchmany(batch_size) to iterate in chunks.
+
+    Arrange: insert 25 rows with a custom batch_size=10.
+    Act: call re_encrypt_column_values with batch_size=10.
+    Assert:
+        - All 25 rows are re-encrypted correctly.
+        - The function accepts a batch_size parameter (signature check).
+    """
+    from sqlalchemy import text
+
+    from synth_engine.shared.security.rotation import re_encrypt_column_values
+
+    old_fernet = Fernet(ale_key_old.encode())
+    new_fernet = Fernet(ale_key_new.encode())
+
+    # Insert 25 rows across multiple batches (batch_size=10 → 3 batches)
+    with Session(in_memory_engine) as session:  # type: ignore[arg-type]
+        for i in range(100, 125):
+            session.add(_TestEncryptedModel(id=i, secret=f"plaintext-{i}"))
+        session.commit()
+
+    count = re_encrypt_column_values(
+        engine=in_memory_engine,  # type: ignore[arg-type]
+        table_name="test_rotation_encrypted",
+        column_name="secret",
+        old_fernet=old_fernet,
+        new_fernet=new_fernet,
+        batch_size=10,
+    )
+
+    assert count == 25, f"expected 25 rows re-encrypted, got {count}"
+
+    # Verify all rows are decryptable with the new key
+    with in_memory_engine.connect() as conn:  # type: ignore[union-attr]
+        rows = conn.execute(
+            text(
+                "SELECT id, secret FROM test_rotation_encrypted "
+                "WHERE id >= 100 AND id < 125 ORDER BY id"
+            )
+        ).fetchall()
+
+    assert len(rows) == 25
+    for row in rows:
+        row_id, ciphertext = row[0], row[1]
+        plaintext = new_fernet.decrypt(ciphertext.encode()).decode()
+        assert plaintext == f"plaintext-{row_id}", (
+            f"row id={row_id}: expected 'plaintext-{row_id}', got {plaintext!r}"
+        )
+
+
+def test_re_encrypt_column_values_default_batch_size_works(
+    in_memory_engine: object,
+    ale_key_old: str,
+    ale_key_new: str,
+) -> None:
+    """re_encrypt_column_values works correctly when batch_size is not specified.
+
+    The default batch_size must be used when the caller omits the parameter.
+    Functional correctness is the same as the explicit-batch-size test.
+    """
+    from synth_engine.shared.security.rotation import re_encrypt_column_values
+
+    old_fernet = Fernet(ale_key_old.encode())
+    new_fernet = Fernet(ale_key_new.encode())
+
+    with Session(in_memory_engine) as session:  # type: ignore[arg-type]
+        for i in range(200, 205):
+            session.add(_TestEncryptedModel(id=i, secret=f"value-{i}"))
+        session.commit()
+
+    # Call without batch_size — must use the default and succeed
+    count = re_encrypt_column_values(
+        engine=in_memory_engine,  # type: ignore[arg-type]
+        table_name="test_rotation_encrypted",
+        column_name="secret",
+        old_fernet=old_fernet,
+        new_fernet=new_fernet,
+    )
+    assert count == 5
 
 
 # ---------------------------------------------------------------------------

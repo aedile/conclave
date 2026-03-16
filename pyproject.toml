@@ -212,7 +212,12 @@ packages = ["synth_engine"]
 # sdv, ctgan, opacus, and torch are installed only with --with synthesizer.
 # The pre-commit mirrors-mypy hook runs without these packages; using
 # ignore_missing_imports prevents "import-not-found" errors in that context.
-# No inline type: ignore comments needed — ignore_missing_imports suppresses all import errors.
+# No inline type: ignore comments needed -- ignore_missing_imports suppresses all import errors.
+#
+# Strategy decision (AC3 -- T20.4): ignore_missing_imports is KEPT because none of
+# these packages ship py.typed -- removing the override would produce unverified Any
+# inference, not real type coverage. API breakage is caught at runtime by integration
+# tests (T20.2). See ADR-0032 for full rationale.
 # ---------------------------------------------------------------------------
 
 [[tool.mypy.overrides]]

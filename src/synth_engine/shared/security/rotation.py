@@ -16,13 +16,20 @@ Security properties
 - The new Fernet key is transmitted to the task as a KEK-wrapped ciphertext
   (encrypted with the current vault Fernet) so that it is never stored in the
   Huey broker (Redis) in plaintext.
-- Re-encryption is performed row-by-row within explicit transactions so that a
-  partial failure leaves the database in a consistent, recoverable state (rows
-  that were already rotated keep the new ciphertext; rows that were not touched
-  retain the old ciphertext, which is still decryptable with the old key until
-  a full re-run succeeds).
+- Re-encryption is performed inside a single ``engine.begin()`` transaction
+  spanning all batches. A failure at any point rolls back ALL changes — the
+  operation is all-or-nothing. This prevents partial-rotation states where
+  some rows hold new-key ciphertext while others hold old-key ciphertext.
 - NULL column values are skipped: they represent absent PII and must remain NULL
-  after rotation (converting NULL → ciphertext of empty string would be wrong).
+  after rotation (converting NULL -> ciphertext of empty string would be wrong).
+
+OOM safety
+----------
+``re_encrypt_column_values`` uses ``fetchmany(batch_size)`` to iterate over rows
+in configurable batches rather than ``fetchall()``, which would load the entire
+encrypted column into memory at once.  The default batch size is 1000 rows.
+For a typical 200-byte Fernet ciphertext, 1000 rows ~ 200 KB peak overhead per
+column -- a negligible fraction of available memory even on constrained hosts.
 
 Boundary constraints
 --------------------
@@ -31,7 +38,8 @@ This module lives in ``shared/security/`` and has no imports from
 and ``shared/`` siblings.
 
 CONSTITUTION Priority 0: Security
-Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
+Task: P5-T5.5 -- Cryptographic Shredding & Re-Keying API
+Task: P20-T20.4 -- Architecture Tightening (AC4: OOM-safe batched reads)
 """
 
 from __future__ import annotations
@@ -46,6 +54,10 @@ from synth_engine.shared.security.ale import get_fernet
 from synth_engine.shared.task_queue import huey
 
 _logger = logging.getLogger(__name__)
+
+# Default number of rows fetched per batch during key rotation.
+# 1000 rows x ~200 bytes/ciphertext ~ 200 KB peak memory per column.
+_DEFAULT_ROTATION_BATCH_SIZE: int = 1000
 
 
 def find_encrypted_columns(engine: Engine) -> list[tuple[str, str]]:
@@ -92,14 +104,18 @@ def re_encrypt_column_values(
     column_name: str,
     old_fernet: Fernet,
     new_fernet: Fernet,
+    batch_size: int = _DEFAULT_ROTATION_BATCH_SIZE,
 ) -> int:
     """Decrypt every non-NULL value with ``old_fernet`` and re-encrypt with ``new_fernet``.
 
-    Processes all rows in ``table_name.column_name`` using a single SELECT,
-    then issues individual UPDATE statements inside a transaction.  The
-    primary key column name is assumed to be ``id`` — this is sufficient for
-    the current data model.  If a future table uses a different PK name, this
-    function should be extended to accept a ``pk_column`` argument.
+    Processes rows in configurable batches using ``fetchmany(batch_size)`` to
+    avoid loading the entire column into memory at once (OOM safety -- AC4 T20.4).
+    All batches execute inside a single ``engine.begin()`` transaction. If any
+    error occurs mid-loop, the entire operation is rolled back — no partial
+    rotation state is possible. The primary key column name is assumed to be
+    ``id`` -- this is sufficient for the current data model. If a future table
+    uses a different PK name, this function should be extended to accept a
+    ``pk_column`` argument.
 
     NULL values are preserved unchanged (they represent absent PII fields).
 
@@ -111,16 +127,22 @@ def re_encrypt_column_values(
             decrypting the existing ciphertext.
         new_fernet: :class:`~cryptography.fernet.Fernet` instance for
             producing the new ciphertext.
+        batch_size: Number of rows fetched per iteration. Defaults to
+            ``_DEFAULT_ROTATION_BATCH_SIZE`` (1000).
 
     Returns:
         Number of rows that were re-encrypted (non-NULL rows processed).
 
     Raises:
+        ValueError: If ``batch_size`` is not a positive integer.
         cryptography.fernet.InvalidToken: If any ciphertext value cannot be
             decrypted with ``old_fernet`` (indicates key mismatch or data
             corruption).
         sqlalchemy.exc.SQLAlchemyError: On database access failure.
     """
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be a positive integer, got {batch_size!r}")
+
     # Use raw SQL text queries to stay generic across dialects (SQLite for unit
     # tests, PostgreSQL for integration tests and production).
     # NOTE: table_name and column_name come from SQLModel metadata introspection,
@@ -134,22 +156,26 @@ def re_encrypt_column_values(
     rows_processed = 0
 
     with engine.begin() as conn:
-        rows = conn.execute(select_sql).fetchall()
-        for row in rows:
-            row_id, ciphertext = row[0], row[1]
-            if ciphertext is None:
-                continue
-            # Decrypt with old key, re-encrypt with new key
-            plaintext_bytes: bytes = old_fernet.decrypt(ciphertext.encode())
-            new_ciphertext: str = new_fernet.encrypt(plaintext_bytes).decode()
-            conn.execute(update_sql, {"new_ct": new_ciphertext, "row_id": str(row_id)})
-            rows_processed += 1
-            _logger.debug(
-                "re_encrypt_column_values: re-encrypted row id=%s in %s.%s",
-                row_id,
-                table_name,
-                column_name,
-            )
+        result = conn.execute(select_sql)
+        while True:
+            batch = result.fetchmany(batch_size)
+            if not batch:
+                break
+            for row in batch:
+                row_id, ciphertext = row[0], row[1]
+                if ciphertext is None:
+                    continue
+                # Decrypt with old key, re-encrypt with new key
+                plaintext_bytes: bytes = old_fernet.decrypt(ciphertext.encode())
+                new_ciphertext: str = new_fernet.encrypt(plaintext_bytes).decode()
+                conn.execute(update_sql, {"new_ct": new_ciphertext, "row_id": str(row_id)})
+                rows_processed += 1
+                _logger.debug(
+                    "re_encrypt_column_values: re-encrypted row id=%s in %s.%s",
+                    row_id,
+                    table_name,
+                    column_name,
+                )
 
     _logger.info(
         "re_encrypt_column_values: completed %d rows in %s.%s",
