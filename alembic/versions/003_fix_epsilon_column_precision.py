@@ -4,7 +4,7 @@ Revision ID: 003
 Revises: 002
 Create Date: 2026-03-16
 
-Drains the migration debt documented in ``ledger.py`` (lines 28–49 before
+Drains the migration debt documented in ``ledger.py`` (lines 28-49 before
 this fix) and described in the backlog task P16-T16.1.
 
 Background
