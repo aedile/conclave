@@ -90,7 +90,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Phase 11 — Documentation Currency & Workspace Hygiene is in progress.**
+**Phase 12 — Final Hygiene & Tooling Polish is in progress.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -107,7 +107,8 @@ Security is Priority Zero — it overrides every other consideration.
 | 8 — Advisory Drain Sprint | Complete | HMAC artifact signing, Alembic migrations, startup config validation, ADR-0017a |
 | **9 — Docs & Advisory Drain** | **Complete** | Operator manual refresh, advisory drain, observability |
 | **10 — Test Infrastructure Repair & Final Polish** | **Complete** | Stale TODO drain, README updates, test infrastructure repair |
-| **11 — Documentation Currency & Workspace Hygiene** | **In Progress** | Documentation updates, workspace cleanup, architectural gap ADR |
+| **11 — Documentation Currency & Workspace Hygiene** | **Complete** | Documentation updates, workspace cleanup, architectural gap ADR |
+| **12 — Final Hygiene & Tooling Polish** | **In Progress** | Stale branch cleanup, vulture whitelist, README currency |
 
 ---
 

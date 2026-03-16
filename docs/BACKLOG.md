@@ -19,6 +19,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 9: Production Hardening & Correctness Sprint](backlog/phase-9.md)
 *   [Phase 10: Test Infrastructure Repair & Final Polish](backlog/phase-10.md)
 *   [Phase 11: Documentation Currency & Workspace Hygiene](backlog/phase-11.md)
+*   [Phase 12: Final Hygiene & Tooling Polish](backlog/phase-12.md)
 
 ---
 
@@ -113,3 +114,7 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 11.1:** Documentation Currency (README, BACKLOG.md).
 *   **Task 11.2:** Workspace Hygiene (Worktrees, Spikes, .gitignore).
 *   **Task 11.3:** Architectural Requirements Gap ADR.
+
+### [Phase 12: Final Hygiene & Tooling Polish](backlog/phase-12.md)
+*   **Task 12.1:** Stale Remote Branch Cleanup & README Final Status.
+*   **Task 12.2:** Vulture Whitelist for FastAPI False Positives.
