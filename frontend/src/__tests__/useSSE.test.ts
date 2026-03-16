@@ -142,4 +142,43 @@ describe("useSSE hook", () => {
     expect(MockEventSource.instances).toHaveLength(2);
     expect(getLastInstance().url).toBe("/jobs/2/stream");
   });
+
+  it("handles malformed progress payload (invalid JSON)", () => {
+    const { result } = renderHook(() => useSSE(7));
+    const es = getLastInstance();
+
+    act(() => {
+      es.simulateRawEvent("progress", "NOT_JSON");
+    });
+
+    expect(result.current.status).toBe("FAILED");
+    expect(result.current.error).toBe("Received malformed progress data from server.");
+    expect(es.close).toHaveBeenCalledOnce();
+  });
+
+  it("handles malformed complete payload (invalid JSON)", () => {
+    const { result } = renderHook(() => useSSE(7));
+    const es = getLastInstance();
+
+    act(() => {
+      es.simulateRawEvent("complete", "NOT_JSON");
+    });
+
+    expect(result.current.status).toBe("FAILED");
+    expect(result.current.error).toBe("Received malformed completion data from server.");
+    expect(es.close).toHaveBeenCalledOnce();
+  });
+
+  it("handles malformed error payload (invalid JSON)", () => {
+    const { result } = renderHook(() => useSSE(7));
+    const es = getLastInstance();
+
+    act(() => {
+      es.simulateRawEvent("error", "NOT_JSON");
+    });
+
+    expect(result.current.status).toBe("FAILED");
+    expect(result.current.error).toBe("Received malformed error data from server.");
+    expect(es.close).toHaveBeenCalledOnce();
+  });
 });

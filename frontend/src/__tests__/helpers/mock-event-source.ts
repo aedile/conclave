@@ -45,6 +45,7 @@ export type SSEEventListener = (event: { data: string }) => void;
  *
  * Additional test helpers:
  *   - `simulateEvent(type, data)` — trigger all registered listeners for `type`
+ *   - `simulateRawEvent(type, rawData)` — trigger listeners with a raw string payload
  *   - `simulateError()` — trigger the `onerror` handler
  */
 export class MockEventSource {
@@ -103,6 +104,21 @@ export class MockEventSource {
    */
   simulateEvent(type: string, data: unknown): void {
     const event = { data: JSON.stringify(data) } as { data: string };
+    const handlers = this.listeners[type] ?? [];
+    handlers.forEach((h) => h(event));
+  }
+
+  /**
+   * Simulate receiving a named SSE event with a raw string payload.
+   *
+   * Unlike `simulateEvent`, this method does NOT JSON-serialise the data.
+   * Use this to test malformed / non-JSON payloads (e.g., `"NOT_JSON"`).
+   *
+   * @param type - The SSE event type (e.g. "progress", "complete", "error").
+   * @param rawData - The raw string to pass as `event.data`.
+   */
+  simulateRawEvent(type: string, rawData: string): void {
+    const event = { data: rawData } as { data: string };
     const handlers = this.listeners[type] ?? [];
     handlers.forEach((h) => h(event));
   }
