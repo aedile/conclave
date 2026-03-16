@@ -28,6 +28,8 @@ import pytest
 from faker import Faker
 from pytest_postgresql import factories
 
+pytestmark = pytest.mark.synthesizer  # ADV-069: route via -m synthesizer in CI
+
 
 @pytest.fixture
 def persons_parquet(tmp_path: Path) -> str:

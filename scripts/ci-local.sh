@@ -321,6 +321,9 @@ stage_lint() {
 
 stage_test() {
     print_info "Running unit tests with 90% coverage gate..."
+    # ADV-066: Zero-warning policy is enforced via pyproject.toml filterwarnings=["error", ...].
+    # Adding bare -W error here would override the ignore suppressor rules that follow
+    # "error" in the config. Policy is already active via ini config.
     poetry run pytest tests/unit/ \
         --cov=src/synth_engine \
         --cov-report=term-missing \
@@ -358,12 +361,13 @@ stage_integration() {
         return 0
     fi
     print_info "Running integration tests (pytest-postgresql)..."
-    poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql
+    poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql -m "not synthesizer"
 }
 
 stage_synthesizer() {
     print_info "Running synthesizer integration tests..."
-    poetry run pytest tests/integration/test_synthesizer_integration.py -v --no-cov
+    # ADV-069: Use marker-based routing; new synthesizer tests are auto-included.
+    poetry run pytest tests/integration/ -m synthesizer -v --no-cov
 }
 
 stage_e2e() {
