@@ -70,8 +70,10 @@ def _render_qr_code(payload: dict[str, str]) -> str:
         Base64-encoded PNG string, or base64-encoded JSON fallback.
     """
     try:
-        import qrcode  # type: ignore[import-untyped]
-        from qrcode.image.pil import PilImage  # type: ignore[import-untyped]
+        import qrcode  # type: ignore[import-untyped]  # qrcode has no py.typed marker; unfixable without upstream changes
+        from qrcode.image.pil import (  # type: ignore[import-untyped]  # qrcode has no py.typed marker; unfixable without upstream changes
+            PilImage,
+        )
 
         qr: qrcode.QRCode[PilImage] = qrcode.QRCode(
             version=1,

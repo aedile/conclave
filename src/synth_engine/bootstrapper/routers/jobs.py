@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as SASession
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 from sse_starlette.sse import EventSourceResponse
 
 from synth_engine.bootstrapper.dependencies.db import get_db_session
@@ -70,9 +70,9 @@ def list_jobs(
         :class:`JobListResponse` with a list of jobs and an optional
         ``next_cursor`` for fetching the next page.
     """
-    query = select(SynthesisJob).order_by(SynthesisJob.id)  # type: ignore[arg-type]
+    query = select(SynthesisJob).order_by(col(SynthesisJob.id))
     if after is not None:
-        query = query.where(SynthesisJob.id > after)  # type: ignore[operator]
+        query = query.where(col(SynthesisJob.id) > after)
     query = query.limit(limit + 1)  # fetch one extra to determine next_cursor
 
     jobs = session.exec(query).all()

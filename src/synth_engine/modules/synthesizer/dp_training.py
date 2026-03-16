@@ -78,10 +78,10 @@ try:
     import torch.nn as nn
     from torch.utils.data import DataLoader, TensorDataset
 except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
-    torch: Any = None  # type: ignore[no-redef]
-    nn: Any = None  # type: ignore[no-redef]
-    DataLoader: Any = None  # type: ignore[no-redef]
-    TensorDataset: Any = None  # type: ignore[no-redef]
+    torch: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent; module-scope Any is safe since all usage is guarded
+    nn: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent
+    DataLoader: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent
+    TensorDataset: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent
 
 
 class DPCompatibleCTGAN:

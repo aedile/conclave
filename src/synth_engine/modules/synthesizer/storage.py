@@ -35,7 +35,7 @@ from __future__ import annotations
 import io
 import logging
 import os
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 import pandas as pd
 
@@ -230,7 +230,7 @@ class MinioStorageBackend:
 
         try:
             response = self._client.get_object(Bucket=bucket, Key=key)
-            return response["Body"].read()  # type: ignore[no-any-return]  # boto3-stubs types Body as StreamingBody; read() -> bytes but mypy infers Any without full stub resolution
+            return cast(bytes, response["Body"].read())
         except botocore.exceptions.ClientError as exc:
             error_code = exc.response.get("Error", {}).get("Code", "")
             if error_code in ("NoSuchKey", "404"):

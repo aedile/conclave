@@ -203,7 +203,7 @@ def rotate_ale_keys(
     return results
 
 
-@huey.task()  # type: ignore[untyped-decorator]
+@huey.task()  # type: ignore[untyped-decorator]  # huey.task() has no type stub; unfixable without upstream py.typed marker
 def rotate_ale_keys_task(
     database_url: str,
     wrapped_fernet_key: str,

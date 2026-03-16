@@ -34,7 +34,7 @@ ADV-023, ADV-024: Inspector caching and type-ignore justifications (T3.4).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import Engine, inspect
 from sqlalchemy.engine import Inspector
@@ -206,12 +206,7 @@ class SchemaReflector:
         Returns:
             List of column descriptor dicts from SQLAlchemy reflection.
         """
-        # ADV-024: ignore[return-value] is required because SQLAlchemy's
-        # Inspector.get_columns() returns a list of ReflectedColumn TypedDicts
-        # (a private type in sqlalchemy.engine.interfaces).  Our public
-        # contract uses dict[str, Any] — the documented stable shape — to
-        # avoid coupling to a private API that changes across minor versions.
-        return self._inspector.get_columns(table, schema=schema)  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], self._inspector.get_columns(table, schema=schema))
 
     def get_foreign_keys(self, table: str, schema: str = "public") -> list[dict[str, Any]]:
         """Return foreign key metadata for the given table.
@@ -225,10 +220,4 @@ class SchemaReflector:
             Each dict contains ``constrained_columns``, ``referred_table``,
             and ``referred_columns`` keys at minimum.
         """
-        # ADV-024: ignore[return-value] is required because SQLAlchemy's
-        # Inspector.get_foreign_keys() returns a list of
-        # ReflectedForeignKeyConstraint TypedDicts (a private type in
-        # sqlalchemy.engine.interfaces).  Our public contract uses
-        # dict[str, Any] — the documented stable shape — to avoid coupling
-        # to a private API that changes across minor versions.
-        return self._inspector.get_foreign_keys(table, schema=schema)  # type: ignore[return-value]
+        return cast(list[dict[str, Any]], self._inspector.get_foreign_keys(table, schema=schema))

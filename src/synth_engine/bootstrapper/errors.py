@@ -234,4 +234,4 @@ def register_error_handlers(app: FastAPI) -> None:
 
     # Register a safe RequestValidationError handler that sanitizes
     # non-finite float values before JSON serialization (P6-T6.2).
-    app.add_exception_handler(RequestValidationError, _validation_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, _validation_error_handler)  # type: ignore[arg-type]  # FastAPI add_exception_handler expects ExceptionHandler; our handler matches the protocol but mypy cannot verify the async overload
