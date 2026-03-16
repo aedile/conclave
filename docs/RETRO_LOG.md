@@ -18,6 +18,61 @@ Drain (delete) rows when their target task is completed.
 ## Task Reviews
 
 ---
+
+### [2026-03-16] Phase 16 End-of-Phase Retrospective
+
+**Phase Goal**: Close Alembic migration drift for epsilon columns (correctness risk),
+fix undeclared frontend dependencies (supply chain auditability), improve nosec
+justification accuracy, add missing operator documentation, and add WCAG skip
+navigation. No new features.
+
+**Exit Criteria Verification**:
+- Alembic migration 003 applies and reverts cleanly: PASS (T16.1 — PR #82).
+- ADR-0030 documents Float→Numeric precision decision: PASS (T16.1 — PR #82).
+- Frontend supply chain — all imports declared as direct devDependencies: PASS (T16.2 — PR #83).
+- nosec B608 justification accurate (caller-contract, not overclaimed validation): PASS (T16.2 — PR #83).
+- `.env.example` documents production mode variables: PASS (T16.2 — PR #83).
+- Skip navigation link present and tested: PASS (T16.3 — PR #84, fix PR #85).
+- README current with Phase 15 completion and Phase 16 status: PASS (T16.3 — PR #84).
+- All stale remote branches cleaned: PASS (T16.3 — PR #84; auto-delete now enabled).
+- GitHub auto-delete branches enabled: PASS (T16.3 — PR #84).
+- All quality gates passing: PASS. Open advisory count: **0**.
+- Phase 16 end-of-phase retrospective completed (this entry).
+
+**What went well**:
+1. All three review cycles caught real issues that were fixed before (or immediately
+   after) merge: QA caught weak test assertions in T16.1, QA caught docstring/nosec
+   contradiction in T16.2, UI/UX caught tabIndex and AriaLive hiding in T16.3.
+   The review agent pattern continues to earn its keep.
+2. The GitHub "Automatically delete head branches" setting — noted in Phase 12, 15,
+   and 15 retrospectives — was finally resolved by making it an explicit acceptance
+   criterion in T16.3. This validates the retro lesson: infrastructure hygiene items
+   must be converted to concrete ACs, not left as retro notes.
+3. ADR-0030 properly documented a 7-phase-old technology substitution (Float→Numeric)
+   that had been living only in a docstring comment. The migration drift is now closed
+   with both a migration and an ADR.
+4. Zero open advisories throughout the entire phase. Advisory table remains clean.
+
+**What could improve**:
+1. PR #84 (T16.3) auto-merged before the UI/UX review agent completed, requiring a
+   follow-up PR #85 for the tabIndex and AriaLive fixes. The auto-merge via
+   `gh pr merge --squash --auto` fires as soon as CI passes, which can race with
+   slow review agents. Lesson: review commits should be pushed to the PR branch
+   BEFORE `gh pr merge --auto` is called, not after. The PM should ensure all four
+   review agents complete before enabling auto-merge.
+2. The nosec B608 fix (T16.2) required updating both the inline annotation AND the
+   docstring — but the developer only updated the annotation on the first pass. QA
+   caught the docstring contradiction. Lesson (reinforced): when rewriting security
+   annotations, atomically update all co-located documentation describing the same
+   trust boundary. This lesson was captured in T16.2's retrospective note and should
+   be included in future briefs touching nosec annotations.
+3. The backlog spec for T16.1 said "migration 002" but the actual next migration was
+   003 (002 already existed). The developer correctly used 003, but the spec was wrong.
+   Lesson: backlog specs referencing sequence numbers should verify the current state
+   of the sequence before writing the spec, or use relative references ("next migration")
+   instead of absolute ones.
+
+---
 ### [2026-03-16] P16-T16.3 -- WCAG Skip Navigation, README Update & Branch Cleanup
 
 **Changes**:
