@@ -196,7 +196,7 @@ jobs:
       - name: Install dependencies (dev + integration)
         run: poetry install --with dev,integration
       - name: Run integration tests
-        run: poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql --ignore=tests/integration/test_e2e_dp_synthesis.py
+        run: poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql -m "not synthesizer"
 
   # ---------------------------------------------------------------------------
   # Synthesizer integration tests — real CTGAN training on Faker-generated data

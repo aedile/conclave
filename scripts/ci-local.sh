@@ -361,7 +361,7 @@ stage_integration() {
         return 0
     fi
     print_info "Running integration tests (pytest-postgresql)..."
-    poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql
+    poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql -m "not synthesizer"
 }
 
 stage_synthesizer() {
