@@ -11,6 +11,8 @@ Tests verify:
 5. ``spend_budget()`` raises ``ValueError`` for zero or negative ``amount``.
 6. ``spend_budget()`` raises ``sqlalchemy.exc.NoResultFound`` when the
    requested ``ledger_id`` does not exist.
+7. ``spend_budget()`` with a ``Decimal`` input exercises the
+   ``isinstance(amount, Decimal)`` fast-path (no float→string→Decimal conversion).
 
 These tests use ``sqlite+aiosqlite:///:memory:`` so they require no external
 infrastructure.  Concurrency safety is covered by the integration tests which
@@ -19,6 +21,7 @@ use real PostgreSQL + ``SELECT FOR UPDATE`` semantics.
 CONSTITUTION Priority 3: TDD
 CONSTITUTION Priority 4: 90%+ coverage
 Task: P4-T4.4 — Privacy Accountant
+Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050, arch finding)
 """
 
 from __future__ import annotations
@@ -162,6 +165,69 @@ async def test_spend_budget_with_sufficient_balance_creates_transaction(
         assert transactions[0].job_id == 1
 
         # Check ledger balance updated
+        ledger_result = await check_session.execute(
+            select(PrivacyLedger).where(PrivacyLedger.id == ledger_id)
+        )
+        updated_ledger = ledger_result.scalar_one()
+        assert updated_ledger.total_spent_epsilon == Decimal("0.5"), (
+            f"Expected Decimal('0.5') spent, got {updated_ledger.total_spent_epsilon!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_spend_budget_with_decimal_input_exercises_decimal_path(
+    async_engine: AsyncEngine,
+) -> None:
+    """spend_budget() with a Decimal amount exercises the isinstance fast-path.
+
+    The accountant function has two branches at normalisation:
+      ``amount if isinstance(amount, Decimal) else Decimal(str(amount))``
+    Existing tests pass float; this test passes Decimal directly to verify
+    the ``isinstance(amount, Decimal) is True`` branch is exercised and that
+    the arithmetic produces correct results end-to-end.
+
+    Arrange: Insert a PrivacyLedger with total_allocated=2.0, total_spent=0.0.
+    Act: Call spend_budget(amount=Decimal("0.5"), job_id=7, session=...).
+    Assert:
+    - Exactly 1 PrivacyTransaction row exists with epsilon_spent == Decimal("0.5").
+    - The ledger's total_spent_epsilon is updated to Decimal("0.5").
+    """
+    from sqlalchemy import select
+
+    from synth_engine.modules.privacy.accountant import spend_budget
+
+    # Arrange
+    async with get_async_session(async_engine) as setup_session:
+        ledger = PrivacyLedger(
+            total_allocated_epsilon=Decimal("2.0"),
+            total_spent_epsilon=Decimal("0.0"),
+        )
+        setup_session.add(ledger)
+        await setup_session.commit()
+        await setup_session.refresh(ledger)
+        ledger_id = ledger.id
+
+    # Act — pass Decimal directly, not float
+    async with get_async_session(async_engine) as spend_session:
+        await spend_budget(
+            amount=Decimal("0.5"),
+            job_id=7,
+            ledger_id=ledger_id,
+            session=spend_session,
+        )
+
+    # Assert
+    async with get_async_session(async_engine) as check_session:
+        tx_result = await check_session.execute(
+            select(PrivacyTransaction).where(PrivacyTransaction.ledger_id == ledger_id)
+        )
+        transactions = tx_result.scalars().all()
+        assert len(transactions) == 1, f"Expected 1 transaction, got {len(transactions)}"
+        assert transactions[0].epsilon_spent == Decimal("0.5"), (
+            f"Expected Decimal('0.5'), got {transactions[0].epsilon_spent!r}"
+        )
+        assert transactions[0].job_id == 7
+
         ledger_result = await check_session.execute(
             select(PrivacyLedger).where(PrivacyLedger.id == ledger_id)
         )
