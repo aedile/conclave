@@ -20,6 +20,30 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P20-T20.5 — Polish Batch (Cosmetic & Documentation)
+
+**Changes**:
+- `CLAUDE.md`: Added neutral value object exception to File Placement Rules table.
+- `docs/ARCHITECTURAL_REQUIREMENTS.md`: Added preamble referencing ADR-0029 gap analysis.
+- `docs/adr/ADR-template.md`: New template with Status field (Accepted/Superseded/Rejected).
+- `README.md`: Phase 19 complete, Phase 20 in progress.
+
+**Quality Gates**: pre-commit PASS. Docs-only task.
+
+**Review**: QA FINDING (1 fixed), DevOps PASS
+
+**QA** (FINDING — 1 item fixed):
+1. CLAUDE.md SchemaTopology consumer list incorrect — listed StatisticalProfiler and SynthesisEngine
+   as consumers; actual consumers are SubsettingEngine (traversal.py, core.py) and bootstrapper/cli.py.
+
+**DevOps** (PASS): No security, PII, or infrastructure concerns.
+
+**Retrospective Note**:
+CLAUDE.md examples that reference specific classes must be grep-verified before committing.
+The 30-second check would have caught the incorrect consumer list.
+
+---
+
 ### [2026-03-16] P20-T20.2 — Integration Test Expansion (Real Infrastructure)
 
 **Changes**:

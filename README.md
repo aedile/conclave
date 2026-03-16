@@ -90,7 +90,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Phase 18 — Type Safety, Dependency Audit & End-to-End Validation is complete.**
+**Phase 19 — Architectural Tightening & Tooling Hardening is complete. Phase 20 — Polish & Documentation Hygiene is in progress.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -115,6 +115,8 @@ Security is Priority Zero — it overrides every other consideration.
 | **16 — Migration Drift, Supply Chain & Accessibility Polish** | **Complete** | Alembic migration drift, supply chain, nosec accuracy, skip nav |
 | **17 — Docker Pinning, Dashboard WCAG & Process Cleanup** | **Complete** | Docker SHA pinning, dashboard WCAG aria, RETRO_LOG archival, process governance slimming |
 | **18 — Type Safety, Dependency Audit & E2E Validation** | **Complete** | type:ignore reduction, dependency audit, pgbouncer fix (ADV-015), sample data & E2E validation docs |
+| **19 — Architectural Tightening & Tooling Hardening** | **Complete** | import-linter contracts, mypy strict compliance, bandit clean sweep, worker task config ADR |
+| **20 — Polish & Documentation Hygiene** | **In Progress** | CLAUDE.md placement rules, ARCH_REQ preamble, ADR template, README currency |
 
 ---
 
