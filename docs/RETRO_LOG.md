@@ -20,6 +20,58 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 17 End-of-Phase Retrospective
+
+**Phase Goal**: Close ADV-014 Docker base image pinning debt, fix Dashboard WCAG
+inconsistencies, correct stale process document references, and slim process governance.
+
+**Exit Criteria Verification**:
+- Docker base images pinned to SHA-256 digests (3 Dockerfile FROM lines + 6 compose services): PASS (T17.1 — PR #86)
+- ADV-014 TODO comments removed from Dockerfile: PASS (0 remaining)
+- Dashboard form inputs have aria-required and aria-invalid: PASS (T17.2 — PR #88)
+- OTEL_EXPORTER_OTLP_ENDPOINT documented in .env.example: PASS (T17.2 — PR #88)
+- CLAUDE.md stale references removed: PASS (T17.3 — PR #87)
+- Phase 16 backlog corrected (migration 002 → 003): PASS (T17.3 — PR #87)
+- 5 stale remote branches cleaned: PASS (T17.3 — PR #87)
+- ADR format consistency (4 ADRs fixed): PASS (T17.3 — PR #87)
+- README current with Phase 16 complete, Phase 17 in progress: PASS (T17.3 — PR #87)
+- CLAUDE.md under 500 lines: PASS (498 lines) (T17.4 — PR #89)
+- RETRO_LOG under 800 lines: PASS (435 lines) (T17.4 — PR #89)
+- Conditional reviewer spawning: PASS — tested on T17.4 (docs-only → QA+DevOps only)
+- Consolidated review commits: PASS — first use on T17.4
+- Materiality threshold + small-fix batching rules: PASS (Rules 16+17)
+- All quality gates passing: PASS
+- Phase 17 end-of-phase retrospective completed: this entry
+
+**Open advisory count**: 1 (ADV-015 — pgbouncer phantom tag BLOCKER)
+
+**What went well**:
+1. T17.2 and T17.3 ran in parallel on separate feature branches with non-overlapping files.
+   T17.3 merged while T17.2 was still in review. This is the first time the PM successfully
+   parallelized two tasks within a phase.
+2. T17.4 was the first task to use the new conditional reviewer spawning and consolidated
+   review commit format. Both worked correctly: UI/UX and Architecture reviewers were
+   correctly skipped (docs-only task), and the single `review:` commit replaced 4 separate
+   commits with no loss of information.
+3. The RETRO_LOG archival was dramatic — 2687→435 lines. Future developer agents will
+   consume ~85% fewer tokens on RETRO_LOG scans.
+4. Every review FINDING was fixed before merge (T17.1 arch finding, T17.2 UI/UX finding,
+   T17.4 QA finding). The `feedback_review_findings_must_be_fixed` memory held.
+
+**What could improve**:
+1. The "change the spec, forget the consumers" pattern recurred in T17.4 — CLAUDE.md commit
+   format changed but .claude/agents/ files weren't updated. This is the same class of
+   failure as T17.3 (AUTONOMOUS_DEVELOPMENT_PROMPT retirement left stale references). Both
+   the PM brief and the developer agent should grep consumer files when changing process docs.
+2. The T17.2 QA review arrived after the PR was already merged (10+ minute review on a
+   frontend change). Its 3 findings (vacuous aria-invalid assertions, weak toBeGreaterThanOrEqual
+   bound, implicit EMPTY_FORM dependency) are valid but cosmetic — batched for Phase 18 per
+   Rule 16.
+3. ADV-015 (pgbouncer phantom tag) remains open. It requires an ADR for technology substitution
+   (Rule 6) and is appropriately tracked as a BLOCKER for the next pgbouncer-related task.
+
+---
+
 ### [2026-03-16] P17-T17.4 — Process Governance Slimming
 
 **Changes**:
