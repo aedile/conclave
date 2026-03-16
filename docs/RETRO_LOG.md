@@ -13,17 +13,45 @@ Drain (delete) rows when their target task is completed.
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
 | ADV-040 | DevOps T4.2b | Phase 6 security hardening | DEFERRED | Pickle-based `ModelArtifact` persistence (B301/B403 nosec) is justified for self-produced artifacts on the internal MinIO bucket. PM justification: artifact trust boundary is internal-only through Phase 5; HMAC wiring deferred to Phase 6 hardening sprint when external storage is considered. |
-| ADV-050 | Arch T4.4 | Phase 6 hardening | DEFERRED | `Float` column type for `total_allocated_epsilon`/`total_spent_epsilon` in `PrivacyLedger`. Floating-point accumulation across many small additions introduces budget drift. PM justification: at current scale (1–10 epsilon range, tens of jobs) float64 drift is sub-microsecond. Revisit if sub-0.01 epsilon granularity or high-concurrency workloads become a product requirement. |
-| ADV-054 | Arch T5.2 | Phase 6 hardening | DEFERRED | `LicenseError.status_code` embeds HTTP semantics in `shared/security/licensing.py`, inconsistent with ADR-0008 framework-boundary pattern. PM justification: pragmatic — only one status code (403) is used, and the pattern matches VaultState's ValueError approach. Revisit if licensing error taxonomy grows. |
 | ADV-057 | DevOps T5.3 | Phase 6 hardening | DEFERRED | Production source-map emission (`sourcemap: true` in `vite.config.ts`) exposes internal file paths and logic via browser devtools. PM justification: no external deployment planned through Phase 5; air-gapped deployments have no untrusted users with devtools access. Strip source maps before any external-facing deployment. |
 | ADV-058 | DevOps T5.3 | Phase 6 hardening | ADVISORY | vitest's internal esbuild subtree contains moderate CVE (GHSA-67mh-4wv8-2f99, dev server cross-origin). Dev-only, not in production bundle. npm audit gate added to CI. Pin esbuild >=0.25.0 via overrides when vitest 4.x upgrade is evaluated. |
 | ADV-067 | DevOps P7-T7.3 | Post-launch hardening | ADVISORY | `PrivacyEngine()` instantiated without `secure_rng=True` in `dp_engine.py`. Opacus defaults to pseudorandom noise — adequate for research but production air-gapped DP arguably warrants CSRNG-strength noise. Warning suppressed in `filterwarnings`. Evaluate `PrivacyEngine(secure_rng=True)` before real sensitive-data training runs. |
-| ADV-071 | Arch P7-T7.5 | Phase 8 | ADVISORY | `BudgetExhaustionError` imported directly from `modules/privacy/dp_engine` by callers. Should be re-exported from `modules/privacy/__init__.py` to provide a stable public catch target without reaching into internal module files. |
 | ADV-073 | DevOps P8-T8.4 | Post-launch | ADVISORY | Synthesizer test files `test_synthesizer_integration.py` and `test_dp_training_integration.py` carry only `pytest.mark.synthesizer`, not dual `[pytest.mark.integration, pytest.mark.synthesizer]`. Inconsistent with `test_e2e_dp_synthesis.py` which carries both. Dual markers improve discoverability. |
+| ADV-074 | QA P8-T8.3 | Post-launch | ADVISORY | `spend_budget(amount=1e-11)` produces `Decimal("1.1e-11")` via `Decimal(str(float))` — scientific-notation edge case not tested. May surface with very small epsilon values in production. |
+| ADV-075 | DevOps P8-T8.3 | Post-launch | ADVISORY | `_render_qr_code` fallback logs raw Pillow/qrcode exception at WARNING level. If libraries embed filesystem paths in error messages, this becomes internal-path disclosure. Consider logging `type(exc).__name__` only. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P8-T8.3 — Data Model & Architecture Cleanup (ADV-050, ADV-054, ADV-071)
+
+**Summary**: Drained ADV-050, ADV-054, ADV-071. Replaced Float with Numeric(20,10) for epsilon
+columns (prevents accumulation drift). Removed LicenseError.status_code — HTTP 403 mapping moved
+to bootstrapper router per ADR-0008. BudgetExhaustionError re-exported from modules/privacy/.
+spend_budget() accepts float|Decimal with explicit Decimal conversion.
+
+**QA** (FINDING — non-blocking advisory): Scientific-notation float input (e.g., 1e-11) to
+spend_budget produces Decimal("1.1e-11") — contract boundary undocumented but not blocking.
+All quality gates pass at 96.18% coverage.
+**Architecture** (PASS): File placement correct. ADV-054 properly separates framework concerns.
+Numeric(20,10) prevents float drift for epsilon accounting.
+**UI/UX** (SKIP): No frontend changes.
+**DevOps** (PASS): gitleaks/bandit clean. No new dependencies. Advisory: _render_qr_code
+logs raw exception at WARNING level.
+
+**Advisories drained**: ADV-050, ADV-054, ADV-071. Remaining: 6.
+**New advisories**: ADV-074 (scientific-notation Decimal edge case), ADV-075 (qr_code exception logging).
+
+**Retrospective Notes**:
+- AST-walking test for ADV-054 (verify router doesn't read exc.status_code) is a strong static
+  enforcement pattern — replicate for other boundary rules.
+- Mandate Numeric(P,S) for all budget-sensitive columns in a project-wide convention to prevent
+  Float drift advisories from recurring.
+- Float→Decimal conversion via Decimal(str(amount)) is correct but the scientific-notation edge
+  case should be documented in the function docstring.
 
 ---
 

@@ -27,8 +27,19 @@ Security properties
 - Thread safety: :class:`LicenseState` mutations are protected by a
   ``threading.Lock``.
 
+ADR-0008 compliance (ADV-054)
+------------------------------
+``LicenseError`` is a plain domain exception.  It carries only the
+``detail`` string needed by the bootstrapper to build an RFC 7807 response.
+HTTP status code mapping is the sole responsibility of the bootstrapper
+middleware/exception handler layer — it does NOT belong in the shared layer.
+Any pre-ADV-054 callers that read ``exc.status_code`` must be updated to
+hardcode the appropriate HTTP status (403 Forbidden for all ``LicenseError``
+cases).
+
 CONSTITUTION Priority 0: Security
 Task: P5-T5.2 — Offline License Activation Protocol
+Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-054)
 """
 
 from __future__ import annotations
@@ -105,15 +116,21 @@ def get_active_public_key() -> str:
 class LicenseError(Exception):
     """Raised when license validation fails.
 
+    This is a plain domain exception.  It does NOT carry HTTP status codes.
+    HTTP status mapping is the responsibility of the bootstrapper
+    middleware/exception handler layer, per ADR-0008.
+
     Attributes:
         detail: Human-readable explanation for API consumers.
-        status_code: HTTP status code to return (default 403 Forbidden).
+
+    Example::
+
+        raise LicenseError("License token has expired.")
     """
 
-    def __init__(self, detail: str, status_code: int = 403) -> None:
+    def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail
-        self.status_code = status_code
 
 
 # ---------------------------------------------------------------------------
@@ -271,9 +288,9 @@ def verify_license_jwt(token: str, public_key: str | None = None) -> dict[str, A
         Dictionary of decoded JWT claims on success.
 
     Raises:
-        LicenseError: With ``status_code=403`` on any validation failure
-            (invalid signature, expired token, missing or mismatched
-            ``hardware_id`` claim).
+        LicenseError: On any validation failure (invalid signature, expired
+            token, missing or mismatched ``hardware_id`` claim).  The
+            bootstrapper layer maps this to HTTP 403.
     """
     resolved_key = public_key if public_key is not None else get_active_public_key()
     try:
@@ -284,17 +301,16 @@ def verify_license_jwt(token: str, public_key: str | None = None) -> dict[str, A
         )
     except ExpiredSignatureError as exc:
         _logger.warning("License JWT validation failed: token expired.")
-        raise LicenseError("License token has expired.", status_code=403) from exc
+        raise LicenseError("License token has expired.") from exc
     except PyJWTError as exc:
         _logger.warning("License JWT validation failed: %s", type(exc).__name__)
-        raise LicenseError("License token signature is invalid.", status_code=403) from exc
+        raise LicenseError("License token signature is invalid.") from exc
 
     # Validate hardware_id claim
     token_hw_id = claims.get("hardware_id")
     if not token_hw_id:
         raise LicenseError(
             "License token is missing the required 'hardware_id' claim.",
-            status_code=403,
         )
 
     local_hw_id = get_hardware_id()
@@ -306,7 +322,6 @@ def verify_license_jwt(token: str, public_key: str | None = None) -> dict[str, A
         )
         raise LicenseError(
             "License token hardware_id does not match this machine.",
-            status_code=403,
         )
 
     return claims

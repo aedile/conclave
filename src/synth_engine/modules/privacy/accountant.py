@@ -26,6 +26,15 @@ The function must be called with a fresh :class:`sqlalchemy.ext.asyncio.AsyncSes
 for each invocation to ensure proper concurrency semantics.  The session must
 NOT be shared across concurrent calls.
 
+Decimal arithmetic (ADV-050)
+-----------------------------
+The ``amount`` parameter accepts ``float`` for API ergonomics but is converted
+to :class:`decimal.Decimal` immediately on entry using ``Decimal(str(amount))``.
+This preserves decimal precision before any arithmetic against the ledger's
+``NUMERIC(20, 10)`` columns.  Callers may also pass a ``Decimal`` directly.
+Mixed-type arithmetic (``Decimal + float``) raises ``TypeError`` in Python;
+the conversion at the function boundary prevents this error.
+
 Import boundaries:
   Must NOT import from any other module in ``modules/``, from
   ``bootstrapper/``, or from application-layer code.  Only ``shared/`` and
@@ -34,11 +43,13 @@ Import boundaries:
 CONSTITUTION Priority 0: Security — no PII, no credential leaks
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P4-T4.4 — Privacy Accountant
+Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050)
 """
 
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +62,7 @@ _logger = logging.getLogger(__name__)
 
 async def spend_budget(
     *,
-    amount: float,
+    amount: float | Decimal,
     job_id: int,
     ledger_id: int,
     session: AsyncSession,
@@ -75,7 +86,10 @@ async def spend_budget(
     lock without writing any transaction record.
 
     Args:
-        amount: The epsilon to deduct.  Must be positive.
+        amount: The epsilon to deduct.  Must be positive.  Accepts ``float``
+            or :class:`decimal.Decimal`.  ``float`` values are converted to
+            ``Decimal`` via ``Decimal(str(amount))`` to avoid mixed-type
+            arithmetic errors against the ledger's ``NUMERIC(20, 10)`` columns.
         job_id: Identifier of the synthesis job requesting the allocation.
             Stored in the :class:`PrivacyTransaction` audit record.
         ledger_id: Primary key of the :class:`PrivacyLedger` row to debit.
@@ -105,7 +119,11 @@ async def spend_budget(
                 session=session,
             )
     """
-    if amount <= 0:
+    # Normalise to Decimal immediately to prevent mixed-type arithmetic errors
+    # when operating against NUMERIC(20, 10) ledger columns (ADV-050).
+    decimal_amount: Decimal = amount if isinstance(amount, Decimal) else Decimal(str(amount))
+
+    if decimal_amount <= 0:
         raise ValueError(f"amount must be positive, got {amount!r}")
     async with session.begin():
         # Acquire pessimistic lock — blocks until previous holder commits.
@@ -119,39 +137,39 @@ async def spend_budget(
         result = await session.execute(stmt)
         ledger = result.scalar_one()
 
-        if ledger.total_spent_epsilon + amount > ledger.total_allocated_epsilon:
+        if ledger.total_spent_epsilon + decimal_amount > ledger.total_allocated_epsilon:
             _logger.warning(
-                "Budget exhausted: ledger_id=%d, requested=%.6f, spent=%.6f, allocated=%.6f",
+                "Budget exhausted: ledger_id=%d, requested=%s, spent=%s, allocated=%s",
                 ledger_id,
-                amount,
+                decimal_amount,
                 ledger.total_spent_epsilon,
                 ledger.total_allocated_epsilon,
             )
             # Raise here — session.begin() context manager auto-rolls back
             # when BudgetExhaustionError propagates out of the block.
             raise BudgetExhaustionError(
-                f"Global DP budget exhausted: requested epsilon={amount:.6f}, "
-                f"total_spent={ledger.total_spent_epsilon:.6f}, "
-                f"total_allocated={ledger.total_allocated_epsilon:.6f}. "
+                f"Global DP budget exhausted: requested epsilon={decimal_amount}, "
+                f"total_spent={ledger.total_spent_epsilon}, "
+                f"total_allocated={ledger.total_allocated_epsilon}. "
                 "Synthesis job cannot proceed — budget exhausted."
             )
 
         # Deduct epsilon and record the transaction — same DB transaction.
-        ledger.total_spent_epsilon += amount
+        ledger.total_spent_epsilon += decimal_amount
         transaction = PrivacyTransaction(
             ledger_id=ledger_id,
             job_id=job_id,
-            epsilon_spent=amount,
+            epsilon_spent=decimal_amount,
             note=note,
         )
         session.add(transaction)
         # session.begin() context manager commits automatically on successful exit.
 
     _logger.info(
-        "Epsilon allocated: ledger_id=%d, job_id=%d, amount=%.6f, total_spent=%.6f, remaining=%.6f",
+        "Epsilon allocated: ledger_id=%d, job_id=%d, amount=%s, total_spent=%s, remaining=%s",
         ledger_id,
         job_id,
-        amount,
+        decimal_amount,
         ledger.total_spent_epsilon,
         ledger.total_allocated_epsilon - ledger.total_spent_epsilon,
     )
