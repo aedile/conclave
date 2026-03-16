@@ -172,6 +172,14 @@ ignore = ["S101"]
 # BLE001: errors.py catches broad Exception intentionally — it is the RFC 7807
 # catch-all middleware boundary; all exceptions must be captured for sanitized output.
 "src/synth_engine/bootstrapper/errors.py" = ["BLE001"]
+# F821: undefined names — vulture whitelist uses bare identifiers intentionally so vulture's
+#       AST walker sees the names as "used". These are not real undefined names; the file
+#       exists solely as a vulture false-positive suppression mechanism (T12.2, P13-T13.1).
+# B018: useless expression — same root cause; bare identifiers are valid statements in this
+#       context because the file is never executed as production code.
+# E501: line too long — inline comments describe runtime call sites for each whitelisted name;
+#       truncating them reduces clarity without any production benefit.
+".vulture_whitelist.py" = ["F821", "B018", "E501"]
 
 # ---------------------------------------------------------------------------
 # Mypy — Strict Type Checking (src/synth_engine only; scripts/ pre-date this)
