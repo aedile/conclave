@@ -119,7 +119,7 @@ class PrivacyLedger(SQLModel, table=True):
         default=Decimal("0.0"),
         sa_column=Column(
             "total_allocated_epsilon",
-            SANumeric(precision=20, scale=10),
+            _EPSILON_NUMERIC,
             nullable=False,
             default=Decimal("0.0"),
         ),
@@ -128,7 +128,7 @@ class PrivacyLedger(SQLModel, table=True):
         default=Decimal("0.0"),
         sa_column=Column(
             "total_spent_epsilon",
-            SANumeric(precision=20, scale=10),
+            _EPSILON_NUMERIC,
             nullable=False,
             default=Decimal("0.0"),
         ),
@@ -181,7 +181,7 @@ class PrivacyTransaction(SQLModel, table=True):
     epsilon_spent: Decimal = Field(
         sa_column=Column(
             "epsilon_spent",
-            SANumeric(precision=20, scale=10),
+            _EPSILON_NUMERIC,
             nullable=False,
         ),
     )

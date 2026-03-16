@@ -24,9 +24,13 @@ Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050, ADV-054, ADV-071)
 from __future__ import annotations
 
 import inspect
+from collections.abc import AsyncGenerator
 from decimal import Decimal
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlmodel import SQLModel
 
 # ---------------------------------------------------------------------------
 # ADV-050: PrivacyLedger epsilon columns — Numeric not Float
@@ -229,3 +233,75 @@ def test_budget_exhaustion_error_in_privacy_all() -> None:
     assert "BudgetExhaustionError" in privacy_module.__all__, (
         "BudgetExhaustionError must be listed in synth_engine.modules.privacy.__all__"
     )
+
+
+# ---------------------------------------------------------------------------
+# spend_budget() — Decimal input covers no-conversion branch (Fix 4)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture()
+async def async_engine_t83() -> AsyncGenerator[AsyncEngine]:
+    """In-memory async SQLite engine for T8.3 Decimal-input spend_budget test.
+
+    Yields:
+        An AsyncEngine with all SQLModel tables created.
+    """
+    from synth_engine.shared.db import get_async_engine
+
+    engine = get_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_spend_budget_with_decimal_amount_no_conversion(
+    async_engine_t83: AsyncEngine,
+) -> None:
+    """spend_budget() accepts a Decimal amount and skips float-to-Decimal conversion.
+
+    When amount is already a Decimal, spend_budget() must use it directly
+    (the isinstance(amount, Decimal) branch) rather than converting via
+    Decimal(str(amount)).  This test exercises that no-conversion path end-to-end.
+
+    Arrange: Insert a PrivacyLedger with total_allocated=Decimal("1.0").
+    Act: Call spend_budget(amount=Decimal("0.5"), ...).
+    Assert:
+    - No exception raised (budget not exhausted).
+    - Ledger total_spent_epsilon == Decimal("0.5").
+    """
+    from sqlalchemy import select
+
+    from synth_engine.modules.privacy.accountant import spend_budget
+    from synth_engine.modules.privacy.ledger import PrivacyLedger
+    from synth_engine.shared.db import get_async_session
+
+    async with get_async_session(async_engine_t83) as s:
+        ledger = PrivacyLedger(
+            total_allocated_epsilon=Decimal("1.0"),
+            total_spent_epsilon=Decimal("0.0"),
+        )
+        s.add(ledger)
+        await s.commit()
+        await s.refresh(ledger)
+        ledger_id = ledger.id
+
+    # Act: pass a Decimal directly — exercises the no-conversion branch
+    async with get_async_session(async_engine_t83) as s:
+        await spend_budget(
+            amount=Decimal("0.5"),
+            job_id=1,
+            ledger_id=ledger_id,
+            session=s,
+        )
+
+    # Assert: ledger updated with exact Decimal value
+    async with get_async_session(async_engine_t83) as s:
+        result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
+        updated = result.scalar_one()
+        assert updated.total_spent_epsilon == Decimal("0.5"), (
+            f"Expected Decimal('0.5'), got {updated.total_spent_epsilon!r}"
+        )
+        assert isinstance(updated.total_spent_epsilon, Decimal)

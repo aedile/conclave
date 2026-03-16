@@ -246,8 +246,8 @@ def test_verify_license_jwt_rejects_wrong_hardware_id(rsa_keypair: tuple[str, st
     with pytest.raises(LicenseError) as exc_info:
         verify_license_jwt(token, public_pem)
 
-    # ADV-054: LicenseError carries detail (not status_code)
-    assert exc_info.value.detail
+    # ADV-054: LicenseError carries detail (not status_code) with content about hardware_id
+    assert "hardware_id" in exc_info.value.detail
 
 
 def test_verify_license_jwt_rejects_bad_signature(rsa_keypair: tuple[str, str]) -> None:
@@ -273,8 +273,8 @@ def test_verify_license_jwt_rejects_bad_signature(rsa_keypair: tuple[str, str]) 
     with pytest.raises(LicenseError) as exc_info:
         verify_license_jwt(tampered_token, public_pem)
 
-    # ADV-054: LicenseError carries detail (not status_code)
-    assert exc_info.value.detail
+    # ADV-054: LicenseError carries detail (not status_code) with content about signature
+    assert "signature" in exc_info.value.detail.lower()
 
 
 def test_verify_license_jwt_rejects_modified_hardware_id_claim(
@@ -313,8 +313,8 @@ def test_verify_license_jwt_rejects_modified_hardware_id_claim(
     with pytest.raises(LicenseError) as exc_info:
         verify_license_jwt(tampered_token, public_pem)
 
-    # ADV-054: LicenseError carries detail (not status_code)
-    assert exc_info.value.detail
+    # ADV-054: LicenseError carries detail (not status_code); tampered token fails sig check
+    assert "signature" in exc_info.value.detail.lower()
 
 
 def test_verify_license_jwt_rejects_expired_token(rsa_keypair: tuple[str, str]) -> None:
@@ -333,8 +333,8 @@ def test_verify_license_jwt_rejects_expired_token(rsa_keypair: tuple[str, str]) 
     with pytest.raises(LicenseError) as exc_info:
         verify_license_jwt(token, public_pem)
 
-    # ADV-054: LicenseError carries detail (not status_code)
-    assert exc_info.value.detail
+    # ADV-054: LicenseError carries detail (not status_code) with content about expiry
+    assert "expired" in exc_info.value.detail.lower()
 
 
 # ---------------------------------------------------------------------------
