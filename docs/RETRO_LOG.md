@@ -19,6 +19,29 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P14-T14.2 — Frontend ESLint 9.x Configuration & Nosec Justifications
+
+**Changes**: Created `frontend/eslint.config.js` (ESLint 9.x flat config with TypeScript, React,
+jsx-a11y rules). Added 5 devDependencies. Added inline justifications to 5 `# nosec B608`
+annotations across `postgres_adapter.py`, `egress.py`, `traversal.py`. Removed stale `# nosec B604`
+from `engine.py:62`. Added `npm run lint` step to CI frontend job. Removed stale `--ext ts,tsx`
+from lint script.
+
+**Reviews**:
+- QA: PASS — 96.24% coverage, no new logic paths, annotation-only Python changes
+- UI/UX: SKIP — no template/route/form changes; jsx-a11y integration correctly assembled
+- DevOps: FINDING (fixed) — CI frontend job missing `npm run lint` step; added in fix commit
+- Architecture: FINDING (fixed) — `engine.py:62` had stale `nosec B604` on non-subprocess line; removed
+
+**Retrospective Note**: Two patterns worth codifying: (1) nosec rule IDs should be confirmed
+against actual bandit output, not inferred from memory — the B604-on-bare-assignment error
+was a rule-lookup mistake. (2) Every new linting tool must have a corresponding CI step in the
+same PR — Constitution §4 requires programmatic enforcement, not just local tooling. The
+nosec B608 justification quality across the codebase is high and should be documented as
+the expected standard in the Spike Promotion Checklist.
+
+---
+
 ### [2026-03-16] P14-T14.1 — Fix Integration Test Failures (DP, Privacy Accountant, SSE)
 
 **Changes**: Fixed 8 pre-existing integration test failures across 4 root causes:

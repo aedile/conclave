@@ -111,9 +111,9 @@ class EgressWriter:
         placeholders = ", ".join(f":{col}" for col in columns)
         quoted_table = str(quoted_name(table, quote=True))
 
-        # nosec B608
+        # nosec B608 — table/column names are from SchemaTopology (bootstrapper-controlled) and are SQLAlchemy-quoted above
         stmt = text(
-            f"INSERT INTO {quoted_table} ({quoted_cols}) VALUES ({placeholders})"  # nosec B608  # noqa: S608
+            f"INSERT INTO {quoted_table} ({quoted_cols}) VALUES ({placeholders})"  # nosec B608 — see comment above; values are parameterised  # noqa: S608
         )
 
         with self._engine.connect() as conn:
@@ -156,7 +156,7 @@ class EgressWriter:
                 # Table names come from SchemaTopology (bootstrapper-controlled);
                 # they are also quoted above as belt-and-suspenders.
                 conn.execute(
-                    text(f"TRUNCATE TABLE {quoted_table} CASCADE")  # nosec B608
+                    text(f"TRUNCATE TABLE {quoted_table} CASCADE")  # nosec B608 — table name is from SchemaTopology (bootstrapper-controlled) and is SQLAlchemy-quoted
                 )
             conn.commit()
 

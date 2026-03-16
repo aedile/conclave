@@ -151,11 +151,11 @@ class PostgresIngestionAdapter:
         """
         with self._engine.connect() as conn:
             # Stage 0: connectivity check — raises if connection is broken.
-            conn.execute(text("SELECT 1"))  # nosec B608
+            conn.execute(text("SELECT 1"))  # nosec B608 — hardcoded literal; no user input
 
             # Stage 1: Superuser detection.
             superuser_result = conn.execute(
-                text("SELECT current_setting('is_superuser')")  # nosec B608
+                text("SELECT current_setting('is_superuser')")  # nosec B608 — hardcoded system query; no user input
             )
             is_superuser: str = superuser_result.scalar_one()
             if is_superuser == "on":
@@ -167,7 +167,7 @@ class PostgresIngestionAdapter:
 
             # Stage 2: Write-privilege inspection via information_schema.
             grants_result = conn.execute(
-                text(  # nosec B608
+                text(  # nosec B608 — hardcoded information_schema query; no user input
                     "SELECT privilege_type "
                     "FROM information_schema.role_table_grants "
                     "WHERE grantee = current_user "
