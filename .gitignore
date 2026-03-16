@@ -65,3 +65,9 @@ secrets/*.pfx
 
 # CI-generated artefacts — NEVER commit
 sbom.json
+
+# pytest coverage data — regenerated every test run
+.coverage
+
+# Agent worktree clones — transient, disk-heavy
+.clone/
