@@ -24,7 +24,6 @@ Drain (delete) rows when their target task is completed.
 | ADV-065 | DevOps P6-T6.2 | Phase 6 hardening | ADVISORY | `zap_test.db` SQLite file created by the ZAP CI job is not explicitly cleaned up — discarded implicitly when the GitHub Actions runner resets. Benign in CI but add cleanup step if local ZAP testing is ever added. |
 | ADV-066 | QA P6-T6.3 | Phase 7 | ADVISORY | `pytest -W error` flag mandated by CLAUDE.md is absent from both ci.yml and ci-local.sh stage_test. Pre-existing gap — neither CI environment enforces zero-warning policy. Add `-W error` to both when next touching test infrastructure. |
 | ADV-067 | DevOps P7-T7.3 | Post-launch hardening | ADVISORY | `PrivacyEngine()` instantiated without `secure_rng=True` in `dp_engine.py`. Opacus defaults to pseudorandom noise — adequate for research but production air-gapped DP arguably warrants CSRNG-strength noise. Warning suppressed in `filterwarnings`. Evaluate `PrivacyEngine(secure_rng=True)` before real sensitive-data training runs. |
-| ADV-068 | QA P7-T7.3 | T7.4 | ADVISORY | `_activate_opacus()` too-few-rows path (lines 315-319) returns with `epsilon_spent=0.0` when DataLoader has zero batches. Callers relying on `check_budget()` would never trigger `BudgetExhaustionError`, creating a false DP accounting guarantee. Recommend raising `RuntimeError` instead of `WARNING` log for this degenerate case. |
 
 ---
 
