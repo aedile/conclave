@@ -19,6 +19,24 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P14-T14.3 — README Phase 13 Completion & Phase 14 Status
+
+**Changes**: Updated README.md line 93 from Phase 13 in-progress to Phase 14 in-progress.
+Phase table: Phase 13 → Complete, Phase 14 row added as In Progress. Updated docs/BACKLOG.md
+with Phase 14 in Phase Hierarchy and Task Index sections.
+
+**Reviews**:
+- QA: SKIP — docs-only, no code changes
+- UI/UX: SKIP — no template/route/form changes
+- DevOps: PASS — gitleaks clean, docs-gate satisfied
+
+**Retrospective Note**: Clean docs-only task. The recurring README lag pattern (README always
+says "In Progress" for the current phase rather than being updated to "Complete" at phase close)
+continues — T14.3 exists specifically to fix this. Phase 14 retrospective will update the
+status to Complete.
+
+---
+
 ### [2026-03-16] P14-T14.2 — Frontend ESLint 9.x Configuration & Nosec Justifications
 
 **Changes**: Created `frontend/eslint.config.js` (ESLint 9.x flat config with TypeScript, React,
