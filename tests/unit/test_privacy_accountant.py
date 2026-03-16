@@ -487,16 +487,13 @@ def test_spend_budget_scientific_notation_decimal_conversion(
     notation float inputs.
     """
     # Verify the conversion produces the correct Decimal value.
-    # This exercises the Decimal(str(amount)) branch in accountant.spend_budget().
+    # This verifies the Decimal(str(amount)) conversion that spend_budget() uses internally.
     result = Decimal(str(amount))
     assert result == expected_decimal, (
         f"Decimal(str({amount!r})) produced {result!r}, expected {expected_decimal!r}. "
         "The float→str→Decimal conversion changed behaviour — "
         "this may silently corrupt budget accounting for very small epsilon values."
     )
-    # Also verify the expected Decimal equals the fully-expanded form
-    # (ensuring the test expectation itself is mathematically correct)
-    assert result == expected_decimal
 
 
 @pytest.mark.asyncio

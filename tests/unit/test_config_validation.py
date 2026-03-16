@@ -203,4 +203,31 @@ def test_all_vars_present_production_passes(
     assert result is None
 
 
+# ---------------------------------------------------------------------------
+# Tests: empty-string env vars are treated as missing
+# ---------------------------------------------------------------------------
+
+
+def test_empty_string_database_url_raises_system_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """validate_config() raises SystemExit when DATABASE_URL is set to an empty string.
+
+    An empty-string value is semantically equivalent to absent: a connection
+    string of "" cannot form a valid database URL.  The validator must reject
+    it with a SystemExit that names DATABASE_URL in the message.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        validate_config()
+
+    assert "DATABASE_URL" in str(exc_info.value)
+
+
 pytestmark = pytest.mark.unit
