@@ -14,6 +14,7 @@
 
 import {
   act,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -644,11 +645,12 @@ describe("Dashboard — RFC 7807 error handling", () => {
     renderDashboard();
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      // Scope text assertion to the alert element to avoid matching the
-      // AssertiveAnnouncement aria-live region which also contains the title.
-      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+      // form-error div (role="alert") is always in the DOM but empty here —
+      // pick the toast which is the alert with non-empty textContent.
+      const alerts = screen.getAllByRole("alert");
+      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
+      expect(toastAlert).toBeInTheDocument();
+      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -688,9 +690,12 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /start/i }));
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+      // form-error div (role="alert") is always in the DOM but empty here —
+      // pick the toast which is the alert with non-empty textContent.
+      const alerts = screen.getAllByRole("alert");
+      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
+      expect(toastAlert).toBeInTheDocument();
+      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -713,9 +718,12 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /create job/i }));
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+      // form-error div (role="alert") is always in the DOM but empty here —
+      // pick the toast which is the alert with non-empty textContent.
+      const alerts = screen.getAllByRole("alert");
+      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
+      expect(toastAlert).toBeInTheDocument();
+      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -738,9 +746,12 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /load more/i }));
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+      // form-error div (role="alert") is always in the DOM but empty here —
+      // pick the toast which is the alert with non-empty textContent.
+      const alerts = screen.getAllByRole("alert");
+      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
+      expect(toastAlert).toBeInTheDocument();
+      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
     });
 
     // Load More button should be re-enabled (isLoadingMore reset to false)
@@ -861,6 +872,105 @@ describe("Dashboard — aria-live regions", () => {
       // Check that the aria-live region contains the announcement text
       const liveRegion = document.querySelector('[aria-live="polite"]');
       expect(liveRegion?.textContent).toMatch(/50%|50/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WCAG Form Aria Parity (T17.2)
+// ---------------------------------------------------------------------------
+
+describe("Dashboard — WCAG form aria attributes (T17.2)", () => {
+  it("all 4 form inputs have aria-required='true'", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      const tableInput = screen.getByLabelText(/table name/i);
+      const parquetInput = screen.getByLabelText(/parquet path/i);
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+
+      expect(tableInput).toHaveAttribute("aria-required", "true");
+      expect(parquetInput).toHaveAttribute("aria-required", "true");
+      expect(epochsInput).toHaveAttribute("aria-required", "true");
+      expect(checkpointInput).toHaveAttribute("aria-required", "true");
+    });
+  });
+
+  it("total_epochs input has aria-invalid='true' when validation fails with non-integer value", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
+    });
+
+    // Leave total_epochs empty (value will be "", parseInt("", 10) === NaN).
+    // Use fireEvent.submit to bypass native HTML5 constraint validation in
+    // JSDOM, which would otherwise suppress the submit event for empty required
+    // number inputs before our custom onSubmit handler can run.
+    const form = document.querySelector("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      expect(epochsInput).toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("checkpoint_every_n input has aria-invalid='true' when validation fails with non-integer value", async () => {
+    const user = userEvent.setup();
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
+    });
+
+    // Type a valid integer for total_epochs so validation passes through to
+    // checkpoint_every_n. Leave checkpoint_every_n empty — fireEvent.submit
+    // bypasses native HTML5 constraint validation, so our custom onSubmit
+    // handler runs and sets formErrorField = "checkpoint_every_n".
+    await user.type(screen.getByLabelText(/total epochs/i), "10");
+
+    const form = document.querySelector("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+      expect(checkpointInput).toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("aria-invalid is absent (or false) on form inputs before any validation attempt", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      const tableInput = screen.getByLabelText(/table name/i);
+      const parquetInput = screen.getByLabelText(/parquet path/i);
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+
+      // Before any submission, no input should be marked invalid
+      expect(tableInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(parquetInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(epochsInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(checkpointInput).not.toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("asterisk required indicators in form labels are wrapped with aria-hidden='true'", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      // Query for all span elements with aria-hidden="true" inside the form
+      // The form should have 4 such spans (one per required field label)
+      const hiddenAsterisks = document.querySelectorAll(
+        'form span[aria-hidden="true"]',
+      );
+      expect(hiddenAsterisks.length).toBeGreaterThanOrEqual(4);
+      hiddenAsterisks.forEach((span) => {
+        expect(span.textContent).toBe("*");
+      });
     });
   });
 });
