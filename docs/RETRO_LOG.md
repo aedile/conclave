@@ -19,6 +19,33 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P9-T9.3 — Bootstrapper Decomposition
+
+**Summary**: Decomposed `bootstrapper/main.py` from 533 LOC (20 KB) to 183 LOC by
+extracting 4 focused submodules: `factories.py`, `middleware.py`, `lifecycle.py`,
+`router_registry.py`. Pure refactor — 809 tests pass without modification, 96.23% coverage.
+
+**Decomposition**:
+- `factories.py` (99 LOC): `build_synthesis_engine()`, `build_dp_wrapper()`
+- `middleware.py` (51 LOC): `setup_middleware(app)` — 4-layer LIFO stack
+- `lifecycle.py` (140 LOC): `_lifespan()`, health/unseal routes, `UnsealRequest`
+- `router_registry.py` (89 LOC): Router includes, exception handlers
+- Docker-secrets cluster kept in main.py (test-patch closure constraint — see ADR-0027)
+
+**Review results**:
+- QA: PASS — coverage held, no behavioral changes, no dead code
+- Architecture: FINDING (1 fixed) — created ADR-0027 for re-export pattern. Advisory:
+  router_registry.py conflates router registration and exception handlers (low urgency).
+- DevOps: PASS — 1 minor fixed (middleware.py missing logger declaration)
+- UI/UX: SKIP — no UI changes
+
+**Retrospective Note**: The re-export-for-test-patch pattern is an architectural tax on
+test coupling. ADR-0027 makes the maintenance rule discoverable. `lifecycle.py` at 88%
+coverage due to pre-existing untested `_lifespan` hook — not a regression but now more
+visible. Consider 3-line AsyncExitStack test in a future PR.
+
+---
+
 ### [2026-03-16] P9-T9.2 — Operator Manual Refresh
 
 **Summary**: Refreshed OPERATOR_MANUAL.md and README.md for Phase 6–9 changes.
