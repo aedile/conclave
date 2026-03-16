@@ -12,10 +12,79 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
+| ADV-015 | P17-T17.1 DevOps review | P17 or next pgbouncer task | BLOCKER | `pgbouncer/pgbouncer:1.23.1` does not exist in Docker Hub (Registry v2 API confirmed tag unknown; max available is 1.15.0). Cannot be SHA-256 pinned until the image reference is replaced with a valid image. Candidate: `edoburu/pgbouncer:v1.23.1-p3` (verified available). Requires ADR per Rule 6 (technology substitution). Blocks supply chain security completeness for the pgbouncer service. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P17-T17.1 — Docker Base Image SHA-256 Pinning (ADV-014)
+
+**Changes**:
+- `Dockerfile`: All three FROM lines pinned to SHA-256 digests via Docker Registry v2 API.
+  - `node:20-alpine@sha256:b88333c42...` (stage 1 frontend builder)
+  - `python:3.14-slim@sha256:6a27522...` (stages 2 and 3 — identical digest, intentional)
+  - Three `TODO(ADV-014)` comments removed; version tags preserved as inline comments.
+- `docker-compose.yml`: Six of seven external service images pinned to SHA-256 digests.
+  - `redis:7-alpine`, `postgres:16-alpine`, `prom/prometheus:v2.53.0`,
+    `prom/alertmanager:v0.27.0`, `grafana/grafana:11.3.0`, `minio/minio:RELEASE.2024-01-28T22-35-53Z`
+  - `pgbouncer/pgbouncer:1.23.1` — NOT pinned. Tag confirmed non-existent in Docker Hub.
+    `WARNING(P17-T17.1)` comment added. Tracked as ADV-015 (BLOCKER).
+- `tests/unit/test_docker_image_pinning.py`: 17 new file-inspection tests covering
+  Dockerfile FROM lines and docker-compose.yml image lines. pgbouncer invalid tag
+  documented and excluded from blanket pinning check with dedicated test.
+
+**Quality Gates**:
+- ruff check: PASS, ruff format: PASS, mypy: PASS, bandit: PASS
+- pytest: 842 passed, 1 skipped, 96.24% coverage — PASS
+- pre-commit (all hooks): PASS
+
+**QA** (PASS):
+dead-code PASS — no dead code; `_PGBOUNCER_UNPINNABLE_MARKER` constant used in
+`_extract_image_lines` and `test_pgbouncer_invalid_tag_is_documented`. reachable-handlers
+PASS — all test branches reachable. exception-specificity PASS — tests use only `assert`
+and `pytest.fail`. silent-failures PASS — no try/except swallows. coverage-gate PASS
+— 96.24% total coverage. edge-cases PASS — pgbouncer invalid tag case explicitly tested.
+meaningful-asserts PASS — all assertions carry descriptive failure messages. backlog-compliance
+PASS — all AC items addressed; pgbouncer partial resolution is honest and documented.
+
+**Architecture** (PASS):
+file-placement PASS — test in `tests/unit/`, no src/ files modified. naming-conventions
+PASS — `TestDockerfileSHA256Pinning`, `TestDockerComposeSHA256Pinning` follow PascalCase.
+dependency-direction PASS — test file imports only `re`, `pathlib`, `pytest`; no circular
+imports. abstraction-level PASS — `_extract_from_lines` and `_extract_image_lines` are clean
+single-responsibility helpers. interface-contracts PASS — all helper functions fully typed
+with Google docstrings. adr-compliance ADVISORY — pgbouncer replacement
+(`edoburu/pgbouncer`) is a technology substitution requiring an ADR per Rule 6; tracked as
+ADV-015 BLOCKER so it cannot proceed without ADR.
+
+**DevOps** (FINDING — 1 blocker documented):
+hardcoded-credentials PASS — digests are content hashes, not secrets. no-pii-in-code PASS.
+supply-chain-pinning PARTIAL — 8 of 9 external image references now pinned; pgbouncer
+unpinnable due to invalid tag (ADV-015 BLOCKER). digest-provenance PASS — all digests
+obtained via Docker Registry v2 API; none fabricated; API calls documented in commit body.
+refresh-path PASS — each pinned line has a `To refresh:` comment with the exact
+`docker pull ... && docker inspect ...` command. split-brain-prevention PASS — python
+stages 2 and 3 use identical digest with explicit comment. TODO-cleanup PASS — all three
+`TODO(ADV-014)` comments removed from Dockerfile; WARNING comment added for pgbouncer.
+FINDING: `pgbouncer/pgbouncer:1.23.1` does not exist in Docker Hub. Tag unknown — only
+versions ≤1.15.0 published. This is a pre-existing bug elevated here: the compose file
+was referencing a phantom tag. Tracked as ADV-015 (BLOCKER) — must be replaced with a
+valid image+digest before any production deployment.
+
+**UI/UX** (SKIP): No UI surface area.
+
+**Retrospective Note**:
+SHA-256 pinning for Docker images requires a live Docker daemon OR authenticated access to
+the Docker Registry v2 API. This task used the registry API directly (without Docker daemon)
+which is a valid pattern for air-gapped and CI environments. The key lesson: before declaring
+an image reference "pinnable", verify the tag exists in the registry — `pgbouncer/pgbouncer:1.23.1`
+is a phantom tag that was silently referenced for at least 17 phases without anyone noticing.
+Image reference validation (does the tag exist?) should be a separate pre-production checklist
+item distinct from SHA-256 pinning. Future tasks: when replacing pgbouncer image, require an
+ADR per Rule 6 since it is a technology substitution (different image repository).
 
 ---
 
