@@ -15,6 +15,9 @@
  *
  * ErrorBoundary wraps the Routes tree so any unhandled React render error
  * is caught and displayed as an RFC 7807 remediation card.
+ *
+ * WCAG 2.1 AA 2.4.1: A skip-to-content link is rendered as the very first
+ * element so keyboard users can bypass repeated navigation blocks.
  */
 
 import { useEffect, useState } from "react";
@@ -93,24 +96,36 @@ function RouterGuard({ children }: { children: React.ReactNode }) {
  * Uses React Router v6 declarative routing with the RouterGuard wrapper
  * protecting the /dashboard route. The ErrorBoundary wraps all routes
  * so any unhandled render error is caught gracefully.
+ *
+ * The skip-to-content link is the first rendered element so that keyboard
+ * focus order reaches it before any navigation or content blocks.
  */
 export default function App() {
   return (
-    <ErrorBoundary>
-      <Routes>
-        <Route path="/unseal" element={<Unseal />} />
-        <Route
-          path="/dashboard"
-          element={
-            <RouterGuard>
-              <Dashboard />
-            </RouterGuard>
-          }
-        />
-        {/* Default: redirect root and unknown paths to /unseal */}
-        <Route path="/" element={<Navigate to="/unseal" replace />} />
-        <Route path="*" element={<Navigate to="/unseal" replace />} />
-      </Routes>
-    </ErrorBoundary>
+    <>
+      {/* WCAG 2.1 AA 2.4.1 — Skip navigation link.
+          Visually hidden; becomes visible on keyboard focus.
+          Allows users to bypass repeated page structure and jump
+          directly to the main content region (id="main-content"). */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/unseal" element={<Unseal />} />
+          <Route
+            path="/dashboard"
+            element={
+              <RouterGuard>
+                <Dashboard />
+              </RouterGuard>
+            }
+          />
+          {/* Default: redirect root and unknown paths to /unseal */}
+          <Route path="/" element={<Navigate to="/unseal" replace />} />
+          <Route path="*" element={<Navigate to="/unseal" replace />} />
+        </Routes>
+      </ErrorBoundary>
+    </>
   );
 }

@@ -18,6 +18,44 @@ Drain (delete) rows when their target task is completed.
 ## Task Reviews
 
 ---
+### [2026-03-16] P16-T16.3 -- WCAG Skip Navigation, README Update & Branch Cleanup
+
+**Changes**:
+- `frontend/src/App.tsx`: Skip-to-content link added as first rendered element,
+  before ErrorBoundary, using `className="skip-link"` and `href="#main-content"`.
+- `frontend/src/styles/global.css`: `.skip-link` and `.skip-link:focus` rules
+  added (WCAG 2.1 AA 2.4.1). Hidden off-screen by default; fixed-position and
+  visible at viewport top-left on keyboard focus.
+- `frontend/src/routes/Dashboard.tsx`: `<main id="main-content">`.
+- `frontend/src/routes/Unseal.tsx`: `<main id="main-content">`.
+- `README.md`: Line 93 updated to Phase 16 current status. Phase 15 -> Complete.
+  Phase 16 row added as In Progress.
+- `docs/BACKLOG.md`: Phase 16 added to Phase Hierarchy and Task Index.
+- GitHub repo setting `delete_branch_on_merge` set to `true` via `gh api`.
+  Stale branches (P15-T15.2, P16-T16.1, P16-T16.2) already absent from origin.
+
+**Quality Gates**:
+- npm lint: PASS, npm test:coverage: 97.36% PASS (126 tests), npm type-check: PASS
+- ruff: PASS, mypy: PASS, bandit: PASS
+- pre-commit: PASS (all hooks)
+
+**Reviews**:
+- QA: PASS -- 3 new skip-link tests cover existence, href target, and CSS class;
+  all existing 123 tests continue to pass; coverage 97.36% (above 90% threshold)
+- UI/UX: PASS -- Skip link is first in DOM order, correct href, correct class,
+  uses CSS custom properties for WCAG-compliant contrast; WCAG 2.1 AA 2.4.1
+  Bypass Blocks satisfied; Dashboard and Unseal id="main-content" correct targets
+- DevOps: PASS -- No secrets, no new dependencies, GitHub auto-delete enabled,
+  stale branches absent from origin, pre-commit hooks all pass
+
+**Retrospective Note**: The GitHub "Automatically delete head branches" setting
+had been noted in three consecutive phase retrospectives (Phase 12, Phase 15,
+and the Phase 15 end-of-phase retro) but was never acted upon. It took being
+an explicit acceptance criterion in T16.3 to finally get it enabled. Lesson:
+infrastructure hygiene items noted in retrospectives must be converted to
+explicit acceptance criteria in a concrete task -- retro notes alone are
+insufficient enforcement.
+
 ### [2026-03-16] P16-T16.2 — Frontend Supply Chain & Nosec Accuracy
 
 **Changes**:

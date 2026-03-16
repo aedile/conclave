@@ -281,6 +281,7 @@ export default function Dashboard(): JSX.Element {
 
   return (
     <main
+      id="main-content"
       style={{
         minHeight: "100vh",
         backgroundColor: "var(--color-bg)",
