@@ -38,9 +38,10 @@ import pytest
 from faker import Faker
 
 # ---------------------------------------------------------------------------
-# Mark all tests in this module as integration tests
+# Mark all tests in this module as integration + synthesizer tests
+# ADV-069: route via `pytest -m synthesizer` in CI (see P8-T8.4).
 # ---------------------------------------------------------------------------
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.synthesizer]
 
 
 # ---------------------------------------------------------------------------

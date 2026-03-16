@@ -12,8 +12,15 @@ Both endpoints are exempt from :class:`SealGateMiddleware` and
 
 All 403 responses use RFC 7807 Problem Details format.
 
+HTTP status mapping (ADV-054 / ADR-0008):
+    ``LicenseError`` is a plain domain exception with no ``status_code``
+    attribute.  This router is the authoritative mapping layer: all
+    ``LicenseError`` exceptions from the shared layer are translated to
+    HTTP 403 Forbidden here.  This keeps the shared layer framework-agnostic.
+
 CONSTITUTION Priority 0: Security
 Task: P5-T5.2 — Offline License Activation Protocol
+Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-054)
 """
 
 from __future__ import annotations
@@ -41,6 +48,11 @@ from synth_engine.shared.security.licensing import (
 )
 
 _logger = logging.getLogger(__name__)
+
+# HTTP 403 Forbidden is the canonical response for all LicenseError failures.
+# This constant is defined here (bootstrapper layer) per ADR-0008 / ADV-054:
+# HTTP status semantics belong in the bootstrapper, not in shared/.
+_LICENSE_ERROR_HTTP_STATUS: int = 403
 
 router = APIRouter(prefix="/license", tags=["license"])
 
@@ -135,14 +147,19 @@ async def post_license_activate(
     Returns:
         :class:`LicenseActivateResponse` with ``status="activated"`` on
         success, or an RFC 7807 403 response on any validation failure.
+
+    Note:
+        ``LicenseError`` carries no HTTP status code (ADV-054).  This handler
+        is the authoritative HTTP mapping point: all ``LicenseError`` instances
+        become ``HTTP 403 Forbidden``.
     """
     try:
         claims = verify_license_jwt(body.token)
     except LicenseError as exc:
         return JSONResponse(
-            status_code=exc.status_code,
+            status_code=_LICENSE_ERROR_HTTP_STATUS,
             content=problem_detail(
-                status=exc.status_code,
+                status=_LICENSE_ERROR_HTTP_STATUS,
                 title="License Activation Failed",
                 detail=exc.detail,
             ),
