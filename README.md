@@ -104,7 +104,7 @@ Security is Priority Zero — it overrides every other consideration.
 | 5 — Orchestration & UI | Complete | Task Orchestration API, React SPA Dashboard, offline licensing, cryptographic shredding |
 | 6 — Integration & Audit | Complete | E2E Playwright tests, NIST erasure validation, OWASP ZAP, fuzz testing, production docs |
 | 7 — Differential Privacy | Complete | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks, E2E DP pipeline |
-| 8 — Security Hardening | Complete | HMAC artifact signing, Alembic migrations, startup config validation, ADR-0017a |
+| 8 — Advisory Drain Sprint | Complete | HMAC artifact signing, Alembic migrations, startup config validation, ADR-0017a |
 | **9 — Docs & Advisory Drain** | **Complete** | Operator manual refresh, advisory drain, observability |
 | **10 — Test Infrastructure Repair & Final Polish** | **Complete** | Stale TODO drain, README updates, test infrastructure repair |
 | **11 — Documentation Currency & Workspace Hygiene** | **In Progress** | Documentation updates, workspace cleanup, architectural gap ADR |
