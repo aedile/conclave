@@ -217,6 +217,7 @@ addopts = [
 markers = [
     "unit: Fast, isolated unit tests with no external dependencies",
     "integration: Tests requiring live databases or external services (Task 2.2)",
+    "synthesizer: Synthesizer integration tests requiring the synthesizer dependency group (SDV, torch, Opacus)",
 ]
 filterwarnings = [
     # Baseline: all warnings are errors — future regressions fail the build.
