@@ -152,6 +152,7 @@ async def test_two_concurrent_jobs_contend_for_budget_exactly_one_wins(
         await session.commit()
         await session.refresh(ledger)
         ledger_id = ledger.id
+        assert ledger_id is not None, "ledger.id must be set after commit and refresh"
 
     # --- Act: fire 2 concurrent calls, each requesting 0.4 epsilon ---
     async def _attempt(job_id: int) -> str:
@@ -223,6 +224,7 @@ async def test_concurrent_jobs_both_succeed_when_budget_is_sufficient(
         await session.commit()
         await session.refresh(ledger)
         ledger_id = ledger.id
+        assert ledger_id is not None, "ledger.id must be set after commit and refresh"
 
     # --- Act ---
     async def _attempt(job_id: int) -> str:

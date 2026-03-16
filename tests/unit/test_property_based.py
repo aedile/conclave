@@ -143,6 +143,24 @@ def test_mask_email_determinism_and_contains_at(value: str, salt: str) -> None:
     assert "@" in first, f"mask_email result does not contain '@': {first!r}"
 
 
+@pytest.mark.parametrize("salt", ["t.col", "t.ABC123", "t.Z"])
+def test_mask_value_empty_string_is_deterministic(salt: str) -> None:
+    """mask_value("", salt, ...) is deterministic for empty-string input.
+
+    An empty-string value is a valid edge case (e.g. optional fields left
+    blank in source data).  The masking invariant — same input always
+    produces same output — must hold even when the value is the empty string.
+
+    Args:
+        salt: Per-column salt in "table.column" format.
+    """
+    first = mask_value("", salt, lambda f: f.name())
+    second = mask_value("", salt, lambda f: f.name())
+    assert first == second, (
+        f"mask_value('', {salt!r}) is NOT deterministic: first={first!r}, second={second!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 2. FK traversal ordering: parent always before child
 # ---------------------------------------------------------------------------
@@ -220,15 +238,33 @@ def _make_mock_engine_for_traversal(
     return engine
 
 
-@pytest.mark.parametrize("seed_id", [1, 42, 999])
-def test_fk_traversal_parent_before_child_parametrized(seed_id: int) -> None:
+@pytest.mark.parametrize(
+    ("seed_id", "seed_rows", "expected_tables"),
+    [
+        # Standard case: one parent row, one child row
+        (1, [{"id": 1, "name": "Eng"}], ["departments", "employees"]),
+        (42, [{"id": 42, "name": "HR"}], ["departments", "employees"]),
+        (999, [{"id": 999, "name": "Ops"}], ["departments", "employees"]),
+        # Edge case: empty seed — no parent rows returned, traverse() yields nothing
+        (0, [], []),
+    ],
+)
+def test_fk_traversal_parent_before_child_parametrized(
+    seed_id: int,
+    seed_rows: list[dict[str, Any]],
+    expected_tables: list[str],
+) -> None:
     """Parametrized property: parent table always precedes child in traversal results.
 
-    Verifies the topological-order guarantee with multiple concrete parent IDs.
+    Verifies the topological-order guarantee with multiple concrete parent IDs,
+    including the edge case where the seed query returns no rows (empty traversal).
     Uses a two-table schema: departments (parent) → employees (child).
 
     Args:
-        seed_id: The ID value placed in the seed (parent) row.
+        seed_id: The ID value placed in the seed (parent) row (unused when
+            seed_rows is empty).
+        seed_rows: The rows returned by the seed query for departments.
+        expected_tables: Table names expected to appear in the traversal result.
     """
     topology = SchemaTopology(
         table_order=("departments", "employees"),
@@ -242,22 +278,28 @@ def test_fk_traversal_parent_before_child_parametrized(seed_id: int) -> None:
         },
     )
 
-    dept_rows: list[dict[str, Any]] = [{"id": seed_id, "name": "Eng"}]
-    emp_rows: list[dict[str, Any]] = [{"id": 10, "dept_id": seed_id, "name": "Alice"}]
-    engine = _make_mock_engine_for_traversal(dept_rows, emp_rows)
+    emp_rows: list[dict[str, Any]] = (
+        [{"id": 10, "dept_id": seed_id, "name": "Alice"}] if seed_rows else []
+    )
+    engine = _make_mock_engine_for_traversal(seed_rows, emp_rows)
 
     traversal = DagTraversal(engine=engine, topology=topology)
     results = list(traversal.traverse("departments", "SELECT * FROM departments"))
     table_names = [t for t, _ in results]
 
-    assert len(table_names) >= 2, f"Expected at least 2 tables in result, got {table_names}"
-    assert "departments" in table_names, "Parent table 'departments' missing from results"
-    assert "employees" in table_names, "Child table 'employees' missing from results"
-    dept_idx = table_names.index("departments")
-    emp_idx = table_names.index("employees")
-    assert dept_idx < emp_idx, (
-        f"Parent 'departments' (index {dept_idx}) must precede child 'employees' (index {emp_idx})"
+    # Verify exactly the expected tables appear in the traversal result
+    assert sorted(table_names) == sorted(expected_tables), (
+        f"Traversal returned {table_names!r}, expected {expected_tables!r}"
     )
+
+    # For non-empty results, verify topological ordering (parents before children)
+    if "departments" in table_names and "employees" in table_names:
+        dept_idx = table_names.index("departments")
+        emp_idx = table_names.index("employees")
+        assert dept_idx < emp_idx, (
+            f"Parent 'departments' (index {dept_idx}) must precede child 'employees' "
+            f"(index {emp_idx})"
+        )
 
 
 @_DEFAULT_SETTINGS
@@ -315,7 +357,7 @@ def test_fk_traversal_parent_always_before_child_hypothesis(parent_id: int) -> N
     ),
     amounts=st.lists(
         st.decimals(
-            min_value=Decimal("0.01"),
+            min_value=Decimal("0"),
             max_value=Decimal("0.5"),
             places=2,
             allow_nan=False,
@@ -331,13 +373,16 @@ def test_epsilon_accounting_monotonicity(
 ) -> None:
     """total_spent never decreases after a sequence of valid spends.
 
+    Includes zero-amount spends (amount=Decimal("0.00")) which are valid:
+    total_spent += 0 is monotonically non-decreasing.
+
     This is a pure arithmetic invariant test — it verifies the accumulator
     logic in isolation from the database layer.  The async DB path is tested
     in the concurrent integration test.
 
     Args:
         initial_spent: Starting spent amount (non-negative).
-        amounts: Sequence of amounts to "spend" (all positive).
+        amounts: Sequence of amounts to "spend" (zero or positive).
     """
     # Simulate the accountant's arithmetic without the DB layer.
     # The invariant: each successive total_spent >= previous total_spent.
