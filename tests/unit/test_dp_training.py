@@ -759,3 +759,110 @@ class TestDocstringDuckTypingContract:
             "DPCompatibleCTGAN docstring must document the dp_wrapper.wrap() "
             "method as part of the duck-typing contract."
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests for _activate_opacus() — privacy-critical edge cases
+# (Added to address QA/Architecture review findings for P7-T7.3)
+# ---------------------------------------------------------------------------
+
+
+class TestActivateOpacusEdgeCases:
+    """Unit tests for DPCompatibleCTGAN._activate_opacus() edge-case paths.
+
+    These tests guard the privacy-critical guarantees:
+    - Zero DataLoader batches must raise RuntimeError (not silently return 0.0 epsilon).
+    - All-categorical columns fallback must produce the correct 1-wide tensor shape.
+    """
+
+    def test_activate_opacus_too_few_rows_raises_runtime_error(self) -> None:
+        """_activate_opacus() must raise RuntimeError when DataLoader produces zero batches.
+
+        Privacy rationale: a silent early-return would leave epsilon_spent() returning
+        0.0, creating a false DP guarantee — callers relying on check_budget() would
+        never see BudgetExhaustionError.  The correct behaviour is to fail loudly.
+        """
+        import numpy as np
+
+        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+
+        mock_metadata = MagicMock()
+        mock_dp_wrapper = MagicMock()
+        mock_dp_wrapper.max_grad_norm = 1.0
+        mock_dp_wrapper.noise_multiplier = 1.1
+
+        instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2, dp_wrapper=mock_dp_wrapper)
+
+        # A single-row DataFrame will produce batch_size=max(2,1//2)=2 but only 1 sample,
+        # so drop_last=True drops it → len(dataloader) == 0.
+        rng = np.random.default_rng(7)
+        tiny_df = pd.DataFrame(
+            {
+                "age": rng.integers(18, 80, size=1).tolist(),
+            }
+        )
+
+        with pytest.raises(RuntimeError, match="too few rows"):
+            instance._activate_opacus(tiny_df)
+
+    def test_activate_opacus_all_categorical_fallback_tensor_shape(self) -> None:
+        """_activate_opacus() fallback tensor must be (n_rows, 1) when all columns are categorical.
+
+        When processed_df has no numeric columns, select_dtypes returns an empty array
+        (shape (n, 0)).  The code must fall back to a 1-wide zero tensor so the DataLoader
+        is valid and n_features == 1.
+        """
+        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+
+        mock_metadata = MagicMock()
+        mock_dp_wrapper = MagicMock()
+        mock_dp_wrapper.max_grad_norm = 1.0
+        mock_dp_wrapper.noise_multiplier = 1.1
+        # dp_wrapper.wrap() returns a mock dp_optimizer that supports zero_grad / step
+        mock_dp_optimizer = MagicMock()
+        mock_dp_wrapper.wrap.return_value = mock_dp_optimizer
+
+        instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2, dp_wrapper=mock_dp_wrapper)
+
+        # DataFrame with only string / object columns — no numeric columns at all.
+        all_cat_df = pd.DataFrame(
+            {
+                "dept": ["Engineering", "Sales", "Marketing", "HR"] * 5,  # 20 rows
+                "region": ["North", "South", "East", "West"] * 5,
+            }
+        )
+
+        # Intercept TensorDataset to capture the tensor built from the processed data.
+        from torch.utils.data import TensorDataset
+
+        captured: dict[str, Any] = {}
+        original_tensor_dataset = TensorDataset
+
+        def capturing_tensor_dataset(*args: Any) -> Any:
+            captured["tensor"] = args[0]
+            return original_tensor_dataset(*args)
+
+        with patch(
+            "synth_engine.modules.synthesizer.dp_training.TensorDataset",
+            side_effect=capturing_tensor_dataset,
+        ):
+            instance._activate_opacus(all_cat_df)
+
+        # The tensor must have shape (n_rows, 1) — the 1-wide fallback.
+        assert "tensor" in captured, "TensorDataset was never called"
+        t = captured["tensor"]
+        assert t.shape[1] == 1, f"Fallback tensor must have 1 feature column; got shape {t.shape}"
+        assert t.shape[0] == len(all_cat_df), (
+            f"Fallback tensor row count must match DataFrame; got {t.shape[0]}, "
+            f"expected {len(all_cat_df)}"
+        )
+
+    def test_fit_empty_dataframe_raises_value_error(self) -> None:
+        """fit() with an empty DataFrame must raise ValueError with 'empty' in the message."""
+        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+
+        mock_metadata = MagicMock()
+        instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2)
+
+        with pytest.raises(ValueError, match="empty"):
+            instance.fit(pd.DataFrame())

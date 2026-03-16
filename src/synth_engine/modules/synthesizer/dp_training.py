@@ -47,6 +47,7 @@ import logging
 import warnings
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 _logger = logging.getLogger(__name__)
@@ -289,8 +290,6 @@ class DPCompatibleCTGAN:
 
         # Build a float tensor from the processed DataFrame for the DataLoader.
         # Replace any non-finite values with 0.0 to avoid Opacus NaN issues.
-        import numpy as np
-
         arr = processed_df.select_dtypes(include=[float, int]).values.astype("float32")
         if arr.shape[1] == 0:
             # Edge case: all columns are categorical strings — use a 1-wide tensor.
@@ -312,11 +311,13 @@ class DPCompatibleCTGAN:
         )
 
         if len(dataloader) == 0:
-            _logger.warning(
+            raise RuntimeError(
                 "DPCompatibleCTGAN: processed_df has too few rows for Opacus "
-                "DataLoader (need >= 2*batch_size rows). Skipping DP activation."
+                "DataLoader (need >= 2*batch_size rows for DP-SGD). "
+                "A too-small dataset would produce a false DP guarantee "
+                "(epsilon_spent() would return 0.0 with no actual accounting). "
+                "Ensure the training DataFrame has at least 4 rows."
             )
-            return
 
         n_features = arr.shape[1]
         proxy_model = nn.Linear(n_features, 1)
