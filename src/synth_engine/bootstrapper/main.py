@@ -88,6 +88,7 @@ from synth_engine.shared.security.vault import (
 from synth_engine.shared.telemetry import configure_telemetry
 
 if TYPE_CHECKING:
+    from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
     from synth_engine.modules.synthesizer.engine import SynthesisEngine
     from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
 
@@ -201,12 +202,59 @@ def build_synthesis_engine(epochs: int = 300) -> SynthesisEngine:
     return _SynthesisEngine(epochs=epochs)
 
 
-# TODO(T4.3b): Add build_dp_wrapper() factory here.
-# DPTrainingWrapper (modules/privacy/dp_engine.py) must be wired through the
-# bootstrapper before it can be passed to SynthesisEngine.train(dp_wrapper=...).
-# Concrete SDV/Opacus integration is deferred per ADR-0017 risk note —
-# SDV's CTGANSynthesizer.fit() does not expose its optimizer/model/dataloader
-# for Opacus wrapping.  When SDV adds training hooks, wire here.
+def build_dp_wrapper(
+    max_grad_norm: float = 1.0,
+    noise_multiplier: float = 1.1,
+) -> DPTrainingWrapper:
+    """Build a DPTrainingWrapper configured for DP-SGD training.
+
+    This factory is the sole entry point for constructing a
+    :class:`~synth_engine.modules.privacy.dp_engine.DPTrainingWrapper`.
+    It is the bootstrapper's responsibility to wire the wrapper into
+    ``SynthesisEngine.train(dp_wrapper=...)`` — callers must not instantiate
+    ``DPTrainingWrapper`` directly outside of tests.
+
+    The bootstrapper is the only layer that imports from both
+    ``modules/privacy/`` and ``modules/synthesizer/`` — this factory is
+    therefore the correct and only place for this wiring.
+
+    This factory drains ADV-048.
+
+    Args:
+        max_grad_norm: Maximum L2 norm for per-sample gradient clipping.
+            Must be strictly positive.  Default: 1.0 (canonical DP-SGD value).
+        noise_multiplier: Ratio of Gaussian noise std to max_grad_norm.
+            Higher values yield stronger privacy but lower utility.
+            Must be strictly positive.  Default: 1.1 (canonical DP-SGD value).
+
+    Returns:
+        A configured :class:`DPTrainingWrapper` instance ready to be passed
+        to :meth:`SynthesisEngine.train`.
+
+    Raises:
+        ValueError: If ``max_grad_norm`` or ``noise_multiplier`` is not
+            strictly positive.
+
+    Example::
+
+        wrapper = build_dp_wrapper(max_grad_norm=1.0, noise_multiplier=1.1)
+        engine = build_synthesis_engine(epochs=2)
+        artifact = engine.train(
+            "persons", "/data/persons.parquet", dp_wrapper=wrapper
+        )
+        epsilon = wrapper.epsilon_spent(delta=1e-5)
+    """
+    from synth_engine.modules.privacy.dp_engine import (
+        DPTrainingWrapper as _DPTrainingWrapper,
+    )
+
+    _logger.info(
+        "DPTrainingWrapper initialised (max_grad_norm=%.2f, noise_multiplier=%.2f).",
+        max_grad_norm,
+        noise_multiplier,
+    )
+    return _DPTrainingWrapper(max_grad_norm=max_grad_norm, noise_multiplier=noise_multiplier)
+
 
 # TODO(T4.4): Add build_privacy_accountant() factory or DI binding here.
 # PrivacyLedger and spend_budget() (modules/privacy/accountant.py) must be

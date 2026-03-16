@@ -183,6 +183,18 @@ mypy_path = "src"
 packages = ["synth_engine"]
 
 # ---------------------------------------------------------------------------
+# Per-module overrides for optional synthesizer dependency group packages.
+# sdv, ctgan, opacus, and torch are installed only with --with synthesizer.
+# The pre-commit mirrors-mypy hook runs without these packages; using
+# ignore_missing_imports prevents "import-not-found" errors in that context.
+# No inline type: ignore comments needed — ignore_missing_imports suppresses all import errors.
+# ---------------------------------------------------------------------------
+
+[[tool.mypy.overrides]]
+module = ["sdv.*", "ctgan.*", "opacus.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
 # Bandit — Security Scanner (src/ and scripts/)
 # ---------------------------------------------------------------------------
 [tool.bandit]

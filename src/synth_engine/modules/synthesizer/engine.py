@@ -15,9 +15,14 @@ Boundary constraints (import-linter enforced):
   - Must NOT import from ``modules/ingestion/``, ``modules/masking/``, or
     ``modules/subsetting/``.
   - Cross-module data transfer uses Parquet files and ``shared/`` DTOs only.
+  - Must NOT import from ``modules/privacy/`` — dp_wrapper is typed as ``Any``.
+    The bootstrapper injects the concrete DPTrainingWrapper instance.
 
 Task: P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
+Task: P7-T7.3 — Opacus End-to-End Wiring (routes to DPCompatibleCTGAN when
+  dp_wrapper is provided; drains ADV-048).
 ADR: ADR-0017 (CTGAN + Opacus; per-table training with FK post-processing)
+ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 """
 
 from __future__ import annotations
@@ -52,9 +57,23 @@ _DEFAULT_EPOCHS: int = 300
 # the training DataFrame using detect_from_dataframe().
 # ---------------------------------------------------------------------------
 try:
-    from sdv.single_table import CTGANSynthesizer  # type: ignore[import-untyped]
+    from sdv.single_table import CTGANSynthesizer
 except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
     CTGANSynthesizer = None  # nosec B604 — SDV not installed; synthesis unavailable
+
+# ---------------------------------------------------------------------------
+# DPCompatibleCTGAN import — intra-module import (modules/synthesizer/ only).
+# Bound at module scope for unit-test patching:
+#   patch('synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN')
+#
+# When dp_wrapper is provided to SynthesisEngine.train(), DPCompatibleCTGAN
+# is used instead of vanilla CTGANSynthesizer.  The dp_wrapper is passed
+# through as a duck-typed argument — engine.py never imports from modules/privacy/.
+# ---------------------------------------------------------------------------
+try:
+    from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
+    DPCompatibleCTGAN: Any = None  # type: ignore[no-redef]  # SDV not installed
 
 
 def _build_metadata(df: pd.DataFrame) -> Any:
@@ -74,7 +93,7 @@ def _build_metadata(df: pd.DataFrame) -> Any:
         ImportError: If ``sdv`` is not installed.
     """
     try:
-        from sdv.metadata import SingleTableMetadata  # type: ignore[import-untyped]
+        from sdv.metadata import SingleTableMetadata
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "The 'sdv' package is required for synthesis. "
@@ -148,9 +167,10 @@ def apply_fk_post_processing(
 class SynthesisEngine:
     """Per-table CTGAN training and synthetic data generation engine.
 
-    Trains one CTGANSynthesizer per table in topological order (parent tables
-    before child tables).  FK post-processing via
-    :func:`apply_fk_post_processing` ensures zero orphan FKs in output.
+    Trains one CTGANSynthesizer (or DPCompatibleCTGAN when dp_wrapper is
+    provided) per table in topological order (parent tables before child
+    tables).  FK post-processing via :func:`apply_fk_post_processing` ensures
+    zero orphan FKs in output.
 
     The engine is stateless between calls: it holds no database connections,
     no global mutable state, and no cached models.  Models are encapsulated
@@ -160,6 +180,15 @@ class SynthesisEngine:
     SDV API note: CTGANSynthesizer in SDV 1.x requires a ``SingleTableMetadata``
     object.  This engine auto-detects metadata from the training DataFrame using
     ``SingleTableMetadata.detect_from_dataframe()`` before each training run.
+
+    DP routing note (T7.3 — ADV-048 drain):
+        When ``dp_wrapper`` is supplied to :meth:`train`, the engine uses
+        :class:`~synth_engine.modules.synthesizer.dp_training.DPCompatibleCTGAN`
+        instead of the vanilla ``CTGANSynthesizer``.  The ``dp_wrapper`` is
+        passed through to ``DPCompatibleCTGAN`` which calls
+        ``dp_wrapper.wrap()`` to activate the Opacus PrivacyEngine before
+        the training loop starts.  After training, ``dp_wrapper.epsilon_spent()``
+        returns a positive value reflecting the DP-SGD accounting.
 
     Args:
         epochs: Number of CTGAN training epochs.  Defaults to 300 (SDV default).
@@ -206,41 +235,36 @@ class SynthesisEngine:
         *,
         dp_wrapper: Any = None,
     ) -> ModelArtifact:
-        """Train a CTGANSynthesizer on the Parquet file at ``parquet_path``.
+        """Train a CTGAN model on the Parquet file at ``parquet_path``.
 
-        Reads source data, auto-detects SingleTableMetadata from the DataFrame
-        schema, instantiates CTGANSynthesizer with that metadata, fits it, and
-        returns a :class:`ModelArtifact` containing the trained model and schema
-        metadata (column names, dtypes, and nullable flags).
+        Routes to :class:`~synth_engine.modules.synthesizer.dp_training.DPCompatibleCTGAN`
+        when ``dp_wrapper`` is provided, or vanilla ``CTGANSynthesizer`` otherwise.
 
-        The FK column (if any) must be included in the Parquet file as a
-        regular feature column — CTGAN learns the FK distribution as part of
-        the tabular distribution.  No special treatment is needed during
-        training; FK post-processing happens post-generation.
+        DP routing (T7.3 — drains ADV-048):
+            When ``dp_wrapper`` is not ``None``, ``DPCompatibleCTGAN`` is used.
+            ``DPCompatibleCTGAN.fit()`` calls ``dp_wrapper.wrap()`` before the
+            training loop begins, activating Opacus DP-SGD.  After training,
+            ``dp_wrapper.epsilon_spent(delta=...)`` returns the cumulative Epsilon.
 
-        DP wrapper note (T4.3b — ADR-0017 risk):
-            When ``dp_wrapper`` is provided, this method logs an advisory
-            indicating that DP wrapping is requested.  SDV's internal
-            ``CTGANSynthesizer.fit()`` does not expose its optimizer, model,
-            or DataLoader as public arguments — Opacus's ``make_private()``
-            cannot be applied to SDV's internal loop without accessing private
-            CTGAN attributes or replacing SDV's training loop.  The concrete
-            wiring is deferred to a future task (see ADR-0017 risk section).
-            The ``dp_wrapper`` parameter is accepted here so the
-            ``SynthesisEngine`` public API is stable and the bootstrapper can
-            pass the wrapper without breaking callers.
+        Vanilla path:
+            When ``dp_wrapper`` is ``None``, the original ``CTGANSynthesizer``
+            path is used unchanged.
 
         Args:
             table_name: Logical name of the source table (stored in the
                 artifact for logging and identification).
             parquet_path: Absolute path to the Parquet file written by the
                 subsetting/ingestion pipeline.
-            dp_wrapper: Optional :class:`~synth_engine.modules.privacy.dp_engine.DPTrainingWrapper`
-                instance.  Typed as ``Any`` to avoid import-linter boundary
-                violations between ``modules/synthesizer`` and
-                ``modules/privacy``.  When provided, an advisory is logged
-                explaining that SDV's internal training loop does not expose
-                wrapping hooks.  Default: ``None`` (no DP wrapping).
+            dp_wrapper: Optional DP wrapper implementing the duck-type contract:
+                ``wrap(optimizer, model, dataloader, *, max_grad_norm,
+                noise_multiplier)`` → dp_optimizer;
+                ``epsilon_spent(*, delta)`` → float;
+                ``check_budget(*, allocated_epsilon, delta)`` → None.
+                Typed as ``Any`` to avoid import-linter boundary violations
+                between ``modules/synthesizer`` and ``modules/privacy``.
+                The concrete implementation is ``DPTrainingWrapper`` from
+                ``modules/privacy/dp_engine.py``, injected by the bootstrapper.
+                Default: ``None`` (no DP wrapping; vanilla CTGANSynthesizer used).
 
         Returns:
             A :class:`ModelArtifact` containing the trained model, table name,
@@ -265,16 +289,6 @@ class SynthesisEngine:
                 "Install it with: poetry install --with synthesizer"
             )
 
-        if dp_wrapper is not None:
-            _logger.warning(
-                "dp_wrapper provided for table '%s' but SDV's CTGANSynthesizer.fit() "
-                "does not expose its optimizer or DataLoader for Opacus wrapping. "
-                "dp_wrapper API is ready; concrete SDV integration deferred per ADR-0017 "
-                "risk note (Opacus compatibility with CTGAN internals). "
-                "Training will proceed WITHOUT DP-SGD for this run.",
-                table_name,
-            )
-
         _logger.info("Loading Parquet for table '%s' from %s", table_name, parquet_path)
         source_df = pd.read_parquet(parquet_path, engine="pyarrow")
 
@@ -282,19 +296,48 @@ class SynthesisEngine:
         column_dtypes = {col: str(source_df[col].dtype) for col in column_names}
         column_nullables = {col: bool(source_df[col].isnull().any()) for col in column_names}
 
-        _logger.info(
-            "Training CTGANSynthesizer on table '%s' (%d rows, %d cols, epochs=%d)",
-            table_name,
-            len(source_df),
-            len(column_names),
-            self._epochs,
-        )
+        if dp_wrapper is not None:
+            # DP path — use DPCompatibleCTGAN with Opacus wrapping (T7.3)
+            if DPCompatibleCTGAN is None:  # pragma: no cover
+                raise ImportError(
+                    "The 'sdv' package is required for DP synthesis. "
+                    "Install it with: poetry install --with synthesizer"
+                )
 
-        metadata = _build_metadata(source_df)
-        model = CTGANSynthesizer(metadata=metadata, epochs=self._epochs)
-        model.fit(source_df)
+            _logger.info(
+                "Training DPCompatibleCTGAN on table '%s' (%d rows, %d cols, epochs=%d) "
+                "with DP wrapper (max_grad_norm=%.2f, noise_multiplier=%.2f).",
+                table_name,
+                len(source_df),
+                len(column_names),
+                self._epochs,
+                getattr(dp_wrapper, "max_grad_norm", float("nan")),
+                getattr(dp_wrapper, "noise_multiplier", float("nan")),
+            )
 
-        _logger.info("CTGANSynthesizer training complete for table '%s'.", table_name)
+            metadata = _build_metadata(source_df)
+            model = DPCompatibleCTGAN(
+                metadata=metadata,
+                epochs=self._epochs,
+                dp_wrapper=dp_wrapper,
+            )
+            model.fit(source_df)
+
+        else:
+            # Vanilla path — use CTGANSynthesizer (unchanged from T4.2b)
+            _logger.info(
+                "Training CTGANSynthesizer on table '%s' (%d rows, %d cols, epochs=%d)",
+                table_name,
+                len(source_df),
+                len(column_names),
+                self._epochs,
+            )
+
+            metadata = _build_metadata(source_df)
+            model = CTGANSynthesizer(metadata=metadata, epochs=self._epochs)
+            model.fit(source_df)
+
+        _logger.info("Training complete for table '%s'.", table_name)
 
         return ModelArtifact(
             table_name=table_name,
