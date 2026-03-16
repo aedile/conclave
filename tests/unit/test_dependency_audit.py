@@ -132,30 +132,35 @@ class TestChromadbNotInMainDeps:
                     "scripts group."
                 )
 
-    def test_chromadb_present_in_dev_or_scripts_group(self) -> None:
-        """chromadb must appear in a non-main dependency group (dev or scripts).
+    def test_chromadb_present_in_dev_group(self) -> None:
+        """chromadb must appear specifically in [tool.poetry.group.dev.dependencies].
 
-        After moving out of main deps, it must still be declared somewhere so
-        ``poetry install --with dev`` makes it available for script usage.
+        Accepting chromadb in ANY group section (integration, synthesizer, etc.)
+        would be over-permissive.  chromadb is a dev/scripts-only dependency and
+        must be declared in the dev group so that ``poetry install --with dev``
+        makes it available for script usage but production installs remain clean.
         """
         content = PYPROJECT.read_text()
         lines = content.splitlines()
 
-        in_dev_or_scripts = False
+        in_dev_deps = False
         for line in lines:
             stripped = line.strip()
-            if "[tool.poetry.group." in stripped and ".dependencies]" in stripped:
-                in_dev_or_scripts = True
+            if stripped == "[tool.poetry.group.dev.dependencies]":
+                in_dev_deps = True
                 continue
-            if stripped.startswith("[") and "[tool.poetry.group." not in stripped:
-                in_dev_or_scripts = False
-            if in_dev_or_scripts and stripped.startswith("chromadb"):
-                return  # Found — pass
+            # Any new TOML section ends the dev.dependencies block
+            if in_dev_deps and stripped.startswith("["):
+                in_dev_deps = False
+            if in_dev_deps and stripped.startswith("chromadb"):
+                return  # Found in the correct section — pass
 
         pytest.fail(
-            "chromadb not found in any group dependency section "
-            "([tool.poetry.group.*.dependencies]). "
-            "It must be declared in dev or a scripts group."
+            "chromadb not found in [tool.poetry.group.dev.dependencies]. "
+            "chromadb is a scripts-only dependency and must be placed in the "
+            "dev group specifically, not in integration, synthesizer, or any "
+            "other group where it could be inadvertently installed in "
+            "non-dev contexts."
         )
 
 

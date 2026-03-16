@@ -1,4 +1,0 @@
-# DEV ONLY — replace with hashed credentials in production
-# Production format: "username" "SCRAM-SHA-256$<iterations>:<salt>$<storedkey>:<serverkey>"
-# Generate with: psql -c "SELECT concat('\"', usename, '\" \"', passwd, '\"') FROM pg_shadow WHERE usename='synth_user';"
-"synth_user" "synth_dev_password"

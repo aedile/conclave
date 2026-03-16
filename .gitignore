@@ -63,6 +63,11 @@ secrets/*.pem
 secrets/*.p12
 secrets/*.pfx
 
+# pgbouncer credentials — plaintext password file MUST NOT be committed.
+# Operators must copy pgbouncer/userlist.txt.example to pgbouncer/userlist.txt
+# and populate it with a SCRAM-SHA-256 hashed password before deploying.
+pgbouncer/userlist.txt
+
 # CI-generated artefacts — NEVER commit
 sbom.json
 

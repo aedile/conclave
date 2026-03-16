@@ -211,7 +211,12 @@ services:
       PGBOUNCER_AUTH_TYPE: md5
       PGBOUNCER_AUTH_FILE: /etc/pgbouncer/userlist.txt
     volumes:
-      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+      # Operators MUST copy userlist.txt.example to userlist.txt and populate
+      # it with a SCRAM-SHA-256 hash before deploying (see example file for
+      # instructions).  userlist.txt is git-ignored; userlist.txt.example is
+      # tracked and serves as the default mount so docker-compose up does not
+      # fail on a fresh checkout when the real credentials file is absent.
+      - ./pgbouncer/userlist.txt.example:/etc/pgbouncer/userlist.txt:ro
     depends_on:
       postgres:
         condition: service_healthy

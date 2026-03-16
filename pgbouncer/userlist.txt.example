@@ -1,0 +1,35 @@
+# pgbouncer/userlist.txt.example — TEMPLATE ONLY
+#
+# DO NOT use plaintext passwords in production.  This file must be copied to
+# pgbouncer/userlist.txt (which is git-ignored) and populated with a real
+# SCRAM-SHA-256 hashed password before deploying pgbouncer.
+#
+# HOW TO GENERATE A SCRAM-SHA-256 HASH
+# =====================================
+# 1. Connect to your PostgreSQL instance as a superuser:
+#      psql -U postgres -d conclave
+#
+# 2. Create or alter the user with a password so PostgreSQL stores the hash:
+#      ALTER USER synth_user WITH PASSWORD 'your-strong-password-here';
+#
+# 3. Extract the stored SCRAM-SHA-256 hash:
+#      SELECT concat('"', usename, '" "', passwd, '"')
+#      FROM   pg_shadow
+#      WHERE  usename = 'synth_user';
+#
+# 4. Copy the output line (it will look like the placeholder below) into
+#    pgbouncer/userlist.txt — not this example file.
+#
+# FORMAT
+# ======
+# Each line: "username" "SCRAM-SHA-256$<iterations>:<salt>$<storedkey>:<serverkey>"
+# Example (replace with your real hash):
+#
+# "synth_user" "SCRAM-SHA-256$4096:AAAAAAAAAAAAAAAA$BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+#
+# OPERATOR CHECKLIST (before first docker-compose up)
+# =====================================================
+# [ ] Copy this file:  cp pgbouncer/userlist.txt.example pgbouncer/userlist.txt
+# [ ] Replace the placeholder hash with the real SCRAM-SHA-256 output from pg_shadow
+# [ ] Verify pgbouncer/userlist.txt is NOT staged:  git status pgbouncer/userlist.txt
+# [ ] chmod 600 pgbouncer/userlist.txt
