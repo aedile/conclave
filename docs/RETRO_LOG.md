@@ -20,6 +20,37 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P17-T17.4 — Process Governance Slimming
+
+**Changes**:
+- `CLAUDE.md`: Consolidated from 603→498 lines. Merged Rules 1+5 (Rule 5 is strict superset).
+  Deleted Rule 14 (ChromaDB seeding — unvalidated overhead). Added conditional reviewer
+  spawning (UI/UX only for frontend, Arch only for src/). Consolidated review commits
+  (one `review:` commit per task instead of 4). Added Rule 15 (sunset clause), Rule 16
+  (materiality threshold), Rule 17 (small-fix batching). All retrospective-sourced rules
+  tagged `[sunset: Phase 22]`.
+- `docs/RETRO_LOG.md`: Archived phases 0-14 to `docs/retro_archive/`. Reduced from 2687→404 lines.
+- `.claude/agents/pr-reviewer.md`, `.claude/agents/pr-describer.md`: Updated for consolidated
+  review commit format (`review:` instead of `review(qa/devops/arch/ui-ux):`).
+- `docs/backlog/phase-17.md`: T17.4 spec added. `docs/backlog/phase-18.md`: New backlog.
+
+**Quality Gates**: Docs/process task. pre-commit: PASS. CLAUDE.md: 498 lines (<500). RETRO_LOG: 404 lines (<800).
+
+**Review**: QA FINDING (1 blocker fixed), DevOps PASS
+
+**QA**: pr-reviewer.md and pr-describer.md still used old `review(qa):` grep patterns — fixed.
+Rule numbering gap (14 deleted) — cosmetic, batched per Rule 16. Advisory table intact.
+
+**DevOps**: All scans clean. No CI impact from Rule 14 deletion. seed_chroma_retro.py orphaned
+but harmless — T18.2 will resolve.
+
+**Retrospective Note**:
+"Change the spec, forget the consumers" pattern recurred — identical to T17.3's
+AUTONOMOUS_DEVELOPMENT_PROMPT fix. Future governance changes must grep `.claude/agents/*.md`.
+Conditional reviewer spawning saved ~26K tokens on this docs-only task (2 guaranteed SKIPs avoided).
+
+---
+
 ### [2026-03-16] P17-T17.2 — Dashboard WCAG Form Accessibility Parity
 
 **Changes**:
