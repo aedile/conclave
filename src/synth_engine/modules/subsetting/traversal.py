@@ -139,7 +139,7 @@ class DagTraversal:
             List of row dicts from the seed query result.
         """
         with self._engine.connect() as conn:
-            result = conn.execute(text(seed_query))  # nosec B608
+            result = conn.execute(text(seed_query))  # nosec B608 — seed_query is a pre-validated application-controlled SELECT; never constructed from user input
             return [dict(row) for row in result.mappings()]
 
     def _fetch_table(
@@ -262,9 +262,9 @@ class DagTraversal:
         params: dict[str, Any] = {f"v{i}": v for i, v in enumerate(values)}
         placeholders = ", ".join(f":v{i}" for i in range(len(values)))
 
-        # nosec B608
+        # nosec B608 — table/column names are from SchemaTopology (bootstrapper-controlled) and are SQLAlchemy-quoted above; values are parameterised
         stmt = text(
-            f"SELECT * FROM {quoted_table} WHERE {quoted_col} IN ({placeholders})"  # nosec B608  # noqa: S608
+            f"SELECT * FROM {quoted_table} WHERE {quoted_col} IN ({placeholders})"  # nosec B608 — see comment above  # noqa: S608
         )
 
         with self._engine.connect() as conn:
