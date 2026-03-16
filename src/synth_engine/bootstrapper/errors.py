@@ -7,17 +7,25 @@ a FastAPI application.
 All error messages exposed via HTTP are sanitized through
 :func:`synth_engine.shared.errors.safe_error_msg` (ADV-036+044).
 
-Implementation note — BaseHTTPMiddleware and exception handlers:
-    FastAPI's ``@app.exception_handler(Exception)`` is implemented as an
-    ``ExceptionMiddleware`` that is placed INSIDE ``BaseHTTPMiddleware``-based
-    middlewares (e.g. ``SealGateMiddleware``).  Exceptions from route handlers
-    propagate out of ``BaseHTTPMiddleware.call_next()`` and are handled by
-    ``ServerErrorMiddleware`` — but that layer cannot use our custom handler.
+Implementation note — Pure ASGI middleware (T19.1):
+    ``RFC7807Middleware`` is implemented as a pure ASGI middleware class rather
+    than extending Starlette's ``BaseHTTPMiddleware``.
 
-    The solution: register the catch-all using ``@app.middleware("http")``
-    which is ASGI-level and positioned OUTSIDE the route exception-handler
-    chain.  This correctly intercepts exceptions before they reach the
-    generic Starlette 500 HTML handler.
+    ``BaseHTTPMiddleware`` buffers the **entire response body** before returning
+    to the outer stack.  This breaks SSE (Server-Sent Events) streaming because
+    the SSE generator yields chunks incrementally — buffering defeats the purpose
+    and causes the client to receive all events at once (or not at all) when the
+    stream terminates.
+
+    Pure ASGI middleware calls ``await self.app(scope, receive, send)`` directly
+    with a wrapped ``send`` callable, which allows each SSE chunk to pass through
+    to the client as soon as it is yielded.
+
+    The wrapped ``send`` callable tracks whether response headers have already
+    been sent (``headers_sent`` flag).  If an exception is raised after headers
+    have been sent, we cannot send a new 500 response — the connection is already
+    committed to a different status code.  In that case the exception is re-raised
+    and will be handled by Starlette's ``ServerErrorMiddleware``.
 
 Implementation note — RequestValidationError with NaN/Infinity inputs:
     FastAPI's default ``RequestValidationError`` handler serializes the raw
@@ -41,10 +49,13 @@ Reference: RFC 7807 — Problem Details for HTTP APIs
 Task: P5-T5.1 — Task Orchestration API Core
 Task: P6-T6.2 — NIST SP 800-88 Erasure, OWASP validation, LLM Fuzz Testing
     (Added RequestValidationError NaN/Infinity sanitization)
+Task: T19.1 — Middleware & Engine Singleton Fixes
+    (Converted from BaseHTTPMiddleware to pure ASGI middleware)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from typing import Any
@@ -52,8 +63,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from synth_engine.shared.errors import safe_error_msg
 
@@ -140,45 +150,106 @@ def problem_detail(
     }
 
 
-class RFC7807Middleware(BaseHTTPMiddleware):
-    """ASGI middleware that converts unhandled exceptions to RFC 7807 responses.
+class RFC7807Middleware:
+    """Pure ASGI middleware that converts unhandled exceptions to RFC 7807 responses.
 
-    Wraps the entire request/response cycle.  If any exception escapes from
-    the inner app (including route handlers), it is caught here and converted
-    to an HTTP 500 response with an RFC 7807 Problem Details JSON body.
+    Wraps the entire request/response cycle using the raw ASGI protocol.
+    Unlike ``BaseHTTPMiddleware``, this implementation does NOT buffer the
+    response body, which allows SSE (Server-Sent Events) streaming to work
+    correctly — each chunk is forwarded to the client immediately.
+
+    If any exception escapes from the inner app (including route handlers),
+    it is caught here and converted to an HTTP 500 response with an RFC 7807
+    Problem Details JSON body, provided headers have not yet been sent.
+
+    If the exception occurs after response headers have been sent (i.e., the
+    status line and headers are already committed), the exception is re-raised
+    so that Starlette's ``ServerErrorMiddleware`` can handle it.  This is the
+    correct behaviour: we cannot overwrite a response that is already in flight.
 
     Error details are sanitized via :func:`~synth_engine.shared.errors.safe_error_msg`
     before exposure (ADV-036+044).
 
     This middleware must be added LAST (outermost) so it catches exceptions
     from all inner middleware layers and route handlers.
+
+    Non-HTTP scope types (e.g., ``lifespan``, ``websocket``) are passed through
+    to the inner app without modification.
+
+    Args:
+        app: The inner ASGI application to wrap.
     """
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """Catch unhandled exceptions and return RFC 7807 Problem Details.
+    def __init__(self, app: ASGIApp) -> None:
+        """Initialise with the inner ASGI application.
 
         Args:
-            request: Incoming HTTP request.
-            call_next: The inner application callable.
-
-        Returns:
-            The normal response if no exception occurs, otherwise an HTTP 500
-            RFC 7807 JSON response with a sanitized error detail.
+            app: The inner ASGI application to wrap.
         """
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Handle an ASGI request, catching unhandled exceptions.
+
+        For ``http`` scopes: wraps the inner app call in a try/except.
+        On exception: if headers have not yet been sent, returns an RFC 7807
+        500 JSON response.  If headers were already sent, re-raises.
+
+        For non-``http`` scopes: passes directly to the inner app unchanged.
+
+        Args:
+            scope: The ASGI connection scope (type, path, headers, etc.).
+            receive: The ASGI receive callable.
+            send: The ASGI send callable.
+        """
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers_sent = False
+
+        async def _send_wrapper(message: Any) -> None:
+            nonlocal headers_sent
+            if message.get("type") == "http.response.start":
+                headers_sent = True
+            await send(message)
+
         try:
-            return await call_next(request)
+            await self.app(scope, receive, _send_wrapper)
         except Exception as exc:
-            _logger.exception("Unhandled exception on %s %s", request.method, request.url)
+            if headers_sent:
+                # Cannot send a new response — headers already committed.
+                raise
+
+            _logger.exception(
+                "Unhandled exception on %s %s",
+                scope.get("method", "UNKNOWN"),
+                scope.get("path", "/"),
+            )
             safe_detail = safe_error_msg(str(exc))
             body = problem_detail(
                 status=500,
                 title=_STATUS_TITLES.get(500, "Internal Server Error"),
                 detail=safe_detail,
             )
-            return JSONResponse(
-                status_code=500,
-                content=body,
-                headers={"content-type": "application/json"},
+            body_bytes = json.dumps(body).encode("utf-8")
+
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 500,
+                    "headers": [
+                        [b"content-type", b"application/json"],
+                        [b"content-length", str(len(body_bytes)).encode("ascii")],
+                    ],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": body_bytes,
+                    "more_body": False,
+                }
             )
 
 

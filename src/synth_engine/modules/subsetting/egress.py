@@ -18,11 +18,32 @@ Table names originate from :class:`~synth_engine.shared.schema_topology.SchemaTo
 into SQL strings.  All data values travel via SQLAlchemy's parameterised
 INSERT interface.
 
+Transaction boundary (T19.1 verification)
+------------------------------------------
+``write()`` is **atomic per batch**: all rows passed in a single ``write()``
+call are inserted within one connection and committed with a single
+``conn.commit()`` at the end.
+
+Specifically:
+
+- One ``engine.connect()`` context is opened per ``write()`` call.
+- All rows are inserted via ``conn.execute()`` before any commit is issued.
+- ``conn.commit()`` is called exactly once, after the final row's INSERT.
+- If ``conn.execute()`` raises on any row, the implicit SQLAlchemy transaction
+  is **not** committed (``conn.commit()`` is never reached), and the connection
+  context manager rolls back the transaction on exit.  No partial batch can
+  be committed.
+
+This satisfies the Saga atomicity requirement: a caller that catches the
+raised exception and invokes ``rollback()`` will find only previously
+committed batches in the target — the failed batch is not present.
+
 Per ADR-0015: Subsetting Traversal and Saga Rollback Design.
 CONSTITUTION Priority 0: Security — parameterised SQL only, no PII exposure.
 Task: P3-T3.4 -- Subsetting & Materialization Core
 Task: P3.5-T3.5.4 -- Remove EgressWriter.commit() no-op (semantic trap)
 Task: P3.5-T3.5.5 -- Advisory sweep (ADV-029: track row counts per table)
+Task: T19.1 -- Verify and document write() transaction boundaries
 """
 
 from __future__ import annotations
@@ -83,11 +104,20 @@ class EgressWriter:
         return list(self._written_tables.keys())
 
     def write(self, table: str, rows: list[dict[str, Any]]) -> None:
-        """Insert rows into the target table.
+        """Insert rows into the target table as a single atomic batch.
 
         If ``rows`` is empty the method is a no-op.  Each call that inserts at
         least one row accumulates the row count for that table for potential
         rollback reporting.
+
+        Transaction boundary (T19.1):
+            All rows in a single ``write()`` call are committed atomically.
+            One ``engine.connect()`` context is opened, all rows are inserted
+            via ``conn.execute()``, and ``conn.commit()`` is called exactly
+            once at the end.  If any ``conn.execute()`` raises, the commit is
+            never reached and the implicit SQLAlchemy transaction is rolled
+            back when the connection context exits.  No partial batch can be
+            left committed.
 
         Args:
             table: Unquoted target table name.
@@ -116,6 +146,10 @@ class EgressWriter:
             f"INSERT INTO {quoted_table} ({quoted_cols}) VALUES ({placeholders})"  # nosec B608 — see comment above; values are parameterised  # noqa: S608
         )
 
+        # Single connection + single commit = atomic batch (T19.1).
+        # All conn.execute() calls share one implicit transaction; conn.commit()
+        # commits all rows atomically.  If any execute() raises, commit() is
+        # never called and the connection context rolls back the transaction.
         with self._engine.connect() as conn:
             for row in rows:
                 conn.execute(stmt, row)

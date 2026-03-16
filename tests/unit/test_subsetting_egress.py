@@ -5,6 +5,7 @@ All tests mock the SQLAlchemy engine; no live PostgreSQL required.
 Task: P3-T3.4 -- Subsetting & Materialization Core
 Task: P3.5-T3.5.4 -- Remove EgressWriter.commit() no-op (semantic trap)
 Task: P3.5-T3.5.5 -- Advisory sweep (ADV-029: rollback logs table names AND row counts)
+Task: T19.1 -- Verify and document write() transaction boundaries
 Security: TRUNCATE with CASCADE is the rollback strategy (ADR-0015).
 Saga invariant: if ANY write fails, rollback() wipes all written tables.
 """
@@ -115,6 +116,124 @@ class TestEgressWriterWrite:
 
         with pytest.raises(sqlalchemy.exc.SQLAlchemyError, match="DB write failed"):
             writer.write("departments", [{"id": 1, "name": "Engineering"}])
+
+
+class TestEgressWriterTransactionBoundary:
+    """T19.1: Tests verifying write() transaction atomicity per batch.
+
+    The Saga pattern documentation implies atomicity: if a mid-batch failure
+    occurs, the entire batch (not just the failed row) must be rolled back.
+    These tests verify that all rows in a single write() call are committed
+    atomically (single connection, single commit call).
+    """
+
+    def test_write_uses_single_connection_per_batch(self) -> None:
+        """write() must use exactly one connection for the entire batch.
+
+        All rows in a single write() call share one connection so they are
+        in the same transaction scope. Multiple connections would mean rows
+        in separate transactions — a mid-batch failure could leave partial
+        data committed.
+        """
+        engine = _make_engine()
+        _make_conn_ctx(engine)
+
+        writer = EgressWriter(target_engine=engine)
+        rows = [{"id": 1}, {"id": 2}, {"id": 3}]
+        writer.write("departments", rows)
+
+        # engine.connect() must be called exactly once per write() call
+        assert engine.connect.call_count == 1, (
+            "write() must use exactly one connection for the entire batch "
+            "(single transaction scope for all rows)."
+        )
+
+    def test_write_commits_once_per_batch(self) -> None:
+        """write() must call conn.commit() exactly once per batch.
+
+        A single commit after all rows ensures atomicity: either all rows
+        are persisted or none are (on failure, the connection rolls back).
+        Multiple commits would allow partial batch persistence on failure.
+        """
+        engine = _make_engine()
+        conn = _make_conn_ctx(engine)
+
+        writer = EgressWriter(target_engine=engine)
+        rows = [{"id": 1}, {"id": 2}, {"id": 3}]
+        writer.write("departments", rows)
+
+        # conn.commit() must be called exactly once (after all rows are inserted)
+        assert conn.commit.call_count == 1, (
+            "write() must commit exactly once per batch — after all rows are inserted. "
+            "This ensures batch atomicity."
+        )
+
+    def test_write_executes_before_commit(self) -> None:
+        """All INSERT executions must precede the commit call.
+
+        The commit must come after all rows have been executed, not interleaved.
+        This ordering ensures the entire batch is in the transaction when committed.
+        """
+        engine = _make_engine()
+        conn = _make_conn_ctx(engine)
+
+        call_order: list[str] = []
+
+        original_execute = conn.execute
+        original_commit = conn.commit
+
+        def tracking_execute(*args: object, **kwargs: object) -> MagicMock:
+            call_order.append("execute")
+            return original_execute(*args, **kwargs)
+
+        def tracking_commit(*args: object, **kwargs: object) -> MagicMock:
+            call_order.append("commit")
+            return original_commit(*args, **kwargs)
+
+        conn.execute = tracking_execute
+        conn.commit = tracking_commit
+
+        writer = EgressWriter(target_engine=engine)
+        rows = [{"id": 1}, {"id": 2}]
+        writer.write("departments", rows)
+
+        # All executes must come before the commit
+        assert "commit" in call_order, "commit was never called"
+        last_execute_idx = max(i for i, op in enumerate(call_order) if op == "execute")
+        commit_idx = call_order.index("commit")
+        assert commit_idx > last_execute_idx, (
+            "commit must occur after all row executions, not before or interleaved."
+        )
+
+    def test_write_midgbatch_failure_does_not_commit_prior_rows(self) -> None:
+        """A failure mid-batch must NOT commit any rows from that batch.
+
+        If conn.execute() raises on the 2nd row, conn.commit() must NOT be
+        called — the connection context manager handles rollback implicitly
+        (SQLAlchemy rolls back uncommitted changes when the connection closes
+        on exception).
+        """
+        engine = _make_engine()
+        conn = _make_conn_ctx(engine)
+
+        execute_count = 0
+
+        def execute_fail_on_second(*args: object, **kwargs: object) -> None:
+            nonlocal execute_count
+            execute_count += 1
+            if execute_count == 2:
+                raise sqlalchemy.exc.SQLAlchemyError("disk full")
+
+        conn.execute.side_effect = execute_fail_on_second
+
+        writer = EgressWriter(target_engine=engine)
+        rows = [{"id": 1}, {"id": 2}, {"id": 3}]
+
+        with pytest.raises(sqlalchemy.exc.SQLAlchemyError, match="disk full"):
+            writer.write("departments", rows)
+
+        # commit() must NOT have been called — failure occurred before commit
+        conn.commit.assert_not_called()
 
 
 class TestEgressWriterRollback:

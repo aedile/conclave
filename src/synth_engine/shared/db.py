@@ -11,6 +11,21 @@ In production the application connects through PgBouncer, so
 ``pool_size`` and ``max_overflow`` are intentionally modest: PgBouncer
 handles external multiplexing.
 
+Engine singleton caching (T19.1)
+---------------------------------
+Both ``get_engine`` and ``get_async_engine`` cache the engine they create,
+keyed by the ``database_url`` string.  Subsequent calls with the same URL
+return the **same** engine instance from the module-level cache, avoiding
+the creation of a new connection pool on every call.
+
+Without caching, each call would create a new ``QueuePool`` with up to
+``pool_size + max_overflow = 15`` connections.  In a request-heavy
+environment this could exhaust the available PostgreSQL connections.
+
+Call :func:`dispose_engines` to release all cached engines and their
+connection pools — required between test cases that use different
+``database_url`` values, and at application shutdown.
+
 ``get_async_engine`` provides an :class:`~sqlalchemy.ext.asyncio.AsyncEngine`
 for use with async sessions.  Required by the Privacy Accountant (T4.4)
 which needs ``SELECT ... FOR UPDATE`` within an async FastAPI request context.
@@ -53,6 +68,7 @@ CONSTITUTION Priority 5: Code Quality
 Task: P2-T2.2 — Secure Database Layer
 Task: P4-T4.4 — Privacy Accountant (async engine + session)
 Task: P5-T5.1 — Task Orchestration API Core (SessionFactory type alias)
+Task: T19.1 — Engine singleton caching (dispose_engines)
 """
 
 from __future__ import annotations
@@ -62,15 +78,11 @@ import uuid
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlmodel import Field, Session, SQLModel
 from sqlmodel._compat import SQLModelConfig
-
-if TYPE_CHECKING:
-    pass
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -91,9 +103,27 @@ SessionFactory = Callable[[], contextlib.AbstractContextManager[Session]]
 _POOL_SIZE = 5
 _MAX_OVERFLOW = 10
 
+#: Module-level cache for synchronous engines, keyed by database_url.
+#: Populated lazily on first call to :func:`get_engine`.
+#: Call :func:`dispose_engines` to clear.
+_engine_cache: dict[str, Engine] = {}
+
+#: Module-level cache for asynchronous engines, keyed by database_url.
+#: Populated lazily on first call to :func:`get_async_engine`.
+#: Call :func:`dispose_engines` to clear.
+_async_engine_cache: dict[str, AsyncEngine] = {}
+
 
 def get_engine(database_url: str) -> Engine:
-    """Create a SQLAlchemy engine with connection pool configuration.
+    """Return a cached SQLAlchemy engine for the given URL.
+
+    If an engine for ``database_url`` already exists in the module-level
+    cache, it is returned immediately without creating a new connection pool.
+    Otherwise a new engine is created, stored in the cache, and returned.
+
+    This singleton behaviour prevents connection pool exhaustion in
+    request-heavy environments: without caching, each call would allocate a
+    new ``QueuePool`` with up to ``pool_size + max_overflow`` connections.
 
     For SQLite URLs (``sqlite://``) pool sizing arguments are omitted
     because SQLite uses a ``StaticPool`` that does not accept them.
@@ -108,19 +138,31 @@ def get_engine(database_url: str) -> Engine:
             or ``sqlite:///:memory:`` for in-process tests.
 
     Returns:
-        A configured :class:`sqlalchemy.Engine` instance.
+        A configured :class:`sqlalchemy.Engine` instance.  The same instance
+        is returned on every call with the same ``database_url``.
     """
+    if database_url in _engine_cache:
+        return _engine_cache[database_url]
+
     if database_url.startswith("sqlite"):
-        return create_engine(database_url)
-    return create_engine(
-        database_url,
-        pool_size=_POOL_SIZE,
-        max_overflow=_MAX_OVERFLOW,
-    )
+        engine = create_engine(database_url)
+    else:
+        engine = create_engine(
+            database_url,
+            pool_size=_POOL_SIZE,
+            max_overflow=_MAX_OVERFLOW,
+        )
+
+    _engine_cache[database_url] = engine
+    return engine
 
 
 def get_async_engine(database_url: str) -> AsyncEngine:
-    """Create an async SQLAlchemy engine for use with AsyncSession.
+    """Return a cached async SQLAlchemy engine for the given URL.
+
+    If an async engine for ``database_url`` already exists in the module-level
+    cache, it is returned immediately.  Otherwise a new engine is created,
+    cached, and returned.
 
     Supports two driver schemes:
 
@@ -142,14 +184,47 @@ def get_async_engine(database_url: str) -> AsyncEngine:
 
     Returns:
         A configured :class:`~sqlalchemy.ext.asyncio.AsyncEngine` instance.
+        The same instance is returned on every call with the same ``database_url``.
     """
+    if database_url in _async_engine_cache:
+        return _async_engine_cache[database_url]
+
     if database_url.startswith("sqlite"):
-        return create_async_engine(database_url)
-    return create_async_engine(
-        database_url,
-        pool_size=_POOL_SIZE,
-        max_overflow=_MAX_OVERFLOW,
-    )
+        engine = create_async_engine(database_url)
+    else:
+        engine = create_async_engine(
+            database_url,
+            pool_size=_POOL_SIZE,
+            max_overflow=_MAX_OVERFLOW,
+        )
+
+    _async_engine_cache[database_url] = engine
+    return engine
+
+
+def dispose_engines() -> None:
+    """Dispose all cached engines and clear the engine caches.
+
+    Calls ``engine.dispose()`` on every cached synchronous engine and
+    ``async_engine.sync_engine.dispose()`` on every cached asynchronous engine
+    (synchronous variant, safe to call from non-async contexts) to release
+    connection pool resources.  Both caches are then cleared so subsequent calls to
+    :func:`get_engine` and :func:`get_async_engine` create fresh engines.
+
+    This function is idempotent: calling it on an already-empty cache is
+    a no-op.
+
+    Use cases:
+    - Test teardown: clear between test cases that use different URLs.
+    - Application shutdown: release all DB connections before exit.
+    """
+    for sync_engine in _engine_cache.values():
+        sync_engine.dispose()
+    _engine_cache.clear()
+
+    for async_engine in _async_engine_cache.values():
+        async_engine.sync_engine.dispose()
+    _async_engine_cache.clear()
 
 
 # ---------------------------------------------------------------------------

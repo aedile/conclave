@@ -12,11 +12,95 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-016 | P18-T18.2 DevOps review | Future phase | DEFERRED | `PGBOUNCER_AUTH_TYPE: md5` in docker-compose.yml is deprecated in PostgreSQL 14+ in favor of `scram-sha-256`. Pre-existing; not introduced by T18.2. Low risk in air-gapped dev environments but should be upgraded for production parity. |
+
+*No open advisory items.*
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P19-T19.1 — Middleware & Engine Singleton Fixes
+
+**Changes**:
+- `src/synth_engine/bootstrapper/errors.py`: `RFC7807Middleware` converted from `BaseHTTPMiddleware`
+  to pure ASGI middleware. Implements `__call__(scope, receive, send)` directly with `headers_sent`
+  tracking. SSE streaming no longer buffered. Dead `BaseHTTPMiddleware` imports removed.
+- `src/synth_engine/shared/db.py`: `get_engine()` and `get_async_engine()` cache engines in
+  module-level dicts keyed by URL. `dispose_engines()` added for test cleanup. Dead
+  `if TYPE_CHECKING: pass` block removed (review fix).
+- `src/synth_engine/modules/subsetting/egress.py`: Transaction boundaries documented — already
+  correct (single connection, single commit per batch).
+- `tests/unit/test_bootstrapper_errors.py`: 8 tests (7 + 1 review fix for headers_sent re-raise).
+- `tests/unit/test_db.py`: 8 tests for engine caching + dispose.
+- `tests/unit/test_subsetting_egress.py`: 4 tests for transaction atomicity.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 952 unit tests PASS (96.30% coverage).
+
+**Review**: QA FINDING (4 fixed), DevOps PASS, Architecture PASS
+
+**QA** (FINDING — 4 items fixed):
+1. Dead code: empty `if TYPE_CHECKING: pass` block in db.py removed.
+2. Edge case: headers_sent=True re-raise path test added — inner app sends response.start
+   then raises; asserts exception propagates (not silently swallowed).
+3. Meaningful assert: `callable(RFC7807Middleware)` → instance-level callable check with
+   `inspect.signature` parameter verification.
+4. Docstring accuracy: dispose_engines() "await engine.dispose()" → "async_engine.sync_engine.dispose()".
+
+**DevOps** (PASS): No secrets, no PII, gitleaks clean, bandit clean. Advisory: engine singleton
+thread-safety note — CPython GIL makes dict ops atomic; race window effectively zero for
+single-threaded startup path. No fix needed for current architecture.
+
+**Architecture** (PASS): ADR-0024 compliance (pure ASGI). Dependency direction clean. File
+placement correct. Abstraction minimal and appropriate.
+
+**Retrospective Note**:
+The headers_sent re-raise path is a correctness-critical code path that had zero test coverage.
+Testing pure ASGI middleware via raw ASGI callables (not full FastAPI stacks) is the right
+pattern and should be the standard for future middleware additions. The `callable(ClassName)`
+rubber-stamp assertion pattern recurs — all future middleware/protocol tests should test on
+instances, not classes.
+
+---
+
+### [2026-03-16] P19-T19.2 — Security Hardening: Proxy Trust & Config Validation
+
+**Changes**:
+- `src/synth_engine/bootstrapper/config_validation.py`: `MASKING_SALT` added to
+  `_PRODUCTION_REQUIRED` tuple. Module and function docstrings updated.
+- `docker-compose.yml`: `PGBOUNCER_AUTH_TYPE: md5` → `scram-sha-256` (ADV-016 resolved).
+- `docs/OPERATOR_MANUAL.md`: Section 8.8 added — X-Forwarded-For proxy trust requirement
+  with nginx configuration sample.
+- `docs/adr/ADR-0031-pgbouncer-image-substitution.md`: Compatibility table updated md5→scram-sha-256.
+  Amendment section added (review fix).
+- `docs/adr/ADR-0014-masking-engine.md`: Amendment section added closing deferred MASKING_SALT
+  documentation item (review fix).
+- `tests/unit/test_config_validation.py`: 7 new tests. Dead `_BASE_ENV`/`_PROD_ENV` removed
+  (review fix).
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 939 unit tests PASS (96.25% coverage).
+
+**ADV drain**: ADV-016 (DEFERRED) drained — pgbouncer auth upgraded from md5 to scram-sha-256.
+
+**Review**: QA FINDING (1 blocker + 1 advisory, all fixed), DevOps PASS, Architecture FINDING (2 fixed)
+
+**QA** (FINDING — 2 items fixed):
+1. BLOCKER: Empty-string MASKING_SALT test added — `MASKING_SALT=""` in production raises SystemExit.
+2. Advisory: Dead `_BASE_ENV`/`_PROD_ENV` module-level constants removed from test file.
+
+**DevOps** (PASS): gitleaks clean, bandit clean. .secrets.baseline correctly updated.
+.env.example already contains MASKING_SALT entry. No new dependencies.
+
+**Architecture** (FINDING — 2 items fixed):
+1. ADR-0031 compatibility table updated from md5 to scram-sha-256 with ADV-016 note.
+2. ADR-0014 deferred MASKING_SALT documentation promise closed with amendment section.
+
+**Retrospective Note**:
+ADR staleness is a recurring pattern: ADR-0031 was immediately made stale by the auth type
+change in the same release cycle. ADRs capturing configuration snapshots need explicit amendment
+when those configs change. The "will be documented in Phase N" pattern in ADRs should carry a
+tracking marker that forces closure when that phase ships.
 
 ---
 
