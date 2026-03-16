@@ -86,7 +86,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Active Phase: 6 — Integration, Audit & Finalization (completing)**
+**Active Phase: 7 — Differential Privacy Integration**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -98,7 +98,8 @@ Security is Priority Zero — it overrides every other consideration.
 | 3.5 — Technical Debt Sprint | ✅ Complete | Module cohesion refactor, Virtual FK, CLI entrypoint, advisory sweep |
 | 4 — Generative AI & DP | ✅ Complete | GPU passthrough, profiler, OOM guardrails, DP-SGD engine, privacy accountant |
 | 5 — Orchestration & UI | ✅ Complete | Task Orchestration API, React SPA Dashboard, offline licensing, cryptographic shredding |
-| **6 — Integration & Audit** | 🔄 **In Progress** | E2E tests complete, NIST erasure complete, docs/remediation in progress |
+| 6 — Integration & Audit | ✅ Complete | E2E Playwright tests, NIST erasure validation, OWASP ZAP, fuzz testing, production docs |
+| **7 — Differential Privacy** | 🔄 **In Progress** | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks |
 
 ---
 
