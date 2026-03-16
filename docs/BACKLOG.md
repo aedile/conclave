@@ -22,6 +22,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 12: Final Hygiene & Tooling Polish](backlog/phase-12.md)
 *   [Phase 13: Pre-commit Repair & README Finalization](backlog/phase-13.md)
 *   [Phase 14: Integration Test Repair & Frontend Lint Fix](backlog/phase-14.md)
+*   [Phase 15: Frontend Coverage Gate & Operational Polish](backlog/phase-15.md)
 
 ---
 
@@ -128,3 +129,7 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 14.1:** Fix Integration Test Failures (DP, Privacy Accountant, SSE).
 *   **Task 14.2:** Frontend ESLint 9.x Configuration & Nosec Justifications.
 *   **Task 14.3:** README Phase 13 Completion & Phase 14 Status.
+
+### [Phase 15: Frontend Coverage Gate & Operational Polish](backlog/phase-15.md)
+*   **Task 15.1:** Frontend Test Coverage Gate Repair.
+*   **Task 15.2:** README Phase 14 Completion & Operational Cleanup.

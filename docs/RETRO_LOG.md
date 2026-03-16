@@ -19,6 +19,21 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P15-T15.2 — README Phase 14 Completion & Operational Cleanup
+
+**Changes**: Updated README.md Phase 14 → Complete, Phase 15 → In Progress. Updated
+docs/BACKLOG.md with Phase 15 index. Deleted 8 stale remote feature branches.
+
+**Reviews**:
+- QA: SKIP — docs-only
+- UI/UX: SKIP — no template/route/form changes
+- DevOps: PASS — branch cleanup, gitleaks clean
+
+**Retrospective Note**: Stale branch accumulation continues despite T12.1 cleanup.
+GitHub "Automatically delete head branches" should be enabled at the repo level.
+
+---
+
 ### [2026-03-16] P15-T15.1 — Frontend Test Coverage Gate Repair
 
 **Changes**: Added 3 malformed SSE payload tests for useSSE.ts catch blocks. Excluded
