@@ -31,6 +31,35 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P7-T7.4 — ProfileDelta Validation & Quality Benchmarks
+
+**Summary**: Benchmark script (`scripts/benchmark_dp_quality.py`) and auto-generated quality
+report (`docs/DP_QUALITY_REPORT.md`). Trains vanilla CTGAN and DP-CTGAN at epsilon~1, ~5, ~10
+on 500-row Faker dataset. Runs `StatisticalProfiler.compare()` and outputs distributional
+similarity metrics. Acceptance criterion at epsilon=10: PASSED.
+
+**QA** (FINDING — 3 items, all fixed):
+- `_check_acceptance()` categorical loop used `continue` on missing data (false-pass). Fixed: `return False`.
+- `source_profile` typed as `Any` → fixed to `TableProfile`.
+- Docstring updated to reflect fail-on-missing behavior.
+
+**UI/UX** (SKIP): No frontend changes.
+
+**DevOps** (FINDING — 2 items, all fixed):
+- Missing `docs:` commit — PM added.
+- `print()` justified with comment in `main()`.
+
+**Architecture** (FINDING — 1 item, fixed):
+- `_build_metadata() -> Any` justified with inline comment (sdv has no type stubs).
+- `source_profile` parameters upgraded from `Any` to `TableProfile`.
+
+**Retrospective Notes**:
+- Numeric-strict / categorical-lenient asymmetry in acceptance gates is a pattern to watch.
+- docs-gate discipline should be part of pre-commit hooks to catch locally before push.
+- Project needs a documented convention for SDV's absent type stubs.
+
+---
+
 ### [2026-03-15] P7-T7.3 — Opacus End-to-End Wiring (ADV-048 drain)
 
 **Summary**: Wired `DPTrainingWrapper` end-to-end from `bootstrapper/main.py` through
