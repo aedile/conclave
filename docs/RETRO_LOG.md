@@ -21,6 +21,41 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P19-T19.3 — Integration Test CI Gate & Property-Based Testing
+
+**Changes**:
+- `tests/unit/test_property_based.py`: 15 property-based tests using Hypothesis covering
+  5 invariant categories: masking determinism, FK traversal ordering, epsilon monotonicity,
+  subsetting FK integrity, profile comparison symmetry.
+- `tests/integration/test_concurrent_budget_contention.py`: 2 concurrent budget contention
+  tests using real PostgreSQL (pytest-postgresql) with asyncio.gather for parallel spends.
+- `scripts/verify_integration_count.sh`: CI gate ensuring integration tests don't silently
+  pass with 0 collected. Wired into `.github/workflows/ci.yml`.
+- `pyproject.toml`: `hypothesis ^6.151.9` added to dev dependencies.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 970 unit tests PASS (96.30% coverage).
+
+**Review**: QA FINDING (5 fixed), DevOps FINDING (1 fixed)
+
+**QA** (FINDING — 5 items fixed):
+1. Type narrowing: `assert ledger_id is not None` guards added after `ledger.id` assignment.
+2. AsyncGenerator annotation: `AsyncGenerator[AsyncEngine]` → `AsyncGenerator[AsyncEngine, None]`.
+3. Empty-string masking edge case: `test_mask_value_empty_string_is_deterministic` added.
+4. Zero-spend epsilon: `min_value=Decimal("0")` in monotonicity test amounts strategy.
+5. Empty-seed traversal: parametrized case for 0 parent rows added.
+
+**DevOps** (FINDING — 1 item fixed):
+1. hypothesis placement: moved above integration group comment block with explanatory comment.
+
+**Retrospective Note**:
+CI mypy runs only on `src/`, making test files a blind spot for type correctness. The
+`ledger_id: int | None` issue is exactly the class of runtime error that type narrowing
+assertions prevent. Consider adding `mypy tests/integration/` to CI (even with relaxed
+settings). The `hypothesis` group placement mirrors a recurring pattern where TOML comment
+blocks don't match section headers — the structural header is ground truth, not comments.
+
+---
+
 ### [2026-03-16] P19-T19.1 — Middleware & Engine Singleton Fixes
 
 **Changes**:
