@@ -28,8 +28,9 @@ class ColumnInfo:
     Attributes:
         name: Column name as reflected from the database schema.
         type: SQLAlchemy type name string, e.g. ``"VARCHAR"``, ``"INTEGER"``.
-        primary_key: ``0`` = not part of the PK; ``>= 1`` = PK member
-            (supports composite PKs using incrementing integers 1, 2, ...).
+        primary_key: ``0`` = not part of the PK; ``>= 1`` = PK member.
+            Composite PK members are assigned ``primary_key=1`` (ordering not
+            preserved — all members receive the same value of 1).
             Callers MUST use ``>= 1``, not ``== 1``, to identify PK membership
             (ADV-012 compliance).
         nullable: Whether the column accepts NULL values.
@@ -37,7 +38,7 @@ class ColumnInfo:
 
     name: str
     type: str
-    primary_key: int  # 0 = not PK; >= 1 = PK (composite PKs use 1, 2, ...)
+    primary_key: int  # 0 = not PK; >= 1 = PK (composite PK members all assigned 1)
     nullable: bool
 
 

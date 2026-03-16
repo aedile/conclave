@@ -5,6 +5,11 @@ OTLP endpoint environment variable is absent, an InMemorySpanExporter is
 used so the application starts cleanly in fully offline environments.
 The InMemorySpanExporter accumulates spans in memory and is intended for
 development and testing only — it does not export spans to any backend.
+
+T20.1 AC1: All exception catches in this telemetry module are narrowed to
+specific types.  The ``_redact_url`` helper uses ``ValueError`` — the only
+exception ``urlparse`` raises for malformed input — rather than a broad
+``Exception`` catch that could silently swallow unrelated errors.
 """
 
 import logging
@@ -32,12 +37,20 @@ def _redact_url(endpoint: str) -> str:
     ``grpc://<user>:<token>@jaeger.internal:4317`` would be returned as
     ``grpc://jaeger.internal:4317``.
 
+    T20.1 AC1: catches only ``ValueError`` — the specific exception raised
+    by ``urlparse`` on malformed input — rather than a broad ``Exception``.
+    This ensures unrelated errors (e.g., ``AttributeError`` from a
+    fundamentally broken URL object) propagate rather than being silently
+    swallowed.
+
     Args:
         endpoint: Raw endpoint URL that may contain credentials in the
             userinfo component.
 
     Returns:
         The URL with scheme, host, optional port, and path only.
+        Returns ``"<unparseable endpoint>"`` if ``urlparse`` raises
+        ``ValueError`` for a malformed URL.
     """
     try:
         parsed = urlparse(endpoint)
@@ -47,7 +60,7 @@ def _redact_url(endpoint: str) -> str:
             host_part = f"{host_part}:{parsed.port}"
         redacted = parsed._replace(netloc=host_part)
         return redacted.geturl()
-    except Exception:  # best-effort: never let logging crash the app
+    except ValueError:  # best-effort: urlparse raises ValueError for malformed URLs
         return "<unparseable endpoint>"
 
 

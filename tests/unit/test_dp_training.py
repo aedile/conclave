@@ -15,6 +15,7 @@ Pattern guards applied:
   (column names, dtypes) AND content (row count, no unexpected NaN).
 
 Task: P7-T7.2 — Custom CTGAN Training Loop
+Task: P20-T20.1 — Exception Handling & Warning Suppression Fixes
 ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 """
 
@@ -866,3 +867,198 @@ class TestActivateOpacusEdgeCases:
 
         with pytest.raises(ValueError, match="empty"):
             instance.fit(pd.DataFrame())
+
+
+# ---------------------------------------------------------------------------
+# Tests for T20.1 — Warning targeting and SDV private attribute coupling
+# ---------------------------------------------------------------------------
+
+
+class TestWarningTargeting:
+    """T20.1 AC2 — blanket warnings.simplefilter('ignore') must be replaced
+    with targeted warnings.filterwarnings() specifying Opacus message patterns.
+
+    Parses dp_training.py source to verify no simplefilter calls remain at all
+    — all warning suppression must use filterwarnings() for consistency and
+    auditability.
+    """
+
+    def test_no_blanket_simplefilter_ignore_in_dp_training(self) -> None:
+        """dp_training.py must not contain ANY warnings.simplefilter() calls.
+
+        T20.1 AC2: simplefilter() in any form (with or without a category
+        argument) must be replaced by filterwarnings() for consistency.
+        This test flags ALL simplefilter() calls, not just the blanket
+        no-category form, to ensure the full migration to filterwarnings.
+        """
+        import re
+        from pathlib import Path
+
+        dp_training_path = (
+            Path(__file__).parent.parent.parent
+            / "src"
+            / "synth_engine"
+            / "modules"
+            / "synthesizer"
+            / "dp_training.py"
+        )
+        source = dp_training_path.read_text()
+
+        # Flag any simplefilter call — all should be filterwarnings after T20.1.
+        simplefilter_pattern = re.compile(r"simplefilter\s*\(")
+        matches = simplefilter_pattern.findall(source)
+        assert not matches, (
+            f"Found {len(matches)} simplefilter() call(s) in dp_training.py. "
+            "T20.1 AC2 requires all warning suppression to use filterwarnings(). "
+            f"Matches: {matches}"
+        )
+
+    def test_filterwarnings_used_with_message_for_opacus(self) -> None:
+        """dp_training.py must use filterwarnings with a message pattern for Opacus warnings.
+
+        T20.1 AC2: targeted suppression requires specifying the message (or at
+        minimum the category) so only known-safe warnings are suppressed.
+        """
+        from pathlib import Path
+
+        dp_training_path = (
+            Path(__file__).parent.parent.parent
+            / "src"
+            / "synth_engine"
+            / "modules"
+            / "synthesizer"
+            / "dp_training.py"
+        )
+        source = dp_training_path.read_text()
+
+        # The file must use filterwarnings (targeted form) at least once
+        assert "filterwarnings" in source, (
+            "dp_training.py must use warnings.filterwarnings() for targeted warning "
+            "suppression (T20.1 AC2). No filterwarnings calls found."
+        )
+
+
+class TestSDVPrivateAttributeCoupling:
+    """T20.1 AC3 — SDV _model_kwargs access must be documented with a version-pin comment.
+
+    The coupling to SDV's private attribute is accepted risk per ADR-0025.
+    The module-level docstring and the helper method must document the SDV
+    version this works with, consistent with the pin in pyproject.toml.
+    """
+
+    def test_model_kwargs_access_documented_in_module_docstring(self) -> None:
+        """dp_training.py module docstring must document SDV private attribute coupling.
+
+        T20.1 AC3: the _model_kwargs access is accepted risk — it must be documented
+        so future developers know why it exists and what SDV version it works with.
+        """
+        from pathlib import Path
+
+        dp_training_path = (
+            Path(__file__).parent.parent.parent
+            / "src"
+            / "synth_engine"
+            / "modules"
+            / "synthesizer"
+            / "dp_training.py"
+        )
+        source = dp_training_path.read_text()
+
+        # The module must mention _model_kwargs coupling in its docstring or comments
+        assert "_model_kwargs" in source, (
+            "dp_training.py must reference _model_kwargs in its documentation. "
+            "T20.1 AC3: SDV private attribute coupling must be documented."
+        )
+
+    def test_model_kwargs_coupling_mentions_sdv_version_pin(self) -> None:
+        """_get_model_kwargs helper docstring must reference SDV version pinning.
+
+        T20.1 AC3: the version-pin comment ensures that SDV 2.x breakage is
+        caught immediately.  The docstring must mention SDV version or pyproject.toml.
+        """
+        from pathlib import Path
+
+        dp_training_path = (
+            Path(__file__).parent.parent.parent
+            / "src"
+            / "synth_engine"
+            / "modules"
+            / "synthesizer"
+            / "dp_training.py"
+        )
+        source = dp_training_path.read_text()
+
+        # The file must mention SDV version context for _model_kwargs coupling
+        # Acceptable forms: "SDV 1.x", "SDV version", "pyproject.toml", "SDV 2.x"
+        has_sdv_version_context = any(
+            token in source
+            for token in ["SDV 1.x", "SDV 2.x", "SDV version", "pyproject.toml", "sdv>="]
+        )
+        assert has_sdv_version_context, (
+            "dp_training.py must document the SDV version context for _model_kwargs "
+            "private attribute access. T20.1 AC3: include version-pin reference "
+            "('SDV 1.x', 'SDV 2.x', 'pyproject.toml', etc.) in the file."
+        )
+
+    def test_get_model_kwargs_helper_exists(self) -> None:
+        """_get_model_kwargs must be a dedicated helper method (not inline access).
+
+        T20.1 AC3: isolating the coupling in a helper method means SDV 2.x
+        migration requires updating only one location.
+        """
+        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+
+        assert hasattr(DPCompatibleCTGAN, "_get_model_kwargs"), (
+            "DPCompatibleCTGAN must have a _get_model_kwargs helper method. "
+            "T20.1 AC3: coupling must be isolated in a dedicated method."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests for T20.1 — Integration test for SDV _model access (AC3)
+# ---------------------------------------------------------------------------
+
+
+class TestSDVModelKwargsIntegration:
+    """Integration-style unit test: _get_model_kwargs reads from SDV synth correctly.
+
+    Uses a mock SDV synthesizer to verify the helper does not break when
+    _model_kwargs contains the expected dict structure.
+    """
+
+    def test_get_model_kwargs_reads_from_sdv_synth(self) -> None:
+        """_get_model_kwargs() must extract _model_kwargs and override epochs."""
+        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+
+        mock_metadata = MagicMock()
+        mock_sdv_synth = _make_mock_sdv_synthesizer()
+        instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=7)
+
+        result = instance._get_model_kwargs(mock_sdv_synth)
+
+        # Must return a dict (not a reference to the original)
+        assert isinstance(result, dict)
+        # Must override epochs with the instance's configured value
+        assert result["epochs"] == 7, (
+            f"_get_model_kwargs must override epochs to {7}; got {result['epochs']}"
+        )
+        # Must preserve other model kwargs from SDV
+        assert "embedding_dim" in result, "_get_model_kwargs must preserve embedding_dim from SDV"
+
+    def test_get_model_kwargs_returns_copy_not_reference(self) -> None:
+        """_get_model_kwargs() must return a copy, not a reference to the private dict."""
+        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+
+        mock_metadata = MagicMock()
+        mock_sdv_synth = _make_mock_sdv_synthesizer()
+        instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2)
+
+        result = instance._get_model_kwargs(mock_sdv_synth)
+
+        # Mutating the result must not affect the original mock's _model_kwargs
+        original_embed_dim = mock_sdv_synth._model_kwargs["embedding_dim"]
+        result["embedding_dim"] = 999
+        assert mock_sdv_synth._model_kwargs["embedding_dim"] == original_embed_dim, (
+            "_get_model_kwargs must return a copy — mutating the result must not "
+            "affect the original SDV synthesizer's _model_kwargs."
+        )

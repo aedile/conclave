@@ -45,6 +45,7 @@ import click
 from sqlalchemy import create_engine
 
 from synth_engine.modules.ingestion.validators import validate_connection_string
+from synth_engine.modules.mapping.reflection import SchemaReflector
 from synth_engine.modules.masking.algorithms import mask_email, mask_name, mask_ssn
 from synth_engine.modules.subsetting.core import SubsettingEngine
 from synth_engine.modules.subsetting.egress import EgressWriter
@@ -149,8 +150,6 @@ def _load_topology(source_dsn: str) -> SchemaTopology:
             caller (the ``subset`` command), which wraps it in a clean
             error message.
     """
-    from synth_engine.modules.mapping.reflection import SchemaReflector
-
     engine = create_engine(source_dsn)
     reflector = SchemaReflector(engine=engine)
     dag = reflector.reflect()
@@ -160,12 +159,20 @@ def _load_topology(source_dsn: str) -> SchemaTopology:
     foreign_keys: dict[str, tuple[ForeignKeyInfo, ...]] = {}
 
     for table in table_order:
+        # ADV-021 fix: Use get_pk_constraint() to reliably identify PK columns.
+        # Inspector.get_columns() may omit the 'primary_key' key on PostgreSQL
+        # backends; get_pk_constraint() is the authoritative source.
+        pk_constraint = reflector.get_pk_constraint(table)
+        pk_columns: set[str] = set(pk_constraint.get("constrained_columns", []))
+
         raw_cols = reflector.get_columns(table)
         columns[table] = tuple(
             ColumnInfo(
                 name=str(col["name"]),
                 type=str(col.get("type", "")),
-                primary_key=int(col.get("primary_key", 0)),
+                # primary_key: 1 if this column is in the PK constraint, 0 otherwise.
+                # Using get_pk_constraint() (ADV-021) is reliable across all backends.
+                primary_key=1 if str(col["name"]) in pk_columns else 0,
                 nullable=bool(col.get("nullable", True)),
             )
             for col in raw_cols
@@ -276,9 +283,9 @@ def subset(
         )
         result = engine.run(seed_table=seed_table, seed_query=seed_query)
     except Exception as exc:
-        # Clean error message — never a traceback, never the DSN.
-        click.echo(f"Error: subset run failed: {exc}")
-        sys.exit(1)
+        _logger.exception("subset run failed")
+        click.echo("Error: subset run failed — see logs for details.", err=True)
+        raise SystemExit(1) from exc
 
     # --- Summary output ---
     click.echo("Subset complete.")
