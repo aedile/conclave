@@ -565,8 +565,7 @@ def test_cjk_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None:
 
     assert loaded is not None, "ORM must retrieve the inserted record"
     assert loaded.pii_value == cjk_pii, (
-        f"CJK pii_value must round-trip exactly; expected {cjk_pii!r}, "
-        f"got {loaded.pii_value!r}"
+        f"CJK pii_value must round-trip exactly; expected {cjk_pii!r}, got {loaded.pii_value!r}"
     )
 
 
@@ -595,6 +594,5 @@ def test_emoji_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None
 
     assert loaded is not None, "ORM must retrieve the inserted record"
     assert loaded.pii_value == emoji_pii, (
-        f"Emoji pii_value must round-trip exactly; expected {emoji_pii!r}, "
-        f"got {loaded.pii_value!r}"
+        f"Emoji pii_value must round-trip exactly; expected {emoji_pii!r}, got {loaded.pii_value!r}"
     )

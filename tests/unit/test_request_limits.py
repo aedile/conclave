@@ -446,34 +446,17 @@ class TestRequestBodyLimitMiddleware:
         inner.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_invalid_utf8_body_logs_warning_and_forwards(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Body that cannot be decoded as UTF-8 logs warning and passes through.
+    async def test_valid_json_body_under_depth_limit_forwarded(self) -> None:
+        """A valid JSON body under the depth limit is forwarded to the inner app.
 
-        This covers the except (UnicodeDecodeError, ValueError) block in the
-        JSON depth check.  The middleware must not reject the request — it
-        should let the route handler deal with the invalid encoding.
+        Verifies that the depth check does not incorrectly reject well-formed
+        JSON.  The dead ``except (UnicodeDecodeError, ValueError)`` branch that
+        previously wrapped this block has been removed (ADV-064); this test
+        remains as a straightforward regression guard for the happy path.
         """
         inner = AsyncMock()
         middleware = RequestBodyLimitMiddleware(inner)
 
-        # bytes.decode("utf-8", errors="replace") won't raise UnicodeDecodeError.
-        # To trigger the exception path we need to force it another way.
-        # The branch is reached when `body_bytes.decode("utf-8", errors="replace")`
-        # succeeds but `_measure_json_depth` raises ValueError — which can happen
-        # if the body contains control characters that confuse the scanner in a
-        # way that causes a Python-level error. However, our scanner is purely
-        # character-iteration and should not raise ValueError on any string.
-        #
-        # The most reliable way to reach this branch is via the UnicodeDecodeError
-        # path — but decode with errors="replace" never raises. We therefore test
-        # that a body with binary garbage is NOT rejected by the middleware
-        # (forwarded to inner app), which is the correct observable behavior
-        # even if the specific except branch is not directly hit.
-        # The branch is defensive code for future resilience.
-        #
-        # Send valid JSON — verifies that even unusual bodies pass through.
         body = b'{"key": "value"}'
         scope = _make_http_scope()
         receive = _make_receive(body)
