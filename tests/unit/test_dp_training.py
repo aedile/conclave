@@ -21,11 +21,10 @@ ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +44,7 @@ def _make_training_df(n: int = 50) -> pd.DataFrame:
     """
     import numpy as np
 
-    rng = numpy.random.default_rng(42)
+    rng = np.random.default_rng(42)
     return pd.DataFrame(
         {
             "id": range(1, n + 1),
@@ -442,7 +441,6 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
         mock_dp_wrapper.wrap.return_value = MagicMock()  # returns a dp_optimizer
 
         call_order: list[str] = []
-        original_wrap = mock_dp_wrapper.wrap.side_effect
 
         def record_wrap(*args: Any, **kwargs: Any) -> Any:
             call_order.append("wrap")
@@ -603,9 +601,7 @@ class TestDPCompatibleCTGANSample:
         instance = self._fit_instance(mock_sdv_synth, mock_ctgan_instance, n_rows=50)
         result = instance.sample(n_rows=n_rows)
 
-        assert len(result) == n_rows, (
-            f"Expected {n_rows} rows, got {len(result)}"
-        )
+        assert len(result) == n_rows, f"Expected {n_rows} rows, got {len(result)}"
 
     def test_sample_calls_ctgan_sample(self) -> None:
         """sample() must call the underlying CTGAN model's sample() method."""
