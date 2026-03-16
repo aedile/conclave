@@ -40,6 +40,7 @@ ADR_DIR = REPO_ROOT / "docs" / "adr"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _find_migration_003() -> Path | None:
     """Return the Path of the migration 003 file, or None if absent."""
     for f in ALEMBIC_VERSIONS.glob("*.py"):
@@ -90,9 +91,7 @@ class TestMigration003RevisionChain:
             "tables migration). The epsilon precision fix must be applied after those tables "
             "exist."
         )
-        assert "down_revision" in content, (
-            f"{migration.name}: must declare down_revision."
-        )
+        assert "down_revision" in content, f"{migration.name}: must declare down_revision."
 
 
 class TestMigration003AlterColumns:
@@ -137,9 +136,8 @@ class TestMigration003AlterColumns:
         assert "Numeric" in content or "NUMERIC" in content, (
             f"{migration.name}: upgrade must target Numeric / NUMERIC type."
         )
-        assert "20" in content and "10" in content, (
-            f"{migration.name}: upgrade must reference precision=20 and scale=10."
-        )
+        assert "20" in content, f"{migration.name}: upgrade must reference precision=20."
+        assert "10" in content, f"{migration.name}: upgrade must reference scale=10."
 
     def test_downgrade_reverts_to_float(self) -> None:
         """Downgrade must revert epsilon columns back to Float (FLOAT8)."""
