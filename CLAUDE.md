@@ -17,9 +17,9 @@ perform any development work directly. Every one of those actions belongs to a s
 - Create the feature branch
 - Delegate ALL implementation to the `software-developer` subagent
 - Verify the subagent's output (git log, test summary) — do not re-implement
-- Spawn parallel review subagents: `qa-reviewer`, `ui-ux-reviewer`, `devops-reviewer`
-  (+ `architecture-reviewer` when diff touches `models/`, `agents/`, `parsers/`, `generators/`,
-  `api/`, or new `src/` files — also always spawn for ANY new file under `src/synth_engine/`)
+- Spawn parallel review subagents: `qa-reviewer`, `devops-reviewer` (always); `ui-ux-reviewer`
+  (only when diff touches `frontend/`, `*.tsx`, `*.css`, or template files);
+  `architecture-reviewer` (only when diff touches `src/synth_engine/` or adds new `.py` files under `src/`)
 - Commit review findings and update `docs/RETRO_LOG.md`
 - Spawn `pr-describer`, push branch, create PR via `gh pr create`
 - **Wait for the user to merge** — never self-merge
@@ -43,17 +43,9 @@ The only files the PM may edit directly are:
 Per the Approval Gate in this CLAUDE.md: present a plan, list files to create/modify,
 list tests to write, estimated commits. **Do not proceed until the user approves.**
 
-### PM Planning Rules (Phase 2 Retro — Added 2026-03-13)
+### PM Planning Rules
 
-These rules correct failures identified in the Phase 2 end-of-phase retrospective.
-
-**Rule 1 — Backlog fidelity in agent prompts.**
-When writing the implementation brief for a `software-developer` subagent, the PM MUST
-copy the backlog task's **Testing & Quality Gates** section verbatim into the prompt.
-Do not paraphrase. Do not summarise. Paste it word-for-word so the agent cannot
-miss an explicit test type (e.g., `pytest-postgresql`, integration, contract).
-
-**Rule 2 — Cross-task integration matrix.**
+**Rule 2 — Cross-task integration matrix.** [sunset: Phase 22]
 Before presenting a plan for any task that involves a new dependency, new shared
 module, or new infrastructure component, the PM MUST explicitly check whether any
 *already-completed* task has a stated integration requirement with this task.
@@ -61,22 +53,21 @@ If so, the plan MUST include wiring those systems together — not defer it.
 Pattern to check: search backlog for "tie into", "integrate with", "must use",
 "wired to" targeting the current component. If found, it is in scope.
 
-**Rule 3 — Integration tests are a separate gate.**
+**Rule 3 — Integration tests are a separate gate.** [sunset: Phase 22]
 Unit tests with mocks or SQLite do NOT satisfy acceptance criteria that specify
 integration tests (pytest-postgresql, real Redis, real HTTP server, etc.).
 The PM must verify — by inspecting the test files committed — that integration
 tests actually exist when the backlog requires them. If they are absent, the
 task is NOT done regardless of coverage percentage.
 
-**Rule 4 — Phase-end cross-task integration review.**
+**Rule 4 — Phase-end cross-task integration review.** [sunset: Phase 22]
 After the final task of any phase merges, the PM MUST audit every task in that
 phase against its backlog acceptance criteria before declaring the phase complete.
 Specifically check: (a) are all stated integration tests present? (b) are all
 "tie into" integration requirements wired? Failures become P0 debt tasks that
 block the next phase from starting.
 
-**Rule 5 — Full backlog spec in agent prompts, not just Testing & Quality Gates.**
-(Phase 3 Retro — Added 2026-03-14)
+**Rule 5 — Full backlog spec in agent prompts.** [sunset: Phase 22]
 When writing the implementation brief for a `software-developer` subagent, the PM MUST
 copy the ENTIRE backlog task spec verbatim — including **Context & Constraints**, not just
 **Testing & Quality Gates**. Requirements in Context & Constraints are in scope even if
@@ -84,60 +75,74 @@ not repeated in the AC items. The PM must explicitly cross-reference each Contex
 Constraints bullet against the AC list before writing the brief. Any gap must be resolved:
 either add a matching AC, or explicitly descope with written justification.
 
-**Rule 6 — Technology substitution requires PM approval and an ADR.**
-(Phase 3 Retro — Added 2026-03-14)
+**Rule 6 — Technology substitution requires PM approval and an ADR.** [sunset: Phase 22]
 If a backlog task spec names a specific technology (library, protocol, driver) and the
 software-developer subagent proposes using a different one, the PM MUST:
 1. Explicitly acknowledge the substitution in the plan review.
 2. Require an ADR (or ADR amendment) documenting the substitution and rationale BEFORE
    approving implementation.
-Silent technology substitutions — where the backlog says X and the code uses Y with no
-documented decision — are a process violation. The spec represents a deliberate design
-decision; changing it requires the same rigor as making it.
+Silent technology substitutions are a process violation.
 
-**Rule 7 — Intra-module cohesion gate.**
-(Phase 3 Retro — Added 2026-03-14)
+**Rule 7 — Intra-module cohesion gate.** [sunset: Phase 22]
 Before approving any plan that adds new files to an existing module (`modules/X/`), the
 PM MUST verify that each new file's responsibility matches the module's domain name.
-Ask: "would a reader of `modules/X/` expect to find this class there?" If not, the plan
-must propose a new subpackage or module. This gate applies at plan approval time — not
-at review time. The architecture reviewer will catch it at review, but the PM should
-prevent the issue from reaching code.
 Rule of thumb: ingestion ingests, masking masks, subsetting subsets, profiling profiles.
 A class doing X that lives in module Y is a planning failure.
 
-**Rule 8 — Operational wiring is a delivery requirement, not an advisory.**
-(Phase 3 Retro — Added 2026-03-14)
+**Rule 8 — Operational wiring is a delivery requirement, not an advisory.** [sunset: Phase 22]
 Any IoC hook, injectable abstraction, or callback interface introduced in a task must be
 wired to a concrete implementation in `bootstrapper/` before the task is marked complete.
-"Theoretical correctness" (the abstraction exists, tests exercise it) is NOT sufficient.
-A `row_transformer` callback that is only exercised in integration tests but never wired
-through the bootstrapper is incomplete delivery. If the wiring cannot be done in the same
-task (e.g., it depends on Phase 4 work), the PM must:
+If the wiring cannot be done in the same task, the PM must:
 1. Create an explicit TODO in bootstrapper pointing to the target task.
 2. Log it as a BLOCKER advisory (not an informational advisory) in RETRO_LOG.
 3. Make it a Phase-entry gate for the phase that includes the wiring task.
 
-**Rule 9 — Documentation gate: every PR requires a `docs:` commit.**
-Every PR branch MUST contain at least one commit whose message begins with `docs:`. If no documentation changes were made, the commit message MUST be:
+**Rule 9 — Documentation gate: every PR requires a `docs:` commit.** [sunset: Phase 22]
+Every PR branch MUST contain at least one commit whose message begins with `docs:`. If no
+documentation changes were made, the commit message MUST be:
 `docs: no documentation changes required — <one-sentence justification>`
-If documentation DID change (README, ADR, RETRO_LOG, agent files, CLAUDE.md, CONSTITUTION.md), the `docs:` commit updates those files. This is enforced by the `docs-gate` CI job which fails the build if no `docs:` commit is found on the branch. The PM is responsible for making this commit as the final commit before pushing.
+This is enforced by the `docs-gate` CI job. The PM makes this commit as the final commit before pushing.
 
-**Rule 10 — Agent learning gate: PM surfaces RETRO_LOG lessons in every brief.**
-When writing the implementation brief for any `software-developer` subagent, the PM MUST scan `docs/RETRO_LOG.md` — the full Task Reviews section, not just the advisory table — for retrospective notes whose domain matches the current task (e.g., task touches `pyproject.toml` → include the version-pin hallucination finding; task touches tests → include the return-value assertion finding; task touches bootstrapper → include the file-placement finding). These findings are included verbatim in the brief under a **"Known Failure Patterns — Guard Against These"** heading. The agent's first output statement MUST declare which patterns it is guarding against.
+**Rule 10 — Agent learning gate: PM surfaces RETRO_LOG lessons in every brief.** [sunset: Phase 22]
+When writing the implementation brief for any `software-developer` subagent, the PM MUST scan
+`docs/RETRO_LOG.md` — including the Task Reviews section — for retrospective notes whose domain
+matches the current task. These findings are included verbatim under a **"Known Failure Patterns
+— Guard Against These"** heading. The agent's first output statement MUST declare which patterns
+it is guarding against.
 
-**Rule 11 — Advisory drain cadence.**
-Every ADV row in `docs/RETRO_LOG.md` MUST be tagged with one of three severity tiers: `BLOCKER` (must drain before its target task starts — PM cannot approve the target task until this row is resolved), `ADVISORY` (must drain within the same phase as its target task), or `DEFERRED` (explicitly accepted post-launch debt — requires one-sentence written PM justification in the row). Open ADV row count is audited at every phase kickoff and included in the kickoff commit. If open ADV rows exceed **12**, the PM MUST stop new feature work and propose a drain sprint before any new task is approved. The ceiling triggers at >12; drain target before resuming is ≤8.
+**Rule 11 — Advisory drain cadence.** [sunset: Phase 22]
+Every ADV row in `docs/RETRO_LOG.md` MUST be tagged with: `BLOCKER` (must drain before its
+target task starts), `ADVISORY` (must drain within the same phase), or `DEFERRED` (accepted
+post-launch debt — requires one-sentence PM justification). Open ADV row count is audited at
+every phase kickoff. If open ADV rows exceed **12**, the PM MUST stop new feature work and
+propose a drain sprint. Drain target: ≤8 before resuming.
 
-**Rule 12 — Phase execution authority.**
-Once the user approves a phase plan, the PM has execution authority over all tasks in that phase without per-task human approval. The PM proceeds task-to-task autonomously: implement → review → auto-merge → recontextualize → next task. Mandatory human touchpoints are: (1) phase plan approval at phase start, (2) phase retrospective sign-off at phase end, (3) any PM-raised architectural blocker requiring strategic input outside the phase spec. The PM MUST call `gh pr merge --squash --auto` immediately after `gh pr create` on every PR. This enables GitHub to auto-merge when all required status checks pass.
+**Rule 12 — Phase execution authority.** [sunset: Phase 22]
+Once the user approves a phase plan, the PM has execution authority over all tasks in that
+phase without per-task human approval. Mandatory human touchpoints: (1) phase plan approval,
+(2) phase retrospective sign-off, (3) any PM-raised architectural blocker requiring strategic
+input. The PM MUST call `gh pr merge --squash --auto` immediately after `gh pr create` on every PR.
 
-**Rule 13 — PR review automation.**
-After spawning the four parallel review agents (qa, devops, arch, ui-ux) and after CI is green, the PM MUST spawn the `pr-reviewer` subagent. The pr-reviewer reads the PR diff, verifies all review commits are present, checks CI status via `gh pr checks`, and posts a structured summary comment via `gh pr comment`. If all gates are green, the pr-reviewer posts `gh pr review --approve` to satisfy branch protection, at which point auto-merge fires. The PM does not wait for human approval — the pr-reviewer IS the approval gate.
+**Rule 13 — PR review automation.** [sunset: Phase 22]
+After spawning review agents and after CI is green, the PM MUST spawn the `pr-reviewer`
+subagent. The pr-reviewer reads the PR diff, checks CI status, and posts a structured summary
+comment via `gh pr comment`. If all gates are green, the pr-reviewer posts `gh pr review --approve`
+to satisfy branch protection, at which point auto-merge fires.
 
-**Rule 14 — ChromaDB seeding after every RETRO_LOG update.**
-(Task B — Added 2026-03-15)
-After committing a `docs: update RETRO_LOG` commit, the PM MUST run `poetry run python3 scripts/seed_chroma_retro.py` to persist the new findings to ChromaDB. This keeps the learning system current. Failure to seed means the software-developer Step 0 chroma query will return stale results.
+**Rule 15 — Rule sunset clause.** [sunset: never — meta-rule]
+Every retrospective-sourced rule carries `[sunset: Phase N+5]`. At the tagged phase, the PM
+evaluates whether the rule prevented a recurrence. If not, the rule is deleted.
+CLAUDE.md line cap: 500 lines. If an amendment would exceed the cap, existing rules must be
+consolidated or retired before adding the new rule.
+
+**Rule 16 — Materiality threshold.** [sunset: Phase 22]
+Cosmetic-only review findings (formatting, comment wording, doc phrasing) get batched into a
+"polish" task within the next feature phase. Standalone phases are reserved for findings that
+affect correctness, security, or functionality.
+
+**Rule 17 — Small-fix batching.** [sunset: Phase 22]
+If a "phase" would have fewer than 5 meaningful commits, it does not warrant standalone phase
+ceremony. Instead, it becomes a task within the current or next phase.
 
 ---
 
@@ -169,7 +174,6 @@ SKIP=... git commit        # NEVER
 - Pre-commit hooks **MUST** pass before any commit
 - If hooks fail, **FIX THE CODE** - do not bypass, do not work around
 - All security scans (bandit, gitleaks, detect-secrets) are mandatory
-- Hook failures are not obstacles - they are guardrails protecting you
 
 ### TDD - Red/Green/Refactor (STRICT)
 
@@ -177,7 +181,6 @@ Every code change follows this exact sequence - no exceptions:
 
 1. **RED**: Write failing test(s) FIRST
    ```bash
-   # Write the test
    pytest tests/unit/test_<module>.py -v  # Must FAIL
    ```
    - Commit: `test: add failing tests for <feature>`
@@ -196,15 +199,14 @@ Every code change follows this exact sequence - no exceptions:
    - Commit: `refactor: improve <feature>`
 
 4. **REVIEW**: Spawn specialized subagents in parallel (MANDATORY)
-   - In ONE message, invoke: `qa-reviewer`, `ui-ux-reviewer`, `devops-reviewer` via Task tool
-   - Also invoke `architecture-reviewer` when diff touches models/, agents/, parsers/, generators/, api/, or new src/ files
+   - **Always spawn**: `qa-reviewer`, `devops-reviewer`
+   - **Spawn only when diff touches `frontend/`, `*.tsx`, `*.css`, or template files**: `ui-ux-reviewer`
+   - **Spawn only when diff touches `src/synth_engine/` or adds new `.py` files under `src/`**: `architecture-reviewer`
    - Each agent reads the constitution independently and reviews with fresh context
-   - Each agent includes a **Retrospective Note** in their output — included in the commit body
-   - Commits required: `review(qa):`, `review(ui-ux):`, `review(devops):`, `review(arch):` (if structural), `docs: update RETRO_LOG`
-   - Each commit body is the agent's structured finding (PASS / FINDING / SKIP per item) + Retrospective Note
-   - See `.claude/agents/` for agent definitions (AUTONOMOUS_DEVELOPMENT_PROMPT.md is fully retired)
-   - Commit: `review(qa): <task> — PASS/FINDING` (+ body with per-item results + Retrospective Note)
-   - **After updating RETRO_LOG**: add any advisory findings without a named target task to the **Open Advisory Items** table in `docs/RETRO_LOG.md`; drain (delete) any rows whose target task was just completed
+   - One consolidated commit required: `review: <task> — QA PASS, DevOps PASS[, Arch PASS][, UI/UX PASS]`
+   - Detailed findings go in `docs/RETRO_LOG.md` only, not in commit bodies
+   - **After updating RETRO_LOG**: add any advisory findings without a named target task to the
+     **Open Advisory Items** table; drain (delete) any rows whose target task was just completed
 
 ### Quality Gates (All Must Pass)
 
@@ -227,30 +229,25 @@ poetry run python3 script.py       # CORRECT
 python3 script.py                  # WRONG - bypasses Poetry environment
 ```
 
-**Two-gate test policy (Phase 2 Retro — Added 2026-03-13):**
+**Two-gate test policy:**
 - Unit tests (`tests/unit/`) run with `-W error`. Zero warnings tolerated. Mocks and in-memory
   databases are acceptable here.
 - Integration tests (`tests/integration/`) run separately without coverage requirement but MUST
   pass. These use real infrastructure (PostgreSQL via pytest-postgresql, real Redis via
   pytest-redis). If `tests/integration/` is empty, that is a finding — not a pass.
 - An acceptance criterion that says "integration test using X" is NOT satisfied by a unit test
-  using mocks. The PM enforces this at plan review time; the QA reviewer enforces it at review time.
+  using mocks.
 
 ### Git Workflow
 
 **Branch naming**: `<type>/<phase>-<task>-<description>`
-```
-feat/P0-T01-setup-pre-commit
-feat/P1-T03-synthetic dataset-models
-fix/P1-T03-date-parsing-bug
-```
 
 **Commit messages**: Conventional commits, always
 - `test:` - Test files (RED phase)
 - `feat:` - New features (GREEN phase)
 - `fix:` - Bug fixes
 - `refactor:` - Refactoring (no behavior change)
-- `review:` - Self-review evidence commits (REVIEW phase — mandatory per task)
+- `review:` - Consolidated review commit (REVIEW phase — mandatory per task)
 - `docs:` - Documentation only (also used for constitutional amendments)
 - `chore:` - Tooling, config, dependencies
 
@@ -259,13 +256,11 @@ fix/P1-T03-date-parsing-bug
 
 ### Pull Request Workflow (MANDATORY)
 
-**EVERY task must follow this workflow:**
-
 1. **Create feature branch**: `git checkout -b feat/P0-T03-test-directory`
-2. **Make changes**following TDD, commit to branch
+2. **Make changes** following TDD, commit to branch
 3. **Push branch**: `git push origin feat/P0-T03-test-directory`
-4. **Create PR via gh CLI** with comprehensive description (see PR Workflow section in this CLAUDE.md)
-5. **Wait for user review** - DO NOT merge yourself
+4. **Create PR via gh CLI** with comprehensive description
+5. **Wait for user review** - DO NOT merge yourself (unless Rule 12 applies)
 6. **Address feedback** if requested, commit to same branch
 7. **After user merges**: Pull main, re-contextualize, next task
 
@@ -273,7 +268,7 @@ fix/P1-T03-date-parsing-bug
 - Task ID and summary
 - Changes made (checklist format)
 - Acceptance criteria met
-- Self-review commits (link or reference `review(qa/ui/devops):` commit hashes)
+- Review commit reference
 - Constitution compliance
 - Test results
 - Backlog task completion marker
@@ -282,7 +277,7 @@ fix/P1-T03-date-parsing-bug
 
 ## Workspace Organization
 
-### Directory Purposes (Memorize These)
+### Directory Purposes
 
 | Directory | Purpose | Git Status |
 |-----------|---------|------------|
@@ -294,6 +289,7 @@ fix/P1-T03-date-parsing-bug
 | `docs/adr/` | Architecture decisions | Committed |
 | `docs/recontextualization/` | Task-transition checklists | Committed |
 | `docs/RETRO_LOG.md` | Living ledger of review retro notes | Committed |
+| `docs/retro_archive/` | Archived reviews for phases ≤14 | Committed |
 | `.claude/agents/` | Specialized review subagents | Committed |
 | `data/` | Real user Production seed data | **GITIGNORED** |
 | `output/` | Generated synthetic datasets | **GITIGNORED** |
@@ -350,17 +346,10 @@ subpackage when a concern is shared by two or more Epics.
 ### Before Any Git Operation
 
 ```bash
-# 1. Check what's staged
-git status
-
-# 2. Review changes
-git diff --cached
-
-# 3. Verify no secrets
-gitleaks detect --verbose
-
-# 4. Only then commit
-git commit -m "..."
+git status          # 1. Check what's staged
+git diff --cached   # 2. Review changes
+gitleaks detect --verbose  # 3. Verify no secrets
+git commit -m "..." # 4. Only then commit
 ```
 
 ---
@@ -369,38 +358,13 @@ git commit -m "..."
 
 ### Type Hints - Strict Mode
 
-```python
-# CORRECT - Fully typed
-def parse_profile(csv_path: Path) -> Profile:
-    ...
-
-# WRONG - Missing types
-def parse_profile(csv_path):
-    ...
-```
-
 - No `# type: ignore` without written justification in comment
-- All function parameters typed
-- All return values typed
+- All function parameters typed, all return values typed
 - Use `TypedDict` for complex dictionaries
 
 ### Docstrings - Google Style
 
-```python
-def score_match(synthetic dataset: synthetic dataset, job: JobDescription) -> MatchScore:
-    """Calculate match score between synthetic dataset and job description.
-
-    Args:
-        synthetic dataset: Parsed synthetic dataset data.
-        job: Target job description.
-
-    Returns:
-        Match score with confidence and breakdown by section.
-
-    Raises:
-        ValidationError: If synthetic dataset or job data is invalid.
-    """
-```
+Use Google-style docstrings with Args, Returns, and Raises sections on all public functions.
 
 ### Code Cleanliness
 
@@ -414,92 +378,38 @@ def score_match(synthetic dataset: synthetic dataset, job: JobDescription) -> Ma
 ---
 
 ## Spike-to-Production Promotion Checklist
-(ADV-011 — Added Phase 4 Kickoff 2026-03-14; AUTONOMOUS_DEVELOPMENT_PROMPT.md is fully retired — this checklist is the canonical reference)
+(ADV-011 — Added Phase 4 Kickoff 2026-03-14)
 
-Before any code from `docs/retired/spikes/` (archived Phase 0.8 spikes) is promoted into `src/synth_engine/`, the promoting developer
-MUST verify ALL of the following. This checklist is mandatory — partial promotion is not permitted.
+Before any code from `docs/retired/spikes/` is promoted into `src/synth_engine/`, the promoting
+developer MUST verify ALL of the following. Partial promotion is not permitted.
 
-### Pre-Promotion Gates
-
-1. **Silent failure audit** — Search for all `except ...: pass` blocks. Each must be replaced
-   with `logger.warning(...)` or `logger.error(...)` before promotion. No silent swallows in
-   production code.
-
-2. **PRNG seeding** — All random number generation must use seeded, reproducible RNGs
-   (`np.random.default_rng(seed)`, not `np.random.normal(...)`). Unseeded PRNG is forbidden
-   in production (non-deterministic behavior; reproducibility failure).
-
-3. **Unguarded edge cases** — Review spike code for missing guards on:
-   - Zero/empty inputs (e.g., `rounds=0` in FPE is an identity transformation — no encryption)
-   - Overflow or unbounded input values
-   - Division-by-zero in statistical calculations
-   Each unguarded path must either be guarded or raise `ValueError` with a clear message.
-
-4. **Type annotations** — All promoted functions must have full type annotations. Spike code
-   routinely uses untyped helpers; these must be typed before promotion.
-
-5. **Security scan** — Run `bandit -r <new_src_path>` on the promoted file. Zero HIGH/MEDIUM
-   findings permitted. `# nosec` suppressions require written justification in a comment on
-   the same line.
-
-6. **Import boundary compliance** — The promoted code must live in the correct module per
-   CLAUDE.md File Placement Rules. Run `poetry run lint-imports` after promotion to confirm
-   no contract violations.
-
-7. **Test coverage** — The promoted code must have unit tests that bring total coverage back
-   to ≥ 90%. Spike code is not tested; tests must be written as part of promotion.
-
-8. **ADR alignment** — If the spike explored multiple approaches and the ADR chose one, the
-   promoted code must implement only the ADR-chosen approach. No "just in case" paths.
+1. **Silent failure audit** — Replace all `except ...: pass` with `logger.warning(...)`.
+2. **PRNG seeding** — All RNG must use seeded, reproducible `np.random.default_rng(seed)`.
+3. **Unguarded edge cases** — Guard or raise `ValueError` for zero/empty inputs, overflow, division-by-zero.
+4. **Type annotations** — All promoted functions must have full type annotations.
+5. **Security scan** — `bandit -r <new_src_path>`. Zero HIGH/MEDIUM. `# nosec` requires justification.
+6. **Import boundary compliance** — Run `poetry run lint-imports` after promotion.
+7. **Test coverage** — Unit tests that bring total coverage back to ≥ 90%.
+8. **ADR alignment** — Implement only the ADR-chosen approach.
 
 ### Known Spike Promotion Candidates
 
 | Spike File | Candidate Code | Known Issues Before Promotion |
 |-----------|----------------|-------------------------------|
-| `docs/retired/spikes/spike_ml_memory.py` (archived P11-T11.2) | `_process_chunk()`, memory estimation logic | ADV-009: unseeded PRNG (fixed T3.5.5); ADV-011: `FeistelFPE rounds=0` unguarded (spike_fpe_luhn.py) |
-| `docs/retired/spikes/spike_fpe_luhn.py` (archived P11-T11.2) | `FeistelFPE` class | `rounds=0` is identity transformation (no encryption); must add guard before promotion |
+| `docs/retired/spikes/spike_ml_memory.py` | `_process_chunk()`, memory estimation logic | ADV-009: unseeded PRNG (fixed T3.5.5) |
+| `docs/retired/spikes/spike_fpe_luhn.py` | `FeistelFPE` class | `rounds=0` is identity transformation; must add guard |
 
 ---
 
 ## Task Execution Protocol
 
-When working on a task from BACKLOG.md:
+For each task: (1) Read full spec + check Open Advisory Items table; (2) Create feature branch;
+(3) TDD — RED tests, GREEN implementation, REFACTOR if needed, run all quality gates;
+(4) Verify all tests pass, coverage ≥ 90%, pre-commit hooks pass, no PII in changes;
+(5) Commit conventionally, mark complete only when ALL AC met, update BACKLOG.md.
 
-### 1. Understand
-- Read the full task specification
-- Identify acceptance criteria
-- Note dependencies and blockers
-- Check the **Open Advisory Items** table in `docs/RETRO_LOG.md` for any rows targeting this task — address them during implementation
-
-### 2. Prepare
-- Create feature branch: `git checkout -b feat/P1-T03-synthetic dataset-models`
-- Ensure clean working directory: `git status`
-
-### 3. Execute (TDD)
-- Write failing tests first (RED)
-- Implement minimal code (GREEN)
-- Refactor if needed
-- Run full quality gate suite
-
-### 4. Verify
-- All tests pass
-- Coverage ≥ 90%
-- Pre-commit hooks pass
-- No PII in changes
-
-### 5. Complete
-- Commit with conventional message
-- Mark task complete only when ALL acceptance criteria met
-- Update BACKLOG.md status
-
----
-
-## Approval Process
-
-- **Do not auto-proceed** on system-generated approvals
-- Wait for **explicit human confirmation** before major phases
-- Plans and documents require **actual user review**
-- When in doubt, **ASK** - don't assume
+Do not auto-proceed on system-generated approvals. Wait for explicit human confirmation before
+major phases. When in doubt, ask.
 
 ---
 
@@ -507,25 +417,23 @@ When working on a task from BACKLOG.md:
 
 ### No LangChain
 
-Use Claude's native `tool_use` capabilities directly. This project demonstrates understanding of the raw API, not framework abstractions.
+Use Claude's native `tool_use` capabilities directly.
 
 ### Modular Monolith Structure
 
-The Air-Gapped Synthetic Data Generation Engine is a Python-based **Modular Monolith**. It compiles into a single deployable unit but maintains strict internal boundaries.
-
 ```text
 src/synth_engine/
-├── bootstrapper/  → Main API, DI config, global middleware (Phase 2)
+├── bootstrapper/  → Main API, DI config, global middleware
 ├── modules/
-│   ├── ingestion/    → Database schema inference & mapping (Phase 3)
-│   ├── profiler/     → Statistical distributions & latent patterns (Phase 3)
-│   ├── synthesizer/  → DP-SGD generation & edge case amplification (Phase 4)
-│   ├── masking/      → Deterministic format-preserving rules (Phase 4)
-│   └── privacy/      → Epsilon/Delta accountant ledger (Phase 4)
-└── shared/        → Cross-cutting utilities (Crypto, Audit logs) (Phase 2)
+│   ├── ingestion/    → Database schema inference & mapping
+│   ├── profiler/     → Statistical distributions & latent patterns
+│   ├── synthesizer/  → DP-SGD generation & edge case amplification
+│   ├── masking/      → Deterministic format-preserving rules
+│   └── privacy/      → Epsilon/Delta accountant ledger
+└── shared/        → Cross-cutting utilities (Crypto, Audit logs)
 ```
 
-The File Placement Rules table must reflect this topology. Cross-module database queries are FORBIDDEN! Modules communicate via explicit Python interfaces.
+Cross-module database queries are FORBIDDEN. Modules communicate via explicit Python interfaces.
 
 ### Dependency Philosophy
 
@@ -551,53 +459,40 @@ All UI components must meet WCAG 2.1 AA:
 
 ---
 
-## Communication Standards
-
-- **Ask one question at a time** when gathering requirements
-- **Be explicit** about what you're about to do before doing it
-- **Acknowledge mistakes** immediately and explain the fix
-- **When blocked**, explain why clearly and propose alternatives
-- **No jargon** without explanation
-
----
-
 ## Emergency Procedures
 
 ### If You Accidentally Stage PII
-
 ```bash
-git reset HEAD <file>           # Unstage the file
-git checkout -- <file>          # Discard changes if needed
+git reset HEAD <file>     # Unstage
+git checkout -- <file>    # Discard if needed
 ```
 
 ### If You Accidentally Commit PII
-
 ```bash
 # DO NOT PUSH
-git reset --soft HEAD~1         # Undo commit, keep changes
-git reset HEAD <file>           # Unstage the PII file
-git commit -m "..."             # Recommit without PII
+git reset --soft HEAD~1   # Undo commit, keep changes
+git reset HEAD <file>     # Unstage the PII file
+git commit -m "..."       # Recommit without PII
 ```
 
 ### If PII Was Pushed (CRITICAL)
-
 1. **STOP** - Do not make more commits
 2. **Alert** the user immediately
 3. **Do not** attempt to rewrite history without explicit approval
-4. History rewriting requires careful coordination
 
 ---
 
 ## Quick Reference Card
 
 ```
-BEFORE CODING:     Read task spec → Check Open Advisory Items table for items targeting this task → Create branch → Write failing test
-WHILE CODING:      Minimal implementation → Pass tests → Refactor
-BEFORE COMMIT:     git status → git diff → ruff → mypy → pytest → vulture → pre-commit
-AFTER CODE:        Spawn qa/ui-ux/devops reviewers in ONE parallel message (+ arch-reviewer if structural) → review: commits + RETRO_LOG update → add unassigned advisories to Open Advisory Items table → drain rows whose target task is now complete
-AFTER RETRO_LOG UPDATE:  Run scripts/seed_chroma_retro.py to persist new retrospective findings to ChromaDB "Retrospectives" collection — keeps learning system current
-COMMIT MESSAGE:    type: description (test:, feat:, fix:, refactor:, review:, docs:, chore:)
-NEVER:             --no-verify, skip hooks, commit PII, dead code, untyped code
-ALWAYS:            TDD, 90% coverage, type hints, docstrings, clean workspace, review commits
-AMEND PROCESS:     docs: amend <filename> — <what> (use after retrospectives or review findings)
+BEFORE CODING:   Read task spec → Check Open Advisory Items → Create branch → Write failing test
+WHILE CODING:    Minimal implementation → Pass tests → Refactor
+BEFORE COMMIT:   git status → git diff → ruff → mypy → pytest → vulture → pre-commit
+AFTER CODE:      Spawn qa/devops reviewers (+ ui-ux if frontend, + arch if src/) in ONE message
+                 → ONE review: commit → RETRO_LOG update → drain completed advisory rows
+COMMIT MESSAGE:  type: description (test:, feat:, fix:, refactor:, review:, docs:, chore:)
+REVIEWERS:       QA + DevOps: always | UI/UX: frontend/tsx/css only | Arch: src/synth_engine/ only
+NEVER:           --no-verify, skip hooks, commit PII, dead code, untyped code
+ALWAYS:          TDD, 90% coverage, type hints, docstrings, clean workspace, review commit
+AMEND PROCESS:   docs: amend <filename> — <what> (use after retrospectives or review findings)
 ```

@@ -34,15 +34,14 @@ if [ -z "$PR_BRANCH" ]; then
   echo "FAIL: could not resolve branch name for PR <PR_NUMBER> — halt."
   exit 1
 fi
-git log origin/main..<PR_BRANCH> --format="%s" | grep -E "^review\("
+git log origin/main..<PR_BRANCH> --format="%s" | grep -E "^review:"
 ```
 
-**Gate**: Must find commits matching ALL of these patterns:
-- `review(qa):`
-- `review(devops):`
-- `review(ui-ux):`
+**Gate**: Must find at least one consolidated review commit matching `review:`. The commit subject follows the format `review: <task> — QA PASS, DevOps PASS, UI/UX PASS[, Arch PASS]`.
 
-`review(arch):` is required ONLY if the diff touches files under `src/synth_engine/` (structural changes). Check:
+A review commit is required — its absence means the review phase was skipped and is a FAIL.
+
+If the diff touches files under `src/synth_engine/` (structural changes), the review commit subject must include `Arch PASS`. Check:
 ```bash
 gh pr diff <PR_NUMBER> --name-only | grep -q "^src/" && echo "arch required" || echo "arch optional"
 ```
@@ -52,7 +51,7 @@ gh pr diff <PR_NUMBER> --name-only | grep -q "^src/" && echo "arch required" || 
 git log origin/main..<PR_BRANCH> --format="%B" | grep -iE "BLOCKER:"
 ```
 Review every line containing "BLOCKER:". A BLOCKER is unresolved if:
-- It appears in a `review(qa/devops/arch):` commit body AND
+- It appears in a `review:` commit body AND
 - There is no subsequent `fix:`, `feat:`, or `refactor:` commit that addresses it AND
 - The resolution commit body does not reference the specific blocker
 
@@ -82,10 +81,8 @@ gh pr comment <PR_NUMBER> --body "$(cat <<'COMMENT'
 | Gate | Status | Detail |
 |------|--------|--------|
 | CI checks | ✅/❌ | <N checks, all pass / X failing> |
-| QA review commit | ✅/❌ | <present / missing> |
-| DevOps review commit | ✅/❌ | <present / missing> |
-| UI/UX review commit | ✅/❌ | <present / missing> |
-| Arch review commit | ✅/❌/➖ | <present / missing / not required> |
+| Consolidated review commit | ✅/❌ | <present / missing> |
+| Arch review included | ✅/❌/➖ | <included in review commit / missing / not required> |
 | Unresolved BLOCKERs | ✅/❌ | <0 found / N found: list them> |
 | RETRO_LOG updated | ✅/❌ | <present / missing> |
 | Coverage | ✅/❌/➖ | <XX.X% / below 90% / skipped> |
