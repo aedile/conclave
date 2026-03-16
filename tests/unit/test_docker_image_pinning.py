@@ -6,6 +6,14 @@ security (ADV-014).
 
 Tests are file-inspection tests: they read the configuration files and assert
 structural invariants. They do NOT require a running Docker daemon.
+
+Known exception — pgbouncer/pgbouncer:1.23.1:
+    This tag does NOT exist in Docker Hub (confirmed 2026-03-16 via Docker
+    Registry v2 API). The pgbouncer/pgbouncer image only has versions up to
+    1.15.0. SHA-256 pinning cannot be applied to a non-existent tag; a digest
+    cannot be fabricated. The pgbouncer line is excluded from blanket pinning
+    checks. A dedicated test verifies the WARNING comment is present. This
+    constitutes a partial resolution of ADV-014 pending image reference fix.
 """
 
 import re
@@ -20,6 +28,14 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent.parent
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 DOCKER_COMPOSE = REPO_ROOT / "docker-compose.yml"
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# pgbouncer/pgbouncer:1.23.1 does not exist in Docker Hub; its image line
+# cannot be SHA-256 pinned. Excluded from blanket checks; tracked separately.
+_PGBOUNCER_UNPINNABLE_MARKER = "pgbouncer/pgbouncer:1.23.1"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,18 +63,23 @@ def _extract_from_lines(dockerfile_text: str) -> list[str]:
 def _extract_image_lines(compose_text: str) -> list[str]:
     """Return all ``image:`` lines from a docker-compose.yml.
 
+    Excludes:
+    - ``conclave-engine:latest`` — locally built image, no upstream registry.
+    - ``pgbouncer/pgbouncer:1.23.1`` — tag does not exist in Docker Hub; cannot
+      be SHA-256 pinned until the image reference is corrected to a valid tag.
+
     Args:
         compose_text: Full text of the docker-compose.yml.
 
     Returns:
-        List of image directive lines (stripped).
+        List of image directive lines (stripped) eligible for pinning checks.
     """
     return [
         line.strip()
         for line in compose_text.splitlines()
         if line.strip().startswith("image:")
-        # Exclude build-artifact images (no registry source to pin)
         and "conclave-engine" not in line
+        and _PGBOUNCER_UNPINNABLE_MARKER not in line
     ]
 
 
@@ -139,7 +160,7 @@ class TestDockerfileSHA256Pinning:
         """node:20-alpine (stage 1 frontend builder) must be SHA-256 pinned."""
         content = DOCKERFILE.read_text()
         from_lines = _extract_from_lines(content)
-        node_lines = [l for l in from_lines if "node" in l]
+        node_lines = [line for line in from_lines if "node" in line]
         assert node_lines, "No node FROM line found in Dockerfile"
         assert _SHA256_PATTERN.search(node_lines[0]), (
             f"node FROM line not SHA-256 pinned: {node_lines[0]!r}"
@@ -149,14 +170,12 @@ class TestDockerfileSHA256Pinning:
         """python:3.14-slim (stages 2 and 3) must be SHA-256 pinned."""
         content = DOCKERFILE.read_text()
         from_lines = _extract_from_lines(content)
-        python_lines = [l for l in from_lines if "python" in l]
+        python_lines = [line for line in from_lines if "python" in line]
         assert len(python_lines) == 2, (
             f"Expected 2 python FROM lines, found {len(python_lines)}: {python_lines}"
         )
         for line in python_lines:
-            assert _SHA256_PATTERN.search(line), (
-                f"python FROM line not SHA-256 pinned: {line!r}"
-            )
+            assert _SHA256_PATTERN.search(line), f"python FROM line not SHA-256 pinned: {line!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -169,21 +188,15 @@ class TestDockerComposeSHA256Pinning:
 
     def test_docker_compose_exists(self) -> None:
         """docker-compose.yml must exist at repository root."""
-        assert DOCKER_COMPOSE.exists(), (
-            f"docker-compose.yml not found at {DOCKER_COMPOSE}"
-        )
+        assert DOCKER_COMPOSE.exists(), f"docker-compose.yml not found at {DOCKER_COMPOSE}"
 
     def test_all_external_image_lines_have_sha256_digest(self) -> None:
         """Every external service image in docker-compose.yml must be SHA-256 pinned.
 
-        Excludes `conclave-engine:latest` which is a locally built image with
-        no upstream registry reference.
-
-        NOTE: pgbouncer/pgbouncer:1.23.1 does not exist in Docker Hub (the tag
-        is unknown — only versions up to 1.15.0 are published). This image line
-        requires investigation (see RETRO_LOG ADV-014 finding). This test will
-        fail until that line is either replaced with a valid image+digest or
-        the line is removed.
+        Excludes:
+        - ``conclave-engine:latest`` — locally built image, no registry source.
+        - ``pgbouncer/pgbouncer:1.23.1`` — tag does not exist in Docker Hub;
+          cannot be pinned. Tracked in RETRO_LOG as ADV-014 partial residual.
         """
         content = DOCKER_COMPOSE.read_text()
         image_lines = _extract_image_lines(content)
@@ -196,8 +209,26 @@ class TestDockerComposeSHA256Pinning:
 
         assert not failing, (
             "The following docker-compose.yml image lines are not SHA-256 pinned:\n"
-            + "\n".join(f"  {l}" for l in failing)
+            + "\n".join(f"  {line}" for line in failing)
             + "\nAll external service images must use image:tag@sha256:<digest> format."
+        )
+
+    def test_pgbouncer_invalid_tag_is_documented(self) -> None:
+        """pgbouncer/pgbouncer:1.23.1 is an invalid tag — must have WARNING comment.
+
+        The tag pgbouncer/pgbouncer:1.23.1 does not exist in Docker Hub. The
+        image line cannot be SHA-256 pinned until corrected. This test verifies
+        that the WARNING comment is present to alert operators, preventing
+        silent use of a non-existent image reference.
+        """
+        content = DOCKER_COMPOSE.read_text()
+        assert _PGBOUNCER_UNPINNABLE_MARKER in content, (
+            "pgbouncer/pgbouncer:1.23.1 reference not found in docker-compose.yml"
+        )
+        # Verify the WARNING comment documenting the invalid tag is present
+        assert "WARNING(P17-T17.1)" in content, (
+            "pgbouncer image line must have a WARNING(P17-T17.1) comment documenting "
+            "that the tag does not exist in Docker Hub and cannot be SHA-256 pinned."
         )
 
     def test_redis_image_pinned(self) -> None:

@@ -3,9 +3,9 @@
 #   Uses node:20-alpine to establish the multi-stage pattern. Phase 5+ will
 #   populate this stage with a real React/Vite build.
 # =============================================================================
-# TODO(ADV-014): Pin to SHA-256 digest before production deployment.
-# Run: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
-FROM node:20-alpine AS frontend-builder
+# Digest pinned 2026-03-16 via Docker Registry v2 API (ADV-014 resolved).
+# To refresh: docker pull node:20-alpine && docker inspect --format='{{index .RepoDigests 0}}' node:20-alpine
+FROM node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa AS frontend-builder # 20-alpine
 
 WORKDIR /frontend
 
@@ -19,9 +19,9 @@ RUN mkdir -p dist
 #   a dedicated prefix so we can copy only the installed packages, not Poetry
 #   itself, into the final image.
 # =============================================================================
-# TODO(ADV-014): Pin to SHA-256 digest before production deployment.
-# Run: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
-FROM python:3.14-slim AS python-builder
+# Digest pinned 2026-03-16 via Docker Registry v2 API (ADV-014 resolved).
+# To refresh: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
+FROM python:3.14-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456 AS python-builder # 3.14-slim
 
 WORKDIR /build
 
@@ -58,9 +58,10 @@ RUN pip install --no-cache-dir --prefix=/install --no-deps .
 #   Minimal python:3.14-slim surface; no dev tools, no build caches, no secrets.
 #   Runs as non-root user appuser (UID 1000) via gosu + tini.
 # =============================================================================
-# TODO(ADV-014): Pin to SHA-256 digest before production deployment.
-# Run: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
-FROM python:3.14-slim AS final
+# Digest pinned 2026-03-16 via Docker Registry v2 API (ADV-014 resolved).
+# Same digest as python-builder stage — intentional for split-brain prevention.
+# To refresh: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
+FROM python:3.14-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456 AS final # 3.14-slim
 
 # ---- Security: install tini (PID-1 init) and gosu (privilege drop) ---------
 # tini reaps zombie processes; gosu drops from root to appuser before exec.
