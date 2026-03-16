@@ -90,7 +90,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Phase 14 — Integration Test Repair & Frontend Lint Fix is in progress.**
+**Phase 15 — Frontend Coverage Gate & Operational Polish is in progress.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -110,7 +110,8 @@ Security is Priority Zero — it overrides every other consideration.
 | **11 — Documentation Currency & Workspace Hygiene** | **Complete** | Documentation updates, workspace cleanup, architectural gap ADR |
 | **12 — Final Hygiene & Tooling Polish** | **Complete** | Stale branch cleanup, vulture whitelist, README currency |
 | **13 — Pre-commit Repair & README Finalization** | **Complete** | Fix ruff/vulture whitelist gate, README Phase 12 completion |
-| **14 — Integration Test Repair & Frontend Lint Fix** | **In Progress** | Integration test repair, ESLint 9.x config, nosec justifications |
+| **14 — Integration Test Repair & Frontend Lint Fix** | **Complete** | Integration test repair, ESLint 9.x config, nosec justifications |
+| **15 — Frontend Coverage Gate & Operational Polish** | **In Progress** | Frontend coverage gate repair, README update, branch cleanup |
 
 ---
 
