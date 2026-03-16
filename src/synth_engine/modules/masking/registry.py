@@ -15,8 +15,11 @@ state.
 from enum import Enum
 
 from synth_engine.modules.masking.algorithms import (
+    mask_address,
     mask_credit_card,
     mask_email,
+    mask_first_name,
+    mask_last_name,
     mask_name,
     mask_phone,
     mask_ssn,
@@ -38,10 +41,13 @@ class ColumnType(str, Enum):
     """Supported PII column types for deterministic masking."""
 
     NAME = "name"
+    FIRST_NAME = "first_name"
+    LAST_NAME = "last_name"
     EMAIL = "email"
     SSN = "ssn"
     CREDIT_CARD = "credit_card"
     PHONE = "phone"
+    ADDRESS = "address"
 
 
 class MaskingRegistry:
@@ -159,6 +165,10 @@ class MaskingRegistry:
         match column_type:
             case ColumnType.NAME:
                 return mask_name(value, salt, max_length=max_length)
+            case ColumnType.FIRST_NAME:
+                return mask_first_name(value, salt, max_length=max_length)
+            case ColumnType.LAST_NAME:
+                return mask_last_name(value, salt, max_length=max_length)
             case ColumnType.EMAIL:
                 return mask_email(value, salt, max_length=max_length)
             case ColumnType.SSN:
@@ -167,5 +177,7 @@ class MaskingRegistry:
                 return mask_credit_card(value, salt)
             case ColumnType.PHONE:
                 return mask_phone(value, salt, max_length=max_length)
+            case ColumnType.ADDRESS:
+                return mask_address(value, salt, max_length=max_length)
             case _:
                 raise ValueError(f"No masking algorithm registered for {column_type!r}")

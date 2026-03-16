@@ -32,6 +32,7 @@ allowed to import from any module.
 CONSTITUTION Priority 0: Security — no credential echo, SELECT-only validation.
 Task: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
 Task: P21-T21.1 — Fix CLI masking config to match sample data schema (customers)
+Task: P21-T21.2 — Masking algorithm split: first_name, last_name, address
 """
 
 from __future__ import annotations
@@ -47,7 +48,14 @@ from sqlalchemy import create_engine
 
 from synth_engine.modules.ingestion.validators import validate_connection_string
 from synth_engine.modules.mapping.reflection import SchemaReflector
-from synth_engine.modules.masking.algorithms import mask_email, mask_name, mask_phone, mask_ssn
+from synth_engine.modules.masking.algorithms import (
+    mask_address,
+    mask_email,
+    mask_first_name,
+    mask_last_name,
+    mask_phone,
+    mask_ssn,
+)
 from synth_engine.modules.subsetting.core import SubsettingEngine
 from synth_engine.modules.subsetting.egress import EgressWriter
 from synth_engine.shared.schema_topology import ColumnInfo, ForeignKeyInfo, SchemaTopology
@@ -79,14 +87,23 @@ if not _CLI_MASKING_SALT:
 # NOTE: This config is sample-data-specific (matches the schema in sample_data/).
 # Production deployments should use schema-driven masking config (future task).
 # The sample data schema has a 'customers' table with the PII columns below.
+#
+# P21-T21.2: first_name and last_name use mask_first_name/mask_last_name
+# (Faker.first_name()/last_name()) rather than mask_name (Faker.name()),
+# which produces "First Last" (two words) — incorrect for single-component columns.
+# address uses mask_address (Faker.address()) rather than mask_name.
+#
+# Type reflects call-site usage: only (value, salt) are passed through the dict.
+# Registered functions may accept additional optional params (e.g. max_length)
+# which are unused in this CLI path.
 _COLUMN_MASKS: dict[str, dict[str, Callable[[str, str], str]]] = {
     "customers": {
-        "first_name": mask_name,
-        "last_name": mask_name,
+        "first_name": mask_first_name,
+        "last_name": mask_last_name,
         "email": mask_email,
         "ssn": mask_ssn,
         "phone": mask_phone,
-        "address": mask_name,
+        "address": mask_address,
     },
 }
 

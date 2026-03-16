@@ -11,7 +11,7 @@ from synth_engine.modules.masking.luhn import luhn_check as luhn_check
 
 
 def mask_name(value: str, salt: str, max_length: int | None = None) -> str:
-    """Deterministically mask a person's name using Faker.
+    """Deterministically mask a person's full name using Faker.
 
     Args:
         value: The original name to mask.
@@ -19,9 +19,63 @@ def mask_name(value: str, salt: str, max_length: int | None = None) -> str:
         max_length: Optional VARCHAR constraint; output is truncated if exceeded.
 
     Returns:
-        A deterministic fake name string.
+        A deterministic fake full name string (may contain spaces).
     """
     return mask_value(value, salt, lambda f: f.name(), max_length=max_length)
+
+
+def mask_first_name(value: str, salt: str, max_length: int | None = None) -> str:
+    """Deterministically mask a first name column using Faker.first_name().
+
+    Unlike :func:`mask_name`, this function always produces a single word
+    (no spaces), making it correct for ``first_name`` columns that should
+    not contain a full "First Last" name.
+
+    Args:
+        value: The original first name to mask.
+        salt: Domain-separation salt (e.g. "customers.first_name").
+        max_length: Optional VARCHAR constraint; output is truncated if exceeded.
+
+    Returns:
+        A deterministic fake first name string containing no spaces.
+    """
+    return mask_value(value, salt, lambda f: f.first_name(), max_length=max_length)
+
+
+def mask_last_name(value: str, salt: str, max_length: int | None = None) -> str:
+    """Deterministically mask a last name column using Faker.last_name().
+
+    Unlike :func:`mask_name`, this function always produces a single word
+    (no spaces), making it correct for ``last_name`` columns that should
+    not contain a full "First Last" name.
+
+    Args:
+        value: The original last name to mask.
+        salt: Domain-separation salt (e.g. "customers.last_name").
+        max_length: Optional VARCHAR constraint; output is truncated if exceeded.
+
+    Returns:
+        A deterministic fake last name string containing no spaces.
+    """
+    return mask_value(value, salt, lambda f: f.last_name(), max_length=max_length)
+
+
+def mask_address(value: str, salt: str, max_length: int | None = None) -> str:
+    """Deterministically mask a street address using Faker.address().
+
+    Unlike :func:`mask_name`, this function produces a street address string,
+    not a person's name.
+
+    Args:
+        value: The original address to mask.
+        salt: Domain-separation salt (e.g. "customers.address").
+        max_length: Optional VARCHAR constraint; output is truncated if exceeded.
+
+    Returns:
+        A deterministic fake street address string.  Note: Faker.address()
+        may produce multi-line output containing newline characters.
+    """
+    return mask_value(value, salt, lambda f: f.address(), max_length=max_length)
 
 
 def mask_email(value: str, salt: str, max_length: int | None = None) -> str:

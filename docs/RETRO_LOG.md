@@ -20,6 +20,44 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P21-T21.2 — Masking Algorithm Split: first_name, last_name, address
+
+**Changes**:
+- `src/synth_engine/modules/masking/algorithms.py`: Added `mask_first_name`, `mask_last_name`,
+  `mask_address` functions using `Faker.first_name()`, `Faker.last_name()`, `Faker.address()`
+  respectively. `mask_name` preserved unchanged for backward compat.
+- `src/synth_engine/bootstrapper/cli.py`: Updated `_COLUMN_MASKS` to wire correct per-column
+  functions. Added type annotation comment.
+- `src/synth_engine/modules/masking/registry.py`: Added `ColumnType.FIRST_NAME`, `LAST_NAME`,
+  `ADDRESS` enum members with `_apply()` dispatch.
+- `tests/unit/test_masking_algorithms.py`: 14 new tests (determinism, single-word, max_length,
+  empty input for all three new functions).
+- `tests/unit/test_cli.py`: 3 function-reference identity tests + single-word assertions.
+- `tests/unit/test_masking_registry.py`: 13 new tests for new ColumnType members.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 1052 unit tests PASS (96.85% coverage).
+pre-commit PASS (all 8 hooks).
+
+**Review**: QA FINDING (2 fixed), DevOps PASS, Architecture FINDING (1 fixed)
+
+**QA** (FINDING — 2 fixed):
+1. `mask_address` docstring omitted `Faker.address()` newline behavior — docstring updated.
+2. `MaskingRegistry.ColumnType` missing `FIRST_NAME`/`LAST_NAME`/`ADDRESS` — added with dispatch
+   and 13 tests. Prevents dual-dispatch drift between CLI and registry paths.
+
+**Architecture** (FINDING — 1 fixed):
+1. `_COLUMN_MASKS` `Callable[[str, str], str]` type annotation underspecifies `max_length` —
+   comment added explaining call-site vs full signature distinction.
+
+**Retrospective Note**:
+The `mask_name` → per-column split is the same class of configuration drift that caused T21.1
+(`"persons"` → `"customers"`). The function-reference identity tests (`is mask_first_name`)
+and single-word assertions (`" " not in result`) are the structural guards. The QA finding
+about dual dispatch (CLI `_COLUMN_MASKS` vs `MaskingRegistry.ColumnType`) is worth watching:
+two independent dispatch paths for the same domain concept will drift unless consolidated.
+
+---
+
 ### [2026-03-16] Phase 20 End-of-Phase Retrospective
 
 **Phase Goal**: Address correctness, security, and functionality findings from the
