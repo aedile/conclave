@@ -369,21 +369,23 @@ export default function Dashboard(): JSX.Element {
             }}
           >
             {/* Form validation error — id="form-error" enables aria-describedby
-                association from the triggering input field (WCAG 1.3.1). */}
-            {formValidationError !== null && (
-              <div
-                id="form-error"
-                role="alert"
-                style={{
-                  gridColumn: "1 / -1",
-                  color: "var(--color-error)",
-                  fontSize: "0.875rem",
-                  padding: "var(--spacing-xs) 0",
-                }}
-              >
-                {formValidationError}
-              </div>
-            )}
+                association from the triggering input field (WCAG 1.3.1).
+                WCAG FIX: Container is always in the DOM so NVDA+Firefox does not
+                swallow repeat announcements when the same error fires twice.
+                Only the text content is conditional; padding collapses to 0 when
+                empty so the layout is unaffected. */}
+            <div
+              id="form-error"
+              role="alert"
+              style={{
+                gridColumn: "1 / -1",
+                color: "var(--color-error)",
+                fontSize: "0.875rem",
+                padding: formValidationError !== null ? "var(--spacing-xs) 0" : "0",
+              }}
+            >
+              {formValidationError}
+            </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-xs)" }}>
               <label

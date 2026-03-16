@@ -645,11 +645,12 @@ describe("Dashboard — RFC 7807 error handling", () => {
     renderDashboard();
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      // Scope text assertion to the alert element to avoid matching the
-      // AssertiveAnnouncement aria-live region which also contains the title.
-      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+      // form-error div (role="alert") is always in the DOM but empty here —
+      // pick the toast which is the alert with non-empty textContent.
+      const alerts = screen.getAllByRole("alert");
+      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
+      expect(toastAlert).toBeInTheDocument();
+      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -689,9 +690,12 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /start/i }));
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+      // form-error div (role="alert") is always in the DOM but empty here —
+      // pick the toast which is the alert with non-empty textContent.
+      const alerts = screen.getAllByRole("alert");
+      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
+      expect(toastAlert).toBeInTheDocument();
+      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -714,9 +718,12 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /create job/i }));
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+      // form-error div (role="alert") is always in the DOM but empty here —
+      // pick the toast which is the alert with non-empty textContent.
+      const alerts = screen.getAllByRole("alert");
+      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
+      expect(toastAlert).toBeInTheDocument();
+      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
     });
   });
 
@@ -739,9 +746,12 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /load more/i }));
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      expect(within(alert).getByText(/internal server error/i)).toBeInTheDocument();
+      // form-error div (role="alert") is always in the DOM but empty here —
+      // pick the toast which is the alert with non-empty textContent.
+      const alerts = screen.getAllByRole("alert");
+      const toastAlert = alerts.find((el) => el.textContent!.trim().length > 0)!;
+      expect(toastAlert).toBeInTheDocument();
+      expect(within(toastAlert).getByText(/internal server error/i)).toBeInTheDocument();
     });
 
     // Load More button should be re-enabled (isLoadingMore reset to false)
