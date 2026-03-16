@@ -168,6 +168,11 @@ jobs:
   # the --cov-fail-under=90 addopt (integration-only coverage is ~15%), and
   # -p pytest_postgresql to re-enable the plugin overridden by
   # -p no:pytest_postgresql in addopts (later CLI args win).
+  #
+  # T19.3: A verify_integration_count step runs BEFORE the test run.
+  # If pytest --collect-only reports 0 tests, CI fails loudly rather than
+  # producing a false-green from an empty test suite (e.g. PostgreSQL service
+  # failure causing all tests to skip silently).
   # ---------------------------------------------------------------------------
   integration-test:
     name: Integration Tests (Python 3.14)
@@ -195,6 +200,10 @@ jobs:
         run: pg_ctl --version
       - name: Install dependencies (dev + integration)
         run: poetry install --with dev,integration
+      - name: Verify integration test count > 0 (T19.3 CI gate)
+        # Fails loudly if 0 tests are collected — prevents false-green from
+        # a silent skip-all when PostgreSQL is unavailable.
+        run: bash scripts/verify_integration_count.sh
       - name: Run integration tests
         run: poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql -m "not synthesizer"
 
