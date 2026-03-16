@@ -90,7 +90,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Phase 10 — Test Infrastructure Repair & Final Polish is in progress.**
+**Phase 11 — Documentation Currency & Workspace Hygiene is in progress.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -106,7 +106,8 @@ Security is Priority Zero — it overrides every other consideration.
 | 7 — Differential Privacy | Complete | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks, E2E DP pipeline |
 | 8 — Security Hardening | Complete | HMAC artifact signing, Alembic migrations, startup config validation, ADR-0017a |
 | **9 — Docs & Advisory Drain** | **Complete** | Operator manual refresh, advisory drain, observability |
-| **10 — Test Infrastructure Repair & Final Polish** | **In Progress** | Stale TODO drain, README updates, test infrastructure repair |
+| **10 — Test Infrastructure Repair & Final Polish** | **Complete** | Stale TODO drain, README updates, test infrastructure repair |
+| **11 — Documentation Currency & Workspace Hygiene** | **In Progress** | Documentation updates, workspace cleanup, architectural gap ADR |
 
 ---
 

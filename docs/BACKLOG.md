@@ -13,6 +13,11 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 4: Advanced Generative AI & Differential Privacy](backlog/phase-4.md)
 *   [Phase 5: Orchestration, UI, & Licensing](backlog/phase-5.md)
 *   [Phase 6: Integration, Audit & Finalization](backlog/phase-6.md)
+*   [Phase 7: Differential Privacy Integration](backlog/phase-7.md)
+*   [Phase 8: Advisory Drain Sprint](backlog/phase-8.md)
+*   [Phase 9: Production Hardening & Correctness Sprint](backlog/phase-9.md)
+*   [Phase 10: Test Infrastructure Repair & Final Polish](backlog/phase-10.md)
+*   [Phase 11: Documentation Currency & Workspace Hygiene](backlog/phase-11.md)
 
 ---
 
@@ -72,3 +77,31 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 6.1 [Dev B]:** Execute E2E Integration Tests for Generative Synthesis (Dummy ML assertions).
 *   **Task 6.2 [Dev C]:** Validate NIST SP 800-88 Cryptographic Erasure triggers, OWASP validation, and LLM Fuzz Testing.
 *   **Task 6.3 [Dev D]:** Final Security Remediation, Documentation generation, and Platform Handover validation.
+
+### [Phase 7: Differential Privacy Integration](backlog/phase-7.md)
+*   **Task 7.1:** ADR-0025: Custom CTGAN Training Loop Architecture.
+*   **Task 7.2:** Custom CTGAN Training Loop.
+*   **Task 7.3:** Opacus End-to-End Wiring.
+*   **Task 7.4:** ProfileDelta Validation & Quality Benchmarks.
+*   **Task 7.5:** Phase 7 E2E Test & Retrospective.
+
+### [Phase 8: Advisory Drain Sprint](backlog/phase-8.md)
+*   **Task 8.1:** Integration Test Gaps (ADV-021, ADV-064).
+*   **Task 8.2:** Security Hardening (ADV-040, ADV-057, ADV-058, ADV-067).
+*   **Task 8.3:** Data Model & Architecture Cleanup (ADV-050, ADV-054, ADV-071).
+*   **Task 8.4:** CI Infrastructure (ADV-052, ADV-062, ADV-065, ADV-066, ADV-069).
+*   **Task 8.5:** Documentation & Operator Gaps (ADV-070, ADV-072).
+
+### [Phase 9: Production Hardening & Correctness Sprint](backlog/phase-9.md)
+*   **Task 9.1:** Advisory Drain + Startup Validation (ADV-073–077).
+*   **Task 9.2:** Operator Manual Refresh.
+*   **Task 9.3:** Bootstrapper Decomposition.
+
+### [Phase 10: Test Infrastructure Repair & Final Polish](backlog/phase-10.md)
+*   **Task 10.1:** Fix pytest-asyncio Python 3.14.1 Compatibility.
+*   **Task 10.2:** Drain Stale TODO and Update README Status.
+
+### [Phase 11: Documentation Currency & Workspace Hygiene](backlog/phase-11.md)
+*   **Task 11.1:** Documentation Currency (README, BACKLOG.md).
+*   **Task 11.2:** Workspace Hygiene (Worktrees, Spikes, .gitignore).
+*   **Task 11.3:** Architectural Requirements Gap ADR.
