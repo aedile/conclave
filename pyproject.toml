@@ -216,7 +216,7 @@ packages = ["synth_engine"]
 # ---------------------------------------------------------------------------
 
 [[tool.mypy.overrides]]
-module = ["sdv.*", "ctgan.*", "opacus.*"]
+module = ["sdv.*", "ctgan.*", "opacus.*", "huey", "huey.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

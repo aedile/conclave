@@ -784,12 +784,22 @@ class TestE2eValidationDoc:
         content = doc_path.read_text(encoding="utf-8").lower()
         assert "synth" in content, "E2E_VALIDATION.md must document the synthesis step"
 
-    def test_e2e_doc_contains_todo_capture_markers(self) -> None:
-        """docs/E2E_VALIDATION.md must contain TODO capture markers for live validation."""
+    def test_e2e_doc_contains_live_validation_evidence(self) -> None:
+        """docs/E2E_VALIDATION.md must contain live validation evidence (P19-T19.4).
+
+        T18.3 required TODO markers as placeholders. T19.4 replaces those markers
+        with actual terminal output. This test verifies the live run evidence is
+        present and the document has been updated from its placeholder state.
+        """
         doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
         if not doc_path.is_file():
             pytest.skip("docs/E2E_VALIDATION.md not found")
         content = doc_path.read_text(encoding="utf-8")
-        assert "TODO" in content, (
-            "E2E_VALIDATION.md must contain TODO markers for live validation captures"
+        # T19.4 replaced TODO markers with live evidence — validate key evidence strings
+        assert "LIVE VALIDATION EVIDENCE" in content, (
+            "E2E_VALIDATION.md must contain live validation evidence from P19-T19.4 run"
         )
+        assert "FINDING" in content, (
+            "E2E_VALIDATION.md must document findings from the live validation run"
+        )
+        assert "Exit code: 0" in content, "E2E_VALIDATION.md must capture CLI exit code evidence"

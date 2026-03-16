@@ -33,7 +33,7 @@ import logging
 import os
 from urllib.parse import urlparse, urlunparse
 
-from huey import (  # type: ignore[import-untyped]  # huey has no py.typed marker; unfixable without upstream changes
+from huey import (  # huey: import suppressed via pyproject.toml [[tool.mypy.overrides]]
     Huey,
 )
 
