@@ -152,6 +152,80 @@ branches. No new features.
 
 ---
 
+## T17.4 — Process Governance Slimming
+
+**Priority**: P1 — Process sustainability (no Constitutional priority — this is meta-governance).
+
+### Context & Constraints
+
+1. The governance system has mechanisms to ADD process (retrospective findings become
+   rules, advisory items become tasks, review findings become fix commits) but ZERO
+   mechanisms to REMOVE process. Every failure adds a rule. No success removes one.
+   CLAUDE.md has grown from ~200 lines to 603 lines across 17 phases.
+
+2. The UI/UX reviewer is spawned on every task but SKIPs ~60% of the time (18 of ~83
+   review commits are SKIPs). Each SKIP costs 13K+ tokens and wall-clock time for a
+   predictable outcome on backend/infra/docs tasks.
+
+3. The Architecture reviewer similarly gets spawned on tasks with no `src/synth_engine/`
+   changes despite CLAUDE.md already defining a trigger rule for when it should fire.
+
+4. RETRO_LOG is 2,633 lines. Rule 10 requires the developer agent to scan it for known
+   failure patterns before every task. Ancient Phase 2 review details are irrelevant to
+   Phase 17+ work but consume tokens on every brief.
+
+5. CLAUDE.md Rules 1 and 5 overlap (Rule 5 supersedes Rule 1). Rule 14 (ChromaDB seeding)
+   adds overhead to every task for a learning system whose consumption has not been validated.
+
+6. Review commits use 4 separate commits per task (qa, devops, arch, ui-ux). On a docs-only
+   task, that's 3 commits for findings that could be one line each.
+
+7. Phases 10-15 were each 1-3 commits fixing problems the previous phase introduced.
+   Full phase ceremony (backlog file, README update, BACKLOG.md index, retrospective)
+   on a 2-commit fix is disproportionate overhead.
+
+### Acceptance Criteria
+
+1. **Conditional reviewer spawning**: PM only spawns UI/UX reviewer when diff touches
+   `frontend/`, `*.tsx`, `*.css`, or template files. PM only spawns Architecture reviewer
+   when diff touches `src/synth_engine/` or adds new `.py` files under `src/`. CLAUDE.md
+   updated to encode these as explicit file-path trigger rules.
+
+2. **RETRO_LOG rolling window**: Detailed per-task review sections older than 3 phases
+   archived to `docs/retro_archive/phase-N.md`. Open Advisory Items table stays in
+   live file permanently. Target: RETRO_LOG under 800 lines.
+
+3. **CLAUDE.md rule consolidation**: Rules 1 and 5 merged. Rule 14 (ChromaDB seeding)
+   evaluated and either justified with evidence of consumption or deleted. Target:
+   CLAUDE.md under 500 lines.
+
+4. **Rule sunset clause added**: New rule added to CLAUDE.md: every retrospective-sourced
+   rule carries `[sunset: Phase N+5]`. At the tagged phase, PM evaluates whether the rule
+   prevented a recurrence. If not, rule is deleted. CLAUDE.md line cap: 400 lines.
+   If an amendment would exceed the cap, existing rules must be consolidated or retired.
+
+5. **Consolidated review commits**: Replace 4 separate `review(qa/devops/arch/ui-ux):`
+   commits with one `review: <task> — QA PASS, DevOps PASS, ...` commit. Detailed
+   findings in RETRO_LOG only.
+
+6. **Materiality threshold for roast findings**: Cosmetic-only roast findings (formatting,
+   comment wording, doc phrasing) get batched into a single "polish" task within the next
+   feature phase — not a standalone phase. Standalone phases reserved for findings that
+   affect correctness, security, or functionality.
+
+7. **Small-fix batching**: If a "phase" would have fewer than 5 meaningful commits, it
+   doesn't warrant standalone phase ceremony. Instead, it becomes a task within the
+   current or next phase.
+
+### Testing & Quality Gates
+
+- CLAUDE.md must be under 500 lines after consolidation.
+- RETRO_LOG must be under 800 lines after archival.
+- `pre-commit run --all-files` must pass.
+- All review agents spawned (using new conditional rules — this task is the test case).
+
+---
+
 ## Phase 17 Exit Criteria
 
 - Docker base images pinned to SHA-256 digests (Dockerfile + docker-compose.yml).
@@ -163,5 +237,10 @@ branches. No new features.
 - All stale remote branches cleaned.
 - ADR format consistency restored.
 - README current with Phase 16 completion and Phase 17 status.
+- CLAUDE.md under 500 lines with rule sunset clause.
+- RETRO_LOG under 800 lines with rolling window archival.
+- Review spawning is conditional on file-path triggers.
+- Review commits consolidated to one per task.
+- Materiality threshold and small-fix batching rules in place.
 - All quality gates passing.
 - Phase 17 end-of-phase retrospective completed.
