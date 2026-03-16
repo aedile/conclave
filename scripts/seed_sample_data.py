@@ -293,13 +293,15 @@ def generate_payments(
 ) -> list[dict[str, Any]]:
     """Generate fictional payment records referencing provided orders.
 
-    Most orders have exactly one payment; a small percentage are split payments.
+    When n is None, generates exactly one payment per order using the order's
+    total_amount. When n is provided, generates exactly n payments distributed
+    randomly across orders.
 
     Args:
         orders: Order records produced by generate_orders(). Each payment's
                 order_id references an order's id.
-        n: Total number of payments to generate. If None, generates one
-           payment per order (with 10% chance of a second payment).
+        n: Total number of payments to generate. If None, generates exactly
+           one payment per order.
         seed: Deterministic seed for random generation.
 
     Returns:
@@ -455,7 +457,7 @@ def _execute_against_db(dsn: str, ddl: str, tables: dict[str, list[dict[str, Any
                 logger.info("Inserted %d rows into %s", len(rows), table_name)
         conn.commit()
         logger.info("Transaction committed.")
-    except Exception:
+    except psycopg2.Error:
         conn.rollback()
         logger.exception("Database error — transaction rolled back.")
         raise
