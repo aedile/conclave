@@ -12,15 +12,71 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-017 | T19.4 | TBD | BLOCKER | Dockerfile inline `# comment` after `FROM ... AS name` causes BuildKit parse error |
-| ADV-018 | T19.4 | TBD | BLOCKER | docker-compose.yml redis `cap_drop: ALL` incompatible with redis:7-alpine user-switching |
-| ADV-019 | T19.4 | TBD | BLOCKER | docker-compose.yml pgbouncer `DATABASES_HOST` should be `DB_HOST` for edoburu/pgbouncer |
-| ADV-020 | T19.4 | TBD | ADVISORY | cli.py `sslmode=require` enforced for internal Docker hostnames; postgres has no SSL |
-| ADV-021 | T19.4 | TBD | BLOCKER | bootstrapper/cli.py `col.get('primary_key', 0)` always 0; FK traversal never fires; fix: use `Inspector.get_pk_constraint()` |
+| ADV-017 | T19.4 | T20.2 | BLOCKER | Dockerfile inline `# comment` after `FROM ... AS name` causes BuildKit parse error |
+| ADV-018 | T19.4 | T20.2 | BLOCKER | docker-compose.yml redis `cap_drop: ALL` incompatible with redis:7-alpine user-switching |
+| ADV-019 | T19.4 | T20.2 | BLOCKER | docker-compose.yml pgbouncer `DATABASES_HOST` should be `DB_HOST` for edoburu/pgbouncer |
+| ADV-020 | T19.4 | T20.4 | ADVISORY | cli.py `sslmode=require` enforced for internal Docker hostnames; postgres has no SSL |
+| ADV-021 | T19.4 | T20.1 | BLOCKER | bootstrapper/cli.py `col.get('primary_key', 0)` always 0; FK traversal never fires; fix: use `Inspector.get_pk_constraint()` |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] Phase 19 End-of-Phase Retrospective
+
+**Phase Goal**: Fix critical correctness and security findings from the Phase 18 roast,
+close the E2E validation gap, and add missing production safeguards. No new features.
+
+**Exit Criteria Verification**:
+- RFC7807Middleware converted to pure ASGI middleware: PASS (T19.1 — PR #93)
+- DB engine singleton cached: PASS (T19.1 — PR #93)
+- EgressWriter transaction boundaries verified: PASS (T19.1 — PR #93)
+- X-Forwarded-For proxy trust documented/enforced: PASS (T19.2 — PR #94)
+- MASKING_SALT enforced in production config validation: PASS (T19.2 — PR #94)
+- ADV-016 resolved (pgbouncer scram-sha-256): PASS (T19.2 — PR #94)
+- CI integration test gate enforces >0 collected: PASS (T19.3 — PR #96)
+- hypothesis property-based tests added (≥5): PASS — 15 tests (T19.3 — PR #96)
+- Concurrent budget contention tested: PASS (T19.3 — PR #96)
+- Live E2E pipeline executed through Docker Compose: PARTIAL (T19.4 — PR #97)
+  - 3 of 8 services started; 5 findings documented as ADV-017 through ADV-021
+  - Seed script: SUCCESS. CLI: exit 0 but FK traversal broken (ADV-021).
+- E2E_VALIDATION.md TODO markers replaced with evidence: PASS (T19.4 — PR #97)
+- CLAUDE.md ≤400 lines with rule sunset evaluation: PASS — 256 lines (T19.5 — PR #95)
+- All quality gates passing: PASS — 974 unit tests, 96.30% coverage
+- Phase 19 end-of-phase retrospective: this entry
+
+**Open advisory count**: 5 (ADV-017 through ADV-021, all from T19.4 E2E validation)
+- ADV-017, ADV-018, ADV-019 → T20.2 (Docker infrastructure fixes)
+- ADV-020 → T20.4 (architecture tightening)
+- ADV-021 → T20.1 (correctness — FK traversal broken)
+
+**What went well**:
+1. T19.3 and T19.5 ran in parallel — third successful parallel execution. No rebase
+   conflicts because they touched non-overlapping files (tests+pyproject vs CLAUDE.md+docs).
+2. T19.4 E2E validation proved its value immediately: discovered 5 real issues including
+   a critical correctness bug (ADV-021: FK traversal never fires via CLI path). This bug
+   was masked for 19 phases because integration tests use SubsettingEngine directly,
+   bypassing the CLI's topology loading path. The task justified its P0 priority.
+3. T19.5 process sunset reduced CLAUDE.md from 505→256 lines — 49% reduction. Rules 2, 3, 7
+   retired after evidence-based evaluation against git history. Lower cognitive overhead for
+   future developer agents.
+4. Every review FINDING across T19.1, T19.2, T19.3 was fixed before merge (12 total fixes).
+   The feedback_review_findings_must_be_fixed memory continues to hold at 100%.
+5. ADV-016 (pgbouncer md5→scram-sha-256) drained in T19.2, closing a Phase 18 advisory.
+
+**What could improve**:
+1. T19.4 E2E validation was PARTIAL — only 3/8 Docker services started. The remaining 5
+   findings (ADV-017 through ADV-021) mean we still cannot prove the system works end-to-end
+   in containers. These are now Phase 20 entry blockers for T20.2.
+2. ADV-021 (FK traversal broken in CLI) is the most serious finding in the project's history.
+   The subsetting engine's core value proposition — relational traversal — has never worked
+   via the CLI path. This was not caught because all tests exercise the engine directly with
+   pre-built SchemaTopology objects. Lesson: E2E validation through the actual deployment
+   entry point (CLI, API) should be a phase-exit gate, not a one-time task.
+3. The Phase 19 roast (which created Phase 20) found issues that existed since early phases.
+   Periodic roasts should be formalized — every 5 phases, not just when the backlog empties.
 
 ---
 
