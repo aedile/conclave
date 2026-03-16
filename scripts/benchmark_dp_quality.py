@@ -44,7 +44,7 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper  # noqa: E402
-from synth_engine.modules.profiler.models import ProfileDelta  # noqa: E402
+from synth_engine.modules.profiler.models import ProfileDelta, TableProfile  # noqa: E402
 from synth_engine.modules.profiler.profiler import StatisticalProfiler  # noqa: E402
 from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN  # noqa: E402
 
@@ -163,7 +163,7 @@ def _generate_source_data() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def _build_metadata(df: pd.DataFrame) -> Any:
+def _build_metadata(df: pd.DataFrame) -> Any:  # -> Any: sdv.metadata has no public type stubs
     """Detect SDV SingleTableMetadata from a DataFrame.
 
     Args:
@@ -234,7 +234,7 @@ def _train_dp(
 
 def _check_acceptance(
     delta: ProfileDelta,
-    source_profile: Any,
+    source_profile: TableProfile,
 ) -> bool:
     """Check whether a ProfileDelta passes acceptance criteria.
 
@@ -243,6 +243,10 @@ def _check_acceptance(
       of the source column's stddev.
     - All categorical columns (department): |cardinality_drift| / source_cardinality
       <= 0.10 (proxy for 10% KL divergence threshold).
+
+    A missing column entry in the ProfileDelta or source profile for either
+    numeric or categorical columns causes this function to return False — the
+    absence of data is treated as a failure, not a pass.
 
     Args:
         delta: ProfileDelta between source and synthetic profiles.
@@ -270,11 +274,11 @@ def _check_acceptance(
     for col_name in _CATEGORICAL_COLUMNS:
         col_delta = delta.column_deltas.get(col_name)
         if col_delta is None or col_delta.cardinality_drift is None:
-            continue
+            return False
 
         source_col = source_profile.columns.get(col_name)
         if source_col is None or not source_col.cardinality:
-            continue
+            return False
 
         ratio = abs(col_delta.cardinality_drift) / source_col.cardinality
         if ratio > _KL_DIVERGENCE_THRESHOLD:
@@ -293,7 +297,7 @@ def _build_row(
     noise_multiplier: float,
     actual_epsilon: float,
     delta: ProfileDelta,
-    source_profile: Any,
+    source_profile: TableProfile,
 ) -> BenchmarkRow:
     """Assemble a BenchmarkRow from a ProfileDelta.
 
@@ -380,7 +384,7 @@ def _format_table(rows: list[BenchmarkRow]) -> str:
 
 def _format_markdown_report(
     rows: list[BenchmarkRow],
-    source_profile: Any,
+    source_profile: TableProfile,
 ) -> str:
     """Format benchmark results as a Markdown report for docs/.
 
@@ -584,6 +588,8 @@ def main() -> None:
     5. Print summary table to stdout.
     6. Write Markdown report to docs/DP_QUALITY_REPORT.md.
     """
+    # print() is intentional — benchmark output is developer-facing terminal tables,
+    # not structured logs.
     print("=" * 80)
     print("Air-Gapped Synthetic Data Engine — DP Quality Benchmark (P7-T7.4)")
     print("=" * 80)
