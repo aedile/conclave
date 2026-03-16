@@ -21,6 +21,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 11: Documentation Currency & Workspace Hygiene](backlog/phase-11.md)
 *   [Phase 12: Final Hygiene & Tooling Polish](backlog/phase-12.md)
 *   [Phase 13: Pre-commit Repair & README Finalization](backlog/phase-13.md)
+*   [Phase 14: Integration Test Repair & Frontend Lint Fix](backlog/phase-14.md)
 
 ---
 
@@ -122,3 +123,8 @@ This document serves as the top-level index for all project phases and their con
 
 ### [Phase 13: Pre-commit Repair & README Finalization](backlog/phase-13.md)
 *   **Task 13.1:** Fix Vulture Whitelist Ruff Compliance & README Final Status.
+
+### [Phase 14: Integration Test Repair & Frontend Lint Fix](backlog/phase-14.md)
+*   **Task 14.1:** Fix Integration Test Failures (DP, Privacy Accountant, SSE).
+*   **Task 14.2:** Frontend ESLint 9.x Configuration & Nosec Justifications.
+*   **Task 14.3:** README Phase 13 Completion & Phase 14 Status.
