@@ -18,6 +18,47 @@ Drain (delete) rows when their target task is completed.
 ## Task Reviews
 
 ---
+### [2026-03-16] P16-T16.1 — Alembic Migration 003: Epsilon Column Precision Fix
+
+**Changes**:
+- `alembic/versions/003_fix_epsilon_column_precision.py`: migration 003 ALTERs three
+  epsilon columns on `privacy_ledger` and `privacy_transaction` from FLOAT8 to
+  NUMERIC(20,10). Revision chain 003 -> 002. Reversible via downgrade.
+- `docs/adr/ADR-0030-float-to-numeric-epsilon-precision.md`: ADR documenting the
+  Float -> NUMERIC technology substitution (CLAUDE.md Rule 6), ADV-050 rationale,
+  migration path, and alternatives. Status: Accepted.
+- `src/synth_engine/modules/privacy/ledger.py`: module docstring migration note updated
+  from stale "Alembic not yet initialised -- T8.4" to "resolved -- migration 003".
+- `tests/unit/test_migration_003_epsilon_precision.py`: 17 file-inspection tests
+  covering migration existence, revision chain, ALTER operations, Numeric type,
+  Float downgrade, docstring update, and ADR-0030 presence.
+
+**Quality Gates**:
+- ruff: PASS (0 issues)
+- mypy: PASS (80 source files, 0 issues)
+- bandit: PASS (0 HIGH/MEDIUM findings)
+- pytest unit: 825 passed, 1 skipped, 96.24% coverage
+- pytest integration: 72 passed
+
+**Reviews**:
+- QA: PASS — 17 new tests, all file-inspection (no mocks needed), cover all 5 ACs;
+  epsilon assertions use Decimal not float (guarded ADV-050/P14-T14.1 pattern)
+- UI/UX: SKIP — no template/route/form/frontend changes
+- DevOps: PASS — migration reversible, no secrets, no new dependencies,
+  migration chain unbroken (001 → 002 → 003)
+- Architecture: PASS — migration lives in alembic/versions/ (correct location),
+  ADR-0030 documents CLAUDE.md Rule 6 technology substitution, ledger.py import
+  boundaries unchanged, no cross-module violations
+
+**Retrospective Note**: The Float → NUMERIC mismatch between migration 001 and
+ledger.py persisted from Phase 8 through Phase 15 (7 phases) because the debt note
+in the docstring used a task reference (T8.4) as a proxy for an open work item.
+Going forward, migration debt notes in ORM docstrings should be tracked as explicit
+advisory items in RETRO_LOG with BLOCKER severity so they surface in phase-entry
+gate reviews, not just in docstring comments.
+
+---
+
 
 ### [2026-03-16] Phase 15 End-of-Phase Retrospective
 
