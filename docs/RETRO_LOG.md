@@ -20,6 +20,46 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P18-T18.3 — End-to-End Validation with Sample Data
+
+**Changes**:
+- `scripts/seed_sample_data.py`: New 587-line Click-based seeding script. Generates 4 related
+  tables (customers→orders→order_items, orders→payments) with Faker seed=42. Exports CSVs,
+  generates SQL DDL+INSERT, optionally executes against PostgreSQL.
+- `sample_data/{customers,orders,order_items,payments}.csv`: Reference CSV exports (100+250+888+250 rows).
+- `docs/E2E_VALIDATION.md`: 350-line step-by-step pipeline validation guide covering Docker Compose
+  startup, seeding, conclave-subset CLI, API synthesis, and verification checkpoints.
+- `tests/unit/test_seed_sample_data.py`: 70 tests across 8 classes (schema, FK integrity, data types,
+  determinism, edge cases, error paths, doc existence).
+- `.secrets.baseline`: Updated for pre-existing T18.2 false positive.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 932 unit tests PASS (96.25% coverage).
+
+**Review**: QA FINDING (5 items, all fixed), DevOps PASS
+
+**QA** (FINDING — 5 items, all fixed):
+1. Exception specificity: `except Exception` → `except psycopg2.Error` in `_execute_against_db`. Fixed.
+2. Edge-case tests: Added n=None path, empty-rows export, unknown-table fallback. Fixed.
+3. Error-path tests: Added empty-input generators, ImportError/SystemExit, rollback verification. Fixed.
+4. Determinism tests: Added for generate_orders, generate_order_items, generate_payments. Fixed.
+5. Docstring accuracy: Removed false split-payment claim from generate_payments docstring.
+   Strengthened SSN regex and export_csv fieldnames assertions. Fixed.
+
+**DevOps** (PASS):
+hardcoded-credentials PASS. no-pii-in-code PASS — all SSN/email/phone data provably fictional
+(Faker seed=42, RFC 2606 domains). secrets-hygiene PASS — gitleaks clean, .secrets.baseline
+updated. DSN redaction at line 439 PASS (hand-rolled but acceptable for dev utility). bandit PASS.
+ci-health PASS — existing pipeline covers scripts/ via bandit targets.
+
+**Retrospective Note**:
+Generator functions with two code paths (explicit n= vs n=None default) were only tested via the
+explicit path. The CLI-invoked default path was untested. Rule: the zero-argument / default-parameter
+path of any generator should be the FIRST test written, not an afterthought. The generate_payments
+docstring described a split-payment feature that didn't exist in code — false-contract risk from
+spec-first development where the implementation was simplified but the docs weren't updated.
+
+---
+
 ### [2026-03-16] P18-T18.2 — Dependency Tree Audit & Slimming
 
 **Changes**:
