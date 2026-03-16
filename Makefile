@@ -5,6 +5,7 @@
 #   make              → show this help message
 #   make build        → build the conclave-engine Docker image
 #   make build-airgap-bundle → create an offline deployable tar.gz bundle
+#   make ci-local     → run all local CI gates (mirrors GitHub Actions)
 # =============================================================================
 
 .DEFAULT_GOAL := help
@@ -40,3 +41,10 @@ build: ## Build the conclave-engine:latest Docker image
 .PHONY: build-airgap-bundle
 build-airgap-bundle: build ## Build image then create the air-gap tar.gz bundle
 	bash scripts/build_airgap.sh
+
+# ---------------------------------------------------------------------------
+# ci-local — run all local CI gates (mirrors GitHub Actions)
+# ---------------------------------------------------------------------------
+.PHONY: ci-local
+ci-local: ## Run all local CI gates — mirrors GitHub Actions pipeline
+	bash scripts/ci-local.sh
