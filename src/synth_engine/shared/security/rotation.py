@@ -16,11 +16,10 @@ Security properties
 - The new Fernet key is transmitted to the task as a KEK-wrapped ciphertext
   (encrypted with the current vault Fernet) so that it is never stored in the
   Huey broker (Redis) in plaintext.
-- Re-encryption is performed row-by-row within explicit transactions so that a
-  partial failure leaves the database in a consistent, recoverable state (rows
-  that were already rotated keep the new ciphertext; rows that were not touched
-  retain the old ciphertext, which is still decryptable with the old key until
-  a full re-run succeeds).
+- Re-encryption is performed inside a single ``engine.begin()`` transaction
+  spanning all batches. A failure at any point rolls back ALL changes — the
+  operation is all-or-nothing. This prevents partial-rotation states where
+  some rows hold new-key ciphertext while others hold old-key ciphertext.
 - NULL column values are skipped: they represent absent PII and must remain NULL
   after rotation (converting NULL -> ciphertext of empty string would be wrong).
 
@@ -111,10 +110,12 @@ def re_encrypt_column_values(
 
     Processes rows in configurable batches using ``fetchmany(batch_size)`` to
     avoid loading the entire column into memory at once (OOM safety -- AC4 T20.4).
-    Individual UPDATE statements are issued inside a single transaction per batch.
-    The primary key column name is assumed to be ``id`` -- this is sufficient for
-    the current data model.  If a future table uses a different PK name, this
-    function should be extended to accept a ``pk_column`` argument.
+    All batches execute inside a single ``engine.begin()`` transaction. If any
+    error occurs mid-loop, the entire operation is rolled back — no partial
+    rotation state is possible. The primary key column name is assumed to be
+    ``id`` -- this is sufficient for the current data model. If a future table
+    uses a different PK name, this function should be extended to accept a
+    ``pk_column`` argument.
 
     NULL values are preserved unchanged (they represent absent PII fields).
 
@@ -126,16 +127,22 @@ def re_encrypt_column_values(
             decrypting the existing ciphertext.
         new_fernet: :class:`~cryptography.fernet.Fernet` instance for
             producing the new ciphertext.
+        batch_size: Number of rows fetched per iteration. Defaults to
+            ``_DEFAULT_ROTATION_BATCH_SIZE`` (1000).
 
     Returns:
         Number of rows that were re-encrypted (non-NULL rows processed).
 
     Raises:
+        ValueError: If ``batch_size`` is not a positive integer.
         cryptography.fernet.InvalidToken: If any ciphertext value cannot be
             decrypted with ``old_fernet`` (indicates key mismatch or data
             corruption).
         sqlalchemy.exc.SQLAlchemyError: On database access failure.
     """
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be a positive integer, got {batch_size!r}")
+
     # Use raw SQL text queries to stay generic across dialects (SQLite for unit
     # tests, PostgreSQL for integration tests and production).
     # NOTE: table_name and column_name come from SQLModel metadata introspection,

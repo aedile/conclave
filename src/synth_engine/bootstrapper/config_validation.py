@@ -29,10 +29,12 @@ CONSTITUTION Priority 0: Security — fail-fast prevents silent misconfiguration
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P9-T9.1 — Advisory Drain + Startup Validation (ADV-077)
 Task: P19-T19.2 — Security Hardening: MASKING_SALT production enforcement
+Task: P20-T20.4 — Architecture Tightening (ADV-020: SSL override warning)
 """
 
 from __future__ import annotations
 
+import logging
 import os
 
 _ALWAYS_REQUIRED: tuple[str, ...] = (
@@ -44,6 +46,8 @@ _PRODUCTION_REQUIRED: tuple[str, ...] = (
     "ARTIFACT_SIGNING_KEY",
     "MASKING_SALT",
 )
+
+_logger = logging.getLogger(__name__)
 
 
 def _is_production() -> bool:
@@ -71,6 +75,10 @@ def validate_config() -> None:
     Checks that all required environment variables are set and non-empty.
     In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
     also validates that ``ARTIFACT_SIGNING_KEY`` and ``MASKING_SALT`` are present.
+
+    Additionally, emits a security warning when ``CONCLAVE_SSL_REQUIRED=false``
+    is detected in production mode, as this disables SSL enforcement for
+    PostgreSQL connections.
 
     Collects ALL missing variables before raising so that the operator
     receives a complete list in a single error message — not just the first
@@ -101,4 +109,11 @@ def validate_config() -> None:
             f"Startup configuration error: the following required environment "
             f"variable(s) are not set: {missing_list}. "
             f"Set them before starting the Conclave Engine."
+        )
+
+    if _is_production() and os.environ.get("CONCLAVE_SSL_REQUIRED", "true").lower() == "false":
+        _logger.warning(
+            "CONCLAVE_SSL_REQUIRED=false in production mode — "
+            "SSL enforcement for PostgreSQL connections is disabled. "
+            "This is a security misconfiguration for production."
         )

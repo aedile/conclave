@@ -7,6 +7,7 @@ Tests verify:
 - rotate_ale_keys_task() is a Huey task that wraps the orchestrator.
 - Edge cases: no encrypted columns, empty tables, error propagation.
 - OOM safety: re_encrypt_column_values uses batched reads, not fetchall().
+- Input validation: batch_size <= 0 raises ValueError immediately.
 
 CONSTITUTION Priority 3: TDD — Red Phase
 Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
@@ -261,6 +262,64 @@ def test_re_encrypt_column_values_empty_table(
         new_fernet=new_fernet,
     )
     assert count == 0
+
+
+def test_re_encrypt_column_values_rejects_zero_batch_size(
+    in_memory_engine: object,
+    ale_key_old: str,
+    ale_key_new: str,
+) -> None:
+    """re_encrypt_column_values must raise ValueError for batch_size=0.
+
+    A batch_size of 0 causes fetchmany(0) to return [] immediately, silently
+    processing zero rows. In a security-critical key rotation path this silent
+    failure is unacceptable. The function must raise ValueError before executing
+    any database operations.
+
+    Arrange: in-memory engine (contents irrelevant — error fires before any DB I/O).
+    Act: call re_encrypt_column_values with batch_size=0.
+    Assert: ValueError is raised with a message naming batch_size.
+    """
+    from synth_engine.shared.security.rotation import re_encrypt_column_values
+
+    old_fernet = Fernet(ale_key_old.encode())
+    new_fernet = Fernet(ale_key_new.encode())
+
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        re_encrypt_column_values(
+            engine=in_memory_engine,  # type: ignore[arg-type]
+            table_name="test_rotation_encrypted",
+            column_name="secret",
+            old_fernet=old_fernet,
+            new_fernet=new_fernet,
+            batch_size=0,
+        )
+
+
+def test_re_encrypt_column_values_rejects_negative_batch_size(
+    in_memory_engine: object,
+    ale_key_old: str,
+    ale_key_new: str,
+) -> None:
+    """re_encrypt_column_values must raise ValueError for negative batch_size.
+
+    Negative batch_size values are logically invalid and must be rejected
+    immediately with a clear ValueError.
+    """
+    from synth_engine.shared.security.rotation import re_encrypt_column_values
+
+    old_fernet = Fernet(ale_key_old.encode())
+    new_fernet = Fernet(ale_key_new.encode())
+
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        re_encrypt_column_values(
+            engine=in_memory_engine,  # type: ignore[arg-type]
+            table_name="test_rotation_encrypted",
+            column_name="secret",
+            old_fernet=old_fernet,
+            new_fernet=new_fernet,
+            batch_size=-5,
+        )
 
 
 # ---------------------------------------------------------------------------
