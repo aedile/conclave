@@ -12,11 +12,53 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-020 | T19.4 | T20.4 | ADVISORY | cli.py `sslmode=require` enforced for internal Docker hostnames; postgres has no SSL |
+| *(none)* | | | | All advisories drained. |
 
 ---
 
 ## Task Reviews
+
+---
+
+### [2026-03-16] P20-T20.4 — Architecture Tightening
+
+**Changes**:
+- `.pre-commit-config.yaml`: import-linter added as local pre-commit hook.
+- `src/synth_engine/shared/security/rotation.py`: OOM fix — `fetchall()` → `fetchmany(batch_size=1000)`.
+  batch_size<=0 guard added. Docstrings corrected for transaction semantics.
+- `src/synth_engine/modules/ingestion/validators.py`: ADV-020 — `CONCLAVE_SSL_REQUIRED` env var for
+  sslmode override in Docker environments.
+- `src/synth_engine/bootstrapper/config_validation.py`: Production-mode warning when SSL override active.
+- `docs/adr/ADR-0032-mypy-synthesizer-ignore-missing-imports.md`: New ADR documenting mypy strategy.
+- `docs/backlog/deferred-items.md`: 5 ADR-0029 deferred items tracked as Phase: TBD entries.
+- `.env.example`: CONCLAVE_SSL_REQUIRED documented.
+- `pyproject.toml`: mypy overrides comment references ADR-0032.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 1008 unit tests PASS (96.83% coverage). pre-commit PASS (including new import-linter hook).
+
+**ADV drain**: ADV-020 (ADVISORY) drained — sslmode now configurable via `CONCLAVE_SSL_REQUIRED`.
+
+**Review**: QA FINDING (2 fixed), DevOps FINDING (1 fixed), Architecture FINDING (2 fixed)
+
+**QA** (FINDING — 2 blockers fixed):
+1. batch_size<=0 silent failure — ValueError guard added with two tests.
+2. Docstring inaccuracy — module Security Properties and function docstring corrected for
+   all-or-nothing transaction semantics over all batches.
+
+**DevOps** (FINDING — 1 fixed):
+1. CONCLAVE_SSL_REQUIRED missing from .env.example — added with security documentation.
+
+**Architecture** (FINDING — 2 fixed):
+1. BLOCKER: Production SSL override warning — added to config_validation.py with 3 tests.
+2. Hygiene: batch_size added to Args docstring in rotation.py.
+
+**Retrospective Note**:
+The batch_size<=0 silent failure mirrors the FeistelFPE rounds=0 advisory (ADV-011) — both are
+zero-value boundary bugs in security modules. The CLAUDE.md spike promotion checklist (item 3)
+explicitly gates on "zero/empty inputs" but was not applied here because this wasn't a spike
+promotion. Security modules should have a standing zero-input guard convention. The production
+SSL warning closes the configuration-validation gap: security-affecting env vars should always
+be surfaced in config_validation.py with a production-mode guard.
 
 ---
 
