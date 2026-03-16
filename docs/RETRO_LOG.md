@@ -23,9 +23,7 @@ Drain (delete) rows when their target task is completed.
 | ADV-066 | QA P6-T6.3 | Phase 7 | ADVISORY | `pytest -W error` flag mandated by CLAUDE.md is absent from both ci.yml and ci-local.sh stage_test. Pre-existing gap — neither CI environment enforces zero-warning policy. Add `-W error` to both when next touching test infrastructure. |
 | ADV-067 | DevOps P7-T7.3 | Post-launch hardening | ADVISORY | `PrivacyEngine()` instantiated without `secure_rng=True` in `dp_engine.py`. Opacus defaults to pseudorandom noise — adequate for research but production air-gapped DP arguably warrants CSRNG-strength noise. Warning suppressed in `filterwarnings`. Evaluate `PrivacyEngine(secure_rng=True)` before real sensitive-data training runs. |
 | ADV-069 | DevOps P7-T7.5 | Phase 8 | ADVISORY | CI synthesizer-integration-test job uses explicit file list rather than marker-based routing. New synthesizer test files must be manually added to ci.yml — maintenance liability as test suite grows. Switch to `pytest -m synthesizer` marker split for self-maintaining CI routing. |
-| ADV-070 | DevOps P7-T7.5 | Phase 8 | ADVISORY | `FORCE_CPU` env var (introduced in Phase 4) is undocumented in `.env.example`. Latent operational risk for new operators following documented setup procedure. Add to `.env.example` with comment. |
 | ADV-071 | Arch P7-T7.5 | Phase 8 | ADVISORY | `BudgetExhaustionError` imported directly from `modules/privacy/dp_engine` by callers. Should be re-exported from `modules/privacy/__init__.py` to provide a stable public catch target without reaching into internal module files. |
-| ADV-072 | UI/UX P7-T7.5 | Future UI work | ADVISORY | When DP parameters surface in the React SPA dashboard, `noise_multiplier` and `epsilon` inputs will need `aria-describedby` tooltips and inline help text — these are not self-explanatory to non-specialist operators. Required for WCAG 2.1 AA compliance. |
 
 ---
 
@@ -50,6 +48,34 @@ Removed unreachable `except (UnicodeDecodeError, ValueError)` branch from `Reque
 **Retrospective Notes**:
 - `NullableSensitiveRecord` + `extend_existing=True` is a reusable pattern for edge-case integration tests.
 - Dead branches with explanatory comments should be flagged as findings at review time, not accumulated.
+
+---
+
+### [2026-03-16] P8-T8.5 — Documentation & Operator Gaps (ADV-070, ADV-072)
+
+**Summary**: Drained ADV-070 and ADV-072. Added `FORCE_CPU` env var documentation to
+`.env.example`. Created ADR-0026 design note for DP parameter accessibility (WCAG 2.1 AA
+patterns: aria-describedby, keyboard-accessible tooltips, live validation errors, fieldset
+grouping) for future dashboard implementation.
+
+**QA** (FINDING — 2 process items, fixed by PM): RETRO_LOG drain and review entry handled
+in review commit phase.
+**UI/UX** (FINDING — 2 blockers, fixed): `hidden` attribute on tooltip div replaced with
+CSS class visibility (was breaking aria-describedby). Focus management rules added (focus
+stays on trigger button, tooltip closes on blur). `aria-describedby` removed from trigger
+button (redundant with Pattern 1 input linkage).
+**DevOps** (PASS): No auth material, no PII, gitleaks/bandit clean. Advisory: synthesizer
+CI job should set FORCE_CPU=true to silence GPU detection noise.
+**Architecture** (PASS): ADR-0026 numbering correct (sequential after 0025). Status
+"Design Note" appropriate for pre-implementation spec. File placement correct.
+
+**Advisories drained**: ADV-070, ADV-072. Remaining: 12.
+
+**Retrospective Notes**:
+- Writing accessibility specs before implementation is the correct order — catches bugs like
+  the `hidden` attribute semantic error before they reach code.
+- New `os.environ.get()` calls should trigger automatic `.env.example` check at code-write time.
+- Consider establishing "Proposed" as a formal ADR status for pre-implementation design records.
 
 ---
 
