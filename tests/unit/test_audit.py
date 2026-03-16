@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import threading
+from collections.abc import Generator
 
 import pytest
 
@@ -42,14 +43,14 @@ def logger_instance(audit_key_bytes: bytes) -> AuditLogger:  # noqa: F821
 
 
 @pytest.fixture(autouse=True)
-def reset_logger(monkeypatch: pytest.MonkeyPatch, audit_key_hex: str) -> None:
+def reset_logger(monkeypatch: pytest.MonkeyPatch, audit_key_hex: str) -> Generator[None]:
     """Reset the module-level singleton after each test for isolation.
 
     Also ensures AUDIT_KEY is set for tests that exercise get_audit_logger()
     via the singleton path.
     """
     monkeypatch.setenv("AUDIT_KEY", audit_key_hex)
-    yield  # type: ignore[misc]
+    yield
     from synth_engine.shared.security.audit import reset_audit_logger
 
     reset_audit_logger()

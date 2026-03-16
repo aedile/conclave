@@ -474,7 +474,7 @@ class TestFrozenDataclasses:
         df = _make_known_df()
         profile = profiler.profile("t", df)
         with pytest.raises((AttributeError, TypeError)):
-            profile.row_count = 999  # type: ignore[misc]
+            profile.row_count = 999  # type: ignore[misc]  # intentionally assigning to frozen dataclass to verify AttributeError/TypeError is raised
 
     def test_profile_delta_is_frozen(self) -> None:
         profiler = StatisticalProfiler()
@@ -482,7 +482,7 @@ class TestFrozenDataclasses:
         p = profiler.profile("t", df)
         delta = profiler.compare(p, p)
         with pytest.raises((AttributeError, TypeError)):
-            delta.column_deltas = {}  # type: ignore[misc]
+            delta.column_deltas = {}  # type: ignore[misc]  # intentionally assigning to frozen dataclass to verify AttributeError/TypeError is raised
 
 
 # ---------------------------------------------------------------------------

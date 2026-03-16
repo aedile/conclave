@@ -27,6 +27,7 @@ from __future__ import annotations
 import base64
 import json
 import time
+from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -107,9 +108,9 @@ def rsa_keypair() -> tuple[str, str]:
 
 
 @pytest.fixture(autouse=True)
-def reset_license_state() -> None:
+def reset_license_state() -> Generator[None]:
     """Reset LicenseState class-level state after each test for isolation."""
-    yield  # type: ignore[misc]
+    yield
     try:
         from synth_engine.shared.security.licensing import LicenseState
 

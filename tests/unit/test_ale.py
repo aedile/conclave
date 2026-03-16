@@ -13,15 +13,18 @@ Task: P2-T2.2 — Secure Database Layer
 Fix:  P2-debt-D1 — ALE-Vault KEK wiring
 """
 
+from __future__ import annotations
+
 import base64
 import os
+from collections.abc import Generator, Iterator
 
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 
 
 @pytest.fixture(autouse=True)
-def _reset_fernet(monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[misc]
+def _reset_fernet(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Reset the lru_cache on get_fernet and seal the vault after every test.
 
     This fixture runs automatically for every test in this module so that
@@ -31,7 +34,7 @@ def _reset_fernet(monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[misc
     from synth_engine.shared.security.ale import _reset_fernet_cache
     from synth_engine.shared.security.vault import VaultState
 
-    yield  # type: ignore[misc]
+    yield
     _reset_fernet_cache()
     VaultState.reset()
 
@@ -52,12 +55,12 @@ def vault_salt_env_for_ale(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def unsealed_vault(vault_salt_env_for_ale: None, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[misc]
+def unsealed_vault(vault_salt_env_for_ale: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Unseal VaultState with a known passphrase for ALE tests."""
     from synth_engine.shared.security.vault import VaultState
 
     VaultState.unseal("ale-test-passphrase")
-    yield  # type: ignore[misc]
+    yield
     VaultState.reset()
 
 
