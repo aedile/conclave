@@ -20,6 +20,25 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P18-T18.1 — Type Ignore Suppression Audit & Reduction
+
+**Changes**:
+- `tests/conftest_types.py`: New module providing `PostgreSQLProc` type alias (`pytest_postgresql.executor.PostgreSQLExecutor`) — eliminates the need to annotate with `factories.postgresql_proc` (a function, not a type).
+- 8 integration/security test files: Replaced all 36 `[valid-type]` suppressions with `PostgreSQLProc` type alias.
+- 12 `src/` files: Eliminated 9 suppressions via `cast()` (SQLAlchemy inspector returns, pickle.loads, boto3 Body.read()), `sqlmodel.col()` (SQLModel column expressions in jobs router), and if/else type narrowing (tasks.py checkpoint_dir). Added written justification to all 15 remaining suppressions.
+- 11 test files: Eliminated `[misc]` suppressions by correcting fixture return types from `-> None` to `-> Generator[None, None, None]` / `-> Iterator[None]` (mypy requires a Generator return type annotation on yield-bearing functions). Fixed `@contextmanager` helpers in test_sse.py.
+
+**Counts**:
+- `src/`: 24 → 15 (target ≤15: PASS)
+- `tests/`: 147 → 98 (target ≤100: PASS)
+
+**Quality gates**: mypy strict PASS, ruff PASS, bandit PASS, 842 unit tests PASS (96.25% coverage), 72 integration tests PASS.
+
+**Retrospective Note**: The ruff formatter repeatedly converted single-symbol `from X import Y  # type: ignore` lines into multi-line block imports, moving the comment to the symbol line (where mypy cannot see it). The fix was to place the `# type: ignore` on the `from X import (  # type: ignore` line itself and let ruff format the block body without comments. This is the canonical pattern for type-ignored block imports.
+
+---
+
+
 ### [2026-03-16] Phase 17 End-of-Phase Retrospective
 
 **Phase Goal**: Close ADV-014 Docker base image pinning debt, fix Dashboard WCAG
