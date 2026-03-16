@@ -20,6 +20,60 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P17-T17.2 — Dashboard WCAG Form Accessibility Parity
+
+**Changes**:
+- `frontend/src/routes/Dashboard.tsx`: Added `aria-required="true"` to all 4 form inputs
+  (`table_name`, `parquet_path`, `total_epochs`, `checkpoint_every_n`). Added
+  `aria-invalid="true"` to `total_epochs` and `checkpoint_every_n` when client-side
+  validation fails. Visible asterisks wrapped with `aria-hidden="true"`. Form validation
+  error div (`role="alert"`) changed from conditional mount/unmount to always-present
+  container with conditional text content (UI/UX review fix).
+- `frontend/src/__tests__/Dashboard.test.tsx`: 5 new tests for aria attribute presence.
+  4 existing RFC 7807 tests updated to handle multiple `role="alert"` elements.
+- `.env.example`: Added `OTEL_EXPORTER_OTLP_ENDPOINT` documentation section with
+  explanatory comments about optional observability configuration. Fixed `pip install` →
+  `poetry add` in the Requires comment (DevOps review fix).
+- `tests/unit/test_docker_image_pinning.py`: Added `type: ignore` justification comment
+  (T17.1 arch review carry-forward).
+
+**Quality Gates**:
+- ruff check: PASS, ruff format: PASS, mypy: PASS, bandit: PASS
+- Frontend lint: PASS, type-check: PASS, test coverage: 98.84% (131/131) — PASS
+- pre-commit (all hooks): PASS
+
+**QA** (PASS):
+dead-code PASS — no dead code introduced. reachable-handlers PASS — all test branches
+reachable. exception-specificity PASS. silent-failures PASS. coverage-gate PASS — 98.84%
+frontend coverage. edge-cases PASS — both valid and invalid states tested for aria
+attributes. meaningful-asserts PASS — all assertions verify specific aria attribute values.
+backlog-compliance PASS — all 5 ACs addressed.
+
+**DevOps** (PASS with advisory):
+hardcoded-credentials PASS. no-pii-in-code PASS. supply-chain PASS. dependency-management
+ADVISORY — `.env.example` line 216 said `pip install` instead of `poetry add` for
+opentelemetry-exporter-otlp. Fixed in review fix commit.
+
+**UI/UX** (FINDING — 1 blocker fixed):
+aria-required PASS — all 4 inputs have `aria-required="true"`. aria-invalid PASS —
+`total_epochs` and `checkpoint_every_n` correctly set `aria-invalid="true"` on validation
+failure. aria-hidden PASS — visible asterisks wrapped with `aria-hidden="true"`.
+FINDING: `role="alert"` div for form validation errors used conditional mount/unmount
+(`{formValidationError !== null && (...)}`). NVDA+Firefox can silently swallow repeat
+error announcements when the container is destroyed and recreated with identical content.
+Fix: changed to always-present container with conditional text content. Padding collapses
+to 0 when empty. Fixed in review fix commit.
+
+**Retrospective Note**:
+The Unseal.tsx → Dashboard.tsx WCAG parity task revealed a subtle screen reader
+announcement bug: conditional rendering of `role="alert"` containers works for one-shot
+errors but fails for repeated identical errors in NVDA+Firefox. The always-present
+container pattern (render container, conditionally fill content) is more robust. This
+should be the standard pattern going forward for all `role="alert"` containers in the
+project.
+
+---
+
 ### [2026-03-16] P17-T17.3 — CLAUDE.md Stale References, Backlog Spec Fix & Branch Cleanup
 
 **Changes**:
