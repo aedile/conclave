@@ -72,6 +72,7 @@ export function AssertiveAnnouncement({
       aria-live="assertive"
       aria-atomic="true"
       className={className}
+      style={{ position: "absolute", width: "1px", height: "1px", overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap" }}
     >
       {children}
     </div>
