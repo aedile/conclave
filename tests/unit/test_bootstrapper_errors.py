@@ -151,6 +151,17 @@ class TestRFC7807PureASGIMiddleware:
 
     Pure ASGI middleware does not buffer the response body, which is required
     for SSE (Server-Sent Events) streaming to work correctly.
+
+    For exception-handling tests, the inner app is a raw ASGI callable (not
+    FastAPI) so that Starlette's ServerErrorMiddleware does not intercept the
+    exception before our middleware can catch it.  ServerErrorMiddleware is
+    only present in a full FastAPI app stack and would handle the exception
+    itself (sending a 500 HTML response and re-raising), which would prevent
+    RFC7807Middleware from producing a RFC 7807 response.
+
+    The full-stack behavior (RFC7807Middleware inside a FastAPI app) is
+    verified by the existing TestRFC7807ErrorHandler tests which use
+    create_app() + register_error_handlers().
     """
 
     def test_rfc7807_middleware_is_not_base_http_middleware(self) -> None:
@@ -172,7 +183,7 @@ class TestRFC7807PureASGIMiddleware:
         """Pure ASGI middleware must implement __call__(scope, receive, send)."""
         from synth_engine.bootstrapper.errors import RFC7807Middleware
 
-        assert hasattr(RFC7807Middleware, "__call__"), (
+        assert callable(RFC7807Middleware), (
             "RFC7807Middleware must implement __call__ for pure ASGI protocol."
         )
 
@@ -190,64 +201,60 @@ class TestRFC7807PureASGIMiddleware:
 
     @pytest.mark.asyncio
     async def test_pure_asgi_middleware_passes_normal_responses_through(self) -> None:
-        """Normal (non-error) HTTP responses must pass through unmodified."""
+        """Normal (non-error) HTTP responses must pass through unmodified.
+
+        Uses a raw ASGI app that sends a simple 200 JSON response directly.
+        """
+        import json as _json
+
+        from starlette.types import Receive, Scope, Send
+
         from synth_engine.bootstrapper.errors import RFC7807Middleware
-        from fastapi import FastAPI
 
-        app = FastAPI()
+        async def inner_ok(scope: Scope, receive: Receive, send: Send) -> None:
+            body = _json.dumps({"message": "hello"}).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        [b"content-type", b"application/json"],
+                        [b"content-length", str(len(body)).encode()],
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body, "more_body": False})
 
-        @app.get("/ok")
-        async def _ok() -> dict[str, str]:
-            return {"message": "hello"}
+        wrapped = RFC7807Middleware(app=inner_ok)  # type: ignore[arg-type]
 
-        wrapped = RFC7807Middleware(app=app)
-
-        with (
-            patch(
-                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-                return_value=False,
-            ),
-            patch(
-                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
-                return_value=True,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=wrapped), base_url="http://test"
-            ) as client:
-                response = await client.get("/ok")
+        async with AsyncClient(
+            transport=ASGITransport(app=wrapped), base_url="http://test"
+        ) as client:
+            response = await client.get("/ok")
 
         assert response.status_code == 200
         assert response.json() == {"message": "hello"}
 
     @pytest.mark.asyncio
     async def test_pure_asgi_middleware_returns_rfc7807_on_exception(self) -> None:
-        """Exception from inner app must produce RFC 7807 JSON response."""
+        """Exception from inner ASGI app must produce RFC 7807 JSON response.
+
+        Uses a raw ASGI callable (no ServerErrorMiddleware) so the exception
+        propagates directly to RFC7807Middleware without being intercepted.
+        """
+        from starlette.types import Receive, Scope, Send
+
         from synth_engine.bootstrapper.errors import RFC7807Middleware
-        from fastapi import FastAPI
 
-        app = FastAPI()
-
-        @app.get("/boom")
-        async def _boom() -> None:
+        async def inner_raises(scope: Scope, receive: Receive, send: Send) -> None:
             raise RuntimeError("intentional error")
 
-        wrapped = RFC7807Middleware(app=app)
+        wrapped = RFC7807Middleware(app=inner_raises)  # type: ignore[arg-type]
 
-        with (
-            patch(
-                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-                return_value=False,
-            ),
-            patch(
-                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
-                return_value=True,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=wrapped), base_url="http://test"
-            ) as client:
-                response = await client.get("/boom")
+        async with AsyncClient(
+            transport=ASGITransport(app=wrapped), base_url="http://test"
+        ) as client:
+            response = await client.get("/boom")
 
         assert response.status_code == 500
         body = response.json()
@@ -258,32 +265,24 @@ class TestRFC7807PureASGIMiddleware:
 
     @pytest.mark.asyncio
     async def test_pure_asgi_middleware_sets_json_content_type_on_error(self) -> None:
-        """Error responses must have content-type: application/json header."""
+        """Error responses must have content-type: application/json header.
+
+        Uses a raw ASGI callable (no ServerErrorMiddleware) so the exception
+        propagates directly to RFC7807Middleware without being intercepted.
+        """
+        from starlette.types import Receive, Scope, Send
+
         from synth_engine.bootstrapper.errors import RFC7807Middleware
-        from fastapi import FastAPI
 
-        app = FastAPI()
-
-        @app.get("/error")
-        async def _error() -> None:
+        async def inner_raises(scope: Scope, receive: Receive, send: Send) -> None:
             raise ValueError("bad input")
 
-        wrapped = RFC7807Middleware(app=app)
+        wrapped = RFC7807Middleware(app=inner_raises)  # type: ignore[arg-type]
 
-        with (
-            patch(
-                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-                return_value=False,
-            ),
-            patch(
-                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
-                return_value=True,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=wrapped), base_url="http://test"
-            ) as client:
-                response = await client.get("/error")
+        async with AsyncClient(
+            transport=ASGITransport(app=wrapped), base_url="http://test"
+        ) as client:
+            response = await client.get("/error")
 
         assert response.status_code == 500
         content_type = response.headers.get("content-type", "")
@@ -292,8 +291,9 @@ class TestRFC7807PureASGIMiddleware:
     @pytest.mark.asyncio
     async def test_pure_asgi_middleware_passes_through_non_http_scopes(self) -> None:
         """Non-HTTP scope types (e.g., lifespan) must pass through untouched."""
-        from synth_engine.bootstrapper.errors import RFC7807Middleware
         from starlette.types import Receive, Scope, Send
+
+        from synth_engine.bootstrapper.errors import RFC7807Middleware
 
         received_scopes: list[str] = []
 

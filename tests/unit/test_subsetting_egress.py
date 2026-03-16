@@ -12,7 +12,7 @@ Saga invariant: if ANY write fails, rollback() wipes all written tables.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import sqlalchemy.exc
@@ -199,9 +199,7 @@ class TestEgressWriterTransactionBoundary:
 
         # All executes must come before the commit
         assert "commit" in call_order, "commit was never called"
-        last_execute_idx = max(
-            i for i, op in enumerate(call_order) if op == "execute"
-        )
+        last_execute_idx = max(i for i, op in enumerate(call_order) if op == "execute")
         commit_idx = call_order.index("commit")
         assert commit_idx > last_execute_idx, (
             "commit must occur after all row executions, not before or interleaved."
