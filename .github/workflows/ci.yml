@@ -149,6 +149,9 @@ jobs:
         run: poetry install --with dev
 
       - name: Run unit tests with coverage
+        # ADV-066: Zero-warning policy enforced via pyproject.toml filterwarnings=["error", ...].
+        # Adding bare -W error to CLI conflicts with the ignore suppressors that follow "error"
+        # in the config (CLI -W flags override ini ignore rules). Policy is already active.
         run: >
           poetry run pytest tests/unit/
           --cov=src/synth_engine
@@ -222,12 +225,12 @@ jobs:
       - name: Install dependencies (dev + synthesizer)
         run: poetry install --with dev,synthesizer
       - name: Run synthesizer integration tests
+        # ADV-069: Use marker-based routing instead of explicit file list.
+        # New synthesizer test files will be auto-included when they carry
+        # @pytest.mark.synthesizer / pytestmark = pytest.mark.synthesizer.
         run: |
-          poetry run pytest \
-            tests/integration/test_synthesizer_integration.py \
-            tests/integration/test_dp_training_integration.py \
-            tests/integration/test_dp_wiring_integration.py \
-            tests/integration/test_e2e_dp_synthesis.py \
+          poetry run pytest tests/integration/ \
+            -m synthesizer \
             -v --no-cov
 
   # ---------------------------------------------------------------------------
@@ -343,6 +346,15 @@ jobs:
       - name: Build production bundle
         run: cd frontend && npm run build
 
+      - name: Upload frontend build artifact
+        # ADV-062: Share the built dist/ between frontend and e2e jobs so
+        # the e2e job does not rebuild the frontend from scratch.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 1
+
   # ---------------------------------------------------------------------------
   # Playwright E2E tests — full synthesis workflow browser tests
   #
@@ -377,6 +389,14 @@ jobs:
 
       - name: Install dependencies
         run: cd frontend && npm ci
+
+      - name: Download frontend build artifact
+        # ADV-062: Use the pre-built dist/ from the frontend job instead of
+        # rebuilding — eliminates the second full frontend build per CI run.
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-dist
+          path: frontend/dist/
 
       - name: Install Playwright browser binaries (Chromium only)
         run: cd frontend && npx playwright install --with-deps chromium
@@ -551,3 +571,9 @@ jobs:
       - name: Stop background API server
         if: always()
         run: kill $(cat /tmp/uvicorn.pid) 2>/dev/null || true
+
+      - name: Clean up ZAP test database
+        # ADV-065: Remove zap_test.db created by DATABASE_URL=sqlite:///./zap_test.db.
+        # Prevents stale test DB files accumulating on self-hosted runners.
+        if: always()
+        run: rm -f zap_test.db
