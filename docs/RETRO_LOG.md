@@ -19,6 +19,27 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P13-T13.1 — Fix Vulture Whitelist Ruff Compliance & README Final Status
+
+**Changes**: Added `.vulture_whitelist.py` to `pyproject.toml` `[tool.ruff.lint.per-file-ignores]`
+with F821, B018, E501 suppression (standard vulture whitelist idiom). Updated README.md to mark
+Phase 12 Complete and Phase 13 In Progress. Updated docs/BACKLOG.md with Phase 13 index.
+Created docs/backlog/phase-13.md.
+
+**Reviews**:
+- QA: PASS — per-file-ignores correctly scoped; pre-commit passes; no regression
+- UI/UX: SKIP — configuration and documentation only
+- DevOps: PASS — no secrets, no CI modification needed, suppression documented
+- Architecture: PASS — file placement correct, pattern consistent with existing BLE001 exemption
+
+**Retrospective Note**: The P12-T12.2 review cycle missed the ruff compliance issue because
+reviewers validated vulture output (0 findings) but did not run `pre-commit run --all-files`
+against the whitelist file itself. Lesson: reviews of files outside `src/` and `tests/` should
+include a `pre-commit run --all-files` validation step to catch linting issues in non-standard
+files.
+
+---
+
 ### [2026-03-16] Phase 12 End-of-Phase Retrospective
 
 **Phase Goal**: Address remaining hygiene findings from Roast #2. Prune stale remote
