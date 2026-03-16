@@ -19,6 +19,26 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P11-T11.2 — Workspace Hygiene (Worktrees, Spikes, .gitignore)
+
+**Changes**: 19 stale agent worktrees removed (~13 GB reclaimed). 6 Phase 0.8 spike files
+archived from `spikes/` to `docs/retired/spikes/` via git mv (history preserved). `.coverage`
+and `.clone/` added to `.gitignore`. pyproject.toml ruff/bandit paths updated. README project
+structure and CLAUDE.md Spike Promotion Checklist updated with new paths.
+
+**Reviews**:
+- QA: PASS — all 4 AC verified; 809 tests pass (96.24% coverage); no spike dependencies found
+- UI/UX: SKIP — no UI components
+- DevOps: PASS — .gitignore additions safe; bandit targets correctly updated
+- Architecture: PASS — archived spikes follow existing docs/retired/ pattern
+
+**Retrospective Note**: Developer proactively searched for all cross-references to `spikes/`
+in README, CLAUDE.md, and pyproject.toml before committing — direct application of the
+"factual accuracy in documentation" lesson from T10.1/T9.2 retros. All references updated
+atomically in the same commit, preventing stale path references.
+
+---
+
 ### [2026-03-16] P11-T11.1 — Documentation Currency (README, BACKLOG.md)
 
 **Changes**: README.md updated (Phase 10 → Complete, Phase 11 → In Progress in both prose

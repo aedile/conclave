@@ -300,11 +300,10 @@ priority hierarchy.
 │   ├── DP_QUALITY_REPORT.md  DP-SGD epsilon vs. quality benchmarks
 │   ├── DISASTER_RECOVERY.md  Incident response and recovery procedures
 │   ├── LICENSING.md        Offline license activation and hardware binding guide
-│   └── retired/            Retired documents (EXECUTION_PLAN.md)
+│   └── retired/            Retired documents and archived spike files
 ├── .claude/agents/         Specialized AI reviewer definitions
 ├── alembic/                Database migration scripts (Alembic)
 ├── scripts/                Utility scripts (ChromaDB seeding, type generation, etc.)
-├── spikes/                 Exploratory prototypes (not production code)
 ├── docker-compose.yml      Local development services
 └── Makefile                Build targets including air-gap bundle
 ```
