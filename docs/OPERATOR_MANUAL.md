@@ -115,6 +115,8 @@ Optional variables (uncomment in `.env` as needed):
 | `HUEY_BACKEND` | Task queue backend (`redis` or `memory`) | `redis` |
 | `REDIS_URL` | Redis connection URL | `redis://redis:6379/0` |
 | `MINIO_ENDPOINT` | MinIO server URL | `http://minio-ephemeral:9000` |
+| `FORCE_CPU` | Force CPU-only synthesis — set to `true` in environments without a compatible NVIDIA GPU | `false` (auto-detect GPU) |
+| `ARTIFACT_SIGNING_KEY` | Hex-encoded 32-byte HMAC-SHA256 key for model artifact signing. **Required in production mode (`ENV=production`); optional in development.** | Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
 ### 2.4 Build the Application Image
 
@@ -127,7 +129,34 @@ make build
 
 ## 3. Starting the Platform
 
-### 3.1 Start All Services
+### 3.1 Run Database Migrations
+
+Before starting the platform for the first time, and after every update that
+includes new migrations, apply Alembic migrations to bring the database schema
+up to date:
+
+```bash
+# Provision the required environment variables for Alembic
+export DB_USER=conclave
+export DB_PASSWORD=$(cat secrets/postgres_password.txt)
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=conclave
+
+# Apply all pending migrations
+poetry run alembic upgrade head
+```
+
+The `alembic upgrade head` command is idempotent — it is safe to run it on each
+deployment. Alembic tracks which migrations have already been applied in the
+`alembic_version` table and skips them.
+
+**Update workflow**: After pulling a new release, always run
+`alembic upgrade head` before restarting the `app` service. Running the app
+against a schema that is behind the current revision will result in startup
+errors or undefined behaviour.
+
+### 3.2 Start All Services
 
 ```bash
 docker compose up -d
@@ -150,7 +179,7 @@ Development-only services (Jaeger, hot-reload uvicorn) are defined in
 `docker-compose.override.yml` and start automatically when
 `docker-compose.override.yml` is present.
 
-### 3.2 Verify Services Are Healthy
+### 3.3 Verify Services Are Healthy
 
 ```bash
 docker compose ps
@@ -311,9 +340,23 @@ unseal.
 ```bash
 # Pull latest images (or rebuild)
 docker compose build app
+
+# Apply any pending schema migrations before restarting
+export DB_USER=conclave
+export DB_PASSWORD=$(cat secrets/postgres_password.txt)
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=conclave
+poetry run alembic upgrade head
+
 # Rolling restart (app service only)
 docker compose up -d --no-deps app
 ```
+
+Always run `alembic upgrade head` before `docker compose up` when a release
+contains new migrations. The migration step must complete successfully before
+the application process starts — the app will fail on startup if the schema is
+behind the current revision.
 
 ---
 
@@ -357,15 +400,35 @@ unsealed. Unseal before making API requests.
 The software is not licensed. Complete the license activation protocol in
 [docs/LICENSING.md](LICENSING.md).
 
-#### `app` service exits immediately after start
+#### `app` service exits immediately after start — missing required configuration
 
-Check for missing secrets files:
+The application runs a startup configuration validation check (`validate_config()`)
+at boot. If any required environment variable or secret file is absent, the
+process exits immediately with a clear error message rather than starting in a
+partially configured state. This is intentional — the engine refuses to run
+misconfigured.
+
+To diagnose:
 
 ```bash
-docker compose logs app | grep -i "error\|secret\|missing"
+docker compose logs app | grep -i "error\|secret\|missing\|config"
 ```
 
-Verify all files in `secrets/` exist and have correct permissions (`600`).
+Common causes:
+- Missing secrets files: verify all files in `secrets/` exist and have correct
+  permissions (`600`).
+- Missing required environment variables: `validate_config()` checks
+  `DATABASE_URL` and `AUDIT_KEY` in all deployment modes. In production mode
+  (`ENV=production` or `CONCLAVE_ENV=production`), `ARTIFACT_SIGNING_KEY` is
+  also required. Confirm these are set in `.env`.
+- Other variables (`ALE_KEY`, `VAULT_SEAL_SALT`, `LICENSE_PUBLIC_KEY`) are not
+  startup-validated; they fail at first use, not at boot.
+
+#### `app` service exits immediately after start — schema mismatch
+
+If the application was upgraded but `alembic upgrade head` was not run, the app
+may exit with a schema version error. Run the migration step documented in
+Section 3.1 and Section 6.3 before restarting.
 
 #### PostgreSQL fails health check
 
@@ -449,6 +512,46 @@ Training artifacts (Parquet files, model checkpoints) are stored in the
 `minio-ephemeral` service, which uses `tmpfs` for its data directory. All
 artifacts are discarded when the container stops. This is the privacy mandate:
 no training data survives a container restart.
+
+### 8.7 Model Artifact Signing
+
+Conclave signs model artifacts with an HMAC-SHA256 key (`ARTIFACT_SIGNING_KEY`)
+to detect tampering between training and inference. When signing is enabled:
+
+- `ModelArtifact.save()` appends an HMAC-SHA256 signature derived from
+  `ARTIFACT_SIGNING_KEY` to the artifact file.
+- `ModelArtifact.load()` verifies the signature before returning the artifact.
+  If the signature does not match, `load()` raises `SecurityError` and the
+  artifact is rejected.
+
+**Generating the signing key:**
+
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Set the result as `ARTIFACT_SIGNING_KEY` in `.env` (local development) or
+inject it via Docker secrets or a secrets manager in production.
+
+**Rotation procedure:**
+
+1. Generate a new key with the command above.
+2. Update `ARTIFACT_SIGNING_KEY` in your secrets store.
+3. Restart the `app` service. New artifacts will be signed with the new key.
+4. Existing artifacts signed with the old key will fail signature verification
+   after rotation. Re-run any synthesis jobs whose artifacts must remain
+   accessible after the rotation.
+
+**Production injection:** Never embed `ARTIFACT_SIGNING_KEY` in plaintext in
+`docker-compose.yml` or commit it to version control. Inject it via:
+- Docker secrets: `docker secret create artifact_signing_key <(python3 -c "import secrets; print(secrets.token_hex(32))")`
+- HashiCorp Vault dynamic secrets
+- Kubernetes `Secret` mounted as a file
+
+If `ARTIFACT_SIGNING_KEY` is not set, artifacts are saved without a signature
+and loaded without verification. This is acceptable for development but must
+not be used in production deployments where artifact integrity is a compliance
+requirement.
 
 ---
 
@@ -574,8 +677,51 @@ and the ledger row is left unchanged.
   for the same noise configuration, because each sample contributes less to
   the overall gradient signal.
 - **CPU vs. GPU**: Opacus DP-SGD works on both CPU and GPU. Training is
-  substantially faster on GPU for production epoch counts (300+). Use
-  `FORCE_CPU=1` environment variable to force CPU-only mode for testing.
+  substantially faster on GPU for production epoch counts (300+). Set
+  `FORCE_CPU=true` in `.env` to force CPU-only mode (see Section 2.3).
 - **Single-use wrapper**: Each `DPTrainingWrapper` instance is single-use —
   calling `wrap()` twice raises `RuntimeError`. Create a new wrapper per
   training run.
+- **Opacus `secure_mode` deferred**: Opacus 1.5.x emits
+  `UserWarning: Secure RNG turned off` at `PrivacyEngine()` instantiation
+  because the default engine uses PyTorch's standard PRNG rather than a
+  CSPRNG-backed one. `secure_mode=True` (which uses `torchcsprng` for a
+  cryptographically-secure RNG) is not enabled because `torchcsprng` has no
+  published wheels for Python 3.14 and is unmaintained upstream. The practical
+  attack path `secure_mode` mitigates — PRNG state reconstruction from
+  observable gradient noise — is not present in Conclave's air-gapped threat
+  model. The warning is suppressed in `pyproject.toml`'s `filterwarnings`
+  configuration; this suppression is explicitly justified by ADR-0017a.
+
+---
+
+## 10. Development and CI Reference
+
+### 10.1 Pytest Marker Routing
+
+The test suite uses pytest markers to route tests to the correct CI gate.
+Use markers when running subsets of the test suite locally:
+
+| Marker | Description | Typical usage |
+|--------|-------------|---------------|
+| `unit` | Fast, isolated unit tests with no external dependencies | `pytest -m unit` |
+| `integration` | Tests requiring live databases or external services | `pytest -m integration` |
+| `synthesizer` | Synthesizer integration tests requiring SDV, PyTorch, and Opacus | `pytest -m synthesizer` |
+
+**CI gate mapping:**
+- `pytest tests/unit/ -W error` — runs all unit tests; zero warnings tolerated
+- `pytest tests/integration/ -v --no-cov` — integration gate (separate from unit coverage)
+- `pytest -m synthesizer` — synthesizer gate; requires the `synthesizer` Poetry
+  dependency group (`poetry install --with synthesizer`)
+
+### 10.2 Zero-Warning Policy
+
+`pyproject.toml` configures `filterwarnings = ["error", ...]`. The baseline
+`"error"` entry promotes all Python warnings to test failures. Specific
+suppressions for third-party packages (Opacus, SDV, pytest-asyncio) are listed
+with inline justifications in `pyproject.toml`.
+
+This policy means: **any new unhandled `DeprecationWarning` or `UserWarning`
+from the application code will fail the unit test suite**. If you add a new
+dependency that emits warnings, add a scoped suppression entry to
+`pyproject.toml` with a written justification comment.

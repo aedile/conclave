@@ -75,6 +75,7 @@ Security is Priority Zero — it overrides every other consideration.
 | Deterministic masking | HMAC-SHA256 seeded Faker; same input → same output; not reversible |
 | Differential Privacy | DP-SGD via Opacus PrivacyEngine; Epsilon/Delta budget enforced per training run |
 | WORM audit log | Cryptographically signed, append-only audit trail |
+| HMAC artifact signing | Model artifacts signed with HMAC-SHA256; tampering detected at load time |
 | Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net |
 | Supply chain | All GitHub Actions SHA-pinned; Trivy container scan in CI |
 | Secret scanning | `gitleaks` + `detect-secrets` on every commit; hooks cannot be bypassed |
@@ -83,12 +84,13 @@ Security is Priority Zero — it overrides every other consideration.
 | OWASP ZAP baseline scan | Automated ZAP scan in CI against the running FastAPI app |
 | NIST SP 800-88 erasure | Cryptographic shredding validated against NIST SP 800-88 Rev 1 guidelines |
 | Offline license activation | RS256 JWT with hardware binding; no license server call-home required |
+| Startup config validation | `validate_config()` at boot; missing required env vars → immediate process exit |
 
 ---
 
 ## Current Development Status
 
-**Phase 7 — Differential Privacy Integration is complete.**
+**Phase 9 — Documentation, Observability, and Advisory Drain is in progress.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -101,7 +103,9 @@ Security is Priority Zero — it overrides every other consideration.
 | 4 — Generative AI & DP | Complete | GPU passthrough, profiler, OOM guardrails, DP-SGD engine, privacy accountant |
 | 5 — Orchestration & UI | Complete | Task Orchestration API, React SPA Dashboard, offline licensing, cryptographic shredding |
 | 6 — Integration & Audit | Complete | E2E Playwright tests, NIST erasure validation, OWASP ZAP, fuzz testing, production docs |
-| **7 — Differential Privacy** | **Complete** | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks, E2E DP pipeline |
+| 7 — Differential Privacy | Complete | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks, E2E DP pipeline |
+| 8 — Security Hardening | Complete | HMAC artifact signing, Alembic migrations, startup config validation, ADR-0017a |
+| **9 — Docs & Advisory Drain** | **In Progress** | Operator manual refresh, advisory drain, observability |
 
 ---
 
@@ -161,6 +165,17 @@ The full Conclave platform is operational across all completed phases:
 - **Full E2E DP pipeline** — Parquet → `DPCompatibleCTGAN` training → `sample()` →
   `StatisticalProfiler.compare()` → `ProfileDelta` validation; all integration-tested
 
+**Phase 8 security hardening — operational**
+- **HMAC artifact signing** — `ModelArtifact.save()` / `load()` sign and verify artifacts
+  with `ARTIFACT_SIGNING_KEY`; tampering raises `SecurityError` at load time
+- **Alembic migrations** — database schema managed via Alembic; `alembic upgrade head`
+  applies all pending migrations before first start and after updates
+- **Startup config validation** — `validate_config()` runs at boot; missing required
+  environment variables cause an immediate, descriptive process exit rather than silent
+  misconfiguration
+- **ADR-0017a** — Opacus `secure_mode` decision documented; `filterwarnings` suppression
+  for `UserWarning: Secure RNG turned off` is ADR-backed
+
 ---
 
 ## Quality Gates (All Must Pass)
@@ -203,6 +218,14 @@ poetry install --with dev,integration,synthesizer
 
 # Start local services (PostgreSQL, Redis, MinIO, Jaeger)
 docker-compose up -d
+
+# Apply database migrations
+export DB_USER=conclave
+export DB_PASSWORD=postgres
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=conclave
+poetry run alembic upgrade head
 
 # Unseal the vault (development mode — sets ALE_KEY from .env)
 # Copy .env.example to .env and fill in values
@@ -277,6 +300,7 @@ priority hierarchy.
 │   ├── LICENSING.md        Offline license activation and hardware binding guide
 │   └── retired/            Retired documents (EXECUTION_PLAN.md)
 ├── .claude/agents/         Specialized AI reviewer definitions
+├── alembic/                Database migration scripts (Alembic)
 ├── scripts/                Utility scripts (ChromaDB seeding, type generation, etc.)
 ├── spikes/                 Exploratory prototypes (not production code)
 ├── docker-compose.yml      Local development services

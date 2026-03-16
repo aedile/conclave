@@ -19,6 +19,39 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P9-T9.2 — Operator Manual Refresh
+
+**Summary**: Refreshed OPERATOR_MANUAL.md and README.md for Phase 6–9 changes.
+Documentation-only task — no code changes.
+
+**Changes delivered**:
+- Added ARTIFACT_SIGNING_KEY to env vars (optional table, production-mode note)
+- Added Alembic migration workflow (new Section 3.1, update deployment Section 6.3)
+- Added FORCE_CPU to optional env vars table
+- Added artifact signing security section (§8.7)
+- Added Opacus secure_mode deferral note (§9.6, referencing ADR-0017a)
+- Added Development & CI Reference section (§10): marker routing, zero-warning policy
+- Added startup config validation troubleshooting (§7.3)
+- README: Phase status updated to Phase 9, Phase 8 "What's Working" section added,
+  HMAC artifact signing and startup validation added to security posture table
+
+**Review results**:
+- QA: FINDING (4 issues, all fixed) — wrong exception name (IntegrityError→SecurityError),
+  ARTIFACT_SIGNING_KEY mis-classified as unconditionally required, README alembic creds
+  wrong (postgres/synth_engine→conclave/conclave), troubleshooting over-claimed
+  validate_config() scope.
+- DevOps: FINDING (1 issue, fixed) — same IntegrityError→SecurityError finding.
+- Architecture: SKIP — no structural changes. ADR claims verified accurate.
+- UI/UX: SKIP — no UI changes.
+
+**Retrospective Note**: Documentation drafted from memory rather than verified against
+source code led to 4 factual errors. Exception class names, env var requirements, and
+DB credentials in docs should be mechanically verified with a grep before committing.
+Consider a lightweight CI lint that cross-checks documented env var names against
+config_validation.py tuples to prevent drift.
+
+---
+
 
 ### [2026-03-15] P9-T9.1 — Advisory Drain + Startup Validation (ADV-073–077)
 
