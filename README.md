@@ -90,7 +90,7 @@ Security is Priority Zero — it overrides every other consideration.
 
 ## Current Development Status
 
-**Phase 9 — Documentation, Observability, and Advisory Drain is in progress.**
+**Phase 10 — Test Infrastructure Repair & Final Polish is in progress.**
 
 | Phase | Status | Summary |
 |-------|--------|---------|
@@ -105,7 +105,8 @@ Security is Priority Zero — it overrides every other consideration.
 | 6 — Integration & Audit | Complete | E2E Playwright tests, NIST erasure validation, OWASP ZAP, fuzz testing, production docs |
 | 7 — Differential Privacy | Complete | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks, E2E DP pipeline |
 | 8 — Security Hardening | Complete | HMAC artifact signing, Alembic migrations, startup config validation, ADR-0017a |
-| **9 — Docs & Advisory Drain** | **In Progress** | Operator manual refresh, advisory drain, observability |
+| **9 — Docs & Advisory Drain** | **Complete** | Operator manual refresh, advisory drain, observability |
+| **10 — Test Infrastructure Repair & Final Polish** | **In Progress** | Stale TODO drain, README updates, test infrastructure repair |
 
 ---
 

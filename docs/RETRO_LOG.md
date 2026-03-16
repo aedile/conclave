@@ -19,6 +19,26 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P10-T10.2 — Drain Stale TODO and Update README Status
+
+**Summary**: Removed stale `TODO(T4.4)` from `bootstrapper/main.py` with justification
+(EpsilonAccountant wired via synthesis job pipeline, not bootstrapper DI). Updated
+README.md phase status: Phase 9 marked complete, Phase 10 added as current.
+
+**Changes**: Comment-only change in main.py (3 lines), documentation update in README.md
+(3 lines). No code logic changed.
+
+**Review results**:
+- QA: PASS — no code logic changed, coverage held at 96.24%
+- DevOps: PASS — no secrets, no dependencies changed, gitleaks clean
+- UI/UX: SKIP — no UI changes
+
+**Retrospective Note**: Clean TODO drain with written justification is the right pattern —
+it answers "why is this not here?" for future operators. The README phase table is now
+current through Phase 10.
+
+---
+
 ### [2026-03-16] P10-T10.1 — Fix pytest-asyncio Python 3.14.1 Compatibility
 
 **Summary**: Upgraded pytest-asyncio from 0.26.0 to 1.3.0 to resolve Python 3.14.1
