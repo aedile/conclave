@@ -45,8 +45,7 @@ class TestDependencyAuditDoc:
         """docs/DEPENDENCY_AUDIT.md must contain a markdown table."""
         content = DEPENDENCY_AUDIT_DOC.read_text()
         assert "|" in content, (
-            "docs/DEPENDENCY_AUDIT.md must contain a markdown table "
-            "listing each direct dependency."
+            "docs/DEPENDENCY_AUDIT.md must contain a markdown table listing each direct dependency."
         )
 
     def test_audit_doc_covers_chromadb(self) -> None:
@@ -122,7 +121,8 @@ class TestChromadbNotInMainDeps:
                 in_main_deps = True
                 continue
             # Any new TOML section ends the main deps section
-            if in_main_deps and stripped.startswith("[") and stripped != "[tool.poetry.dependencies]":
+            is_new_section = stripped.startswith("[") and stripped != "[tool.poetry.dependencies]"
+            if in_main_deps and is_new_section:
                 in_main_deps = False
             if in_main_deps and stripped.startswith("chromadb"):
                 pytest.fail(
@@ -144,7 +144,7 @@ class TestChromadbNotInMainDeps:
         in_dev_or_scripts = False
         for line in lines:
             stripped = line.strip()
-            if "[tool.poetry.group." in stripped and "].dependencies]" in stripped:
+            if "[tool.poetry.group." in stripped and ".dependencies]" in stripped:
                 in_dev_or_scripts = True
                 continue
             if stripped.startswith("[") and "[tool.poetry.group." not in stripped:

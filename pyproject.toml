@@ -15,7 +15,6 @@ generate-ts-types = "scripts.generate_ts_types:main"
 
 [tool.poetry.dependencies]
 python = "^3.14"
-chromadb = "^1.5.5"
 click = ">=8.0.0,<9.0.0"
 fastapi = ">=0.115.0,<1.0.0"
 uvicorn = {version = ">=0.32.0,<1.0.0", extras = ["standard"]}
@@ -36,6 +35,10 @@ faker = "^40.11.0"
 pandas = ">=2.2.0,<3.0.0"
 numpy = ">=1.26.0,<3.0.0"
 psutil = ">=5.9.0,<8.0.0"
+# asyncpg: async PostgreSQL driver for SQLAlchemy's asyncio extension.
+# Used as the DSN scheme ``postgresql+asyncpg://`` in production DATABASE_URL.
+# Not directly imported in Python code — registered as a SQLAlchemy dialect.
+# Must remain a production dep: integration tests and the async DB layer require it.
 asyncpg = ">=0.29.0,<1.0.0"
 # greenlet: required by SQLAlchemy async extension (sqlalchemy.ext.asyncio).
 # On ARM64 (Apple Silicon / Linux aarch64) the SQLAlchemy platform marker
@@ -76,13 +79,25 @@ boto3-stubs = ">=1.35.0,<2.0.0"
 # aiosqlite: async SQLite driver for unit tests using AsyncSession with SQLite
 # Required by T4.4 unit tests that test async DB infrastructure without PostgreSQL.
 aiosqlite = ">=0.19.0,<1.0.0"
+# chromadb: vector database used only in scripts/ for retrospective seeding
+# (scripts/seed_chroma.py, scripts/seed_chroma_retro.py, scripts/init_chroma.py).
+# Not imported in any src/synth_engine production module. Moved from main deps
+# to dev group in T18.2 so production installs (poetry install) do not pull in
+# the chromadb transitive tree (~25 extra packages including onnxruntime,
+# kubernetes, grpcio).
+chromadb = "^1.5.5"
+# datamodel-code-generator: CLI tool for generating TypeScript types from the
+# FastAPI OpenAPI schema (scripts/generate_ts_types.py, generate-ts-types CLI).
+# Dev-only scaffolding tool; not used at runtime in src/synth_engine.
+# Previously misplaced between [tool.poetry.group.dev.dependencies] and
+# [tool.poetry.group.integration.dependencies] — moved here explicitly (T18.2).
+datamodel-code-generator = ">=0.50.0,<1.0.0"
 
 # ---------------------------------------------------------------------------
 # Integration group — NOT included by default; wired in Task 2.2
 # Install with: poetry install --with dev,integration
 # Requires libpq (PostgreSQL client library) to be present on the host.
 # ---------------------------------------------------------------------------
-datamodel-code-generator = ">=0.50.0,<1.0.0"
 [tool.poetry.group.integration.dependencies]
 pytest-postgresql = "^7.0"
 
@@ -241,6 +256,8 @@ filterwarnings = [
     # chromadb 1.5.x uses asyncio.iscoroutinefunction (deprecated in 3.14 for
     # removal in 3.16; the fix is inspect.iscoroutinefunction).  Scoped to the
     # chromadb telemetry sub-package; we cannot change third-party code.
+    # chromadb is in the dev group (T18.2); this filter remains for dev/test runs
+    # where chromadb is installed.
     # Also handled by the conftest.py autouse fixture for -W error compatibility.
     "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
     # SDV 1.x and its dependencies (rdt, copulas) emit DeprecationWarnings
