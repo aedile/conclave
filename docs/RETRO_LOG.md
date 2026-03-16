@@ -18,6 +18,34 @@ Drain (delete) rows when their target task is completed.
 ## Task Reviews
 
 ---
+### [2026-03-16] P16-T16.2 — Frontend Supply Chain & Nosec Accuracy
+
+**Changes**:
+- `frontend/package.json`: Added `@eslint/js` (^9.39.4) and `globals` (^14.0.0) to
+  devDependencies. Previously resolved only as transitive deps of `eslint`.
+- `src/synth_engine/modules/subsetting/traversal.py`: Rewrote nosec B608 justification
+  on line 142 and updated `_execute_seed` docstring to remove inaccurate "pre-validated"
+  claim. Both now describe the actual caller-contract defense.
+- `.env.example`: Added ENV/CONCLAVE_ENV documentation for production mode detection.
+
+**Quality Gates**:
+- npm lint: PASS, npm test:coverage: 97.35% PASS
+- ruff: PASS, mypy: PASS, bandit: PASS
+- pytest unit: 825 passed, 96.24% coverage
+
+**Reviews**:
+- QA: FINDING (1 item, fixed) — docstring at line 133 still said "pre-validated"
+  after nosec annotation was corrected; docstring updated to match.
+- UI/UX: SKIP — no template/route/form changes
+- DevOps: PASS — explicit devDeps improve supply chain auditability, no secrets
+
+**Retrospective Note**: When a `# nosec` justification is rewritten, the corresponding
+docstring's description of that same parameter must be updated atomically in the same
+diff. Security annotations and docstrings that describe the same trust boundary must
+never contradict each other.
+
+---
+
 ### [2026-03-16] P16-T16.1 — Alembic Migration 003: Epsilon Column Precision Fix
 
 **Changes**:
