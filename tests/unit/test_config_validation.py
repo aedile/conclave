@@ -23,22 +23,6 @@ from __future__ import annotations
 import pytest
 
 # ---------------------------------------------------------------------------
-# Helper: base env vars that satisfy all non-production requirements
-# ---------------------------------------------------------------------------
-
-_BASE_ENV = {
-    "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db",
-    "AUDIT_KEY": "deadbeefdeadbeefdeadbeefdeadbeef",
-}
-
-_PROD_ENV = {
-    **_BASE_ENV,
-    "ARTIFACT_SIGNING_KEY": "cafecafecafecafecafecafecafecafe",
-    "MASKING_SALT": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
-}
-
-
-# ---------------------------------------------------------------------------
 # Tests: missing base required vars raise SystemExit
 # ---------------------------------------------------------------------------
 
@@ -235,6 +219,31 @@ def test_empty_string_database_url_raises_system_exit(
         validate_config()
 
     assert "DATABASE_URL" in str(exc_info.value)
+
+
+def test_empty_string_masking_salt_raises_system_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """validate_config() raises SystemExit when MASKING_SALT is set to an empty string.
+
+    An empty-string MASKING_SALT is semantically equivalent to absent: an empty
+    salt provides no cryptographic separation and is indistinguishable from the
+    development fallback.  The validator must reject it with a SystemExit that
+    names MASKING_SALT in the message.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.setenv("MASKING_SALT", "")
+
+    with pytest.raises(SystemExit) as exc_info:
+        validate_config()
+
+    assert "MASKING_SALT" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

@@ -110,10 +110,16 @@ The `edoburu/pgbouncer` image uses the same environment variable interface as th
 | `PGBOUNCER_POOL_MODE` | `transaction` | Transaction pooling mode |
 | `PGBOUNCER_MAX_CLIENT_CONN` | `100` | Max client connections |
 | `PGBOUNCER_DEFAULT_POOL_SIZE` | `10` | Pool size per database/user |
-| `PGBOUNCER_AUTH_TYPE` | `md5` | Authentication type |
+| `PGBOUNCER_AUTH_TYPE` | `scram-sha-256` | Authentication type (updated in T19.2 — see Amendment below) |
 | `PGBOUNCER_AUTH_FILE` | `/etc/pgbouncer/userlist.txt` | Auth file path |
 
 No changes to `pgbouncer/userlist.txt` or downstream configuration are required.
+
+### Amendment — T19.2 (2026-03-16)
+
+`PGBOUNCER_AUTH_TYPE` was updated from `md5` to `scram-sha-256` as part of T19.2 security
+hardening. PostgreSQL 14+ deprecates md5 authentication in favour of SCRAM-SHA-256. The value
+shown in the compatibility table above reflects the post-amendment state. This resolves ADV-016.
 
 ---
 
@@ -162,6 +168,7 @@ bitnami migration is a separate ADR.
 ## References
 
 - ADV-015: Phantom pgbouncer tag blocking SHA-256 pinning (Phase 17, RETRO_LOG)
+- ADV-016: PGBOUNCER_AUTH_TYPE md5 → scram-sha-256 upgrade (resolved T19.2)
 - `docker-compose.yml` — updated image reference
 - `tests/unit/test_docker_image_pinning.py` — updated to verify edoburu image is pinned
 - CLAUDE.md Rule 6 — Technology substitution requires an ADR

@@ -155,6 +155,12 @@ secret-management infrastructure.
 The `MASKING_SALT` layer is out of scope for ADR-0014 and will be documented
 in the Phase 4 bootstrapper ADR.
 
+### Amendment — T19.2 (2026-03-16)
+
+MASKING_SALT production enforcement implemented in `bootstrapper/config_validation.py`.
+Production startup without `MASKING_SALT` raises `SystemExit`. This closes the deferred
+documentation item from the original ADR.
+
 ---
 
 ## Module boundaries
