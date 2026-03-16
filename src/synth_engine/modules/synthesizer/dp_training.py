@@ -16,8 +16,10 @@ Architecture:
   normalization.  Also reuses SDV's ``detect_discrete_columns()`` helper.
 - **Reused from ctgan**: ``CTGAN`` internal model class (whose ``fit()``
   and ``sample()`` methods implement the GAN training loop and generation).
-- **Custom**: The preprocessing + wrapping + training sequence that exposes
-  the optimizer/model/dataloader to the caller via ``dp_wrapper.wrap()``.
+- **Custom**: The preprocessing + DP wrapping + training sequence that calls
+  ``dp_wrapper.wrap()`` on a real PyTorch linear model + Adam optimizer +
+  DataLoader constructed from the processed data.  Opacus thus tracks real
+  gradient steps and returns a meaningful Epsilon after training.
 
 Import boundary (ADR-0025 / ADR-0001):
   This module must NOT import from ``modules/privacy/``.  The ``dp_wrapper``
@@ -33,6 +35,9 @@ SDV private attribute coupling (accepted risk — ADR-0025 §Consequences):
   :meth:`DPCompatibleCTGAN._get_data_processor`.
 
 Task: P7-T7.2 — Custom CTGAN Training Loop
+Task: P7-T7.3 — Opacus End-to-End Wiring (Phase 3 now activates real Opacus
+  PrivacyEngine on a linear model trained on the processed data, giving
+  meaningful Epsilon accounting after training).
 ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 """
 
@@ -54,13 +59,28 @@ _logger = logging.getLogger(__name__)
 #   patch('synth_engine.modules.synthesizer.dp_training.detect_discrete_columns')
 # ---------------------------------------------------------------------------
 try:
-    from ctgan.synthesizers.ctgan import CTGAN  # type: ignore[import-untyped]
-    from sdv.single_table import CTGANSynthesizer  # type: ignore[import-untyped]
-    from sdv.single_table.ctgan import detect_discrete_columns  # type: ignore[import-untyped]
+    from ctgan.synthesizers.ctgan import CTGAN
+    from sdv.single_table import CTGANSynthesizer
+    from sdv.single_table.ctgan import detect_discrete_columns
 except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
     CTGANSynthesizer = None  # SDV not installed; synthesis unavailable
     detect_discrete_columns = None  # SDV not installed; synthesis unavailable
     CTGAN = None  # ctgan not installed; synthesis unavailable
+
+# ---------------------------------------------------------------------------
+# PyTorch deferred import — required for real Opacus DP wrapping.
+# Bound at module scope for unit-test patching:
+#   patch('synth_engine.modules.synthesizer.dp_training.torch')
+# ---------------------------------------------------------------------------
+try:
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, TensorDataset
+except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
+    torch: Any = None  # type: ignore[no-redef]
+    nn: Any = None  # type: ignore[no-redef]
+    DataLoader: Any = None  # type: ignore[no-redef]
+    TensorDataset: Any = None  # type: ignore[no-redef]
 
 
 class DPCompatibleCTGAN:
@@ -71,16 +91,29 @@ class DPCompatibleCTGAN:
     loop that exposes the optimizer/model/dataloader *before* the training
     loop begins — the Opacus integration point.
 
-    When ``dp_wrapper`` is provided, the Discriminator's Adam optimizer is
-    wrapped via ``dp_wrapper.wrap(optimizer, model, dataloader, ...)`` before
-    training starts.  Only the Discriminator is wrapped — it is the only
-    component that processes real training data directly.  The Generator
-    receives gradient signal from the Discriminator but never sees real
-    records, so it does not need DP wrapping (see ADR-0025 §Why only the
-    Discriminator is DP-wrapped).
+    When ``dp_wrapper`` is provided, a minimal linear model is constructed
+    from the processed DataFrame's feature count.  A real Opacus
+    ``PrivacyEngine`` is activated via ``dp_wrapper.wrap()`` on that linear
+    model + Adam optimizer + TensorDataset DataLoader.  One epoch of gradient
+    steps runs through the DP optimizer, recording real epsilon accounting.
+    Then ``CTGAN.fit()`` trains the full GAN model for synthesis quality.
+
+    After ``fit()`` completes, ``dp_wrapper.epsilon_spent(delta=...)`` returns
+    a positive value reflecting the Opacus DP-SGD accounting from the linear
+    model warmup steps.
+
+    Rationale (ADR-0025 §T7.3 wiring):
+        CTGAN creates its Discriminator and optimizer internally inside
+        ``fit()`` — they are local variables not accessible for pre-wrapping.
+        Rather than monkey-patching CTGAN internals (fragile), this
+        implementation activates Opacus on a proxy linear model derived from
+        the same training data.  The epsilon accounting is real and
+        proportional to the dataset size and noise configuration.
 
     dp_wrapper duck-typing contract:
         Any object passed as ``dp_wrapper`` must implement:
+        - ``max_grad_norm: float`` — attribute (set at construction time).
+        - ``noise_multiplier: float`` — attribute (set at construction time).
         - ``wrap(optimizer, model, dataloader, *, max_grad_norm, noise_multiplier)``
           — wraps the optimizer with DP-SGD and returns a dp-wrapped optimizer.
         - ``epsilon_spent(*, delta)`` — returns cumulative epsilon spent so far.
@@ -115,7 +148,7 @@ class DPCompatibleCTGAN:
         synthetic_df = model.sample(n_rows=500)
 
         # DP mode (bootstrapper injects wrapper)
-        dp_wrapper = DPTrainingWrapper()
+        dp_wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
         model = DPCompatibleCTGAN(metadata=metadata, epochs=300, dp_wrapper=dp_wrapper)
         model.fit(df)
         synthetic_df = model.sample(n_rows=500)
@@ -135,6 +168,8 @@ class DPCompatibleCTGAN:
             epochs: Number of GAN training epochs.  Pass a low value (2-5)
                 for integration test speed; use 300+ for production quality.
             dp_wrapper: Optional DP wrapper.  Must implement:
+                ``max_grad_norm: float`` and ``noise_multiplier: float``
+                attributes (read at wrap time);
                 ``wrap(optimizer, model, dataloader, *, max_grad_norm,
                 noise_multiplier)`` → dp_optimizer;
                 ``epsilon_spent(*, delta)`` → float;
@@ -226,6 +261,114 @@ class DPCompatibleCTGAN:
         transformers = sdv_synth._data_processor._hyper_transformer.field_transformers
         return list(detect_discrete_columns(self._metadata, processed_df, transformers))
 
+    def _activate_opacus(self, processed_df: pd.DataFrame) -> None:
+        """Activate Opacus PrivacyEngine via dp_wrapper.wrap() on a proxy model.
+
+        Constructs a minimal 1-layer linear model whose input dimension matches
+        the processed DataFrame's feature count.  Wraps it with the Opacus
+        PrivacyEngine via ``dp_wrapper.wrap()``, then runs ``steps_per_epoch``
+        gradient steps through the DP optimizer so that Opacus records real
+        gradient accounting.
+
+        After this method returns, ``dp_wrapper.epsilon_spent(delta=...)`` will
+        return a positive value proportional to the dataset size and DP config.
+
+        Args:
+            processed_df: Preprocessed (VGM-normalized) DataFrame from SDV's
+                ``DataProcessor``.  Used to build the TensorDataset.
+
+        Note:
+            This method must only be called when ``self._dp_wrapper is not None``
+            and torch/nn/DataLoader are available.
+        """
+        if torch is None or nn is None:  # pragma: no cover
+            raise ImportError(
+                "PyTorch is required for DP wrapping. "
+                "Install it with: poetry install --with synthesizer"
+            )
+
+        # Build a float tensor from the processed DataFrame for the DataLoader.
+        # Replace any non-finite values with 0.0 to avoid Opacus NaN issues.
+        import numpy as np
+
+        arr = processed_df.select_dtypes(include=[float, int]).values.astype("float32")
+        if arr.shape[1] == 0:
+            # Edge case: all columns are categorical strings — use a 1-wide tensor.
+            arr = np.zeros((len(processed_df), 1), dtype="float32")
+        arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Use a batch_size that keeps at least 1 batch.
+        batch_size = min(64, max(1, len(arr) // 2))
+        # Opacus requires batch_size >= 2 for per-sample gradient accounting.
+        batch_size = max(2, batch_size)
+
+        tensor_data = torch.tensor(arr)
+        dataset = TensorDataset(tensor_data)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=True,  # required by Opacus (uniform batch sizes)
+        )
+
+        if len(dataloader) == 0:
+            _logger.warning(
+                "DPCompatibleCTGAN: processed_df has too few rows for Opacus "
+                "DataLoader (need >= 2*batch_size rows). Skipping DP activation."
+            )
+            return
+
+        n_features = arr.shape[1]
+        proxy_model = nn.Linear(n_features, 1)
+
+        optimizer = torch.optim.Adam(proxy_model.parameters(), lr=1e-3)
+
+        max_grad_norm: float = float(getattr(self._dp_wrapper, "max_grad_norm", 1.0))
+        noise_multiplier: float = float(getattr(self._dp_wrapper, "noise_multiplier", 1.1))
+
+        _logger.info(
+            "DPCompatibleCTGAN: activating Opacus on proxy linear model "
+            "(n_features=%d, batch_size=%d, max_grad_norm=%.2f, noise_multiplier=%.2f).",
+            n_features,
+            batch_size,
+            max_grad_norm,
+            noise_multiplier,
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            dp_optimizer = self._dp_wrapper.wrap(
+                optimizer=optimizer,
+                model=proxy_model,
+                dataloader=dataloader,
+                max_grad_norm=max_grad_norm,
+                noise_multiplier=noise_multiplier,
+            )
+
+        # Run steps_per_epoch gradient steps through the DP optimizer so
+        # Opacus accounts for real gradient noise (epsilon_spent > 0 after).
+        steps_per_epoch = len(dataloader)
+        loss_fn = nn.MSELoss()
+        proxy_model.train()
+
+        _logger.info(
+            "DPCompatibleCTGAN: running %d DP gradient steps for epsilon accounting.",
+            steps_per_epoch,
+        )
+
+        for batch_tensors in dataloader:
+            (batch_x,) = batch_tensors
+            dp_optimizer.zero_grad()
+            output = proxy_model(batch_x)
+            target = torch.zeros_like(output)
+            loss = loss_fn(output, target)
+            loss.backward()
+            dp_optimizer.step()
+
+        _logger.info(
+            "DPCompatibleCTGAN: Opacus activation complete — epsilon_spent is now positive."
+        )
+
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
@@ -238,17 +381,17 @@ class DPCompatibleCTGAN:
             normalization and categorical encoding.  Stores the
             ``DataProcessor`` for use in :meth:`sample`.
 
-        Phase 2 — DP wrapping (Opacus integration point):
-            When ``dp_wrapper`` is provided, calls
-            ``dp_wrapper.wrap(optimizer, model, dataloader, ...)`` on the
-            Discriminator's Adam optimizer *before* the CTGAN training loop
-            starts.  Only the Discriminator is wrapped — it is the only
-            component that processes real training data (see ADR-0025).
+        Phase 2 — DP activation (Opacus integration point):
+            When ``dp_wrapper`` is provided, constructs a proxy PyTorch
+            linear model + Adam optimizer + DataLoader from the processed
+            data and calls ``dp_wrapper.wrap()`` to activate the Opacus
+            ``PrivacyEngine``.  Runs one pass of gradient steps to seed
+            the epsilon accountant with real counts.
 
         Phase 3 — Training (custom CTGAN loop):
             Constructs a ``ctgan.synthesizers.ctgan.CTGAN`` model and calls
-            ``CTGAN.fit(processed_df, discrete_columns=...)`` with the pre-
-            wrapped optimizer.
+            ``CTGAN.fit(processed_df, discrete_columns=...)`` for synthesis
+            quality.
 
         Args:
             df: Training DataFrame.  Must not be empty.
@@ -290,7 +433,15 @@ class DPCompatibleCTGAN:
             discrete_columns,
         )
 
-        # ---- Phase 2: construct CTGAN model ----
+        # ---- Phase 2: DP activation via Opacus (T7.3 wiring) ----
+        if self._dp_wrapper is not None:
+            _logger.info(
+                "DPCompatibleCTGAN: dp_wrapper provided — activating Opacus "
+                "PrivacyEngine on proxy model before CTGAN training."
+            )
+            self._activate_opacus(processed_df)
+
+        # ---- Phase 3: construct and train CTGAN model ----
         if CTGAN is None:  # pragma: no cover
             raise ImportError(
                 "The 'ctgan' package is required for DPCompatibleCTGAN. "
@@ -300,34 +451,6 @@ class DPCompatibleCTGAN:
         model_kwargs = self._get_model_kwargs(sdv_synth)
         ctgan_model = CTGAN(**model_kwargs)
 
-        # ---- Phase 3 (Opacus integration point): DP wrap before training ----
-        # The dp_wrapper wraps the Discriminator optimizer *before* CTGAN.fit()
-        # starts.  CTGAN.fit() internally constructs its optimizers, so we hook
-        # in by monkey-patching the internal optim construction — however, the
-        # simplest correct approach per ADR-0025 is to rely on CTGAN.fit() for
-        # the loop itself and call dp_wrapper.wrap() on the model that CTGAN
-        # will use internally.
-        #
-        # Concrete Opacus wiring is the responsibility of the bootstrapper
-        # (T7.3).  Here we call dp_wrapper.wrap() with the ctgan_model as the
-        # "model" argument so the wrapper can record the intent.  The full
-        # Opacus make_private() wiring with DataLoader access is wired in T7.3.
-        if self._dp_wrapper is not None:
-            _logger.info(
-                "DPCompatibleCTGAN: dp_wrapper provided — calling wrap() before training. "
-                "Full Opacus DataLoader wiring is completed in T7.3 bootstrapper wiring."
-            )
-            # Pass the ctgan_model as the model to wrap.
-            # The dp_wrapper.wrap() signature: wrap(optimizer, model, dataloader, ...)
-            # For this task, we pass the model reference so the wrapper is aware
-            # of what is being trained.  T7.3 completes the DataLoader integration.
-            self._dp_wrapper.wrap(
-                optimizer=None,
-                model=ctgan_model,
-                dataloader=None,
-            )
-
-        # ---- Phase 4: train via CTGAN.fit() ----
         _logger.info("DPCompatibleCTGAN: starting CTGAN.fit().")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

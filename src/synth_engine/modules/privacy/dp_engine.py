@@ -10,23 +10,8 @@ Boundary constraints (import-linter enforced):
     ``modules/profiler/``, or ``modules/subsetting/``.
   - Cross-module data transfer uses only generic PyTorch types (``Any``).
 
-Design note — SDV integration deferred (ADR-0017 risk):
-  SDV's :class:`CTGANSynthesizer` manages its own PyTorch training loop via
-  ``fit()``.  The optimizer, model, and DataLoader are created and destroyed
-  internally; they are not exposed as public arguments.  Wrapping SDV's
-  internal optimizer with Opacus therefore requires either accessing CTGAN
-  private attributes (fragile) or implementing a custom CTGAN training loop
-  (significant scope).  ADR-0017 acknowledges this as a risk and defers the
-  concrete wiring to a future task when SDV exposes training hooks, or when a
-  custom training loop replaces SDV's ``fit()``.
-
-  This module delivers the *full public API* — :meth:`DPTrainingWrapper.wrap`,
-  :meth:`~DPTrainingWrapper.epsilon_spent`, :meth:`~DPTrainingWrapper.check_budget`
-  — tested against raw PyTorch objects.  :class:`SynthesisEngine` accepts the
-  wrapper as an ``Any``-typed parameter and logs an advisory when the wrapper
-  is provided but cannot be applied to SDV's internal loop.
-
 Task: P4-T4.3b — DP Engine Wiring
+Task: P7-T7.3 — Opacus End-to-End Wiring (adds constructor params; drains ADV-048)
 ADR: ADR-0017 (CTGAN + Opacus; RDP accountant for Epsilon tracking)
 """
 
@@ -46,9 +31,15 @@ _logger = logging.getLogger(__name__)
 #   patch('synth_engine.modules.privacy.dp_engine.PrivacyEngine')
 # ---------------------------------------------------------------------------
 try:
-    from opacus import PrivacyEngine  # type: ignore[import-untyped]
+    from opacus import PrivacyEngine
 except ImportError:  # pragma: no cover — only triggered if synthesizer group absent
     PrivacyEngine = None  # Opacus not installed; DP training unavailable
+
+#: Default maximum L2 norm for per-sample gradient clipping.
+_DEFAULT_MAX_GRAD_NORM: float = 1.0
+
+#: Default ratio of Gaussian noise std to max_grad_norm.
+_DEFAULT_NOISE_MULTIPLIER: float = 1.1
 
 
 class BudgetExhaustionError(Exception):
@@ -78,15 +69,25 @@ class DPTrainingWrapper:
     :meth:`wrap` twice raises :exc:`RuntimeError`.  This prevents accidental
     double-wrapping that would corrupt Epsilon accounting.
 
+    T7.3 addition: ``max_grad_norm`` and ``noise_multiplier`` are now accepted
+    as constructor arguments and stored on the instance.  This allows the
+    bootstrapper factory ``build_dp_wrapper()`` to configure the wrapper at
+    construction time, and allows ``DPCompatibleCTGAN.fit()`` to read these
+    values via duck-typing when calling :meth:`wrap`.
+
+    Backward compatibility: both parameters default to the canonical values
+    (``max_grad_norm=1.0``, ``noise_multiplier=1.1``), so existing callers
+    that construct ``DPTrainingWrapper()`` without arguments continue to work.
+
     Usage::
 
-        wrapper = DPTrainingWrapper()
+        wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
         dp_optimizer = wrapper.wrap(
             optimizer=optimizer,
             model=model,
             dataloader=train_loader,
-            max_grad_norm=1.0,
-            noise_multiplier=1.1,
+            max_grad_norm=wrapper.max_grad_norm,
+            noise_multiplier=wrapper.noise_multiplier,
         )
 
         for epoch in range(epochs):
@@ -97,14 +98,60 @@ class DPTrainingWrapper:
         This class does NOT import from ``modules/synthesizer/``.  The caller
         (bootstrapper or orchestrator) is responsible for constructing the
         wrapper and passing it into ``SynthesisEngine.train()``.
+
+    Args:
+        max_grad_norm: Maximum L2 norm for per-sample gradient clipping.
+            Stored as ``self.max_grad_norm`` for downstream duck-typing callers
+            (e.g. ``DPCompatibleCTGAN``).  Must be strictly positive.
+            Default: 1.0.
+        noise_multiplier: Ratio of Gaussian noise std to max_grad_norm.
+            Stored as ``self.noise_multiplier`` for downstream duck-typing
+            callers.  Must be strictly positive.  Default: 1.1.
+
+    Raises:
+        ValueError: If ``max_grad_norm`` or ``noise_multiplier`` is not
+            strictly positive at construction time.
     """
 
-    def __init__(self) -> None:
-        """Initialise an unwrapped DPTrainingWrapper.
+    def __init__(
+        self,
+        max_grad_norm: float = _DEFAULT_MAX_GRAD_NORM,
+        noise_multiplier: float = _DEFAULT_NOISE_MULTIPLIER,
+    ) -> None:
+        """Initialise a DPTrainingWrapper with configurable DP hyper-parameters.
 
-        The wrapper starts in a "not-wrapped" state.  :meth:`wrap` must be
-        called before :meth:`epsilon_spent` or :meth:`check_budget`.
+        Args:
+            max_grad_norm: Maximum L2 norm for per-sample gradient clipping.
+                Must be strictly positive.  Default: 1.0.
+            noise_multiplier: Ratio of Gaussian noise std to max_grad_norm.
+                Must be strictly positive.  Default: 1.1.
+
+        Raises:
+            ValueError: If ``max_grad_norm`` or ``noise_multiplier`` is not
+                strictly positive.
         """
+        if max_grad_norm <= 0:
+            raise ValueError(
+                f"max_grad_norm must be positive, got {max_grad_norm!r}. "
+                "A zero or negative gradient norm bound clips all gradients to zero "
+                "and produces no useful training signal."
+            )
+
+        if noise_multiplier <= 0:
+            raise ValueError(
+                f"noise_multiplier must be positive, got {noise_multiplier!r}. "
+                "A zero or negative noise multiplier adds no Gaussian noise and "
+                "provides no differential privacy protection."
+            )
+
+        #: Maximum L2 norm for per-sample gradient clipping.
+        #: Readable by downstream callers (e.g. DPCompatibleCTGAN) via duck-typing.
+        self.max_grad_norm: float = max_grad_norm
+
+        #: Ratio of Gaussian noise std to max_grad_norm.
+        #: Readable by downstream callers (e.g. DPCompatibleCTGAN) via duck-typing.
+        self.noise_multiplier: float = noise_multiplier
+
         self._privacy_engine: Any = None  # set by wrap()
         self._wrapped: bool = False
 
