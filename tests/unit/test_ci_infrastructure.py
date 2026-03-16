@@ -14,6 +14,7 @@ Task: P8-T8.4 -- CI Infrastructure (ADV-052, ADV-062, ADV-065, ADV-066, ADV-069)
 from __future__ import annotations
 
 import ast
+import textwrap
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -135,6 +136,48 @@ class TestSynthesizerMarkerPresent:
         assert '"synthesizer:' in content or "'synthesizer:" in content, (
             "The 'synthesizer' pytest marker is not registered in pyproject.toml. "
             "Add it to the [tool.pytest.ini_options] markers list."
+        )
+
+
+class TestSynthesizerMarkerNegative:
+    """Verify _has_synthesizer_marker returns False when the marker is absent.
+
+    Guards against false-positives in the marker detection logic -- a file with
+    no pytest.mark.synthesizer annotation must NOT be reported as carrying the
+    marker.
+    """
+
+    def test_returns_false_for_file_without_marker(self, tmp_path: Path) -> None:
+        """_has_synthesizer_marker must return False for a file with no marker."""
+        snippet = textwrap.dedent(
+            """\
+            import pytest
+
+            pytestmark = pytest.mark.integration  # only integration, NOT synthesizer
+
+            def test_something() -> None:
+                assert True
+            """
+        )
+        target = tmp_path / "test_no_synthesizer_marker.py"
+        target.write_text(snippet, encoding="utf-8")
+
+        result = _has_synthesizer_marker(target)
+        assert result is False, (
+            "_has_synthesizer_marker returned True for a file that only carries "
+            "pytest.mark.integration, not pytest.mark.synthesizer. "
+            "The marker detection logic has a false-positive bug."
+        )
+
+    def test_returns_false_for_empty_file(self, tmp_path: Path) -> None:
+        """_has_synthesizer_marker must return False for a file with no markers at all."""
+        target = tmp_path / "test_empty.py"
+        target.write_text("def test_placeholder() -> None:\n    pass\n", encoding="utf-8")
+
+        result = _has_synthesizer_marker(target)
+        assert result is False, (
+            "_has_synthesizer_marker returned True for a file with no markers. "
+            "The marker detection logic has a false-positive bug."
         )
 
 
@@ -266,9 +309,12 @@ class TestADV062FrontendArtifact:
     """ADV-062: Frontend build artifact must be shared between frontend and e2e jobs."""
 
     def test_frontend_job_uploads_build_artifact(self) -> None:
-        """ci.yml frontend job must upload dist artifact."""
+        """ci.yml frontend job must upload an artifact named 'frontend-dist'."""
         content = CI_YML.read_text()
-        assert "upload-artifact" in content, "ci.yml frontend job must use actions/upload-artifact."
+        assert "name: frontend-dist" in content, (
+            "ci.yml frontend job must upload artifact named 'frontend-dist'. "
+            "ADV-062: Share the built dist/ between frontend and e2e jobs."
+        )
 
     def test_e2e_job_downloads_build_artifact(self) -> None:
         """ci.yml e2e job must download the frontend build artifact."""
