@@ -92,13 +92,14 @@ chromadb = "^1.5.5"
 # Previously misplaced between [tool.poetry.group.dev.dependencies] and
 # [tool.poetry.group.integration.dependencies] — moved here explicitly (T18.2).
 datamodel-code-generator = ">=0.50.0,<1.0.0"
+# Property-based testing for unit tests (T19.3). Dev group — runs in tests/unit/.
+hypothesis = "^6.151.9"
 
 # ---------------------------------------------------------------------------
 # Integration group — NOT included by default; wired in Task 2.2
 # Install with: poetry install --with dev,integration
 # Requires libpq (PostgreSQL client library) to be present on the host.
 # ---------------------------------------------------------------------------
-hypothesis = "^6.151.9"
 [tool.poetry.group.integration.dependencies]
 pytest-postgresql = "^7.0"
 
