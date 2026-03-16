@@ -1,5 +1,14 @@
 # **Software Architecture Document: Air-Gapped Synthetic Data Generation Engine**
 
+> **Implementation Gap Analysis:** This document describes the target architecture as
+> originally specified. The implemented system deviates from this specification in nine
+> areas (internal event bus, webhooks, `llms.txt`, MCP support, `datamodel-code-generator`
+> CI, rate limiting, mTLS, custom Prometheus metrics, OTEL trace propagation). Each
+> deviation has a formal disposition — Implemented Differently, Deferred, or Descoped —
+> documented in **[ADR-0029: Architectural Requirements Gap Analysis](adr/ADR-0029-architectural-requirements-gap-analysis.md)**.
+> Readers should consult ADR-0029 before implementing any requirement listed here to
+> confirm its current status.
+
 ## **Architectural Overview & Guiding Principles**
 
 The deployment of enterprise-grade software within physically isolated, zero-trust environments presents a unique convergence of security, operational, and architectural challenges. The Air-Gapped Synthetic Data Generation Engine is engineered to operate under a strict Bring Your Own Compute (BYOC) model, ensuring that both the data plane and the control plane reside exclusively within the host organization's perimeter.1 This absolute isolation mandate strictly prohibits external network calls, cloud-based telemetry, or vendor-initiated control mechanisms.1 The platform resolves the intractable dilemma between the insatiable demand for high-fidelity data required for generative artificial intelligence (AI) model training and the stringent regulatory constraints imposed by frameworks such as the General Data Protection Regulation (GDPR), the California Consumer Privacy Act (CCPA), and the Health Insurance Portability and Accountability Act (HIPAA).1 Consequently, the architectural foundation must balance the deployment simplicity required for completely offline environments with the extreme computational intensity of generative AI and differential privacy algorithms.

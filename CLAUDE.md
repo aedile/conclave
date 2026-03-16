@@ -179,6 +179,15 @@ Module boundaries enforced by `import-linter` contracts. File placement verified
 | Epsilon/delta budget | `modules/privacy/` |
 | Statistical profiling | `modules/profiler/` |
 | Crypto, vault, audit, JWT | `shared/` |
+| Neutral value objects shared by 2+ modules | `shared/` |
+
+**Neutral value object exception:** A file that is a pure data-carrier (frozen dataclass,
+no business logic, no I/O) and is consumed by two or more modules belongs in `shared/`
+rather than any single module — even if it was originally produced by one module.
+Example: `shared/schema_topology.py` is produced by the bootstrapper from
+`SchemaReflector` output and injected into `SubsettingEngine`, `StatisticalProfiler`,
+and `SynthesisEngine` via constructor DI. It lives in `shared/` because it is a
+cross-module data contract, not an ingestion implementation detail.
 
 ### Naming: `snake_case.py`, `PascalCase` classes, `SCREAMING_SNAKE` constants, `test_<behavior>` tests.
 
