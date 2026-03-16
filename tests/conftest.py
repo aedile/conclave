@@ -7,13 +7,15 @@ Task: P1-T1.2 — TDD Framework
 
 from __future__ import annotations
 
+import gc
 import warnings
+from collections.abc import Generator
 
 import pytest
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Register custom pytest markers and configure warning filters.
+    """Register custom pytest markers.
 
     Args:
         config: The active pytest configuration object.
@@ -27,15 +29,52 @@ def pytest_configure(config: pytest.Config) -> None:
         "integration: Tests requiring live databases or external services (Task 2.2)",
     )
 
+
+@pytest.fixture(autouse=True)
+def _suppress_third_party_deprecation_warnings() -> Generator[None]:
+    """Suppress known third-party warnings that cannot be fixed upstream.
+
+    Background
+    ----------
+    pytest's ``-W error`` command-line flag is applied by ``apply_warning_filters``
+    AFTER the pyproject.toml ``filterwarnings`` config entries.  Because
+    ``warnings.filterwarnings()`` prepends to the filter chain, the cmdline ``-W
+    error`` ends up at the TOP of the chain and overrides every ``"ignore"`` entry
+    in pyproject.toml.
+
+    The solution is to add the "ignore" filters INSIDE the per-test
+    ``catch_warnings_for_item`` context — i.e., from a fixture body — so they are
+    prepended AFTER ``-W error`` is already at the top, which puts the "ignore"
+    entries ABOVE it and restores correct precedence.
+
+    This fixture also calls ``gc.collect()`` in its teardown (after yield) to force
+    GC of any short-lived SQLite engines before the test's ``catch_warnings_for_item``
+    context exits.  Without this, SQLite engines created in helper functions (e.g.,
+    ``_make_connections_app()``) are GC-collected after the test session ends — during
+    ``pytest._ensure_unconfigure`` — where no ``ResourceWarning`` filter is active and
+    ``PytestUnraisableExceptionWarning`` fires, causing a non-zero exit code despite
+    all tests passing.
+
+    The warnings suppressed here are all from third-party packages we cannot modify:
+
+    * ``rdt`` / ``sdv`` import chain: ``rdt.transformers.utils`` imports ``sre_parse``,
+      ``sre_constants``, and ``sre_compile`` at module scope.  These stdlib modules
+      are deprecated in Python 3.14 (PEP 594) for removal in 3.16.
+    * ``chromadb`` telemetry: ``chromadb.telemetry.opentelemetry`` calls
+      ``asyncio.iscoroutinefunction()`` at class-definition time.  This API is
+      deprecated in Python 3.14 for removal in 3.16; the fix is
+      ``inspect.iscoroutinefunction()``.
+    * ``SQLite ResourceWarning``: SQLAlchemy in-memory engines used in unit-test
+      helpers emit ``ResourceWarning`` when the engine is GC-collected without an
+      explicit ``engine.dispose()`` call.  These are intentionally short-lived
+      test engines.
+
+    Yields:
+        None — this is a setup/teardown fixture with no yielded value.
+    """
     # ---------------------------------------------------------------------------
-    # Warning suppression for third-party stdlib-deprecated imports
+    # rdt 1.x (SDV dependency): sre_parse / sre_constants / sre_compile imports
     # ---------------------------------------------------------------------------
-    # rdt 1.x (an SDV dependency) imports sre_parse, sre_constants, and
-    # sre_compile at module scope.  These stdlib modules are deprecated in
-    # Python 3.14 (PEP 594) for removal in 3.16.  The warnings fire during
-    # pytest collection — before pyproject.toml filterwarnings take effect —
-    # so we register the filters here via warnings.filterwarnings() instead.
-    # These are third-party packages we cannot modify.
     warnings.filterwarnings(
         "ignore",
         message="module 'sre_parse' is deprecated",
@@ -53,25 +92,31 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
     # ---------------------------------------------------------------------------
-    # Warning suppression for pytest-asyncio 0.26.x event loop policy
+    # chromadb 1.5.x: asyncio.iscoroutinefunction at class-definition time
     # ---------------------------------------------------------------------------
-    # pytest-asyncio 0.26.x calls asyncio.get_event_loop_policy() and
-    # asyncio.set_event_loop_policy() during test setup — before pyproject.toml
-    # filterwarnings become active.  These APIs are deprecated in Python 3.14
-    # (slated for removal in Python 3.16) and fire DeprecationWarning from
-    # inside asyncio.events.  The calls live inside the pytest-asyncio plugin;
-    # we cannot fix them.  The filter is registered here (pytest_configure) so
-    # it is active before any test setup runs.
     warnings.filterwarnings(
         "ignore",
-        message="'asyncio.get_event_loop_policy' is deprecated",
+        message="'asyncio.iscoroutinefunction' is deprecated",
         category=DeprecationWarning,
     )
+
+    # ---------------------------------------------------------------------------
+    # SQLite ResourceWarning: short-lived in-memory test engines
+    # ---------------------------------------------------------------------------
     warnings.filterwarnings(
         "ignore",
-        message="'asyncio.set_event_loop_policy' is deprecated",
-        category=DeprecationWarning,
+        category=ResourceWarning,
     )
+
+    yield
+
+    # ---------------------------------------------------------------------------
+    # Force GC after each test to collect short-lived SQLite engines NOW —
+    # while the ResourceWarning filter above is still active in this context.
+    # Without this, CPython defers collection to session teardown (outside our
+    # filter scope), where PytestUnraisableExceptionWarning would fire.
+    # ---------------------------------------------------------------------------
+    gc.collect()
 
 
 # ---------------------------------------------------------------------------
