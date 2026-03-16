@@ -24,6 +24,7 @@ Task: P4-T4.4 — Privacy Accountant
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from decimal import Decimal
 
 import pytest
 import pytest_asyncio
@@ -197,7 +198,9 @@ async def test_spend_budget_sequential_calls_accumulate(
 
         ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         updated_ledger = ledger_result.scalar_one()
-        assert abs(updated_ledger.total_spent_epsilon - 0.6) < 1e-9, (
+        # Use Decimal comparison: DB returns Decimal from NUMERIC(20,10) column (ADV-050).
+        # float subtraction would raise TypeError against Decimal values.
+        assert updated_ledger.total_spent_epsilon == Decimal("0.6"), (
             f"Expected 0.6 total_spent, got {updated_ledger.total_spent_epsilon}"
         )
 
@@ -247,7 +250,9 @@ async def test_spend_budget_raises_when_budget_exhausted(
 
         ledger_result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
         unchanged_ledger = ledger_result.scalar_one()
-        assert unchanged_ledger.total_spent_epsilon == 0.9, (
+        # Use Decimal comparison: DB returns Decimal from NUMERIC(20,10) column (ADV-050).
+        # Comparing Decimal to float(0.9) may raise TypeError in strict arithmetic contexts.
+        assert unchanged_ledger.total_spent_epsilon == Decimal("0.9"), (
             f"Ledger balance should be unchanged at 0.9, got {unchanged_ledger.total_spent_epsilon}"
         )
 

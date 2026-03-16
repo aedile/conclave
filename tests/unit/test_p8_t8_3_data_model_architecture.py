@@ -28,7 +28,6 @@ from decimal import Decimal
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # ADV-050: PrivacyLedger epsilon columns — Numeric not Float
 # ---------------------------------------------------------------------------
@@ -44,6 +43,7 @@ def test_privacy_ledger_epsilon_columns_use_numeric_sa_type() -> None:
     This guards against ADV-050: floating-point drift in epsilon accounting.
     """
     import sqlalchemy
+
     from synth_engine.modules.privacy.ledger import PrivacyLedger
 
     table = PrivacyLedger.__table__  # type: ignore[attr-defined]
@@ -66,6 +66,7 @@ def test_privacy_ledger_epsilon_numeric_precision() -> None:
     enough fractional digits for epsilon values used in privacy accounting.
     """
     import sqlalchemy
+
     from synth_engine.modules.privacy.ledger import PrivacyLedger
 
     table = PrivacyLedger.__table__  # type: ignore[attr-defined]
@@ -77,9 +78,7 @@ def test_privacy_ledger_epsilon_numeric_precision() -> None:
         assert col_type.precision == 20, (
             f"Column '{col_name}' must have precision=20, got {col_type.precision}"
         )
-        assert col_type.scale == 10, (
-            f"Column '{col_name}' must have scale=10, got {col_type.scale}"
-        )
+        assert col_type.scale == 10, f"Column '{col_name}' must have scale=10, got {col_type.scale}"
 
 
 def test_privacy_transaction_epsilon_spent_uses_numeric_sa_type() -> None:
@@ -89,6 +88,7 @@ def test_privacy_transaction_epsilon_spent_uses_numeric_sa_type() -> None:
     audit record, not only the ledger totals.
     """
     import sqlalchemy
+
     from synth_engine.modules.privacy.ledger import PrivacyTransaction
 
     table = PrivacyTransaction.__table__  # type: ignore[attr-defined]
@@ -179,9 +179,7 @@ def test_bootstrapper_licensing_router_maps_403_without_exc_status_code() -> Non
     import ast
     import pathlib
 
-    router_path = pathlib.Path(
-        "src/synth_engine/bootstrapper/routers/licensing.py"
-    )
+    router_path = pathlib.Path("src/synth_engine/bootstrapper/routers/licensing.py")
     source = router_path.read_text()
     tree = ast.parse(source)
 
@@ -213,7 +211,7 @@ def test_budget_exhaustion_error_importable_from_modules_privacy() -> None:
 
     rather than reaching into the internal dp_engine submodule.
     """
-    from synth_engine.modules.privacy import BudgetExhaustionError  # noqa: F401
+    from synth_engine.modules.privacy import BudgetExhaustionError
 
     # Must be the real class, not a stub
     assert issubclass(BudgetExhaustionError, Exception)

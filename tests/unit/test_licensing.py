@@ -1,7 +1,5 @@
 """Unit tests for the Offline License Activation Protocol.
 
-RED Phase — all tests must fail before implementation exists.
-
 Tests cover:
 - get_hardware_id() — deterministic, SHA-256 hex format
 - generate_challenge() — returns hardware_id, app_version, timestamp
@@ -16,8 +14,12 @@ Tests cover:
 - LICENSE_PUBLIC_KEY env var override — activate endpoint uses env key
 - LicenseChallengeResponse.alt_text field — accessibility field present
 
+ADV-054 (P8-T8.3): LicenseError no longer carries status_code.
+Tests updated to assert on exc.detail instead of exc.status_code.
+
 CONSTITUTION Priority 3: TDD
 Task: P5-T5.2 — Offline License Activation Protocol
+Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-054)
 """
 
 from __future__ import annotations
@@ -244,7 +246,8 @@ def test_verify_license_jwt_rejects_wrong_hardware_id(rsa_keypair: tuple[str, st
     with pytest.raises(LicenseError) as exc_info:
         verify_license_jwt(token, public_pem)
 
-    assert exc_info.value.status_code == 403
+    # ADV-054: LicenseError carries detail (not status_code)
+    assert exc_info.value.detail
 
 
 def test_verify_license_jwt_rejects_bad_signature(rsa_keypair: tuple[str, str]) -> None:
@@ -270,7 +273,8 @@ def test_verify_license_jwt_rejects_bad_signature(rsa_keypair: tuple[str, str]) 
     with pytest.raises(LicenseError) as exc_info:
         verify_license_jwt(tampered_token, public_pem)
 
-    assert exc_info.value.status_code == 403
+    # ADV-054: LicenseError carries detail (not status_code)
+    assert exc_info.value.detail
 
 
 def test_verify_license_jwt_rejects_modified_hardware_id_claim(
@@ -309,7 +313,8 @@ def test_verify_license_jwt_rejects_modified_hardware_id_claim(
     with pytest.raises(LicenseError) as exc_info:
         verify_license_jwt(tampered_token, public_pem)
 
-    assert exc_info.value.status_code == 403
+    # ADV-054: LicenseError carries detail (not status_code)
+    assert exc_info.value.detail
 
 
 def test_verify_license_jwt_rejects_expired_token(rsa_keypair: tuple[str, str]) -> None:
@@ -328,7 +333,8 @@ def test_verify_license_jwt_rejects_expired_token(rsa_keypair: tuple[str, str]) 
     with pytest.raises(LicenseError) as exc_info:
         verify_license_jwt(token, public_pem)
 
-    assert exc_info.value.status_code == 403
+    # ADV-054: LicenseError carries detail (not status_code)
+    assert exc_info.value.detail
 
 
 # ---------------------------------------------------------------------------
@@ -753,25 +759,33 @@ async def test_license_state_not_licensed_after_activate_endpoint_rejects(
 
 
 # ---------------------------------------------------------------------------
-# LicenseError tests
+# LicenseError tests — ADV-054: no status_code, only detail
 # ---------------------------------------------------------------------------
 
 
-def test_license_error_has_expected_attributes() -> None:
-    """LicenseError carries detail and status_code attributes."""
+def test_license_error_has_detail_attribute() -> None:
+    """LicenseError carries detail attribute (plain string, no HTTP semantics).
+
+    ADV-054: status_code was removed from LicenseError. Only detail remains.
+    HTTP status mapping is the bootstrapper's responsibility.
+    """
     from synth_engine.shared.security.licensing import LicenseError
 
     err = LicenseError("test detail")
     assert err.detail == "test detail"
-    assert err.status_code == 403
+    assert str(err) == "test detail"
 
 
-def test_license_error_custom_status_code() -> None:
-    """LicenseError accepts a custom status_code."""
+def test_license_error_has_no_status_code() -> None:
+    """LicenseError must NOT have a status_code attribute (ADV-054).
+
+    HTTP status semantics belong in bootstrapper/routers/licensing.py,
+    not in the shared/security layer.
+    """
     from synth_engine.shared.security.licensing import LicenseError
 
-    err = LicenseError("server error", status_code=500)
-    assert err.status_code == 500
+    err = LicenseError("test detail")
+    assert not hasattr(err, "status_code")
 
 
 # ---------------------------------------------------------------------------
