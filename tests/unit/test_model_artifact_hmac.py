@@ -266,3 +266,27 @@ def test_load_unsigned_artifact_with_key_raises_security_error() -> None:
 # ---------------------------------------------------------------------------
 
 pytestmark = pytest.mark.unit
+
+
+# ---------------------------------------------------------------------------
+# ADV-076: empty-key symmetry — load() must reject signing_key=b""
+# ---------------------------------------------------------------------------
+
+
+def test_load_with_empty_key_raises_value_error() -> None:
+    """load() with signing_key=b'' must raise ValueError — empty keys provide no security.
+
+    ADV-076: save() raises ValueError for empty signing_key, but load() previously
+    only raised ValueError for None paths and SecurityError for HMAC failures.
+    This test documents and enforces the symmetric contract: load() must reject
+    signing_key=b'' with ValueError before attempting any file I/O or HMAC checks.
+
+    An empty key provides no security — it must be caught at the boundary, not
+    silently permitted to attempt (and trivially fail) HMAC verification.
+    """
+    artifact = _make_artifact()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_path = Path(tmpdir) / "artifact.pkl"
+        artifact.save(str(save_path), signing_key=_VALID_KEY)
+        with pytest.raises(ValueError, match="signing_key must not be empty"):
+            ModelArtifact.load(str(save_path), signing_key=b"")

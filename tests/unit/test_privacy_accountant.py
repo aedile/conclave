@@ -449,3 +449,84 @@ def test_privacy_module_exports_ledger_classes() -> None:
     assert hasattr(privacy_module, "spend_budget")
     assert hasattr(privacy_module, "BudgetExhaustionError")
     assert hasattr(privacy_module, "DPTrainingWrapper")
+
+
+# ---------------------------------------------------------------------------
+# Tests: spend_budget() — scientific notation Decimal edge case (ADV-074)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("amount", "expected_decimal"),
+    [
+        (1e-11, Decimal("1e-11")),
+        (1.1e-11, Decimal("1.1e-11")),
+        (9.99e-12, Decimal("9.99e-12")),
+    ],
+    ids=["1e-11", "1.1e-11", "9.99e-12"],
+)
+async def test_spend_budget_scientific_notation_decimal_conversion(
+    async_engine: AsyncEngine,
+    amount: float,
+    expected_decimal: Decimal,
+) -> None:
+    """spend_budget(amount=<scientific notation float>) converts correctly via Decimal(str(float)).
+
+    ADV-074: Very small epsilon values expressed in scientific notation (e.g. 1e-11)
+    undergo float→str→Decimal conversion inside spend_budget().  This test documents the
+    contract boundary: ``Decimal(str(1e-11))`` produces ``Decimal("1e-11")`` which equals
+    ``Decimal("0.00000000001")``.  The ledger balance must be decremented by exactly that
+    amount and a PrivacyTransaction record must be written with the correct epsilon_spent.
+
+    Arrange: Insert a PrivacyLedger with total_allocated=1.0, total_spent=0.0.
+    Act: Call spend_budget(amount=<float in scientific notation>, job_id=99, session=...).
+    Assert:
+    - Exactly 1 PrivacyTransaction row exists with epsilon_spent == expected_decimal.
+    - The ledger's total_spent_epsilon equals expected_decimal.
+    - No exception is raised (very small amounts are valid positive epsilons).
+    """
+    from sqlalchemy import select
+
+    from synth_engine.modules.privacy.accountant import spend_budget
+
+    # Arrange: ledger with generous budget so tiny amount fits easily
+    async with get_async_session(async_engine) as setup_session:
+        ledger = PrivacyLedger(
+            total_allocated_epsilon=Decimal("1.0"),
+            total_spent_epsilon=Decimal("0.0"),
+        )
+        setup_session.add(ledger)
+        await setup_session.commit()
+        await setup_session.refresh(ledger)
+        ledger_id = ledger.id
+
+    # Act: spend a tiny epsilon expressed as a Python float
+    async with get_async_session(async_engine) as spend_session:
+        await spend_budget(amount=amount, job_id=99, ledger_id=ledger_id, session=spend_session)
+
+    # Assert: Decimal(str(amount)) must equal expected_decimal
+    assert Decimal(str(amount)) == expected_decimal, (
+        f"Decimal(str({amount!r})) != {expected_decimal!r} — "
+        "contract boundary mismatch; float→Decimal conversion changed behaviour"
+    )
+
+    # Assert: DB state reflects the correct Decimal amount
+    async with get_async_session(async_engine) as check_session:
+        tx_result = await check_session.execute(
+            select(PrivacyTransaction).where(PrivacyTransaction.ledger_id == ledger_id)
+        )
+        transactions = tx_result.scalars().all()
+        assert len(transactions) == 1, f"Expected 1 transaction, got {len(transactions)}"
+        assert transactions[0].epsilon_spent == expected_decimal, (
+            f"epsilon_spent={transactions[0].epsilon_spent!r}, expected {expected_decimal!r}"
+        )
+
+        ledger_result = await check_session.execute(
+            select(PrivacyLedger).where(PrivacyLedger.id == ledger_id)
+        )
+        updated_ledger = ledger_result.scalar_one()
+        assert updated_ledger.total_spent_epsilon == expected_decimal, (
+            f"total_spent_epsilon={updated_ledger.total_spent_epsilon!r}, "
+            f"expected {expected_decimal!r}"
+        )
