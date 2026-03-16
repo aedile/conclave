@@ -28,6 +28,8 @@ import pytest
 from faker import Faker
 from pytest_postgresql import factories
 
+from tests.conftest_types import PostgreSQLProc
+
 pytestmark = [pytest.mark.integration, pytest.mark.synthesizer]  # ADV-073
 
 
@@ -243,7 +245,7 @@ class TestSynthesisJobTaskIntegration:
     def test_synthesis_job_complete_with_real_db(
         self,
         tmp_path: Path,
-        synth_pg_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc fixture has no exported type
+        synth_pg_proc: PostgreSQLProc,
     ) -> None:
         """_run_synthesis_job_impl must reach COMPLETE status using a real PostgreSQL DB.
 

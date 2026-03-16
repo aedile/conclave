@@ -52,6 +52,7 @@ from sqlmodel import Field, SQLModel
 from synth_engine.shared.db import get_engine
 from synth_engine.shared.security.ale import EncryptedString
 from synth_engine.shared.security.vault import VaultState
+from tests.conftest_types import PostgreSQLProc
 
 _logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ def _reset_vault() -> Generator[None]:
 # ---------------------------------------------------------------------------
 
 
-def _create_database(proc: factories.postgresql_proc) -> None:  # type: ignore[valid-type]
+def _create_database(proc: PostgreSQLProc) -> None:
     """Create the integration test database if it does not exist.
 
     Args:
@@ -161,7 +162,7 @@ def _create_database(proc: factories.postgresql_proc) -> None:  # type: ignore[v
 
 @pytest.fixture(scope="module")
 def _provision_test_db(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[None]:
     """Create the test database once per module and drop it on teardown.
 
@@ -217,7 +218,7 @@ def vault_env(monkeypatch: pytest.MonkeyPatch) -> str:
 
 @pytest.fixture
 def nist_db_engine(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
     _provision_test_db: None,
     vault_env: str,
 ) -> Generator[Engine]:

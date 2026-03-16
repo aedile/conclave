@@ -41,6 +41,7 @@ from synth_engine.shared.schema_topology import (
     ForeignKeyInfo,
     SchemaTopology,
 )
+from tests.conftest_types import PostgreSQLProc
 
 # ---------------------------------------------------------------------------
 # pytest-postgresql process fixture
@@ -124,7 +125,7 @@ _E2E_CLI_TARGET_DBNAME = "conclave_e2e_cli_target"
 
 
 def _connect_pg(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str = "postgres",
 ) -> psycopg2.extensions.connection:
     """Open a psycopg2 superuser connection to the ephemeral PG instance.
@@ -148,7 +149,7 @@ def _connect_pg(
 
 
 def _create_database(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str,
 ) -> None:
     """Create a database if it does not already exist.
@@ -166,7 +167,7 @@ def _create_database(
 
 
 def _drop_database(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str,
 ) -> None:
     """Terminate connections and drop a database.
@@ -188,7 +189,7 @@ def _drop_database(
 
 
 def _create_pii_schema(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str,
     *,
     with_serial: bool = False,
@@ -236,7 +237,7 @@ def _create_pii_schema(
 
 
 def _populate_pii_source(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str,
     *,
     num_persons: int = 20,
@@ -279,7 +280,7 @@ def _populate_pii_source(
 
 
 def _truncate_target(
-    proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    proc: PostgreSQLProc,
     dbname: str,
 ) -> None:
     """Truncate all tables in the target database.
@@ -348,7 +349,7 @@ def _make_pii_topology() -> SchemaTopology:
 
 @pytest.fixture(scope="module")
 def e2e_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[tuple[str, str]]:
     """Create source + target databases; yield their connection URLs.
 
@@ -386,7 +387,7 @@ def e2e_dbs(
 
 @pytest.fixture(scope="module")
 def e2e_determ_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[tuple[str, str]]:
     """Create isolated source + target databases for the determinism test.
 
@@ -422,7 +423,7 @@ def e2e_determ_dbs(
 
 @pytest.fixture(scope="module")
 def e2e_passthru_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[tuple[str, str]]:
     """Create isolated source + target databases for the passthrough test.
 
@@ -458,7 +459,7 @@ def e2e_passthru_dbs(
 
 @pytest.fixture(scope="module")
 def e2e_cli_dbs(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]  # pytest-postgresql proc executor has no exported runtime type
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[tuple[str, str]]:
     """Create isolated source + target databases for the CLI-based E2E test.
 

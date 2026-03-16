@@ -36,6 +36,7 @@ from synth_engine.modules.ingestion.postgres_adapter import (
     PostgresIngestionAdapter,
     PrivilegeEscalationError,
 )
+from tests.conftest_types import PostgreSQLProc
 
 # ---------------------------------------------------------------------------
 # pytest-postgresql process fixture
@@ -80,7 +81,7 @@ def _require_postgresql() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _create_database(proc: factories.postgresql_proc) -> None:  # type: ignore[valid-type]
+def _create_database(proc: PostgreSQLProc) -> None:
     """Create the integration test database using psycopg2.
 
     Args:
@@ -111,7 +112,7 @@ def _create_database(proc: factories.postgresql_proc) -> None:  # type: ignore[v
 
 @pytest.fixture(scope="module")
 def _provision_test_db(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
 ) -> Generator[None]:
     """Create the test database once per module.
 
@@ -183,7 +184,7 @@ def _provision_test_db(
 @pytest.mark.integration
 @pytest.mark.usefixtures("_provision_test_db")
 def test_preflight_fails_for_superuser(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
 ) -> None:
     """preflight_check raises PrivilegeEscalationError when connecting as superuser.
 
@@ -209,7 +210,7 @@ def test_preflight_fails_for_superuser(
 @pytest.mark.integration
 @pytest.mark.usefixtures("_provision_test_db")
 def test_preflight_passes_for_readonly_user(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
 ) -> None:
     """preflight_check passes when connecting as a read-only user.
 
@@ -232,7 +233,7 @@ def test_preflight_passes_for_readonly_user(
 @pytest.mark.integration
 @pytest.mark.usefixtures("_provision_test_db")
 def test_stream_table_yields_rows(
-    postgresql_proc: factories.postgresql_proc,  # type: ignore[valid-type]
+    postgresql_proc: PostgreSQLProc,
 ) -> None:
     """stream_table yields all rows across multiple batches.
 
