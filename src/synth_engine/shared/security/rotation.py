@@ -22,7 +22,15 @@ Security properties
   retain the old ciphertext, which is still decryptable with the old key until
   a full re-run succeeds).
 - NULL column values are skipped: they represent absent PII and must remain NULL
-  after rotation (converting NULL → ciphertext of empty string would be wrong).
+  after rotation (converting NULL -> ciphertext of empty string would be wrong).
+
+OOM safety
+----------
+``re_encrypt_column_values`` uses ``fetchmany(batch_size)`` to iterate over rows
+in configurable batches rather than ``fetchall()``, which would load the entire
+encrypted column into memory at once.  The default batch size is 1000 rows.
+For a typical 200-byte Fernet ciphertext, 1000 rows ~ 200 KB peak overhead per
+column -- a negligible fraction of available memory even on constrained hosts.
 
 Boundary constraints
 --------------------
@@ -31,7 +39,8 @@ This module lives in ``shared/security/`` and has no imports from
 and ``shared/`` siblings.
 
 CONSTITUTION Priority 0: Security
-Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
+Task: P5-T5.5 -- Cryptographic Shredding & Re-Keying API
+Task: P20-T20.4 -- Architecture Tightening (AC4: OOM-safe batched reads)
 """
 
 from __future__ import annotations
@@ -46,6 +55,10 @@ from synth_engine.shared.security.ale import get_fernet
 from synth_engine.shared.task_queue import huey
 
 _logger = logging.getLogger(__name__)
+
+# Default number of rows fetched per batch during key rotation.
+# 1000 rows x ~200 bytes/ciphertext ~ 200 KB peak memory per column.
+_DEFAULT_ROTATION_BATCH_SIZE: int = 1000
 
 
 def find_encrypted_columns(engine: Engine) -> list[tuple[str, str]]:
@@ -92,12 +105,14 @@ def re_encrypt_column_values(
     column_name: str,
     old_fernet: Fernet,
     new_fernet: Fernet,
+    batch_size: int = _DEFAULT_ROTATION_BATCH_SIZE,
 ) -> int:
     """Decrypt every non-NULL value with ``old_fernet`` and re-encrypt with ``new_fernet``.
 
-    Processes all rows in ``table_name.column_name`` using a single SELECT,
-    then issues individual UPDATE statements inside a transaction.  The
-    primary key column name is assumed to be ``id`` — this is sufficient for
+    Processes rows in configurable batches using ``fetchmany(batch_size)`` to
+    avoid loading the entire column into memory at once (OOM safety -- AC4 T20.4).
+    Individual UPDATE statements are issued inside a single transaction per batch.
+    The primary key column name is assumed to be ``id`` -- this is sufficient for
     the current data model.  If a future table uses a different PK name, this
     function should be extended to accept a ``pk_column`` argument.
 
@@ -134,22 +149,26 @@ def re_encrypt_column_values(
     rows_processed = 0
 
     with engine.begin() as conn:
-        rows = conn.execute(select_sql).fetchall()
-        for row in rows:
-            row_id, ciphertext = row[0], row[1]
-            if ciphertext is None:
-                continue
-            # Decrypt with old key, re-encrypt with new key
-            plaintext_bytes: bytes = old_fernet.decrypt(ciphertext.encode())
-            new_ciphertext: str = new_fernet.encrypt(plaintext_bytes).decode()
-            conn.execute(update_sql, {"new_ct": new_ciphertext, "row_id": str(row_id)})
-            rows_processed += 1
-            _logger.debug(
-                "re_encrypt_column_values: re-encrypted row id=%s in %s.%s",
-                row_id,
-                table_name,
-                column_name,
-            )
+        result = conn.execute(select_sql)
+        while True:
+            batch = result.fetchmany(batch_size)
+            if not batch:
+                break
+            for row in batch:
+                row_id, ciphertext = row[0], row[1]
+                if ciphertext is None:
+                    continue
+                # Decrypt with old key, re-encrypt with new key
+                plaintext_bytes: bytes = old_fernet.decrypt(ciphertext.encode())
+                new_ciphertext: str = new_fernet.encrypt(plaintext_bytes).decode()
+                conn.execute(update_sql, {"new_ct": new_ciphertext, "row_id": str(row_id)})
+                rows_processed += 1
+                _logger.debug(
+                    "re_encrypt_column_values: re-encrypted row id=%s in %s.%s",
+                    row_id,
+                    table_name,
+                    column_name,
+                )
 
     _logger.info(
         "re_encrypt_column_values: completed %d rows in %s.%s",

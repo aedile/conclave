@@ -213,18 +213,14 @@ class TestValidateConnectionStringDockerSslOverride:
         """Explicit CONCLAVE_SSL_REQUIRED=true still enforces sslmode=require."""
         monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "true")
         with pytest.raises(ValueError, match="sslmode=require"):
-            validate_connection_string(
-                "postgresql+psycopg2://user:pass@db.example.com:5432/prod"
-            )
+            validate_connection_string("postgresql+psycopg2://user:pass@db.example.com:5432/prod")
 
     def test_remote_host_still_requires_ssl_when_env_var_absent(self) -> None:
         """Default behaviour (no env var) enforces sslmode=require for remote hosts."""
         # No monkeypatch — CONCLAVE_SSL_REQUIRED is not set in the test environment
         # Ensure any prior test does not leak env state by testing the default path
         with pytest.raises(ValueError, match="sslmode=require"):
-            validate_connection_string(
-                "postgresql+psycopg2://user:pass@db.example.com:5432/prod"
-            )
+            validate_connection_string("postgresql+psycopg2://user:pass@db.example.com:5432/prod")
 
     def test_ssl_override_false_still_rejects_invalid_scheme(
         self, monkeypatch: pytest.MonkeyPatch
