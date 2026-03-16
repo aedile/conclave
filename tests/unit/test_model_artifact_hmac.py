@@ -10,6 +10,8 @@ Contract:
 - ModelArtifact.load(path, signing_key=key) verifies the signature before unpickling.
 - Loading with a wrong key raises SecurityError.
 - Loading a tampered payload raises SecurityError.
+- Loading a signed artifact without providing a key raises SecurityError (no silent
+  downgrade to unsigned mode).
 - Calling save/load without a signing_key falls back to unsigned mode (backward compat).
 """
 
@@ -174,10 +176,10 @@ def test_load_signed_artifact_without_key_raises_security_error() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         save_path = Path(tmpdir) / "artifact.pkl"
         artifact.save(str(save_path), signing_key=_VALID_KEY)
-        # Loading without key: signed artifacts have the HMAC header; unsigned load
-        # must detect the mismatch and raise SecurityError rather than unpickling.
+        # Loading without key: load() must detect the HMAC header and refuse
+        # to unpickle rather than silently bypassing signature verification.
         with pytest.raises(SecurityError, match="HMAC verification failed"):
-            ModelArtifact.load(str(save_path), signing_key=_OTHER_KEY)
+            ModelArtifact.load(str(save_path), signing_key=None)
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +212,37 @@ def test_security_error_carries_message() -> None:
     """SecurityError must carry a human-readable message."""
     error = SecurityError("HMAC verification failed: signature mismatch")
     assert "HMAC verification failed" in str(error)
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests (QA finding — T8.2 review)
+# ---------------------------------------------------------------------------
+
+
+def test_load_too_short_file_raises_security_error() -> None:
+    """load() with signing_key on a file shorter than 32 bytes raises SecurityError."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        short_path = Path(tmpdir) / "short.pkl"
+        short_path.write_bytes(b"\x00" * 16)  # Only 16 bytes — shorter than HMAC header
+        with pytest.raises(SecurityError, match="HMAC verification failed"):
+            ModelArtifact.load(str(short_path), signing_key=_VALID_KEY)
+
+
+def test_save_with_empty_key_raises_value_error() -> None:
+    """save() with signing_key=b'' must raise ValueError — empty keys provide no security."""
+    artifact = _make_artifact()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_path = Path(tmpdir) / "artifact.pkl"
+        with pytest.raises(ValueError, match="signing_key must not be empty"):
+            artifact.save(str(save_path), signing_key=b"")
+
+
+def test_load_nonexistent_file_raises_file_not_found_error() -> None:
+    """load() on a non-existent path raises FileNotFoundError."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        missing_path = str(Path(tmpdir) / "does_not_exist.pkl")
+        with pytest.raises(FileNotFoundError):
+            ModelArtifact.load(missing_path)
 
 
 # ---------------------------------------------------------------------------
