@@ -24,7 +24,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from synth_engine.modules.synthesizer.models import ModelArtifact, SecurityError
+from synth_engine.modules.synthesizer.models import ModelArtifact
+from synth_engine.shared.security import SecurityError
 
 
 class _PicklableModelStub:
@@ -243,6 +244,21 @@ def test_load_nonexistent_file_raises_file_not_found_error() -> None:
         missing_path = str(Path(tmpdir) / "does_not_exist.pkl")
         with pytest.raises(FileNotFoundError):
             ModelArtifact.load(missing_path)
+
+
+def test_load_unsigned_artifact_with_key_raises_security_error() -> None:
+    """save unsigned, load with signing_key must raise SecurityError.
+
+    An unsigned artifact cannot be silently accepted when a signing_key is
+    provided — that would allow a downgrade from signed to unsigned mode,
+    which defeats the purpose of HMAC verification.
+    """
+    artifact = _make_artifact(table_name="unsigned_table")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_path = Path(tmpdir) / "artifact.pkl"
+        artifact.save(str(save_path))  # unsigned save — no signing_key
+        with pytest.raises(SecurityError, match="HMAC verification failed"):
+            ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
 
 
 # ---------------------------------------------------------------------------

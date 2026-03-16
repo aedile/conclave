@@ -54,6 +54,7 @@ from synth_engine.shared.security.hmac_signing import (
     verify_hmac,
 )
 
+# SecurityError is re-exported here for backward compat; canonical: synth_engine.shared.security
 __all__ = ["ModelArtifact", "SecurityError"]
 
 _logger = logging.getLogger(__name__)
