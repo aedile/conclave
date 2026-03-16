@@ -31,22 +31,14 @@ Design notes
   the database layer.  Python callers may pass ``float`` or ``Decimal``
   values; the database driver converts to exact decimal storage.
 
-  Migration note (Alembic not yet initialised — T8.4):
-      When Alembic is wired in T8.4, the migration for existing deployments
-      must ALTER the ``total_allocated_epsilon``, ``total_spent_epsilon``
-      (PrivacyLedger), and ``epsilon_spent`` (PrivacyTransaction) columns
-      from DOUBLE PRECISION / FLOAT8 to NUMERIC(20, 10).  PostgreSQL
-      supports this cast without data loss:
-          ALTER TABLE privacy_ledger
-              ALTER COLUMN total_allocated_epsilon TYPE NUMERIC(20, 10),
-              ALTER COLUMN total_spent_epsilon     TYPE NUMERIC(20, 10);
-          ALTER TABLE privacy_transaction
-              ALTER COLUMN epsilon_spent TYPE NUMERIC(20, 10);
-      The ``last_updated`` and ``timestamp`` columns may also need:
-          ALTER TABLE privacy_ledger
-              ALTER COLUMN last_updated TYPE TIMESTAMPTZ;
-          ALTER TABLE privacy_transaction
-              ALTER COLUMN timestamp TYPE TIMESTAMPTZ;
+  Migration note (resolved — migration 003):
+      Migration 001 originally created the epsilon columns as ``FLOAT8``
+      (``DOUBLE PRECISION``).  Migration 003
+      (``003_fix_epsilon_column_precision.py``) ALTERs those columns to
+      ``NUMERIC(20, 10)`` to match this ORM definition, eliminating the
+      DDL/ORM mismatch introduced in Phase 8 (ADV-050, P16-T16.1).
+      See ``docs/adr/ADR-0030-float-to-numeric-epsilon-precision.md`` for
+      the full decision record.
 
 Import boundaries:
   Must NOT import from any other module in ``modules/``, from
@@ -56,6 +48,7 @@ Import boundaries:
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P4-T4.4 — Privacy Accountant
 Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050)
+Task: P16-T16.1 — Alembic Migration 003: Epsilon Column Precision Fix
 """
 
 from __future__ import annotations
