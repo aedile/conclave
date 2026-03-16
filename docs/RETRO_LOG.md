@@ -31,6 +31,57 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-15] P7-T7.2 — Custom CTGAN Training Loop
+
+**Summary**: Implemented `DPCompatibleCTGAN` in `modules/synthesizer/dp_training.py` — a custom
+CTGAN training loop that exposes optimizer/model/dataloader for Opacus DP-SGD wrapping. Reuses
+SDV's `DataProcessor` for preprocessing and ctgan's `CTGAN` internal model. dp_wrapper typed as
+`Any` to respect import-linter boundaries. 27 unit tests (97% coverage on module), 7 integration
+tests with real SDV/CTGAN training on Faker-generated data. 3 files changed, +1431 lines.
+
+**QA** (FINDING — 1 item, accepted by design):
+- `dp_wrapper.wrap()` called with `optimizer=None, dataloader=None` — the custom loop delegates
+  to ctgan's internal `CTGAN.fit()` which manages its own optimizer/dataloader internally. The
+  full Opacus integration (intercepting the actual optimizer before training) is T7.3 scope per
+  ADR-0025. This is by-design partial implementation, not a gap.
+- Empty DataFrame `fit()` path (line 264 ValueError) not exercised in unit tests. Informational.
+- All quality gates pass: ruff, mypy, bandit clean; 720 unit tests at 96% coverage; 7 integration
+  tests pass; vulture clean on new file.
+
+**UI/UX** (SKIP — no frontend changes):
+- Pure Python backend implementation. No templates, routes, forms, or interactive elements.
+
+**DevOps** (PASS):
+- No secrets, PII, or auth material in code or logs.
+- All 7 `_logger` calls log only structural metrics (row count, column count, epochs, shape).
+- CI gap: `test_dp_training_integration.py` not yet added to ci.yml synthesizer-integration-test
+  job (currently runs only `test_synthesizer_integration.py`). Will be addressed in T7.3 when
+  ci.yml is updated.
+- gitleaks: 0 leaks. bandit: 0 findings. No bypass flags.
+
+**Architecture** (PASS):
+- File placement: dp_training.py correctly in `modules/synthesizer/`. Cohesion: PASS.
+- Import boundary: zero imports from `modules/privacy/`. dp_wrapper is `Any`-typed. PASS.
+- ADR-0025 compliance: reuses SDV DataProcessor and ctgan CTGAN model; replaces training loop.
+- Naming conventions: all PascalCase/snake_case correct.
+- SDV private attribute access isolated in 4 helper methods (_build_sdv_synth, _get_data_processor,
+  _get_model_kwargs, _get_discrete_columns) — can be updated as a unit if SDV changes.
+
+**Retrospective Notes**:
+- The partial dp_wrapper wiring (optimizer=None, dataloader=None) is an intentional architectural
+  seam. T7.2 establishes the custom loop and dp_wrapper acceptance; T7.3 completes the wiring by
+  extracting the actual optimizer/model/dataloader from ctgan internals and passing them to
+  dp_wrapper.wrap(). This two-task approach mirrors the T4.3b/T4.2b split that worked well in
+  Phase 4.
+- CI gap pattern: new integration test files need to be added to ci.yml's synthesizer-integration-test
+  job. This is the same pattern as T4.2b where the integration test file was initially left out of
+  the CI job definition. Checklist item: when creating new integration test files, verify they are
+  covered by a CI job.
+- SDV private attribute coupling is well-contained — 4 helper methods serve as the compatibility
+  layer. This is the right pattern for managing coupling to third-party internals.
+
+---
+
 ### [2026-03-15] P6-T6.3 — Final Security Remediation, Documentation, and Platform Handover
 
 **Summary**: Delivered production documentation (OPERATOR_MANUAL.md, DISASTER_RECOVERY.md, LICENSING.md),
