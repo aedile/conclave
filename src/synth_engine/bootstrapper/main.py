@@ -175,9 +175,9 @@ def create_app() -> FastAPI:
     return app
 
 
-# TODO(T4.4): Wire build_privacy_accountant() through the bootstrapper.
-# PrivacyLedger / spend_budget() need the async database engine URL
-# (postgresql+asyncpg://) from the same DATABASE_URL env var.
+# Note: EpsilonAccountant (T4.4) is wired through the synthesis job pipeline
+# (modules/synthesizer/tasks.py), not through bootstrapper DI. No bootstrapper
+# wiring is required here.
 
 #: Module-level singleton for ``uvicorn synth_engine.bootstrapper.main:app``.
 app = create_app()
