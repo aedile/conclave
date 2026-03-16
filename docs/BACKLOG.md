@@ -27,6 +27,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 17: Docker Pinning, Dashboard WCAG & Process Cleanup](backlog/phase-17.md)
 *   [Phase 18: Type Safety, Dependency Audit & E2E Validation](backlog/phase-18.md)
 *   [Phase 19: Production Hardening & Integration Integrity](backlog/phase-19.md)
+*   [Phase 20: Human-in-the-Loop Feedback](backlog/phase-20.md)
 
 ---
 
@@ -147,3 +148,22 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 17.1:** Docker Base Image SHA Pinning.
 *   **Task 17.2:** Dashboard WCAG 2.1 AA Improvements.
 *   **Task 17.3:** CLAUDE.md Stale References, Backlog Spec Fix & Branch Cleanup.
+
+### [Phase 18: Type Safety, Dependency Audit & E2E Validation](backlog/phase-18.md)
+*   **Task 18.1:** type:ignore Suppression Audit & Reduction.
+*   **Task 18.2:** Dependency Tree Audit & ADV-015 PgBouncer Fix.
+*   **Task 18.3:** E2E Validation Infrastructure with Sample Data.
+
+### [Phase 19: Production Hardening & Integration Integrity](backlog/phase-19.md)
+*   **Task 19.1:** Middleware & Engine Singleton Fixes.
+*   **Task 19.2:** Security Hardening: Proxy Trust & Config Validation.
+*   **Task 19.3:** Integration Test CI Gate & Property-Based Testing.
+*   **Task 19.4:** Live E2E Pipeline Validation.
+*   **Task 19.5:** Process Sunset & Rule Consolidation.
+
+### [Phase 20: Human-in-the-Loop Feedback](backlog/phase-20.md)
+*   **Task 20.1:** Exception Handling & Warning Suppression Fixes.
+*   **Task 20.2:** Integration Test Expansion (Real Infrastructure).
+*   **Task 20.3:** Frontend Accessibility Production Readiness.
+*   **Task 20.4:** Architecture Tightening.
+*   **Task 20.5:** Polish Batch (Cosmetic & Documentation).

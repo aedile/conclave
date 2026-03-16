@@ -121,13 +121,15 @@ propose a drain sprint. Drain target: ≤8 before resuming.
 Once the user approves a phase plan, the PM has execution authority over all tasks in that
 phase without per-task human approval. Mandatory human touchpoints: (1) phase plan approval,
 (2) phase retrospective sign-off, (3) any PM-raised architectural blocker requiring strategic
-input. The PM MUST call `gh pr merge --squash --auto` immediately after `gh pr create` on every PR.
+input. The PM MUST call `gh pr merge --squash` immediately after local CI verification passes.
+(Until 2026-03-31: `--auto` is not used because GitHub CI is offline due to budget constraints.)
 
 **Rule 13 — PR review automation.** [sunset: Phase 22]
-After spawning review agents and after CI is green, the PM MUST spawn the `pr-reviewer`
-subagent. The pr-reviewer reads the PR diff, checks CI status, and posts a structured summary
-comment via `gh pr comment`. If all gates are green, the pr-reviewer posts `gh pr review --approve`
-to satisfy branch protection, at which point auto-merge fires.
+After spawning review agents and after local CI gates pass, the PM MUST spawn the `pr-reviewer`
+subagent. The pr-reviewer reads the PR diff, verifies all review commits are present, and posts
+a structured summary comment via `gh pr comment`. If all gates are green, the pr-reviewer posts
+`gh pr review --approve`. The PM then merges with `gh pr merge --squash`.
+(Until 2026-03-31: local CI verification replaces GitHub CI checks due to budget constraints.)
 
 **Rule 15 — Rule sunset clause.** [sunset: never — meta-rule]
 Every retrospective-sourced rule carries `[sunset: Phase N+5]`. At the tagged phase, the PM
@@ -209,6 +211,11 @@ Every code change follows this exact sequence - no exceptions:
      **Open Advisory Items** table; drain (delete) any rows whose target task was just completed
 
 ### Quality Gates (All Must Pass)
+
+**TEMPORARY (until 2026-03-31)**: GitHub Actions budget is exhausted. All CI quality gates MUST
+be run **locally** by the software-developer subagent before merge. The Constitution mandates
+gates but does not require GitHub-hosted CI — local execution is constitutional. The PM verifies
+local gate results before merging with `gh pr merge --squash`. Do not wait for GitHub CI green.
 
 **CRITICAL**: This project uses Poetry for dependency management. ALL Python commands must be run via `poetry run`.
 
