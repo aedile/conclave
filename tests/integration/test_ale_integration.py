@@ -452,3 +452,149 @@ def test_vault_wired_ale_encrypts_and_decrypts(vault_db_engine: Engine) -> None:
     assert loaded.pii_value == plaintext, (
         "vault-path ORM read must transparently decrypt back to plaintext"
     )
+
+
+# ---------------------------------------------------------------------------
+# Nullable test model — for NULL and edge-case integration tests (ADV-021)
+# ---------------------------------------------------------------------------
+
+
+class NullableSensitiveRecord(SQLModel, table=True):  # type: ignore[call-arg]
+    """SQLModel table with a *nullable* EncryptedString PII column.
+
+    Used by ADV-021 integration tests to exercise NULL passthrough, empty-
+    string, and unicode/multi-byte paths through the EncryptedString
+    TypeDecorator against a real database.
+
+    Attributes:
+        id: UUID v4 primary key.
+        pii_value: Nullable PII field stored as ALE-encrypted ciphertext.
+    """
+
+    __table_args__ = {"extend_existing": True}
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    pii_value: str | None = Field(default=None, sa_column=Column(EncryptedString()))
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — edge cases (ADV-021)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_null_roundtrip_returns_none(db_engine: Engine) -> None:
+    """NULL written to an EncryptedString column must round-trip back as None.
+
+    EncryptedString.process_bind_param returns None unchanged; on read,
+    process_result_value also returns None.  This test exercises both paths
+    against a real database column, confirming NULL is not coerced to an
+    empty string or any other value.
+
+    Arrange: insert a ``NullableSensitiveRecord`` with ``pii_value=None``.
+    Act: retrieve it via ORM session.
+    Assert: ``loaded.pii_value is None``.
+    """
+    record_id = uuid.uuid4()
+
+    with Session(db_engine) as session:
+        record = NullableSensitiveRecord(id=record_id, pii_value=None)
+        session.add(record)
+        session.commit()
+
+    with Session(db_engine) as session:
+        loaded = session.get(NullableSensitiveRecord, record_id)
+
+    assert loaded is not None, "ORM must retrieve the inserted record"
+    assert loaded.pii_value is None, (
+        "NULL pii_value must round-trip as None, not empty string or any other value"
+    )
+
+
+@pytest.mark.integration
+def test_empty_string_roundtrip_returns_empty_string(db_engine: Engine) -> None:
+    """Empty string written to EncryptedString must round-trip back as empty string.
+
+    An empty string is a distinct value from NULL.  The TypeDecorator must
+    encrypt the empty byte sequence and decrypt it back to the original empty
+    string — not coerce it to None or any other sentinel.
+
+    Arrange: insert a ``NullableSensitiveRecord`` with ``pii_value=""``.
+    Act: retrieve it via ORM session.
+    Assert: ``loaded.pii_value == ""`` (exact empty string).
+    """
+    record_id = uuid.uuid4()
+
+    with Session(db_engine) as session:
+        record = NullableSensitiveRecord(id=record_id, pii_value="")
+        session.add(record)
+        session.commit()
+
+    with Session(db_engine) as session:
+        loaded = session.get(NullableSensitiveRecord, record_id)
+
+    assert loaded is not None, "ORM must retrieve the inserted record"
+    assert loaded.pii_value == "", (
+        "empty-string pii_value must round-trip as '' — must not be coerced to None"
+    )
+
+
+@pytest.mark.integration
+def test_cjk_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None:
+    """CJK multi-byte unicode PII must survive the encrypt/decrypt round-trip.
+
+    Japanese characters require multi-byte UTF-8 encoding.  This test
+    confirms that EncryptedString correctly encodes to bytes before
+    encryption and decodes from bytes after decryption — preserving every
+    code point of multi-byte unicode PII.
+
+    Arrange: insert a ``NullableSensitiveRecord`` with CJK PII value.
+    Act: retrieve it via ORM session.
+    Assert: ``loaded.pii_value == "日本語テスト"`` (exact match).
+    """
+    cjk_pii = "日本語テスト"
+    record_id = uuid.uuid4()
+
+    with Session(db_engine) as session:
+        record = NullableSensitiveRecord(id=record_id, pii_value=cjk_pii)
+        session.add(record)
+        session.commit()
+
+    with Session(db_engine) as session:
+        loaded = session.get(NullableSensitiveRecord, record_id)
+
+    assert loaded is not None, "ORM must retrieve the inserted record"
+    assert loaded.pii_value == cjk_pii, (
+        f"CJK pii_value must round-trip exactly; expected {cjk_pii!r}, "
+        f"got {loaded.pii_value!r}"
+    )
+
+
+@pytest.mark.integration
+def test_emoji_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None:
+    """Emoji PII (4-byte UTF-8 code points) must survive the round-trip.
+
+    Emoji characters sit above the Basic Multilingual Plane and require
+    4-byte UTF-8 encoding.  This is the most demanding unicode path for
+    the TypeDecorator's encode/decode logic.
+
+    Arrange: insert a ``NullableSensitiveRecord`` with emoji PII.
+    Act: retrieve it via ORM session.
+    Assert: ``loaded.pii_value == "🔒 Encrypted PII 🔐"`` (exact match).
+    """
+    emoji_pii = "🔒 Encrypted PII 🔐"
+    record_id = uuid.uuid4()
+
+    with Session(db_engine) as session:
+        record = NullableSensitiveRecord(id=record_id, pii_value=emoji_pii)
+        session.add(record)
+        session.commit()
+
+    with Session(db_engine) as session:
+        loaded = session.get(NullableSensitiveRecord, record_id)
+
+    assert loaded is not None, "ORM must retrieve the inserted record"
+    assert loaded.pii_value == emoji_pii, (
+        f"Emoji pii_value must round-trip exactly; expected {emoji_pii!r}, "
+        f"got {loaded.pii_value!r}"
+    )

@@ -482,3 +482,49 @@ class TestRequestBodyLimitMiddleware:
         await middleware(scope, receive, send)
 
         inner.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_depth_check_regression_after_dead_branch_removal(self) -> None:
+        """JSON depth check must reject over-limit requests after ADV-064 cleanup.
+
+        ADV-064 removes the unreachable ``except (UnicodeDecodeError, ValueError)``
+        branch from the JSON depth check block.  This test is an explicit regression
+        guard: it confirms that removing the dead branch does NOT break the happy
+        path (valid JSON forwarded) or the rejection path (over-limit JSON returns 400).
+
+        Covers both sub-cases in one test:
+        - A depth-101 body (over limit) returns HTTP 400.
+        - A depth-1 body (under limit) is forwarded to the inner app.
+        """
+        import json as _json
+        from typing import Any as _Any
+
+        inner = AsyncMock()
+        middleware = RequestBodyLimitMiddleware(inner)
+
+        # Sub-case A: over-limit depth → must return 400
+        deep_obj: dict[str, _Any] = {"v": 1}
+        for _ in range(MAX_JSON_DEPTH):
+            deep_obj = {"a": deep_obj}
+        deep_body = _json.dumps(deep_obj).encode()
+        scope_a = _make_http_scope(content_length=len(deep_body))
+        receive_a = _make_receive(deep_body)
+        send_a, messages_a = _make_send()
+
+        await middleware(scope_a, receive_a, send_a)
+
+        inner.assert_not_awaited()
+        assert messages_a[0]["status"] == 400, (
+            "depth check regression: over-limit JSON must return 400 after dead branch removal"
+        )
+
+        # Sub-case B: under-limit depth → must forward to inner app
+        inner.reset_mock()
+        shallow_body = b'{"key": "value"}'
+        scope_b = _make_http_scope(content_length=len(shallow_body))
+        receive_b = _make_receive(shallow_body)
+        send_b, _ = _make_send()
+
+        await middleware(scope_b, receive_b, send_b)
+
+        inner.assert_awaited_once()
