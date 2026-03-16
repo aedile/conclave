@@ -19,6 +19,43 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P10-T10.1 — Fix pytest-asyncio Python 3.14.1 Compatibility
+
+**Summary**: Upgraded pytest-asyncio from 0.26.0 to 1.3.0 to resolve Python 3.14.1
+`asyncio.get_event_loop_policy()` deprecation that broke all 809 tests under `-W error`.
+Replaced `pytest_configure`-based warning suppression with a `catch_warnings()`-wrapped
+autouse fixture in `tests/conftest.py`. Created ADR-0028 documenting the upgrade decision
+and filter precedence mechanism.
+
+**Root cause**: pytest-asyncio 0.26.x called deprecated `asyncio.get_event_loop_policy()`
+during test collection. Combined with pytest's `-W error` filter precedence (cmdline filters
+override pyproject.toml entries), this caused 809 errors, 0 passes.
+
+**Fix layers**:
+1. Upgrade pytest-asyncio to 1.3.0 (no longer calls deprecated APIs)
+2. Autouse fixture with `warnings.catch_warnings()` to suppress third-party warnings
+   inside per-test context (overrides `-W error` precedence correctly)
+3. `gc.collect()` in fixture teardown to force SQLite engine collection within filter scope
+
+**Review results**:
+- QA: FINDING (1 fixed) — TestADV066ZeroWarningPolicy docstring was factually inaccurate
+  after the precedence fix; updated to reflect actual `-W error` behavior.
+- Architecture: FINDING (2 fixed) — (1) wrapped filterwarnings in catch_warnings() context
+  manager to remove brittle coupling to pytest internals; (2) created ADR-0028 for the
+  pytest-asyncio major version bump decision.
+- DevOps: PASS — clean dependency audit, no secrets/PII, CI cache invalidation correct.
+  Informational: broad ResourceWarning suppression noted.
+- UI/UX: SKIP — no UI changes.
+
+**Retrospective Note**: The `-W error` filter precedence mechanism is a non-obvious pytest
+implementation detail that tripped the project. The 3-layer documentation approach (pyproject.toml
+comments + conftest.py docstring + ADR-0028) should prevent future confusion. The broad
+`ResourceWarning` suppression is an intentional trade-off for CPython GC non-determinism —
+but could mask genuine resource leaks in future test helpers. Consider scoping the filter
+with a `message=` pattern if SQLAlchemy's ResourceWarning message becomes stable.
+
+---
+
 ### [2026-03-16] Phase 9 End-of-Phase Retrospective
 
 **Phase Goal**: Harden the codebase for production readiness. Drain remaining 5 advisories,
