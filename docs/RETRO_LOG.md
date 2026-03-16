@@ -20,6 +20,57 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] Phase 20 End-of-Phase Retrospective
+
+**Phase Goal**: Address correctness, security, and functionality findings from the
+post-Phase 19 roast. No new features.
+
+**Exit Criteria Verification**:
+- All `except Exception` in telemetry narrowed or augmented: PASS (T20.1 — PR #99)
+- Opacus warning suppression targeted, not blanket: PASS — all 7 simplefilter calls eliminated (T20.1)
+- SDV `_model` coupling documented and tested: PASS — version-pin comment added (T20.1)
+- Integration tests added for ingestion, subsetting, masking (real PostgreSQL): PASS — 5 new tests (T20.2 — PR #100)
+- Real SDV training integration test added: PASS — @pytest.mark.slow + @pytest.mark.synthesizer (T20.2)
+- `caplog` assertions added to failure path tests: PASS — 5 tests (T20.2)
+- Playwright axe-core e2e tests passing: PASS — pre-existing (T20.3 — PR #98)
+- Inline styles extracted from frontend: PASS — 38 style= attributes moved to CSS (T20.3)
+- Toast aria-modal and focus trapping implemented: PASS — useFocusTrap hook + alertdialog (T20.3)
+- Import-linter in pre-commit hooks: PASS (T20.4 — PR #102)
+- ADR-0029 deferred items tracked in backlog: PASS — 5 TBD items (T20.4)
+- Key rotation OOM safety verified: PASS — fetchall→fetchmany + batch_size guard (T20.4)
+- Documentation polish complete: PASS (T20.5 — PR #101)
+- All quality gates passing (locally): PASS — 1008 unit tests, 96.83% coverage
+- Phase 20 end-of-phase retrospective: this entry
+
+**Open advisory count**: 0 (all 5 advisories from T19.4 drained during this phase: ADV-017/018/019 in T20.2, ADV-020 in T20.4, ADV-021 in T20.1)
+
+**What went well**:
+1. All three waves executed as planned with successful parallelization:
+   - Wave 1: T20.1 (backend) + T20.3 (frontend) in parallel — no conflicts
+   - Wave 3: T20.4 + T20.5 in parallel — no conflicts
+   T20.4 required rebase after T20.5 merged; resolved cleanly.
+2. Advisory drain rate: 5/5 (100%). Phase 20 entered with 5 open advisories and exits with 0.
+   ADV-021 (FK traversal broken) — the most critical bug in project history — was fixed in T20.1.
+3. Review agents caught 19 total findings across 5 tasks (QA: 11, DevOps: 7, Architecture: 3,
+   UI/UX: 3). All 19 were fixed before merge. The feedback_review_findings_must_be_fixed memory
+   continues to hold at 100%.
+4. Test count grew from 974 → 1008 (+34). Coverage maintained at 96.83%. Integration tests
+   grew from 74 → 79 (+5 real PostgreSQL tests + 1 real SDV test).
+5. The roast-to-backlog-to-execution pipeline worked end-to-end: Phase 19 roast produced
+   Phase 20 backlog, which was fully executed with zero scope creep.
+
+**What could improve**:
+1. T20.1 developer agent took ~58 minutes (longest of any task). The 4-area scope (telemetry,
+   warnings, SDV coupling, FK traversal) could have been split into two smaller tasks for
+   better parallelization.
+2. Several review findings recurred across tasks: weak attribute assertions (QA), missing
+   edge-case tests for zero/boundary values (QA), and .env.example gaps for new env vars
+   (DevOps). These should be added as standing checklist items in the developer brief template.
+3. The CLAUDE.md consumer list inaccuracy (T20.5 QA finding) shows that documentation examples
+   need grep-verification before committing — a pattern first noted in T17.3's retro.
+
+---
+
 ### [2026-03-16] P20-T20.4 — Architecture Tightening
 
 **Changes**:
