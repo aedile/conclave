@@ -38,6 +38,12 @@ against the whitelist file itself. Lesson: reviews of files outside `src/` and `
 include a `pre-commit run --all-files` validation step to catch linting issues in non-standard
 files.
 
+**Fix Follow-Up**: Review FINDINGs (dual whitelist files, stale `pyproject.toml` and CI references)
+resolved in branch `fix/P13-T13.1-vulture-whitelist-reconciliation`. Changes: deleted
+`vulture_whitelist.py` (148 lines, stale), updated `pyproject.toml` `[tool.vulture]` paths and
+`.github/workflows/ci.yml` vulture step to reference canonical `.vulture_whitelist.py` (178 lines).
+All quality gates pass post-fix (809 tests, 96.24% coverage, 0 vulture findings, all hooks green).
+
 ---
 
 ### [2026-03-16] Phase 12 End-of-Phase Retrospective
