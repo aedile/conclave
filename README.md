@@ -220,11 +220,11 @@ poetry install --with dev,integration,synthesizer
 docker-compose up -d
 
 # Apply database migrations
-export DB_USER=postgres
+export DB_USER=conclave
 export DB_PASSWORD=postgres
 export DB_HOST=localhost
 export DB_PORT=5432
-export DB_NAME=synth_engine
+export DB_NAME=conclave
 poetry run alembic upgrade head
 
 # Unseal the vault (development mode — sets ALE_KEY from .env)

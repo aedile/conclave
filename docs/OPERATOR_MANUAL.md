@@ -107,7 +107,6 @@ Required environment variables:
 | `VAULT_SEAL_SALT` | Base64url-encoded 16-byte PBKDF2 salt | Generate with `python3 -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(16)).decode())"` |
 | `AUDIT_KEY` | Hex-encoded 32-byte HMAC key for audit log signing | Generate with `python3 -c "import os; print(os.urandom(32).hex())"` |
 | `LICENSE_PUBLIC_KEY` | PEM-encoded RSA public key from the licensing server | See [docs/LICENSING.md](LICENSING.md) |
-| `ARTIFACT_SIGNING_KEY` | Hex-encoded 32-byte HMAC-SHA256 key for model artifact signing | Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
 Optional variables (uncomment in `.env` as needed):
 
@@ -117,6 +116,7 @@ Optional variables (uncomment in `.env` as needed):
 | `REDIS_URL` | Redis connection URL | `redis://redis:6379/0` |
 | `MINIO_ENDPOINT` | MinIO server URL | `http://minio-ephemeral:9000` |
 | `FORCE_CPU` | Force CPU-only synthesis — set to `true` in environments without a compatible NVIDIA GPU | `false` (auto-detect GPU) |
+| `ARTIFACT_SIGNING_KEY` | Hex-encoded 32-byte HMAC-SHA256 key for model artifact signing. **Required in production mode (`ENV=production`); optional in development.** | Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
 ### 2.4 Build the Application Image
 
@@ -417,10 +417,12 @@ docker compose logs app | grep -i "error\|secret\|missing\|config"
 Common causes:
 - Missing secrets files: verify all files in `secrets/` exist and have correct
   permissions (`600`).
-- Missing required environment variables: confirm `ALE_KEY`, `VAULT_SEAL_SALT`,
-  `AUDIT_KEY`, and `LICENSE_PUBLIC_KEY` are set in `.env`.
-- Missing `ARTIFACT_SIGNING_KEY`: required when model artifact signing is
-  enabled (see Section 8.7).
+- Missing required environment variables: `validate_config()` checks
+  `DATABASE_URL` and `AUDIT_KEY` in all deployment modes. In production mode
+  (`ENV=production` or `CONCLAVE_ENV=production`), `ARTIFACT_SIGNING_KEY` is
+  also required. Confirm these are set in `.env`.
+- Other variables (`ALE_KEY`, `VAULT_SEAL_SALT`, `LICENSE_PUBLIC_KEY`) are not
+  startup-validated; they fail at first use, not at boot.
 
 #### `app` service exits immediately after start — schema mismatch
 
