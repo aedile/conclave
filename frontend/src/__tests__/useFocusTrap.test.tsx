@@ -6,6 +6,7 @@
  *   - Shift+Tab cycles focus backward within the trap container
  *   - Focus does not escape beyond the last/first focusable element
  *   - The hook is a no-op when isActive=false
+ *   - The hook does nothing when the container has zero focusable elements
  *
  * WCAG 2.1 AA — SC 2.1.2 (No Keyboard Trap) requires that keyboard
  * focus can be moved to and from the modal using standard keys. The
@@ -53,6 +54,27 @@ function WithOutsideButton({ isActive }: { isActive: boolean }) {
       <div ref={containerRef}>
         <button type="button">First</button>
         <button type="button">Last</button>
+      </div>
+      <button type="button">Outside</button>
+    </>
+  );
+}
+
+/**
+ * Renders the trap container with NO focusable children inside the trap
+ * boundary. Exercises the `if (focusable.length === 0) return;` guard.
+ * A button outside the container is present to confirm normal tab order
+ * is unaffected by the (no-op) trap.
+ */
+function EmptyTrapContainer({ isActive }: { isActive: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(containerRef, isActive);
+
+  return (
+    <>
+      <div ref={containerRef}>
+        {/* Intentionally no focusable elements inside the trap boundary */}
+        <p>No interactive content here</p>
       </div>
       <button type="button">Outside</button>
     </>
@@ -129,5 +151,24 @@ describe("useFocusTrap", () => {
     second.focus();
     await user.tab({ shift: true });
     expect(document.activeElement).toBe(first);
+  });
+
+  it("does nothing and does not throw when container has zero focusable elements", async () => {
+    const user = userEvent.setup();
+    render(<EmptyTrapContainer isActive={true} />);
+
+    const outside = screen.getByRole("button", { name: "Outside" });
+
+    // Focus the outside button and Tab — the trap container has no focusable
+    // children so the hook's `if (focusable.length === 0) return;` guard fires.
+    // Focus moves normally (no crash, no infinite loop).
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+
+    // Tab from the only focusable element — browser wraps to body.
+    // The key assertion is that the hook's zero-guard fires without error.
+    await user.tab();
+    // No exception thrown — the guard executed safely.
+    expect(document.activeElement).not.toBe(outside);
   });
 });

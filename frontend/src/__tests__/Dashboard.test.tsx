@@ -8,15 +8,13 @@
  * - ES module mocking: vi.mock() at module level with factory function
  * - Fake timers deadlock: vi.useFakeTimers() only in specific tests
  * - Timer cleanup: verify useEffect cleanup is exercised on unmount
- * - T17.2 retro: RFC7807Toast uses role="alertdialog" (not role="alert") +
- *   always-present container. Error toast tests use getByRole("alertdialog").
- *   The form-error div still carries role="alert" (in-form validation errors).
  *
  * ADV-060: MockEventSource imported from shared helpers/mock-event-source.ts
  */
 
 import {
   act,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -691,7 +689,8 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /start/i }));
 
     await waitFor(() => {
-      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3)
+      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3).
+      // The form-error div carries role="alert" (in-form validation only).
       const toast = screen.getByRole("alertdialog");
       expect(toast).toBeInTheDocument();
       expect(within(toast).getByText(/internal server error/i)).toBeInTheDocument();
@@ -717,7 +716,8 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /create job/i }));
 
     await waitFor(() => {
-      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3)
+      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3).
+      // The form-error div carries role="alert" (in-form validation only).
       const toast = screen.getByRole("alertdialog");
       expect(toast).toBeInTheDocument();
       expect(within(toast).getByText(/internal server error/i)).toBeInTheDocument();
@@ -743,7 +743,8 @@ describe("Dashboard — RFC 7807 error handling", () => {
     await user.click(screen.getByRole("button", { name: /load more/i }));
 
     await waitFor(() => {
-      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3)
+      // RFC7807Toast uses role="alertdialog" (AC4 — P20-T20.3).
+      // The form-error div carries role="alert" (in-form validation only).
       const toast = screen.getByRole("alertdialog");
       expect(toast).toBeInTheDocument();
       expect(within(toast).getByText(/internal server error/i)).toBeInTheDocument();
@@ -794,7 +795,11 @@ describe("Dashboard — accessibility", () => {
 
     await user.click(screen.getByRole("button", { name: /start/i }));
 
-    const es = MockEventSource.instances.find((e) => e.url === "/jobs/1/stream")!;
+    const es = await waitFor(() => {
+      const found = MockEventSource.instances.find((e) => e.url === "/jobs/1/stream");
+      expect(found).toBeDefined();
+      return found!;
+    });
 
     act(() => {
       es.simulateEvent("progress", {
@@ -806,11 +811,163 @@ describe("Dashboard — accessibility", () => {
     });
 
     await waitFor(() => {
-      const progressBar = screen.getByRole("progressbar");
+      const progressBar = screen.getByRole("progressbar", { name: /job 1/i });
       expect(progressBar).toHaveAttribute("aria-valuemin", "0");
       expect(progressBar).toHaveAttribute("aria-valuemax", "100");
       expect(progressBar).toHaveAttribute("aria-valuenow", "50");
-      expect(progressBar).toHaveAttribute("aria-label");
+      expect(progressBar).toHaveAttribute("aria-label", "Job 1 progress");
+    });
+  });
+});
+
+describe("Dashboard — aria-live regions", () => {
+  it("renders an aria-live polite region for progress announcements", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      const politeRegions = document.querySelectorAll('[aria-live="polite"]');
+      expect(politeRegions.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("announces job progress in the aria-live region", async () => {
+    const user = userEvent.setup();
+
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [queuedJob], next_cursor: null },
+    });
+    mockStartJob.mockResolvedValue({
+      ok: true,
+      data: { status: "accepted", job_id: 1 },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /start/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /start/i }));
+
+    const es = await waitFor(() => {
+      const found = MockEventSource.instances.find((e) => e.url === "/jobs/1/stream");
+      expect(found).toBeDefined();
+      return found!;
+    });
+
+    act(() => {
+      es.simulateEvent("progress", {
+        status: "TRAINING",
+        current_epoch: 5,
+        total_epochs: 10,
+        percent: 50,
+      });
+    });
+
+    await waitFor(() => {
+      // Check that the aria-live region contains the announcement text
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      expect(liveRegion?.textContent).toMatch(/50%|50/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WCAG Form Aria Parity (T17.2)
+// ---------------------------------------------------------------------------
+
+describe("Dashboard — WCAG form aria attributes (T17.2)", () => {
+  it("all 4 form inputs have aria-required='true'", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      const tableInput = screen.getByLabelText(/table name/i);
+      const parquetInput = screen.getByLabelText(/parquet path/i);
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+
+      expect(tableInput).toHaveAttribute("aria-required", "true");
+      expect(parquetInput).toHaveAttribute("aria-required", "true");
+      expect(epochsInput).toHaveAttribute("aria-required", "true");
+      expect(checkpointInput).toHaveAttribute("aria-required", "true");
+    });
+  });
+
+  it("total_epochs input has aria-invalid='true' when validation fails with non-integer value", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
+    });
+
+    // Leave total_epochs empty (value will be "", parseInt("", 10) === NaN).
+    // Use fireEvent.submit to bypass native HTML5 constraint validation in
+    // JSDOM, which would otherwise suppress the submit event for empty required
+    // number inputs before our custom onSubmit handler can run.
+    const form = document.querySelector("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      expect(epochsInput).toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("checkpoint_every_n input has aria-invalid='true' when validation fails with non-integer value", async () => {
+    const user = userEvent.setup();
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/table name/i)).toBeInTheDocument();
+    });
+
+    // Type a valid integer for total_epochs so validation passes through to
+    // checkpoint_every_n. Leave checkpoint_every_n empty — fireEvent.submit
+    // bypasses native HTML5 constraint validation, so our custom onSubmit
+    // handler runs and sets formErrorField = "checkpoint_every_n".
+    await user.type(screen.getByLabelText(/total epochs/i), "10");
+
+    const form = document.querySelector("form")!;
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+      expect(checkpointInput).toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("aria-invalid is absent (or false) on form inputs before any validation attempt", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      const tableInput = screen.getByLabelText(/table name/i);
+      const parquetInput = screen.getByLabelText(/parquet path/i);
+      const epochsInput = screen.getByLabelText(/total epochs/i);
+      const checkpointInput = screen.getByLabelText(/checkpoint every/i);
+
+      // Before any submission, no input should be marked invalid
+      expect(tableInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(parquetInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(epochsInput).not.toHaveAttribute("aria-invalid", "true");
+      expect(checkpointInput).not.toHaveAttribute("aria-invalid", "true");
+    });
+  });
+
+  it("asterisk required indicators in form labels are wrapped with aria-hidden='true'", async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      // Query for all span elements with aria-hidden="true" inside the form
+      // The form should have 4 such spans (one per required field label)
+      const hiddenAsterisks = document.querySelectorAll(
+        'form span[aria-hidden="true"]',
+      );
+      expect(hiddenAsterisks.length).toBeGreaterThanOrEqual(4);
+      hiddenAsterisks.forEach((span) => {
+        expect(span.textContent).toBe("*");
+      });
     });
   });
 });

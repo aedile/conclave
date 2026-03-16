@@ -7,6 +7,7 @@
  *   - Focus trap: dismiss button receives focus when toast becomes visible
  *   - Dismiss callback
  *   - Rendering of problem title and detail
+ *   - Edge cases: visible=true + problem=null renders hidden container
  *
  * WCAG 2.1 AA: alertdialog role ensures screen readers announce the toast
  * as a modal interruption. aria-modal="true" prevents virtual cursor
@@ -68,12 +69,20 @@ describe("RFC7807Toast — ARIA roles (AC4)", () => {
     expect(toast).toHaveAttribute("aria-modal", "true");
   });
 
-  it("has aria-labelledby referencing the toast title", () => {
+  it("has aria-labelledby referencing the toast title element id", () => {
     render(
       <RFC7807Toast problem={problem} visible={true} onDismiss={vi.fn()} />,
     );
     const toast = screen.getByRole("alertdialog");
-    expect(toast).toHaveAttribute("aria-labelledby");
+    expect(toast).toHaveAttribute("aria-labelledby", "rfc7807-toast-title");
+  });
+
+  it("has aria-describedby referencing the toast detail element id", () => {
+    render(
+      <RFC7807Toast problem={problem} visible={true} onDismiss={vi.fn()} />,
+    );
+    const toast = screen.getByRole("alertdialog");
+    expect(toast).toHaveAttribute("aria-describedby", "rfc7807-toast-detail");
   });
 });
 
@@ -106,6 +115,16 @@ describe("RFC7807Toast — always-present container pattern (T17.2)", () => {
     );
     expect(screen.getByText("Job Not Found")).toBeInTheDocument();
     expect(screen.getByText("No job with id 42 exists.")).toBeInTheDocument();
+  });
+
+  it("renders hidden container with empty content when visible=true and problem=null", () => {
+    const { container } = render(
+      <RFC7807Toast problem={null} visible={true} onDismiss={vi.fn()} />,
+    );
+    // visible=true but problem=null — isShown is false, container must be hidden
+    const toast = container.querySelector('[role="alertdialog"]');
+    expect(toast).toBeInTheDocument();
+    expect(toast).toHaveAttribute("hidden");
   });
 });
 

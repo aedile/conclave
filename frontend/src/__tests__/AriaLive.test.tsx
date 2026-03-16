@@ -36,11 +36,27 @@ describe("PoliteAnnouncement", () => {
     expect(region).toBeInTheDocument();
   });
 
+  it("always has the base aria-live-region class", () => {
+    const { container } = render(
+      <PoliteAnnouncement>test</PoliteAnnouncement>,
+    );
+    const region = container.querySelector(".aria-live-region");
+    expect(region).toBeInTheDocument();
+  });
+
   it("applies optional className", () => {
     const { container } = render(
       <PoliteAnnouncement className="sr-only">test</PoliteAnnouncement>,
     );
     const region = container.querySelector(".sr-only");
+    expect(region).toBeInTheDocument();
+  });
+
+  it("retains base aria-live-region class when optional className is applied", () => {
+    const { container } = render(
+      <PoliteAnnouncement className="sr-only">test</PoliteAnnouncement>,
+    );
+    const region = container.querySelector(".aria-live-region.sr-only");
     expect(region).toBeInTheDocument();
   });
 });
@@ -69,6 +85,14 @@ describe("AssertiveAnnouncement", () => {
     expect(region).toBeInTheDocument();
   });
 
+  it("always has the base aria-live-region class", () => {
+    const { container } = render(
+      <AssertiveAnnouncement>error</AssertiveAnnouncement>,
+    );
+    const region = container.querySelector(".aria-live-region");
+    expect(region).toBeInTheDocument();
+  });
+
   it("applies optional className", () => {
     const { container } = render(
       <AssertiveAnnouncement className="error-region">
@@ -76,6 +100,16 @@ describe("AssertiveAnnouncement", () => {
       </AssertiveAnnouncement>,
     );
     const region = container.querySelector(".error-region");
+    expect(region).toBeInTheDocument();
+  });
+
+  it("retains base aria-live-region class when optional className is applied", () => {
+    const { container } = render(
+      <AssertiveAnnouncement className="error-region">
+        error
+      </AssertiveAnnouncement>,
+    );
+    const region = container.querySelector(".aria-live-region.error-region");
     expect(region).toBeInTheDocument();
   });
 });
