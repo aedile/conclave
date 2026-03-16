@@ -177,7 +177,11 @@ def test_mask_address_respects_max_length() -> None:
     """Masked address is truncated to max_length when provided."""
     from synth_engine.modules.masking.algorithms import mask_address
 
-    result = mask_address("79402 Peterson Drives Apt. 511, Davisstad, PA 35172", _SALT, max_length=20)
+    result = mask_address(
+        "79402 Peterson Drives Apt. 511, Davisstad, PA 35172",
+        _SALT,
+        max_length=20,
+    )
     assert len(result) <= 20
 
 
