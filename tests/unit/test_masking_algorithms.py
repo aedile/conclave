@@ -50,6 +50,145 @@ def test_mask_name_max_length_zero_returns_empty_string() -> None:
 
 
 # ---------------------------------------------------------------------------
+# mask_first_name (P21-T21.2)
+# ---------------------------------------------------------------------------
+
+
+def test_mask_first_name_is_deterministic() -> None:
+    """Masking the same first_name with the same salt always returns the same result."""
+    from synth_engine.modules.masking.algorithms import mask_first_name
+
+    assert mask_first_name("Alice", _SALT) == mask_first_name("Alice", _SALT)
+
+
+def test_mask_first_name_returns_single_word() -> None:
+    """mask_first_name output must contain NO spaces (single word only).
+
+    This is the key assertion that catches the mask_name bug where Faker.name()
+    produces "First Last" (two words) instead of a single first name.
+    """
+    from synth_engine.modules.masking.algorithms import mask_first_name
+
+    result = mask_first_name("Alice", _SALT)
+    assert " " not in result, (
+        f"mask_first_name must return a single word, got: '{result}'. "
+        "Use Faker.first_name(), not Faker.name()."
+    )
+
+
+def test_mask_first_name_respects_max_length() -> None:
+    """Masked first_name is truncated to max_length when provided."""
+    from synth_engine.modules.masking.algorithms import mask_first_name
+
+    result = mask_first_name("Alice", _SALT, max_length=3)
+    assert len(result) <= 3
+
+
+def test_mask_first_name_returns_non_empty_string() -> None:
+    """mask_first_name returns a non-empty string for a normal input."""
+    from synth_engine.modules.masking.algorithms import mask_first_name
+
+    result = mask_first_name("Alice", _SALT)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_mask_first_name_empty_input_is_deterministic() -> None:
+    """mask_first_name with empty string input is deterministic."""
+    from synth_engine.modules.masking.algorithms import mask_first_name
+
+    assert mask_first_name("", _SALT) == mask_first_name("", _SALT)
+
+
+# ---------------------------------------------------------------------------
+# mask_last_name (P21-T21.2)
+# ---------------------------------------------------------------------------
+
+
+def test_mask_last_name_is_deterministic() -> None:
+    """Masking the same last_name with the same salt always returns the same result."""
+    from synth_engine.modules.masking.algorithms import mask_last_name
+
+    assert mask_last_name("Smith", _SALT) == mask_last_name("Smith", _SALT)
+
+
+def test_mask_last_name_returns_single_word() -> None:
+    """mask_last_name output must contain NO spaces (single word only).
+
+    This is the key assertion that catches the mask_name bug where Faker.name()
+    produces "First Last" (two words) instead of a single last name.
+    """
+    from synth_engine.modules.masking.algorithms import mask_last_name
+
+    result = mask_last_name("Smith", _SALT)
+    assert " " not in result, (
+        f"mask_last_name must return a single word, got: '{result}'. "
+        "Use Faker.last_name(), not Faker.name()."
+    )
+
+
+def test_mask_last_name_respects_max_length() -> None:
+    """Masked last_name is truncated to max_length when provided."""
+    from synth_engine.modules.masking.algorithms import mask_last_name
+
+    result = mask_last_name("Smith", _SALT, max_length=4)
+    assert len(result) <= 4
+
+
+def test_mask_last_name_returns_non_empty_string() -> None:
+    """mask_last_name returns a non-empty string for a normal input."""
+    from synth_engine.modules.masking.algorithms import mask_last_name
+
+    result = mask_last_name("Smith", _SALT)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_mask_last_name_empty_input_is_deterministic() -> None:
+    """mask_last_name with empty string input is deterministic."""
+    from synth_engine.modules.masking.algorithms import mask_last_name
+
+    assert mask_last_name("", _SALT) == mask_last_name("", _SALT)
+
+
+# ---------------------------------------------------------------------------
+# mask_address (P21-T21.2)
+# ---------------------------------------------------------------------------
+
+
+def test_mask_address_is_deterministic() -> None:
+    """Masking the same address with the same salt always returns the same result."""
+    from synth_engine.modules.masking.algorithms import mask_address
+
+    original = "79402 Peterson Drives Apt. 511, Davisstad, PA 35172"
+    assert mask_address(original, _SALT) == mask_address(original, _SALT)
+
+
+def test_mask_address_returns_non_empty_string() -> None:
+    """mask_address returns a non-empty string."""
+    from synth_engine.modules.masking.algorithms import mask_address
+
+    result = mask_address("79402 Peterson Drives Apt. 511, Davisstad, PA 35172", _SALT)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_mask_address_respects_max_length() -> None:
+    """Masked address is truncated to max_length when provided."""
+    from synth_engine.modules.masking.algorithms import mask_address
+
+    result = mask_address("79402 Peterson Drives Apt. 511, Davisstad, PA 35172", _SALT, max_length=20)
+    assert len(result) <= 20
+
+
+def test_mask_address_empty_input_is_deterministic() -> None:
+    """mask_address with empty string input is deterministic."""
+    from synth_engine.modules.masking.algorithms import mask_address
+
+    assert mask_address("", _SALT) == mask_address("", _SALT)
+
+
+# ---------------------------------------------------------------------------
 # mask_email
 # ---------------------------------------------------------------------------
 

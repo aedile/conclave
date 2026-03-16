@@ -10,6 +10,7 @@ CONSTITUTION Priority 3: TDD RED Phase.
 Task: P3.5-T3.5.4 — Bootstrapper Wiring & Minimal CLI Entrypoint
 Task: P20-T20.1 — ADV-021 FK Traversal Fix
 Task: P21-T21.1 — Fix CLI masking config to match sample data schema
+Task: P21-T21.2 — Masking algorithm split: first_name, last_name, address
 """
 
 from __future__ import annotations
@@ -454,6 +455,39 @@ class TestBuildMaskingTransformer:
         assert result["address"] != "123 Main St"
         assert result["id"] == 1  # non-PII column unchanged
 
+    def test_masking_transformer_masks_customers_pii_columns(self) -> None:
+        """Transformer must produce single-word first_name and last_name (P21-T21.2).
+
+        P21-T21.2: mask_name uses Faker.name() which produces "First Last" (two words).
+        After the fix, first_name must use mask_first_name (Faker.first_name()) and
+        last_name must use mask_last_name (Faker.last_name()) — both single words.
+        """
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        row: dict[str, Any] = {
+            "id": 42,
+            "first_name": "Alice",
+            "last_name": "Smith",
+            "email": "alice@example.com",
+            "ssn": "123-45-6789",
+            "phone": "555-867-5309",
+            "address": "123 Main St, Springfield",
+        }
+        result = transformer("customers", row)
+
+        assert result["id"] == 42, "non-PII id column must be unchanged"
+        assert result["first_name"] != "Alice", "first_name must be masked"
+        assert result["last_name"] != "Smith", "last_name must be masked"
+        assert " " not in result["first_name"], (
+            f"first_name must be a single word after masking, got: '{result['first_name']}'. "
+            "P21-T21.2: use mask_first_name (Faker.first_name()), not mask_name."
+        )
+        assert " " not in result["last_name"], (
+            f"last_name must be a single word after masking, got: '{result['last_name']}'. "
+            "P21-T21.2: use mask_last_name (Faker.last_name()), not mask_name."
+        )
+
     def test_masking_transformer_passthrough_for_unknown_persons_table(self) -> None:
         """'persons' is not a configured PII table — rows pass through unchanged.
 
@@ -872,17 +906,19 @@ class TestSchemaReflectorGetPkConstraint:
 
 # ---------------------------------------------------------------------------
 # P21-T21.1: Masking config must match sample data schema (customers table)
+# P21-T21.2: Masking algorithm split — function references must be pinned
 # ---------------------------------------------------------------------------
 
 
 class TestColumnMasksConfig:
-    """P21-T21.1 — _COLUMN_MASKS must reference the 'customers' table.
+    """P21-T21.1/T21.2 — _COLUMN_MASKS must reference the 'customers' table with
+    the correct algorithm functions for each PII column.
 
     The sample data schema uses a 'customers' table with columns:
     first_name, last_name, email, ssn, phone, address.
 
-    The previous config incorrectly referenced 'persons' with 'full_name'.
-    This test class pins the correct config so any future regression is caught.
+    T21.1: The previous config incorrectly referenced 'persons' with 'full_name'.
+    T21.2: first_name/last_name/address must use dedicated functions, not mask_name.
     """
 
     def test_column_masks_has_customers_key(self) -> None:
@@ -955,6 +991,51 @@ class TestColumnMasksConfig:
         customers_masks = _COLUMN_MASKS.get("customers", {})
         assert "address" in customers_masks, "customers masking config must include 'address'."
 
+    def test_customers_first_name_uses_mask_first_name(self) -> None:
+        """customers.first_name must use mask_first_name, not mask_name.
+
+        P21-T21.2: Pins the actual function object reference.  mask_name uses
+        Faker.name() which produces "First Last" (two words) — wrong for first_name.
+        """
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+        from synth_engine.modules.masking.algorithms import mask_first_name
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert customers_masks.get("first_name") is mask_first_name, (
+            "customers.first_name must reference mask_first_name (not mask_name). "
+            "mask_name produces 'First Last'; mask_first_name produces a single word."
+        )
+
+    def test_customers_last_name_uses_mask_last_name(self) -> None:
+        """customers.last_name must use mask_last_name, not mask_name.
+
+        P21-T21.2: Pins the actual function object reference.  mask_name uses
+        Faker.name() which produces "First Last" (two words) — wrong for last_name.
+        """
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+        from synth_engine.modules.masking.algorithms import mask_last_name
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert customers_masks.get("last_name") is mask_last_name, (
+            "customers.last_name must reference mask_last_name (not mask_name). "
+            "mask_name produces 'First Last'; mask_last_name produces a single word."
+        )
+
+    def test_customers_address_uses_mask_address(self) -> None:
+        """customers.address must use mask_address, not mask_name.
+
+        P21-T21.2: Pins the actual function object reference.  mask_name uses
+        Faker.name() which produces a person's name — wrong for a street address.
+        """
+        from synth_engine.bootstrapper.cli import _COLUMN_MASKS
+        from synth_engine.modules.masking.algorithms import mask_address
+
+        customers_masks = _COLUMN_MASKS.get("customers", {})
+        assert customers_masks.get("address") is mask_address, (
+            "customers.address must reference mask_address (not mask_name). "
+            "mask_name produces a person's name; mask_address produces a street address."
+        )
+
     def test_masking_transformer_masks_customers_pii_columns(self) -> None:
         """Transformer must replace PII column values for the 'customers' table."""
         from synth_engine.bootstrapper.cli import _build_masking_transformer
@@ -978,6 +1059,12 @@ class TestColumnMasksConfig:
         assert result["ssn"] != "123-45-6789", "ssn must be masked"
         assert result["phone"] != "555-867-5309", "phone must be masked"
         assert result["address"] != "123 Main St, Springfield", "address must be masked"
+        assert " " not in result["first_name"], (
+            f"first_name must be a single word, got: '{result['first_name']}' (P21-T21.2)"
+        )
+        assert " " not in result["last_name"], (
+            f"last_name must be a single word, got: '{result['last_name']}' (P21-T21.2)"
+        )
 
     def test_masking_transformer_customers_is_deterministic(self) -> None:
         """Masking for 'customers' rows must be deterministic — same input yields same output."""
