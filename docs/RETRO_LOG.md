@@ -19,6 +19,27 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P11-T11.3 — Architectural Requirements Gap ADR
+
+**Changes**: Created `docs/adr/ADR-0029-architectural-requirements-gap-analysis.md` documenting
+9 gaps between ARCHITECTURAL_REQUIREMENTS.md and the implemented system. Dispositions:
+2 Implemented Differently (IoC callbacks, hand-written Pydantic models), 2 Descoped (llms.txt,
+MCP — incompatible with air-gap mandate), 5 Deferred (webhooks, rate limiting, mTLS, custom
+Prometheus metrics, OTEL Huey trace propagation).
+
+**Reviews**:
+- QA: PASS — all 9 gaps documented with evidence-based rationale citing source files
+- UI/UX: SKIP — ADR documentation only
+- DevOps: PASS — correctly flags mTLS and rate limiting as security-relevant deferrals
+- Architecture: PASS — gap dispositions are defensible; IoC callback characterization accurate
+
+**Retrospective Note**: Gap-analysis ADRs are a useful format for batch documentation of
+deviations from an upfront architecture spec. The tabular summary provides quick lookup
+while per-gap sections provide depth. This format should be reused when future roasts
+identify spec-to-reality deltas.
+
+---
+
 ### [2026-03-16] P11-T11.2 — Workspace Hygiene (Worktrees, Spikes, .gitignore)
 
 **Changes**: 19 stale agent worktrees removed (~13 GB reclaimed). 6 Phase 0.8 spike files
