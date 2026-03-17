@@ -1,14 +1,19 @@
 """Unit tests for the Privacy Budget Management API.
 
-Tests follow TDD RED phase — all tests must fail before implementation.
+Tests cover GET /privacy/budget and POST /privacy/budget/refresh, verifying:
+- Correct field values and HTTP status codes
+- RFC 7807 error format on failure paths
+- WORM HMAC-signed audit event emission on refresh
+- Schema validation (BudgetResponse, BudgetRefreshRequest)
 
 Task: P22-T22.4 — Budget Management API
-CONSTITUTION Priority 3: TDD — RED phase
+CONSTITUTION Priority 3: TDD
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Generator
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -19,12 +24,39 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
+# ---------------------------------------------------------------------------
+# Module-level fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _set_audit_key(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Set a valid AUDIT_KEY env var and reset the singleton after each test.
+
+    Required because :func:`~synth_engine.shared.security.audit.get_audit_logger`
+    reads ``AUDIT_KEY`` on first call.  Without this fixture, tests that call
+    the real audit path raise ``ValueError``.
+
+    Yields:
+        None — setup/teardown fixture with no yielded value.
+    """
+    monkeypatch.setenv("AUDIT_KEY", os.urandom(32).hex())
+    yield
+    from synth_engine.shared.security.audit import reset_audit_logger
+
+    reset_audit_logger()
+
+
+# ---------------------------------------------------------------------------
+# Test app factories
+# ---------------------------------------------------------------------------
+
 
 def _make_test_app() -> tuple[Any, Any]:
-    """Build a test FastAPI app with an in-memory SQLite database.
+    """Build a test FastAPI app with an in-memory SQLite database and seeded ledger.
 
     Returns:
-        A 2-tuple of (app, engine) for use in tests.
+        A 2-tuple of ``(app, engine)`` ready for use in HTTP tests.
     """
     from sqlalchemy.pool import StaticPool
 
@@ -41,7 +73,7 @@ def _make_test_app() -> tuple[Any, Any]:
     )
     SQLModel.metadata.create_all(engine)
 
-    # Seed a default ledger row (id=1)
+    # Seed a default ledger row
     with Session(engine) as session:
         ledger = PrivacyLedger(
             total_allocated_epsilon=Decimal("10.0"),
@@ -63,10 +95,10 @@ def _make_test_app() -> tuple[Any, Any]:
 
 
 def _make_empty_app() -> tuple[Any, Any]:
-    """Build a test FastAPI app with NO ledger row seeded.
+    """Build a test FastAPI app with an in-memory SQLite database and NO ledger row.
 
     Returns:
-        A 2-tuple of (app, engine) for use in tests.
+        A 2-tuple of ``(app, engine)`` for testing missing-ledger error paths.
     """
     from sqlalchemy.pool import StaticPool
 
@@ -98,7 +130,7 @@ def _common_patches() -> list[Any]:
     """Return common mock patches shared by all endpoint tests.
 
     Returns:
-        List of patch context managers for vault and licensing checks.
+        List of patch context managers for vault-seal and licensing checks.
     """
     return [
         patch(
@@ -110,6 +142,11 @@ def _common_patches() -> list[Any]:
             return_value=True,
         ),
     ]
+
+
+# ---------------------------------------------------------------------------
+# GET /privacy/budget
+# ---------------------------------------------------------------------------
 
 
 class TestBudgetQueryEndpoint:
@@ -185,7 +222,6 @@ class TestBudgetQueryEndpoint:
         )
         SQLModel.metadata.create_all(engine)
 
-        # Seed a fully exhausted budget
         with Session(engine) as session:
             ledger = PrivacyLedger(
                 total_allocated_epsilon=Decimal("5.0"),
@@ -233,6 +269,11 @@ class TestBudgetQueryEndpoint:
         assert "type" in body
         assert "title" in body
         assert "detail" in body
+
+
+# ---------------------------------------------------------------------------
+# POST /privacy/budget/refresh
+# ---------------------------------------------------------------------------
 
 
 class TestBudgetRefreshEndpoint:
@@ -465,6 +506,11 @@ class TestBudgetRefreshEndpoint:
         assert "type" in body
 
 
+# ---------------------------------------------------------------------------
+# RFC 7807 error format conformance
+# ---------------------------------------------------------------------------
+
+
 class TestBudgetRFC7807ErrorFormat:
     """Tests confirming RFC 7807 error format is used on failure cases."""
 
@@ -503,8 +549,13 @@ class TestBudgetRFC7807ErrorFormat:
         assert "detail" in body
 
 
+# ---------------------------------------------------------------------------
+# Schema unit tests (no HTTP layer)
+# ---------------------------------------------------------------------------
+
+
 class TestBudgetSchemas:
-    """Tests for schema validation behaviour (BudgetRefreshRequest)."""
+    """Tests for schema validation behaviour (BudgetRefreshRequest, BudgetResponse)."""
 
     def test_budget_refresh_request_requires_justification(self) -> None:
         """BudgetRefreshRequest must raise ValidationError if justification is absent."""
@@ -555,7 +606,7 @@ class TestBudgetSchemas:
         assert resp.is_exhausted is False
 
     @pytest.mark.parametrize(
-        "env_key",
+        "field_name",
         [
             "total_allocated_epsilon",
             "total_spent_epsilon",
@@ -563,9 +614,9 @@ class TestBudgetSchemas:
             "is_exhausted",
         ],
     )
-    def test_budget_response_has_required_field(self, env_key: str) -> None:
+    def test_budget_response_has_required_field(self, field_name: str) -> None:
         """BudgetResponse schema must expose all four required fields."""
         from synth_engine.bootstrapper.schemas.privacy import BudgetResponse
 
         fields = BudgetResponse.model_fields
-        assert env_key in fields
+        assert field_name in fields
