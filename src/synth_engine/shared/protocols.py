@@ -9,11 +9,12 @@ Per CLAUDE.md: "A file that is a pure data-carrier... consumed by two or
 more modules belongs in shared/."
 
 Task: P22-T22.3 — Wire spend_budget() into Synthesis Pipeline (F6 review fix)
+Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (complete DPWrapperProtocol)
 """
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -24,7 +25,41 @@ class DPWrapperProtocol(Protocol):
     Protocol structurally.  Defining the contract here avoids any import from
     ``modules/privacy/`` while preserving full type-checking coverage across
     the bootstrapper and synthesizer module boundary.
+
+    The three methods below match the exact signatures on ``DPTrainingWrapper``
+    (per Known Failure Pattern #1 guard: parameter names verified against the
+    implementation, not just types).
+
+    import-linter note:
+        ``shared/`` must not import from ``modules/privacy/`` — this Protocol
+        is the boundary contract that allows structural duck-typing without
+        crossing that boundary.
     """
+
+    def wrap(
+        self,
+        optimizer: Any,
+        model: Any,
+        dataloader: Any,
+        *,
+        max_grad_norm: float,
+        noise_multiplier: float,
+    ) -> Any:
+        """Wrap optimizer with Opacus PrivacyEngine for DP-SGD training.
+
+        Args:
+            optimizer: A PyTorch optimizer (e.g. ``torch.optim.Adam``).
+            model: The ``nn.Module`` to be trained.
+            dataloader: The ``DataLoader`` providing training batches.
+            max_grad_norm: Maximum L2 norm for per-sample gradient clipping.
+                Must be strictly positive.
+            noise_multiplier: Ratio of Gaussian noise std to max_grad_norm.
+                Must be strictly positive.
+
+        Returns:
+            The DP-wrapped optimizer.
+        """
+        ...  # pragma: no cover — abstract Protocol stub; body is never executed
 
     def epsilon_spent(self, *, delta: float) -> float:
         """Return the privacy budget spent so far.
@@ -34,6 +69,20 @@ class DPWrapperProtocol(Protocol):
 
         Returns:
             The actual epsilon spent.
+        """
+        ...  # pragma: no cover — abstract Protocol stub; body is never executed
+
+    def check_budget(self, *, allocated_epsilon: float, delta: float) -> None:
+        """Raise BudgetExhaustionError if Epsilon spend has reached the allocation.
+
+        Args:
+            allocated_epsilon: The maximum Epsilon budget for this training run.
+                Must be strictly positive.
+            delta: The delta value used to compute the current Epsilon spend.
+                Must be strictly positive.
+
+        Raises:
+            BudgetExhaustionError: If ``epsilon_spent(delta) >= allocated_epsilon``.
         """
         ...  # pragma: no cover — abstract Protocol stub; body is never executed
 

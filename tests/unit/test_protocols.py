@@ -29,9 +29,7 @@ class TestDPWrapperProtocolStructure:
         """DPWrapperProtocol must define a wrap() method."""
         from synth_engine.shared.protocols import DPWrapperProtocol
 
-        assert hasattr(DPWrapperProtocol, "wrap"), (
-            "DPWrapperProtocol must define wrap() method"
-        )
+        assert hasattr(DPWrapperProtocol, "wrap"), "DPWrapperProtocol must define wrap() method"
 
     def test_protocol_has_epsilon_spent_method(self) -> None:
         """DPWrapperProtocol must define epsilon_spent() method."""
@@ -80,7 +78,8 @@ class TestDPWrapperProtocolStructure:
         )
 
     def test_check_budget_signature_matches_dptw(self) -> None:
-        """DPWrapperProtocol.check_budget() must accept allocated_epsilon and delta as keyword-only."""
+        """DPWrapperProtocol.check_budget() must accept allocated_epsilon and delta as
+        keyword-only."""
         from synth_engine.shared.protocols import DPWrapperProtocol
 
         sig = inspect.signature(DPWrapperProtocol.check_budget)
@@ -201,9 +200,7 @@ class TestBuildMetadataReturnType:
         return_annotation = raw_annotations.get("return")
 
         assert return_annotation is not None, "_build_metadata() must have a return type annotation"
-        assert return_annotation is not typing.Any, (
-            "_build_metadata() return type must not be Any"
-        )
+        assert return_annotation is not typing.Any, "_build_metadata() return type must not be Any"
 
     def test_build_metadata_return_annotation_contains_single_table_metadata(self) -> None:
         """_build_metadata() return annotation must reference SingleTableMetadata."""

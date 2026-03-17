@@ -23,8 +23,9 @@ Architecture:
 
 Import boundary (ADR-0025 / ADR-0001):
   This module must NOT import from ``modules/privacy/``.  The ``dp_wrapper``
-  parameter is typed as ``Any`` — the concrete ``DPTrainingWrapper`` is
-  injected by the bootstrapper so the synthesizer module never knows its type.
+  parameter is structurally typed via ``DPWrapperProtocol`` from
+  ``shared/protocols`` — the concrete ``DPTrainingWrapper`` is injected by
+  the bootstrapper so the synthesizer module never imports from privacy/.
 
 SDV private attribute coupling (accepted risk — ADR-0025 §Consequences):
   This module accesses ``CTGANSynthesizer._data_processor`` and
@@ -34,10 +35,54 @@ SDV private attribute coupling (accepted risk — ADR-0025 §Consequences):
   :meth:`DPCompatibleCTGAN._build_sdv_synth` and
   :meth:`DPCompatibleCTGAN._get_data_processor`.
 
+DP-SGD Security Assumptions (P26-T26.3 AC4)
+---------------------------------------------
+The following assumptions must hold for the DP guarantee produced by this
+module to be valid:
+
+1. **secure_mode**: Opacus ``PrivacyEngine`` is constructed without
+   ``secure_mode=True`` (the default).  This means the PRNG used for
+   Gaussian noise generation is PyTorch's standard Mersenne Twister, not a
+   CSPRNG.  The DP accounting is mathematically valid regardless, but the
+   noise is not cryptographically unpredictable.  If an adversary can
+   predict or observe the PRNG state, they may weaken the privacy guarantee.
+   **To enable secure mode**: pass ``secure_mode=True`` to ``PrivacyEngine()``
+   in ``DPTrainingWrapper.wrap()`` (``modules/privacy/dp_engine.py``).
+   Secure mode requires ``torchcsprng`` to be installed and imposes a
+   ~10x training overhead.  Current deployment accepts this risk per
+   ADR-0017a; revisit if threat model changes.
+
+2. **Per-sample gradient clipping**: Opacus enforces per-sample gradient
+   clipping via ``max_grad_norm``.  This clipping bounds the sensitivity of
+   each gradient update, which is a necessary condition for the RDP
+   accountant to produce a valid Epsilon bound.  If ``max_grad_norm`` is set
+   too high (e.g. ``float('inf')``), gradients are not clipped and the DP
+   guarantee degrades to ε = ∞.  The default of 1.0 is a practical choice;
+   values should be tuned per dataset.
+
+3. **Noise calibration dependency**: The Epsilon value returned by
+   ``epsilon_spent(delta=...)`` is computed by Opacus's RDP accountant from
+   the number of gradient steps, batch size, dataset size, and
+   ``noise_multiplier``.  A higher ``noise_multiplier`` → stronger privacy
+   (smaller ε) at the cost of model utility.  The default of 1.1 is a
+   reasonable starting point; production deployments should choose
+   ``noise_multiplier`` based on the target (ε, δ) budget and dataset size.
+   Changing dataset size or batch size after wrapping invalidates the
+   accounting — construct a new ``DPTrainingWrapper`` instance for each run.
+
+4. **Proxy model epsilon**: The Opacus accounting in ``_activate_opacus()``
+   is performed on a 1-layer linear proxy model, not on the CTGAN
+   Discriminator directly.  The epsilon reflects the gradient steps taken
+   on the proxy model, which uses the same training data, batch size, and
+   ``noise_multiplier`` as the intended CTGAN training.  This is a practical
+   approximation accepted in ADR-0025 §T7.3; the epsilon is real and
+   proportional but measured on the proxy, not the GAN.
+
 Task: P7-T7.2 — Custom CTGAN Training Loop
 Task: P7-T7.3 — Opacus End-to-End Wiring (Phase 3 now activates real Opacus
   PrivacyEngine on a linear model trained on the processed data, giving
   meaningful Epsilon accounting after training).
+Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (document DP-SGD assumptions)
 ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 Task: P20-T20.1 — AC2 Targeted warning suppression (filterwarnings vs simplefilter)
 """
@@ -209,7 +254,7 @@ class DPCompatibleCTGAN:
         Raises:
             ImportError: If SDV is not installed (synthesizer group absent).
         """
-        if CTGANSynthesizer is None:  # pragma: no cover — synthesizer group absent
+        if CTGANSynthesizer is None:  # pragma: no cover
             raise ImportError(
                 "The 'sdv' package is required for DPCompatibleCTGAN. "
                 "Install it with: poetry install --with synthesizer"
@@ -269,7 +314,7 @@ class DPCompatibleCTGAN:
         Returns:
             List of column names that are discrete (categorical).
         """
-        if detect_discrete_columns is None:  # pragma: no cover — synthesizer group absent
+        if detect_discrete_columns is None:  # pragma: no cover
             return []
         transformers = sdv_synth._data_processor._hyper_transformer.field_transformers
         return list(detect_discrete_columns(self._metadata, processed_df, transformers))
@@ -294,7 +339,7 @@ class DPCompatibleCTGAN:
             This method must only be called when ``self._dp_wrapper is not None``
             and torch/nn/DataLoader are available.
         """
-        if torch is None or nn is None:  # pragma: no cover — synthesizer group absent
+        if torch is None or nn is None:  # pragma: no cover
             raise ImportError(
                 "PyTorch is required for DP wrapping. "
                 "Install it with: poetry install --with synthesizer"
@@ -463,7 +508,7 @@ class DPCompatibleCTGAN:
             self._activate_opacus(processed_df)
 
         # ---- Phase 3: construct and train CTGAN model ----
-        if CTGAN is None:  # pragma: no cover — synthesizer group absent
+        if CTGAN is None:  # pragma: no cover
             raise ImportError(
                 "The 'ctgan' package is required for DPCompatibleCTGAN. "
                 "Install it with: poetry install --with synthesizer"

@@ -15,12 +15,15 @@ Boundary constraints (import-linter enforced):
   - Must NOT import from ``modules/ingestion/``, ``modules/masking/``, or
     ``modules/subsetting/``.
   - Cross-module data transfer uses Parquet files and ``shared/`` DTOs only.
-  - Must NOT import from ``modules/privacy/`` — dp_wrapper is typed as ``Any``.
+  - Must NOT import from ``modules/privacy/`` — dp_wrapper is typed via
+    ``DPWrapperProtocol`` from ``shared/protocols`` (structural typing;
+    no runtime import from privacy module required).
     The bootstrapper injects the concrete DPTrainingWrapper instance.
 
 Task: P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
 Task: P7-T7.3 — Opacus End-to-End Wiring (routes to DPCompatibleCTGAN when
   dp_wrapper is provided; drains ADV-048).
+Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (replace Any with Protocol)
 ADR: ADR-0017 (CTGAN + Opacus; per-table training with FK post-processing)
 ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 """
@@ -36,7 +39,11 @@ import numpy as np
 import pandas as pd
 from prometheus_client import Histogram
 
+from synth_engine.shared.protocols import DPWrapperProtocol
+
 if TYPE_CHECKING:
+    from sdv.metadata import SingleTableMetadata
+
     from synth_engine.modules.synthesizer.models import ModelArtifact
 
 _logger = logging.getLogger(__name__)
@@ -70,7 +77,8 @@ except ImportError:  # pragma: no cover — only triggered if synthesizer group 
 #
 # When dp_wrapper is provided to SynthesisEngine.train(), DPCompatibleCTGAN
 # is used instead of vanilla CTGANSynthesizer.  The dp_wrapper is passed
-# through as a duck-typed argument — engine.py never imports from modules/privacy/.
+# through as a Protocol-typed argument — engine.py never imports from
+# modules/privacy/; the DPWrapperProtocol from shared/ provides the contract.
 # ---------------------------------------------------------------------------
 try:
     from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
@@ -119,12 +127,17 @@ def _row_count_bucket(n: int) -> str:
     return "10001+"
 
 
-def _build_metadata(df: pd.DataFrame) -> Any:
+def _build_metadata(df: pd.DataFrame) -> SingleTableMetadata:
     """Auto-detect SingleTableMetadata from a DataFrame.
 
     Uses ``sdv.metadata.SingleTableMetadata.detect_from_dataframe()`` to
     infer column sdtypes from the DataFrame schema.  This is SDV's preferred
     API for programmatic metadata construction.
+
+    The return type is annotated as ``SingleTableMetadata`` using a
+    ``TYPE_CHECKING`` guard (imported at the top of the module) so that
+    mypy can verify callers without triggering a runtime SDV import in
+    environments where the synthesizer dependency group is not installed.
 
     Args:
         df: Training DataFrame to detect schema from.
@@ -276,7 +289,7 @@ class SynthesisEngine:
         table_name: str,
         parquet_path: str,
         *,
-        dp_wrapper: Any = None,
+        dp_wrapper: DPWrapperProtocol | None = None,
     ) -> ModelArtifact:
         """Train a CTGAN model on the Parquet file at ``parquet_path``.
 
@@ -298,13 +311,16 @@ class SynthesisEngine:
                 artifact for logging and identification).
             parquet_path: Absolute path to the Parquet file written by the
                 subsetting/ingestion pipeline.
-            dp_wrapper: Optional DP wrapper implementing the duck-type contract:
+            dp_wrapper: Optional DP wrapper satisfying ``DPWrapperProtocol``
+                from ``shared/protocols``.  The Protocol defines:
                 ``wrap(optimizer, model, dataloader, *, max_grad_norm,
                 noise_multiplier)`` → dp_optimizer;
                 ``epsilon_spent(*, delta)`` → float;
                 ``check_budget(*, allocated_epsilon, delta)`` → None.
-                Typed as ``Any`` to avoid import-linter boundary violations
-                between ``modules/synthesizer`` and ``modules/privacy``.
+                Typed via ``DPWrapperProtocol`` (structural typing) rather than
+                the concrete ``DPTrainingWrapper`` to preserve import-linter
+                boundary independence between ``modules/synthesizer`` and
+                ``modules/privacy``.
                 The concrete implementation is ``DPTrainingWrapper`` from
                 ``modules/privacy/dp_engine.py``, injected by the bootstrapper.
                 Default: ``None`` (no DP wrapping; vanilla CTGANSynthesizer used).
