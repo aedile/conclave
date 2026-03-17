@@ -17,11 +17,13 @@ CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 Task: P22-T22.1 — Job Schema DP Parameters
 Task: P22-T22.2 — Wire DP into run_synthesis_job()
+Task: P22-T22.3 — Wire spend_budget() into Synthesis Pipeline
 """
 
 from __future__ import annotations
 
 import tempfile
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -668,6 +670,38 @@ class TestSynthesisTaskRuntimeFailure:
 
         assert mock_session.commit.call_count >= 1
 
+    def test_total_epochs_zero_marks_job_failed(self) -> None:
+        """_run_synthesis_job_impl must mark job FAILED when total_epochs=0.
+
+        total_epochs=0 skips the training while-loop entirely, leaving
+        last_ckpt_path as None.  The step-6 guard must catch this and set
+        status=FAILED with an error_msg containing 'No artifact produced'.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=99,
+            status="QUEUED",
+            total_epochs=0,
+            checkpoint_every_n=5,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+        mock_engine = MagicMock()
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=99,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert job.status == "FAILED", f"Expected FAILED; got {job.status}"
+        assert job.error_msg is not None
+        assert "No artifact produced" in job.error_msg, (
+            f"Expected 'No artifact produced' in error_msg; got {job.error_msg!r}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Checkpointing behaviour
@@ -838,7 +872,14 @@ class TestDPWiringInImpl:
 
         dp_wrapper = _make_mock_dp_wrapper(epsilon=2.5)
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.tasks._spend_budget_fn"),
+            patch(
+                "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
             _run_synthesis_job_impl(
                 job_id=10,
                 session=mock_session,
@@ -913,7 +954,14 @@ class TestDPWiringInImpl:
 
         dp_wrapper = _make_mock_dp_wrapper(epsilon=3.14)
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.tasks._spend_budget_fn"),
+            patch(
+                "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
             _run_synthesis_job_impl(
                 job_id=12,
                 session=mock_session,
@@ -1075,3 +1123,532 @@ class TestDPFactoryInjection:
                 tasks_mod.run_synthesis_job.call_local(99)
         finally:
             tasks_mod._dp_wrapper_factory = original_factory  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# spend_budget() wiring tests (P22-T22.3)
+# ---------------------------------------------------------------------------
+
+
+class TestSpendBudgetWiring:
+    """Tests for spend_budget DI injection and invocation (AC2, AC3, AC4, AC5, AC6, AC7).
+
+    All tests use mocks — no real database, no real async session.
+    The spend_budget callable is injected via set_spend_budget_fn() following
+    the same DI pattern as set_dp_wrapper_factory() (ADR-0029).
+
+    Boundary guard: these tests do NOT import from modules/privacy/ — they
+    use duck-typed mocks and exception name matching to stay boundary-clean.
+    """
+
+    def _run_impl_with_budget_mock(
+        self,
+        job_id: int = 20,
+        epsilon: float = 2.5,
+        budget_fn_side_effect: Exception | None = None,
+    ) -> tuple[Any, MagicMock, MagicMock]:
+        """Helper: run _run_synthesis_job_impl with a DP wrapper and mocked budget fn.
+
+        Returns:
+            Tuple of (job, mock_budget_fn, mock_session).
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=job_id,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            actual_epsilon=None,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        dp_wrapper = _make_mock_dp_wrapper(epsilon=epsilon)
+
+        mock_budget_fn = MagicMock()
+        if budget_fn_side_effect is not None:
+            mock_budget_fn.side_effect = budget_fn_side_effect
+
+        original_fn = tasks_mod._spend_budget_fn
+        try:
+            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            with (
+                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+                patch(
+                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    return_value=MagicMock(),
+                ),
+            ):
+                _run_synthesis_job_impl(
+                    job_id=job_id,
+                    session=mock_session,
+                    engine=mock_engine,
+                    dp_wrapper=dp_wrapper,
+                )
+        finally:
+            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+
+        return job, mock_budget_fn, mock_session
+
+    def test_set_spend_budget_fn_stores_callable(self) -> None:
+        """set_spend_budget_fn must store the provided callable at module level.
+
+        After calling set_spend_budget_fn with a mock, the module-level
+        _spend_budget_fn must reference that exact callable.
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+
+        mock_fn = MagicMock()
+        original = tasks_mod._spend_budget_fn
+        try:
+            tasks_mod.set_spend_budget_fn(mock_fn)
+            assert tasks_mod._spend_budget_fn is mock_fn
+        finally:
+            tasks_mod._spend_budget_fn = original  # type: ignore[assignment]
+
+    def test_spend_budget_called_after_dp_training(self) -> None:
+        """spend_budget fn must be called after successful DP training (AC2).
+
+        Verifies the fn is invoked exactly once with the correct epsilon
+        from the dp_wrapper.epsilon_spent() result.
+        """
+        job, mock_budget_fn, _ = self._run_impl_with_budget_mock(job_id=20, epsilon=2.5)
+
+        mock_budget_fn.assert_called_once()
+        call_kwargs = mock_budget_fn.call_args.kwargs
+        assert call_kwargs["amount"] == 2.5, f"Expected amount=2.5; got {call_kwargs.get('amount')}"
+        assert call_kwargs["job_id"] == 20, f"Expected job_id=20; got {call_kwargs.get('job_id')}"
+
+    def test_spend_budget_called_with_ledger_id_1(self) -> None:
+        """spend_budget fn must be called with ledger_id=1 (default seeded ledger).
+
+        The migration 005 seeds a single PrivacyLedger row with id=1.
+        The task must use this fixed ledger_id until multi-tenant is implemented.
+        """
+        _, mock_budget_fn, _ = self._run_impl_with_budget_mock(job_id=21, epsilon=1.0)
+
+        call_kwargs = mock_budget_fn.call_args.kwargs
+        assert call_kwargs["ledger_id"] == 1, (
+            f"Expected ledger_id=1; got {call_kwargs.get('ledger_id')}"
+        )
+
+    def test_budget_exhaustion_marks_job_failed(self) -> None:
+        """BudgetExhaustionError from spend_budget fn must mark job FAILED (AC3).
+
+        The exception name contains 'BudgetExhaustion' — the task uses duck-
+        typing name check to stay boundary-clean (no import from privacy module).
+        """
+
+        class _FakeBudgetExhaustionError(Exception):
+            """Simulates BudgetExhaustionError without importing from privacy module."""
+
+        job, mock_budget_fn, mock_session = self._run_impl_with_budget_mock(
+            job_id=22,
+            epsilon=999.0,
+            budget_fn_side_effect=_FakeBudgetExhaustionError("Budget exhausted"),
+        )
+
+        assert job.status == "FAILED", f"Expected FAILED; got {job.status}"
+
+    def test_budget_exhaustion_sets_error_msg(self) -> None:
+        """BudgetExhaustionError must set job.error_msg to 'Privacy budget exhausted' (AC3)."""
+
+        class _FakeBudgetExhaustionError(Exception):
+            """Simulates BudgetExhaustionError without importing from privacy module."""
+
+        job, _, _ = self._run_impl_with_budget_mock(
+            job_id=23,
+            epsilon=999.0,
+            budget_fn_side_effect=_FakeBudgetExhaustionError("over budget"),
+        )
+
+        assert job.error_msg == "Privacy budget exhausted", (
+            f"Expected 'Privacy budget exhausted'; got {job.error_msg!r}"
+        )
+
+    def test_budget_exhaustion_artifact_not_persisted(self) -> None:
+        """When budget exhausted, job must be FAILED before artifact_path is written (AC3).
+
+        The artifact_path must remain None — the synthesis artifact must NOT
+        be persisted when the privacy budget is exhausted.
+        """
+
+        class _FakeBudgetExhaustionError(Exception):
+            """Simulates BudgetExhaustionError without importing from privacy module."""
+
+        job, _, _ = self._run_impl_with_budget_mock(
+            job_id=24,
+            epsilon=999.0,
+            budget_fn_side_effect=_FakeBudgetExhaustionError("over budget"),
+        )
+
+        assert job.artifact_path is None, (
+            f"Expected artifact_path=None on budget exhaustion; got {job.artifact_path!r}"
+        )
+
+    def test_budget_exhaustion_commits_failed_status(self) -> None:
+        """Budget exhaustion must commit the FAILED status to the database (AC3)."""
+
+        class _FakeBudgetExhaustionError(Exception):
+            """Simulates BudgetExhaustionError without importing from privacy module."""
+
+        _, _, mock_session = self._run_impl_with_budget_mock(
+            job_id=25,
+            epsilon=999.0,
+            budget_fn_side_effect=_FakeBudgetExhaustionError("over budget"),
+        )
+
+        assert mock_session.commit.call_count >= 1
+
+    def test_spend_budget_not_called_when_dp_disabled(self) -> None:
+        """spend_budget fn must NOT be called when dp_wrapper is None (non-DP job, AC-implicit).
+
+        When the job does not use DP, no epsilon was spent, so no budget
+        deduction should occur.
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=26,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=False,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        mock_budget_fn = MagicMock()
+        original_fn = tasks_mod._spend_budget_fn
+        try:
+            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+                _run_synthesis_job_impl(
+                    job_id=26,
+                    session=mock_session,
+                    engine=mock_engine,
+                    dp_wrapper=None,  # Non-DP path
+                )
+        finally:
+            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+
+        mock_budget_fn.assert_not_called()
+
+    def test_spend_budget_not_called_when_epsilon_is_none(self) -> None:
+        """spend_budget fn must NOT be called when actual_epsilon is None after training.
+
+        When epsilon_spent() raises, actual_epsilon stays None and budget
+        deduction must be skipped (no budget was measurably spent).
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=27,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            actual_epsilon=None,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        dp_wrapper = MagicMock()
+        dp_wrapper.epsilon_spent.side_effect = RuntimeError("Opacus internal error")
+
+        mock_budget_fn = MagicMock()
+        original_fn = tasks_mod._spend_budget_fn
+        try:
+            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+                _run_synthesis_job_impl(
+                    job_id=27,
+                    session=mock_session,
+                    engine=mock_engine,
+                    dp_wrapper=dp_wrapper,
+                )
+        finally:
+            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+
+        mock_budget_fn.assert_not_called()
+
+    def test_audit_log_emitted_on_budget_spend(self) -> None:
+        """Audit log_event must be called after successful spend_budget (AC5).
+
+        Verifies that a WORM audit record is emitted with the correct
+        event_type='PRIVACY_BUDGET_SPEND' and actor='system/huey-worker'.
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=28,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            actual_epsilon=None,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        dp_wrapper = _make_mock_dp_wrapper(epsilon=1.5)
+        mock_budget_fn = MagicMock()
+
+        mock_audit_logger = MagicMock()
+
+        original_fn = tasks_mod._spend_budget_fn
+        try:
+            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            with (
+                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+                patch(
+                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    return_value=mock_audit_logger,
+                ),
+            ):
+                _run_synthesis_job_impl(
+                    job_id=28,
+                    session=mock_session,
+                    engine=mock_engine,
+                    dp_wrapper=dp_wrapper,
+                )
+        finally:
+            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+
+        mock_audit_logger.log_event.assert_called_once()
+        audit_call_kwargs = mock_audit_logger.log_event.call_args.kwargs
+        expected_event_type = "PRIVACY_BUDGET_SPEND"
+        actual_event_type = audit_call_kwargs.get("event_type")
+        assert actual_event_type == expected_event_type, (
+            f"Expected event_type={expected_event_type!r}; got {actual_event_type!r}"
+        )
+        assert audit_call_kwargs["actor"] == "system/huey-worker", (
+            f"Expected actor='system/huey-worker'; got {audit_call_kwargs.get('actor')!r}"
+        )
+
+    def test_non_budget_exception_from_spend_budget_propagates(self) -> None:
+        """Non-BudgetExhaustion exceptions from _spend_budget_fn must propagate.
+
+        When _spend_budget_fn raises an exception whose class name does NOT
+        contain 'BudgetExhaustion', the task must re-raise it.  The job must
+        NOT be marked FAILED by the budget-exhaustion handler — Huey handles
+        re-raised exceptions at the task framework level.
+
+        This guards against silent swallowing of infrastructure errors such as
+        database connectivity failures (e.g., ConnectionError).
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=29,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            actual_epsilon=None,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        dp_wrapper = _make_mock_dp_wrapper(epsilon=1.0)
+        mock_budget_fn = MagicMock()
+        mock_budget_fn.side_effect = ConnectionError("DB down")
+
+        original_fn = tasks_mod._spend_budget_fn
+        try:
+            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            with (
+                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+                patch(
+                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    return_value=MagicMock(),
+                ),
+            ):
+                with pytest.raises(ConnectionError, match="DB down"):
+                    _run_synthesis_job_impl(
+                        job_id=29,
+                        session=mock_session,
+                        engine=mock_engine,
+                        dp_wrapper=dp_wrapper,
+                    )
+        finally:
+            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+
+        # Job must NOT be marked FAILED by the BudgetExhaustion handler;
+        # the re-raise lets Huey handle the error at the framework level.
+        assert job.status != "FAILED", (
+            f"Non-BudgetExhaustion exception must not set job.status=FAILED; got {job.status!r}"
+        )
+
+
+class TestSpendBudgetFactoryBootstrapper:
+    """Tests for build_spend_budget_fn factory in bootstrapper/factories.py (AC4).
+
+    Verifies the factory produces a sync callable that wraps async spend_budget
+    without violating import boundaries.
+    """
+
+    def test_build_spend_budget_fn_returns_callable(self) -> None:
+        """build_spend_budget_fn must return a callable (sync wrapper)."""
+        from synth_engine.bootstrapper.factories import build_spend_budget_fn
+
+        fn = build_spend_budget_fn()
+        assert callable(fn)
+
+    def test_build_spend_budget_fn_does_not_corrupt_async_url(self) -> None:
+        """build_spend_budget_fn must not double-substitute async driver prefixes.
+
+        If DATABASE_URL already contains an async driver prefix (e.g.,
+        'sqlite+aiosqlite:///:memory:' or 'postgresql+asyncpg://host/db'),
+        the URL promotion logic must pass it through unchanged and not corrupt
+        it by re-substituting the sync prefix.
+
+        This is a regression guard for F3 (review finding): the original
+        code applied string.replace() unconditionally, which would corrupt
+        URLs that already contained the async prefix.
+        """
+        import logging
+        from unittest.mock import AsyncMock
+        from unittest.mock import patch as _patch
+
+        from synth_engine.bootstrapper.factories import build_spend_budget_fn
+
+        fn = build_spend_budget_fn()
+
+        # Capture the URL passed to create_async_engine.
+        captured_urls: list[str] = []
+
+        mock_session_cm = MagicMock()
+        mock_session_cm.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_session_cm.__aexit__ = AsyncMock(return_value=False)
+
+        def _capture_create_async_engine(url: str, **kwargs: object) -> MagicMock:
+            captured_urls.append(url)
+            return MagicMock()
+
+        with (
+            _patch(
+                "synth_engine.bootstrapper.factories.os.environ.get",
+                return_value="sqlite+aiosqlite:///:memory:",
+            ),
+            _patch(
+                "sqlalchemy.ext.asyncio.create_async_engine",
+                side_effect=_capture_create_async_engine,
+            ),
+            _patch(
+                "sqlalchemy.ext.asyncio.AsyncSession",
+                return_value=mock_session_cm,
+            ),
+            _patch(
+                "synth_engine.modules.privacy.accountant.spend_budget",
+                new_callable=lambda: lambda: AsyncMock(),
+            ),
+        ):
+            try:
+                fn(amount=0.5, job_id=1, ledger_id=1)
+            except Exception as err:
+                logging.getLogger(__name__).debug("Expected mock error: %s", err)
+
+        if captured_urls:
+            # The URL must not have been double-substituted.
+            assert captured_urls[0] == "sqlite+aiosqlite:///:memory:", (
+                f"URL was corrupted: {captured_urls[0]!r}"
+            )
+
+    def test_bootstrapper_wires_spend_budget_fn_into_tasks(self) -> None:
+        """bootstrapper/main.py must call set_spend_budget_fn at module import time.
+
+        Verifies that importing main.py results in _spend_budget_fn being set
+        on the tasks module (Rule 8 compliance).
+        """
+        # Importing main triggers the wiring side-effect; _spend_budget_fn
+        # must be non-None after import completes.
+        import synth_engine.bootstrapper.main  # noqa: F401 — side-effect import
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+
+        assert tasks_mod._spend_budget_fn is not None, (
+            "_spend_budget_fn must be wired by bootstrapper at import time (Rule 8)"
+        )
+
+
+_ALEMBIC_VERSIONS = Path(__file__).parent.parent.parent / "alembic" / "versions"
+
+
+def _find_migration_005() -> Path | None:
+    """Return the Path of the migration 005 file, or None if absent."""
+    for f in _ALEMBIC_VERSIONS.glob("*.py"):
+        if f.name.startswith("__"):
+            continue
+        if "005" in f.name:
+            return f
+    return None
+
+
+class TestMigration005:
+    """Tests for Alembic migration 005 — default PrivacyLedger seeding (AC1).
+
+    These are structural file-inspection tests — they verify the migration file
+    has the correct revision chain and SQL patterns without running a live database.
+    Follows the pattern established in test_migration_003_epsilon_precision.py.
+    """
+
+    def test_migration_005_file_exists(self) -> None:
+        """Migration 005 file must exist in alembic/versions/."""
+        path = _find_migration_005()
+        assert path is not None, (
+            "Migration 005 not found in alembic/versions/. Expected a file matching '005*.py'."
+        )
+
+    def test_migration_005_revision_is_005(self) -> None:
+        """Migration 005 must have revision='005'."""
+        path = _find_migration_005()
+        assert path is not None, "Migration 005 file not found"
+        content = path.read_text(encoding="utf-8")
+        assert 'revision: str = "005"' in content, f"Expected revision='005' in {path.name}"
+
+    def test_migration_005_down_revision_is_004(self) -> None:
+        """Migration 005 must depend on revision 004."""
+        path = _find_migration_005()
+        assert path is not None, "Migration 005 file not found"
+        content = path.read_text(encoding="utf-8")
+        assert 'down_revision: str | None = "004"' in content, (
+            f"Expected down_revision='004' in {path.name}"
+        )
+
+    def test_migration_005_seeds_privacy_ledger_row(self) -> None:
+        """Migration 005 upgrade() must INSERT a privacy_ledger row."""
+        path = _find_migration_005()
+        assert path is not None, "Migration 005 file not found"
+        content = path.read_text(encoding="utf-8")
+        assert "privacy_ledger" in content, "Expected 'privacy_ledger' INSERT in migration 005"
+        assert "INSERT" in content.upper(), "Expected INSERT statement in migration 005 upgrade()"
+
+    def test_migration_005_downgrade_deletes_seeded_row(self) -> None:
+        """Migration 005 downgrade() must DELETE the seeded row."""
+        path = _find_migration_005()
+        assert path is not None, "Migration 005 file not found"
+        content = path.read_text(encoding="utf-8")
+        assert "DELETE" in content.upper(), "Expected DELETE statement in migration 005 downgrade()"

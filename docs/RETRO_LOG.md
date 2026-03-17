@@ -20,6 +20,49 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] P22-T22.3 — Wire spend_budget() into Synthesis Pipeline
+
+**Changes**:
+- `alembic/versions/005_seed_default_privacy_ledger.py`: NEW — seeds default PrivacyLedger row
+  with `total_allocated_epsilon=100.0` (env-configurable via `PRIVACY_BUDGET_EPSILON`).
+- `src/synth_engine/bootstrapper/factories.py`: Added `build_spend_budget_fn()` — async-to-sync
+  bridge wrapping `spend_budget()` with `asyncio.run()` for Huey compatibility.
+- `src/synth_engine/bootstrapper/main.py`: Wired `set_spend_budget_fn()` at startup (ADR-0029).
+- `src/synth_engine/modules/synthesizer/tasks.py`: Added budget deduction after DP training
+  (step 5b), BudgetExhaustion detection via duck-typing, WORM audit log emission.
+- `src/synth_engine/shared/protocols.py`: NEW — `DPWrapperProtocol` + `SpendBudgetProtocol`
+  moved from tasks.py to shared/ as neutral value objects (CLAUDE.md rule).
+- `.env.example`: Added `PRIVACY_BUDGET_EPSILON` documentation.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, import-linter PASS (4/4),
+1104 unit tests PASS (97.19% coverage), pre-commit PASS.
+
+**Review**: QA FINDING (4 fixed), Architecture FINDING (1 fixed), DevOps FINDING (1 fixed)
+
+**QA** (FINDING — 4 items fixed):
+1. URL double-substitution bug in `build_spend_budget_fn()` — `str.replace()` corrupted URLs
+   already containing async driver prefix. Fixed with guard checks.
+2. Audit log inside BudgetExhaustion try block — moved audit outside, separate try/except.
+3. Missing test for non-BudgetExhaustion exception re-raise path — added.
+4. Missing test for `total_epochs=0` FAILED guard — added.
+
+**Architecture** (FINDING — 1 item fixed):
+1. `Callable[..., None]` return type erasure on `build_spend_budget_fn()`. Fixed: moved Protocols
+   to `shared/protocols.py`, factory now returns typed `SpendBudgetProtocol`.
+
+**DevOps** (FINDING — 1 item fixed):
+1. `PRIVACY_BUDGET_EPSILON` missing from `.env.example` — added.
+
+**Retrospective Note**:
+QA caught a real correctness bug (URL double-substitution) that would have caused runtime failures.
+The `str.replace()` pattern for URL scheme promotion is fragile — future async bridges should use
+URL parsing, not string replacement. Audit log calls should NEVER share a try block with
+error-detection logic — audit failures must not trigger unrelated error handlers. Standing rule:
+audit calls belong in separate try blocks or finally clauses. The Protocol-in-shared/ pattern
+(F6) is now the canonical approach for cross-boundary DI callback typing.
+
+---
+
 ### [2026-03-17] P22-T22.2 — Wire DP into run_synthesis_job()
 
 **Changes**:
