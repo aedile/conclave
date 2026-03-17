@@ -20,6 +20,29 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] T23.1 — Generation Step in Huey Task
+
+**Review agents**: QA (FINDING), DevOps (FINDING), Architecture (FINDING)
+
+**Findings fixed (9 total, all inline)**:
+1. **BLOCKER** (QA): Step 9 `_write_parquet_with_signing` call had no exception handler — job stuck in GENERATING. Fixed: wrapped in try/except, transitions to FAILED.
+2. **BLOCKER** (QA): `bytes.fromhex()` unguarded against ValueError for malformed hex. Fixed: try/except with graceful skip-signing fallback.
+3. **ADVISORY** (QA): `SynthesisJob.num_rows` missing `__init__` guard. Fixed: added validation consistent with other fields.
+4. **MEDIUM** (DevOps): Generation RuntimeError written verbatim to `job.error_msg`. Fixed: sanitized static string, full exception in server logs only.
+5. **LOW** (DevOps): Full filesystem paths logged. Fixed: basename-only logging.
+6. **ARCHITECTURE** (Arch): Duck-typed exception pattern undocumented. Fixed: ADR-0033 created.
+7. **ADVISORY** (Arch): `_run_synthesis_job_impl` ~280 lines. Fixed: extracted `_handle_dp_accounting` and `_generate_and_finalize` helpers.
+8. **LOW** (Arch): Missing `Raises` docstring section. Fixed.
+9. **TESTING** (QA): Missing edge case tests. Fixed: 10 new tests added.
+
+**Review commit**: `4e24b80`
+
+**Open advisories**: 0 (no new advisories added)
+
+**Retrospective note**: The error-handling gap in step 9 reveals a recurring pattern: new I/O side-effects added to `_run_synthesis_job_impl` inherit the surrounding try/except scope implicitly rather than being explicitly guarded. Future pipeline additions should treat every I/O call as a first-class failure mode with explicit FAILED transitions. The `error_msg = str(exc)` pattern for API-visible error messages should be replaced project-wide with sanitized strings — this is the second time reviewers have flagged it.
+
+---
+
 ### [2026-03-17] Phase 22 — DP Pipeline Integration End-to-End
 
 **Goal**: Wire the DP synthesis pipeline end-to-end so that `POST /jobs/{id}/start` runs
