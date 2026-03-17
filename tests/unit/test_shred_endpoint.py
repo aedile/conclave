@@ -8,6 +8,7 @@ CONSTITUTION Priority 3: TDD — RED phase
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -192,7 +193,10 @@ class TestShredEndpointHappyPath:
 
     @pytest.mark.asyncio
     async def test_shred_calls_shred_artifacts_domain_function(self) -> None:
-        """POST /jobs/{id}/shred must delegate file deletion to shred_artifacts()."""
+        """POST /jobs/{id}/shred must delegate file deletion to shred_artifacts().
+
+        Verifies the job passed to shred_artifacts has the correct primary key (job_id).
+        """
         app, engine = _make_test_app_with_job(status="COMPLETE")
 
         with Session(engine) as session:
@@ -204,12 +208,21 @@ class TestShredEndpointHappyPath:
             assert job is not None
             job_id = job.id
 
-        mock_shred = MagicMock()
+        captured_ids: list[int | None] = []
+
+        def _capture_and_shred(job: Any) -> None:
+            # Capture the job id eagerly while the SQLAlchemy session is live
+            # (accessing .id after session close triggers DetachedInstanceError).
+            captured_ids.append(job.__dict__.get("id"))
+
         vault_patch, license_patch = _vault_and_license_patches()
         with (
             vault_patch,
             license_patch,
-            patch("synth_engine.bootstrapper.routers.jobs.shred_artifacts", mock_shred),
+            patch(
+                "synth_engine.bootstrapper.routers.jobs.shred_artifacts",
+                side_effect=_capture_and_shred,
+            ),
             patch("synth_engine.bootstrapper.routers.jobs.get_audit_logger"),
         ):
             async with AsyncClient(
@@ -217,7 +230,9 @@ class TestShredEndpointHappyPath:
             ) as client:
                 await client.post(f"/jobs/{job_id}/shred")
 
-        mock_shred.assert_called_once()
+        # FINDING 5 fix: verify shred_artifacts was called with the correct job.
+        assert len(captured_ids) == 1
+        assert captured_ids[0] == job_id
 
     @pytest.mark.asyncio
     async def test_shred_emits_worm_audit_event(self) -> None:
@@ -287,6 +302,53 @@ class TestShredEndpointHappyPath:
 
         call_kwargs = mock_audit_logger.log_event.call_args.kwargs
         assert call_kwargs["details"]["job_id"] == str(job_id)
+
+    @pytest.mark.asyncio
+    async def test_shred_status_transitions_to_shredded_even_if_audit_fails(
+        self,
+    ) -> None:
+        """FINDING 4: Job must reach SHREDDED even when the WORM audit logger raises.
+
+        Audit log failure is swallowed post-deletion because aborting would
+        leave ghost state (COMPLETE with no files).  See ADR-0034.
+        """
+        app, engine = _make_test_app_with_job(status="COMPLETE")
+
+        with Session(engine) as session:
+            from sqlmodel import select
+
+            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+            job = session.exec(select(SynthesisJob)).first()
+            assert job is not None
+            job_id = job.id
+
+        def _raise_audit_logger() -> None:
+            raise RuntimeError("audit down")
+
+        vault_patch, license_patch = _vault_and_license_patches()
+        with (
+            vault_patch,
+            license_patch,
+            patch("synth_engine.bootstrapper.routers.jobs.shred_artifacts"),
+            patch(
+                "synth_engine.bootstrapper.routers.jobs.get_audit_logger",
+                side_effect=_raise_audit_logger,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(f"/jobs/{job_id}/shred")
+
+        assert response.status_code == 200
+
+        with Session(engine) as session:
+            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+            updated = session.get(SynthesisJob, job_id)
+            assert updated is not None
+            assert updated.status == "SHREDDED"
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +466,29 @@ class TestShredEndpointErrorPaths:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
+    async def test_shred_generating_job_returns_404(self) -> None:
+        """FINDING 6: POST /jobs/{id}/shred on a GENERATING job must return 404."""
+        app, engine = _make_test_app_with_job(status="GENERATING")
+
+        with Session(engine) as session:
+            from sqlmodel import select
+
+            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+            job = session.exec(select(SynthesisJob)).first()
+            assert job is not None
+            job_id = job.id
+
+        vault_patch, license_patch = _vault_and_license_patches()
+        with vault_patch, license_patch:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(f"/jobs/{job_id}/shred")
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_shred_404_uses_rfc7807_format(self) -> None:
         """POST /jobs/{id}/shred 404 response must follow RFC 7807 Problem Details."""
         app, engine = _make_test_app_with_job(status="QUEUED")
@@ -429,6 +514,48 @@ class TestShredEndpointErrorPaths:
         assert "type" in body
         assert "title" in body
         assert "detail" in body
+
+    @pytest.mark.asyncio
+    async def test_shred_oserror_returns_500_rfc7807(self) -> None:
+        """FINDING 1: OSError from shred_artifacts must yield HTTP 500 RFC 7807 response.
+
+        When Path.unlink raises OSError, the router must catch it, log at ERROR
+        with basename only, and return a 500 Problem Detail — never an unhandled
+        exception that exposes internal paths.
+        """
+        app, engine = _make_test_app_with_job(status="COMPLETE")
+
+        with Session(engine) as session:
+            from sqlmodel import select
+
+            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+            job = session.exec(select(SynthesisJob)).first()
+            assert job is not None
+            job_id = job.id
+
+        vault_patch, license_patch = _vault_and_license_patches()
+        with (
+            vault_patch,
+            license_patch,
+            patch(
+                "synth_engine.bootstrapper.routers.jobs.shred_artifacts",
+                side_effect=OSError("Permission denied"),
+            ),
+            patch("synth_engine.bootstrapper.routers.jobs.get_audit_logger"),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(f"/jobs/{job_id}/shred")
+
+        assert response.status_code == 500
+        body = response.json()
+        assert body.get("status") == 500
+        assert "type" in body
+        assert "title" in body
+        assert "detail" in body
+        assert "erasure" in body["detail"].lower() or "artifact" in body["detail"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -581,3 +708,38 @@ class TestShredArtifactsDomainFunction:
         # Must not raise
         shred_artifacts(job)
         assert not parquet.exists()
+
+    def test_shred_artifacts_oserror_is_logged_and_reraised(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """FINDING 3: OSError from Path.unlink must be logged at ERROR and re-raised.
+
+        The log message must use the basename only (never the full path) to
+        avoid leaking internal filesystem topology in logs.
+        """
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.shred import shred_artifacts
+
+        parquet = tmp_path / "secret_data.parquet"
+        parquet.write_bytes(b"fake parquet data")
+
+        job = SynthesisJob(
+            table_name="t",
+            parquet_path="/tmp/t.parquet",
+            total_epochs=1,
+            num_rows=1,
+            status="COMPLETE",
+            output_path=str(parquet),
+        )
+
+        with (
+            patch("pathlib.Path.unlink", side_effect=PermissionError("denied")),
+            caplog.at_level(logging.ERROR, logger="synth_engine.modules.synthesizer.shred"),
+        ):
+            with pytest.raises(OSError, match="denied"):
+                shred_artifacts(job)
+
+        assert any("ERROR" in r.levelname for r in caplog.records)
+        # Full path must not appear in any log message (basename only).
+        for record in caplog.records:
+            assert str(tmp_path) not in record.getMessage()

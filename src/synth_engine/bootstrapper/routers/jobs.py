@@ -455,7 +455,8 @@ def shred_job(
 
     Returns:
         ``{"status": "SHREDDED", "job_id": <id>}`` with HTTP 200 on success,
-        or RFC 7807 404 if the job does not exist or is not eligible.
+        RFC 7807 404 if the job does not exist or is not eligible, or
+        RFC 7807 500 if an ``OSError`` prevents artifact deletion.
     """
     job = session.get(SynthesisJob, job_id)
 
@@ -475,7 +476,19 @@ def shred_job(
 
     # Delegate physical file deletion to the domain function.
     # This follows the pattern from T22.4: routers delegate to domain services.
-    shred_artifacts(job)
+    try:
+        shred_artifacts(job)
+    except OSError as exc:
+        # Log with basename only — never full path (security mandate T23.1/T23.2).
+        _logger.error("Job %d: artifact erasure failed: %s", job_id, exc.__class__.__name__)
+        return JSONResponse(
+            status_code=500,
+            content=problem_detail(
+                status=500,
+                title="Internal Server Error",
+                detail=("Artifact erasure failed due to an I/O error — see server logs."),
+            ),
+        )
 
     # Emit WORM audit event (CONSTITUTION Priority 0: Security).
     # Must be called AFTER deletion so the event records what was accomplished.
