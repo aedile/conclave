@@ -1,13 +1,14 @@
 /**
  * Vitest unit tests for the API client module.
  *
- * Tests postUnseal, getHealth, getJobs, getJob, createJob, and startJob
- * discriminated union return values using the global fetch mock.
+ * Tests postUnseal, getHealth, getJobs, getJob, createJob, startJob, and
+ * downloadJob discriminated union return values using the global fetch mock.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createJob,
+  downloadJob,
   getHealth,
   getJob,
   getJobs,
@@ -30,6 +31,28 @@ function mockResponse(
     status,
     json: () => Promise.resolve(body),
     headers: new Headers(),
+  } as unknown as Response;
+}
+
+/**
+ * Create a mock blob Response for download endpoints.
+ *
+ * @param status - HTTP status code.
+ * @param blobContent - The blob to return.
+ * @param headers - Optional response headers.
+ */
+function mockBlobResponse(
+  status: number,
+  blobContent: Blob,
+  headers: Record<string, string> = {},
+  ok: boolean = status >= 200 && status < 300,
+): Response {
+  return {
+    ok,
+    status,
+    blob: () => Promise.resolve(blobContent),
+    json: () => Promise.resolve({}),
+    headers: new Headers(headers),
   } as unknown as Response;
 }
 
@@ -405,6 +428,93 @@ describe("startJob", () => {
     mockFetch.mockRejectedValue(new Error("Network failure"));
 
     const result = await startJob(1);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.title).toBe("Network Error");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// downloadJob
+// ---------------------------------------------------------------------------
+
+describe("downloadJob", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("GETs /jobs/{id}/download", async () => {
+    const blob = new Blob(["data"], { type: "application/octet-stream" });
+    mockFetch.mockResolvedValue(
+      mockBlobResponse(200, blob, {
+        "content-disposition": 'attachment; filename="products.parquet"',
+      }),
+    );
+
+    await downloadJob(3);
+
+    expect(mockFetch).toHaveBeenCalledWith("/jobs/3/download");
+  });
+
+  it("returns { ok: true, blob, filename } on HTTP 200 with Content-Disposition header", async () => {
+    const blob = new Blob(["binary"], { type: "application/octet-stream" });
+    mockFetch.mockResolvedValue(
+      mockBlobResponse(200, blob, {
+        "content-disposition": 'attachment; filename="customers.parquet"',
+      }),
+    );
+
+    const result = await downloadJob(1);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.blob).toBe(blob);
+      expect(result.filename).toBe("customers.parquet");
+    }
+  });
+
+  it("falls back to 'download.parquet' filename when Content-Disposition header is absent", async () => {
+    const blob = new Blob(["binary"], { type: "application/octet-stream" });
+    mockFetch.mockResolvedValue(mockBlobResponse(200, blob));
+
+    const result = await downloadJob(2);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.filename).toBe("download.parquet");
+    }
+  });
+
+  it("falls back to 'download.parquet' when Content-Disposition has no filename token", async () => {
+    const blob = new Blob(["binary"], { type: "application/octet-stream" });
+    mockFetch.mockResolvedValue(
+      mockBlobResponse(200, blob, { "content-disposition": "attachment" }),
+    );
+
+    const result = await downloadJob(4);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.filename).toBe("download.parquet");
+    }
+  });
+
+  it("returns { ok: false, error } on HTTP 404", async () => {
+    mockFetch.mockResolvedValue(
+      mockBlobResponse(404, new Blob(), {}, false),
+    );
+
+    const result = await downloadJob(999);
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("returns network error when fetch throws", async () => {
+    mockFetch.mockRejectedValue(new Error("Network failure"));
+
+    const result = await downloadJob(1);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {

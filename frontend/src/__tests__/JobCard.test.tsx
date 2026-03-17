@@ -2,8 +2,8 @@
  * Vitest unit tests for the JobCard component.
  *
  * Covers safePercent edge cases (total_epochs=0, negative, NaN), status badge
- * rendering, progress bar ARIA attributes, Start button visibility, and SSE
- * state overlay.
+ * rendering, progress bar ARIA attributes, Start button visibility, SSE
+ * state overlay, and Download button (AC1–AC5, P23-T23.3).
  *
  * Finding 1 (QA + UI/UX T6.1): Adds explicit test asserting aria-valuenow="0"
  * when total_epochs=0, verifying the updated safePercent guard covers falsy
@@ -70,14 +70,18 @@ function renderCard(
   overrides: Partial<{
     sseState: Parameters<typeof JobCard>[0]["sseState"];
     onStart: Parameters<typeof JobCard>[0]["onStart"];
+    onDownload: Parameters<typeof JobCard>[0]["onDownload"];
     isStarting: boolean;
+    isDownloading: boolean;
   }> = {},
 ) {
   const props = {
     job,
     sseState: overrides.sseState ?? null,
     onStart: overrides.onStart ?? vi.fn(),
+    onDownload: overrides.onDownload ?? vi.fn(),
     isStarting: overrides.isStarting ?? false,
+    isDownloading: overrides.isDownloading ?? false,
   };
   return render(<JobCard {...props} />);
 }
@@ -275,5 +279,82 @@ describe("JobCard — SSE state overlay", () => {
     const bar = screen.getByRole("progressbar");
     // 5 / 10 * 100 = 50
     expect(bar).toHaveAttribute("aria-valuenow", "50");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Download button (P23-T23.3 AC1–AC5)
+// ---------------------------------------------------------------------------
+
+describe("JobCard — Download button (P23-T23.3)", () => {
+  it("AC1: shows Download button only for COMPLETE jobs", () => {
+    renderCard(completeJob);
+    expect(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("AC1: does not show Download button for TRAINING jobs", () => {
+    renderCard(baseJob);
+    expect(screen.queryByRole("button", { name: /download/i })).not.toBeInTheDocument();
+  });
+
+  it("AC1: does not show Download button for QUEUED jobs", () => {
+    renderCard(queuedJob);
+    expect(screen.queryByRole("button", { name: /download/i })).not.toBeInTheDocument();
+  });
+
+  it("AC1: does not show Download button for FAILED jobs", () => {
+    renderCard(failedJob);
+    expect(screen.queryByRole("button", { name: /download/i })).not.toBeInTheDocument();
+  });
+
+  it("AC2: calls onDownload with job id when Download is clicked", async () => {
+    const user = userEvent.setup();
+    const onDownload = vi.fn();
+
+    renderCard(completeJob, { onDownload });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+
+    expect(onDownload).toHaveBeenCalledWith(completeJob.id);
+  });
+
+  it("AC3: disables Download button and shows Downloading… when isDownloading=true", () => {
+    renderCard(completeJob, { isDownloading: true });
+
+    const button = screen.getByRole("button", { name: /downloading/i });
+    expect(button).toBeDisabled();
+  });
+
+  it("AC5: Download button has aria-label containing the job table_name", () => {
+    renderCard(completeJob);
+
+    const button = screen.getByRole("button", {
+      name: /download synthetic data for products/i,
+    });
+    expect(button).toHaveAttribute(
+      "aria-label",
+      `Download synthetic data for ${completeJob.table_name}`,
+    );
+  });
+
+  it("AC5: Download button is keyboard accessible (focusable and activatable)", async () => {
+    const user = userEvent.setup();
+    const onDownload = vi.fn();
+
+    renderCard(completeJob, { onDownload });
+
+    const button = screen.getByRole("button", {
+      name: /download synthetic data for products/i,
+    });
+
+    // Tab to the button and press Enter
+    button.focus();
+    await user.keyboard("{Enter}");
+
+    expect(onDownload).toHaveBeenCalledWith(completeJob.id);
   });
 });

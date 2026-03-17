@@ -2,7 +2,8 @@
  * Vitest unit tests for the Dashboard component.
  *
  * Tests job list rendering, SSE streaming, localStorage rehydration,
- * pagination, form submission, and RFC 7807 error toasts.
+ * pagination, form submission, RFC 7807 error toasts, and download
+ * button wiring (P23-T23.3).
  *
  * Guards against:
  * - ES module mocking: vi.mock() at module level with factory function
@@ -35,6 +36,7 @@ vi.mock("../api/client", () => ({
   getJob: vi.fn(),
   createJob: vi.fn(),
   startJob: vi.fn(),
+  downloadJob: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -57,6 +59,7 @@ const mockGetJobs = vi.mocked(client.getJobs);
 const mockGetJob = vi.mocked(client.getJob);
 const mockCreateJob = vi.mocked(client.createJob);
 const mockStartJob = vi.mocked(client.startJob);
+const mockDownloadJob = vi.mocked(client.downloadJob);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -141,6 +144,7 @@ beforeEach(() => {
   mockGetJob.mockReset();
   mockCreateJob.mockReset();
   mockStartJob.mockReset();
+  mockDownloadJob.mockReset();
 
   // Default: empty job list
   mockGetJobs.mockResolvedValue({ ok: true, data: { items: [], next_cursor: null } });
@@ -968,6 +972,145 @@ describe("Dashboard — WCAG form aria attributes (T17.2)", () => {
       hiddenAsterisks.forEach((span) => {
         expect(span.textContent).toBe("*");
       });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Download button wiring (P23-T23.3)
+// ---------------------------------------------------------------------------
+
+describe("Dashboard — download button wiring (P23-T23.3)", () => {
+  it("AC1: Download button visible on COMPLETE job card", async () => {
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("AC2: clicking Download calls downloadJob with the job id", async () => {
+    const user = userEvent.setup();
+
+    const blob = new Blob(["data"], { type: "application/octet-stream" });
+    mockDownloadJob.mockResolvedValue({ ok: true, blob, filename: "products.parquet" });
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+
+    await waitFor(() => {
+      expect(mockDownloadJob).toHaveBeenCalledWith(completeJob.id);
+    });
+  });
+
+  it("AC3: Download button is disabled and shows Downloading… while download is in progress", async () => {
+    const user = userEvent.setup();
+
+    // Never resolves — keeps the button in the "downloading" state
+    mockDownloadJob.mockReturnValue(new Promise(() => {}));
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: /downloading/i });
+      expect(btn).toBeDisabled();
+    });
+  });
+
+  it("AC4: error toast shown when downloadJob fails", async () => {
+    const user = userEvent.setup();
+
+    mockDownloadJob.mockResolvedValue({ ok: false, error: apiErrorFixture });
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+
+    await waitFor(() => {
+      const toast = screen.getByRole("alertdialog");
+      expect(toast).toBeInTheDocument();
+      expect(within(toast).getByText(/internal server error/i)).toBeInTheDocument();
+    });
+  });
+
+  it("AC3: Download button re-enabled after download completes successfully", async () => {
+    const user = userEvent.setup();
+
+    const blob = new Blob(["data"], { type: "application/octet-stream" });
+    mockDownloadJob.mockResolvedValue({
+      ok: true,
+      blob,
+      filename: "products.parquet",
+    });
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+
+    // After successful download, button should be re-enabled
+    await waitFor(() => {
+      const btn = screen.getByRole("button", {
+        name: /download synthetic data for products/i,
+      });
+      expect(btn).not.toBeDisabled();
     });
   });
 });
