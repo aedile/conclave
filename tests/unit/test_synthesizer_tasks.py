@@ -16,6 +16,7 @@ Pattern guards applied (per RETRO_LOG learning scan):
 CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 Task: P22-T22.1 — Job Schema DP Parameters
+Task: P22-T22.2 — Wire DP into run_synthesis_job()
 """
 
 from __future__ import annotations
@@ -781,3 +782,179 @@ class TestSynthesisJobNotFound:
                 session=mock_session,
                 engine=mock_engine,
             )
+
+
+# ---------------------------------------------------------------------------
+# DP wiring tests (P22-T22.2)
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_dp_wrapper(epsilon: float = 3.14) -> MagicMock:
+    """Build a duck-typed mock DPTrainingWrapper.
+
+    The wrapper exposes ``epsilon_spent(delta)`` returning ``epsilon``.
+    This mirrors the real ``DPTrainingWrapper`` contract without importing
+    from ``modules/privacy/``.
+
+    Args:
+        epsilon: Value returned by ``epsilon_spent()``.
+
+    Returns:
+        A ``MagicMock`` configured with the DP wrapper duck-type contract.
+    """
+    wrapper = MagicMock()
+    wrapper.epsilon_spent.return_value = epsilon
+    return wrapper
+
+
+class TestDPWiringInImpl:
+    """Tests for dp_wrapper forwarding inside _run_synthesis_job_impl.
+
+    These tests call _run_synthesis_job_impl directly with an injected
+    dp_wrapper mock so no bootstrapper import is required.
+    """
+
+    def test_dp_wrapper_passed_to_engine_train_when_enabled(self) -> None:
+        """engine.train() must receive the dp_wrapper kwarg when enable_dp=True.
+
+        Confirms that _run_synthesis_job_impl forwards dp_wrapper to every
+        engine.train() call made during the training loop.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=10,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        dp_wrapper = _make_mock_dp_wrapper(epsilon=2.5)
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=10,
+                session=mock_session,
+                engine=mock_engine,
+                dp_wrapper=dp_wrapper,
+            )
+
+        # All engine.train() calls must have received dp_wrapper as a keyword arg
+        for call in mock_engine.train.call_args_list:
+            assert call.kwargs.get("dp_wrapper") is dp_wrapper, (
+                f"engine.train() call missing dp_wrapper kwarg: {call}"
+            )
+
+    def test_dp_wrapper_not_passed_when_dp_disabled(self) -> None:
+        """engine.train() must receive dp_wrapper=None when no wrapper is injected.
+
+        Confirms the non-DP path is unaffected by the new parameter.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=11,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=False,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=11,
+                session=mock_session,
+                engine=mock_engine,
+                dp_wrapper=None,
+            )
+
+        # All calls must have dp_wrapper=None (or absent, which is also None)
+        for call in mock_engine.train.call_args_list:
+            actual = call.kwargs.get("dp_wrapper", None)
+            assert actual is None, (
+                f"engine.train() received non-None dp_wrapper on non-DP job: {call}"
+            )
+
+    def test_actual_epsilon_set_on_job_after_dp_training(self) -> None:
+        """job.actual_epsilon must be set to epsilon_spent() result after DP training.
+
+        Confirms epsilon is read from the wrapper and persisted to the job
+        record before the COMPLETE status commit.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=12,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            actual_epsilon=None,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        dp_wrapper = _make_mock_dp_wrapper(epsilon=3.14)
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=12,
+                session=mock_session,
+                engine=mock_engine,
+                dp_wrapper=dp_wrapper,
+            )
+
+        assert job.actual_epsilon == 3.14, (
+            f"Expected actual_epsilon=3.14; got {job.actual_epsilon}"
+        )
+
+    def test_actual_epsilon_is_none_when_dp_disabled(self) -> None:
+        """job.actual_epsilon must remain None when no dp_wrapper is provided.
+
+        Confirms the non-DP path does not write a spurious epsilon value.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=13,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=False,
+            actual_epsilon=None,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=13,
+                session=mock_session,
+                engine=mock_engine,
+                dp_wrapper=None,
+            )
+
+        assert job.actual_epsilon is None, (
+            f"Expected actual_epsilon=None on non-DP job; got {job.actual_epsilon}"
+        )
