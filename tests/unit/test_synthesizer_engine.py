@@ -869,9 +869,9 @@ class TestGrafanaDashboardPanels:
         dashboard = self._load_dashboard()
         panels = dashboard.get("panels", [])
         titles = [p.get("title", "") for p in panels]
-        assert any("synthesis_ms_per_row" in t.lower() or "ms per row" in t.lower() for t in titles), (
-            f"Expected a synthesis_ms_per_row panel in dashboard. Found panels: {titles}"
-        )
+        assert any(
+            "synthesis_ms_per_row" in t.lower() or "ms per row" in t.lower() for t in titles
+        ), f"Expected a synthesis_ms_per_row panel in dashboard. Found panels: {titles}"
 
     def test_dashboard_has_epsilon_spent_panel(self) -> None:
         """Dashboard must contain a panel for epsilon_spent_total."""
@@ -884,7 +884,6 @@ class TestGrafanaDashboardPanels:
 
     def test_dashboard_synthesis_panel_uses_histogram_query(self) -> None:
         """synthesis_ms_per_row panel must use a histogram_quantile or rate query."""
-        import json
 
         dashboard = self._load_dashboard()
         panels = dashboard.get("panels", [])

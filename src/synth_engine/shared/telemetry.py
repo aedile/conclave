@@ -32,7 +32,7 @@ from opentelemetry.trace import Tracer
 
 _OTLP_ENDPOINT_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 def _redact_url(endpoint: str) -> str:
@@ -92,18 +92,21 @@ def _build_exporter() -> SpanExporter:
                 OTLPSpanExporter,
             )
 
-            logger.info("OTEL: using OTLP exporter at %s", _redact_url(endpoint))
+            _logger.info("OTEL: using OTLP exporter at %s", _redact_url(endpoint))
             # cast: OTLPSpanExporter implements SpanExporter but mypy cannot
             # resolve the type from the lazy import without the optional package
             # installed in the type-checking environment.
             return cast(SpanExporter, OTLPSpanExporter(endpoint=endpoint))
         except ImportError:
-            logger.warning(
+            _logger.warning(
                 "OTEL: opentelemetry-exporter-otlp not installed; "
                 "falling back to InMemorySpanExporter"
             )
 
-    logger.info("OTEL: %s not set — using InMemorySpanExporter (dev/test only)", _OTLP_ENDPOINT_ENV)
+    _logger.info(
+        "OTEL: %s not set — using InMemorySpanExporter (dev/test only)",
+        _OTLP_ENDPOINT_ENV,
+    )
     return InMemorySpanExporter()
 
 
@@ -125,7 +128,7 @@ def configure_telemetry(service_name: str) -> None:
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(_build_exporter()))
     trace.set_tracer_provider(provider)
-    logger.info("OTEL: TracerProvider configured for service '%s'", service_name)
+    _logger.info("OTEL: TracerProvider configured for service '%s'", service_name)
 
 
 def get_tracer(name: str) -> Tracer:

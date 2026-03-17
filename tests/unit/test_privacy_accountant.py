@@ -787,7 +787,7 @@ async def test_spend_budget_increments_epsilon_counter_on_success(
 
     Arrange: Insert a PrivacyLedger with total_allocated=5.0, total_spent=0.0.
     Act: Call spend_budget(0.5, job_id=7, ledger_id=..., session=...).
-    Assert: epsilon_spent_total_total{job_id="7", dataset_id="<ledger_id>"} == 1.0.
+    Assert: epsilon_spent_total{job_id="7", dataset_id="<ledger_id>"} == 1.0.
     """
     import prometheus_client
 
@@ -807,7 +807,7 @@ async def test_spend_budget_increments_epsilon_counter_on_success(
     labels = {"job_id": str(7), "dataset_id": str(ledger_id)}
 
     before = prometheus_client.REGISTRY.get_sample_value(
-        "epsilon_spent_total_total",
+        "epsilon_spent_total",
         labels,
     )
     before_val = before if before is not None else 0.0
@@ -817,7 +817,7 @@ async def test_spend_budget_increments_epsilon_counter_on_success(
         await spend_budget(amount=0.5, job_id=7, ledger_id=ledger_id, session=spend_session)
 
     after = prometheus_client.REGISTRY.get_sample_value(
-        "epsilon_spent_total_total",
+        "epsilon_spent_total",
         labels,
     )
     after_val = after if after is not None else 0.0
@@ -856,7 +856,7 @@ async def test_spend_budget_does_not_increment_counter_on_exhaustion(
     labels = {"job_id": str(99), "dataset_id": str(ledger_id)}
 
     before = prometheus_client.REGISTRY.get_sample_value(
-        "epsilon_spent_total_total",
+        "epsilon_spent_total",
         labels,
     )
     before_val = before if before is not None else 0.0
@@ -866,7 +866,7 @@ async def test_spend_budget_does_not_increment_counter_on_exhaustion(
             await spend_budget(amount=0.5, job_id=99, ledger_id=ledger_id, session=s)
 
     after = prometheus_client.REGISTRY.get_sample_value(
-        "epsilon_spent_total_total",
+        "epsilon_spent_total",
         labels,
     )
     after_val = after if after is not None else 0.0

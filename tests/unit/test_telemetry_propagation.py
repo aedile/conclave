@@ -10,6 +10,8 @@ Task: T25.2 — OTEL Trace Context Propagation into Huey Workers
 
 from __future__ import annotations
 
+from collections.abc import Generator
+
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -39,13 +41,19 @@ def _force_reset_tracer_provider(provider: TracerProvider) -> None:
 
 
 @pytest.fixture(autouse=True)
-def reset_tracer_provider() -> None:
-    """Reset the global TracerProvider before each test to prevent state leakage.
+def reset_tracer_provider() -> Generator[None]:
+    """Reset the global TracerProvider before and after each test.
 
     OpenTelemetry keeps a global TracerProvider singleton protected by a
     once-only guard. This fixture force-resets the guard so each test
-    starts with a clean, isolated provider.
+    starts with a clean, isolated provider, and restores a clean no-op
+    provider after the test to prevent state leakage into subsequent tests.
+
+    Yields:
+        None — pure setup/teardown fixture.
     """
+    _force_reset_tracer_provider(TracerProvider())
+    yield
     _force_reset_tracer_provider(TracerProvider())
 
 

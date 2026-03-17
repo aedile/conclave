@@ -62,6 +62,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
+from prometheus_client import Counter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,6 +70,23 @@ from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
 from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
 
 _logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# T25.1 — Custom Prometheus business metric: epsilon_spent_total Counter.
+#
+# Defined at module scope (Prometheus best practice: one singleton per process).
+# Labels:
+#   job_id     — str(job_id) from the spend_budget() call site
+#   dataset_id — str(ledger_id); ledger_id is the dataset-level budget identifier
+#
+# Incremented AFTER the successful commit inside spend_budget().
+# NOT incremented on BudgetExhaustionError (the transaction never commits).
+# ---------------------------------------------------------------------------
+EPSILON_SPENT_TOTAL: Counter = Counter(
+    "epsilon_spent_total",
+    "Total epsilon budget deducted, counted per successful spend_budget() call.",
+    labelnames=["job_id", "dataset_id"],
+)
 
 
 async def spend_budget(
@@ -184,6 +202,11 @@ async def spend_budget(
         ledger.total_spent_epsilon,
         ledger.total_allocated_epsilon - ledger.total_spent_epsilon,
     )
+    # T25.1: Increment only after a confirmed successful commit.
+    EPSILON_SPENT_TOTAL.labels(
+        job_id=str(job_id),
+        dataset_id=str(ledger_id),
+    ).inc()
 
 
 async def reset_budget(

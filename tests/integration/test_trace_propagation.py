@@ -2,7 +2,7 @@
 
 Verifies end-to-end that a trace ID injected at task dispatch (simulating
 a FastAPI route) is preserved in the Huey worker's child span when the task
-executes synchronously via Huey immediate mode.
+executes synchronously via run_synthesis_job.call_local().
 
 CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: T25.2 — OTEL Trace Context Propagation into Huey Workers
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from opentelemetry import trace
@@ -66,29 +66,24 @@ def otel_in_memory() -> Generator[tuple[TracerProvider, InMemorySpanExporter]]:
     _force_reset_tracer_provider(TracerProvider())
 
 
-@pytest.fixture
-def synthesis_job_stub() -> Any:
-    """Return a minimal SynthesisJob-like stub for task testing.
+def _make_mock_session_cm(job_return: Any = None) -> Any:
+    """Build a mock SQLModel Session context manager.
+
+    Returns a MagicMock that behaves as a context manager, yielding a
+    mock session whose ``get()`` method returns ``job_return``.
+
+    Args:
+        job_return: Value returned by ``session.get()``.
 
     Returns:
-        A MagicMock that satisfies the attributes accessed by
-        ``_run_synthesis_job_impl``.
+        A context-manager-compatible MagicMock.
     """
-    job = MagicMock()
-    job.id = 99
-    job.status = "QUEUED"
-    job.parquet_path = "/data/test.parquet"
-    job.total_epochs = 1
-    job.checkpoint_every_n = 1
-    job.num_rows = 10
-    job.enable_dp = False
-    job.noise_multiplier = None
-    job.max_grad_norm = None
-    job.actual_epsilon = None
-    job.artifact_path = None
-    job.output_path = None
-    job.error_msg = None
-    return job
+    mock_session: Any = MagicMock()
+    mock_session.get.return_value = job_return
+    mock_cm: Any = MagicMock()
+    mock_cm.__enter__ = MagicMock(return_value=mock_session)
+    mock_cm.__exit__ = MagicMock(return_value=False)
+    return mock_cm
 
 
 @pytest.mark.integration
@@ -98,28 +93,20 @@ def test_parent_and_worker_spans_share_trace_id(
     """Parent API span and Huey worker child span share the same trace ID.
 
     AC4: Configure InMemorySpanExporter, create a parent span (simulating a
-    FastAPI route), dispatch run_synthesis_job with immediate=True (Huey
-    executes synchronously), and verify that the parent span and the worker's
-    child span share the same trace_id in the exporter output.
+    FastAPI route), call run_synthesis_job.call_local() with the injected
+    trace carrier, and verify that a child span named "run_synthesis_job"
+    appears in the InMemorySpanExporter output and shares the same trace_id
+    as the parent span.
+
+    This test exercises the actual production OTEL wiring in tasks.py —
+    specifically the extract_trace_context() + start_as_current_span() calls
+    inside the run_synthesis_job Huey task — rather than simulating the
+    wiring manually.
     """
-    from synth_engine.shared.telemetry import extract_trace_context, inject_trace_context
+    from synth_engine.modules.synthesizer.tasks import run_synthesis_job
+    from synth_engine.shared.telemetry import inject_trace_context
 
     _, exporter = otel_in_memory
-
-    job_stub = MagicMock()
-    job_stub.id = 42
-    job_stub.status = "QUEUED"
-    job_stub.parquet_path = "/data/test.parquet"
-    job_stub.total_epochs = 1
-    job_stub.checkpoint_every_n = 1
-    job_stub.num_rows = 10
-    job_stub.enable_dp = False
-    job_stub.noise_multiplier = None
-    job_stub.max_grad_norm = None
-    job_stub.actual_epsilon = None
-    job_stub.artifact_path = None
-    job_stub.output_path = None
-    job_stub.error_msg = None
 
     # --- Simulate the dispatch site (FastAPI router): inject trace context ---
     parent_tracer = trace.get_tracer("test.router")
@@ -132,24 +119,45 @@ def test_parent_and_worker_spans_share_trace_id(
 
     assert carrier, "carrier must not be empty after inject inside an active span"
 
-    # --- Simulate the worker entry point: extract + create child span ---
-    ctx = extract_trace_context(carrier)
-    worker_tracer = trace.get_tracer("synth_engine.modules.synthesizer.tasks")
-    with worker_tracer.start_as_current_span("run_synthesis_job", context=ctx) as worker_span:
-        worker_trace_id = worker_span.get_span_context().trace_id
+    job_id = 42
+    mock_db_engine: Any = MagicMock()
 
-    # --- AC4: Parent and child spans must share the same trace ID ---
+    # --- Invoke the real run_synthesis_job task synchronously ---
+    # call_local() bypasses the Huey queue and executes the raw task function
+    # in-process.  We patch:
+    #   - synth_engine.shared.db.get_engine  (imported lazily inside the task)
+    #   - sqlmodel.Session                   (context manager; get() returns None
+    #                                         so DP pre-flight branch is skipped)
+    #   - _run_synthesis_job_impl            (module-level name; no-op mock)
+    # The OTEL span "run_synthesis_job" is still created by the task wrapper
+    # before any of these patched callables are reached.
+    with (
+        patch("synth_engine.shared.db.get_engine", return_value=mock_db_engine),
+        patch(
+            "sqlmodel.Session",
+            return_value=_make_mock_session_cm(job_return=None),
+        ),
+        patch("synth_engine.modules.synthesizer.tasks._run_synthesis_job_impl"),
+    ):
+        run_synthesis_job.call_local(job_id, trace_carrier=carrier)
+
+    # --- AC4: The "run_synthesis_job" child span must appear in the exporter ---
+    finished_spans = exporter.get_finished_spans()
+    span_names = [s.name for s in finished_spans]
+
+    assert "run_synthesis_job" in span_names, (
+        f"Expected 'run_synthesis_job' span in exporter; found: {span_names}"
+    )
+
+    # The child span's trace_id must match the parent's trace_id
+    worker_span = next(s for s in finished_spans if s.name == "run_synthesis_job")
+    worker_trace_id = worker_span.context.trace_id
+
     assert parent_trace_id != 0, "Parent trace ID must not be zero"
     assert worker_trace_id != 0, "Worker trace ID must not be zero"
     assert parent_trace_id == worker_trace_id, (
         f"Trace ID mismatch: parent={parent_trace_id:#034x}, worker={worker_trace_id:#034x}"
     )
-
-    # Verify both spans are recorded in the exporter
-    finished_spans = exporter.get_finished_spans()
-    span_names = [s.name for s in finished_spans]
-    assert "POST /jobs/42/start" in span_names
-    assert "run_synthesis_job" in span_names
 
 
 @pytest.mark.integration
