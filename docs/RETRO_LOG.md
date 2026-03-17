@@ -20,6 +20,26 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] T23.4 — Cryptographic Erasure Endpoint
+
+**Review agents**: QA (FINDING), DevOps (PASS), Architecture (FINDING)
+
+**Findings fixed (6 total, all inline)**:
+1. **FINDING** (Arch): Missing OSError guard in `shred_job` — unhandled 500. Fixed: try/except with RFC 7807 500 response, sanitized error message.
+2. **FINDING** (Arch): Missing ADR for SHREDDED lifecycle state. Fixed: ADR-0034 created documenting irreversible state transition, audit-failure tolerance, and NIST 800-88 scope.
+3. **FINDING** (QA): No test for OSError path in `_delete_file_if_present`. Fixed: added test with mocked `Path.unlink`.
+4. **FINDING** (QA): No test for audit-failure non-blocking invariant. Fixed: added test patching `get_audit_logger` to raise.
+5. **FINDING** (QA): Weak mock assertion — `called_once()` without verifying job argument. Fixed: eager capture of job ID via side_effect closure.
+6. **FINDING** (QA): Missing GENERATING status in error path tests. Fixed: added `test_shred_generating_job_returns_404`.
+
+**Recurring pattern noted**: "Documented but untested invariants" — code comments say "must NOT" or "must still" but no corresponding test exists. Future developer briefs should require: for every defensive comment, add a matching test.
+
+**Review commit**: `ae6f01f`
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-17] T23.2 — `/jobs/{id}/download` Endpoint
 
 **Review agents**: QA (FINDING), DevOps (FINDING), Architecture (FINDING)
