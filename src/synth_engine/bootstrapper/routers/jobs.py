@@ -12,6 +12,7 @@ All 404 and error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
 
 Task: P5-T5.1 — Task Orchestration API Core
+Task: P22-T22.1 — Job Schema DP Parameters
 """
 
 from __future__ import annotations
@@ -110,6 +111,9 @@ def create_job(
         parquet_path=body.parquet_path,
         total_epochs=body.total_epochs,
         checkpoint_every_n=body.checkpoint_every_n,
+        enable_dp=body.enable_dp,
+        noise_multiplier=body.noise_multiplier,
+        max_grad_norm=body.max_grad_norm,
     )
     session.add(job)
     session.commit()

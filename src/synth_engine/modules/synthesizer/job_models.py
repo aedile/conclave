@@ -18,12 +18,21 @@ Checkpointing design:
     training.  On success the final artifact path is recorded in
     ``artifact_path``.
 
+Differential Privacy parameters (P22-T22.1):
+
+    Three fields control DP-SGD training via the Opacus API:
+    ``enable_dp``, ``noise_multiplier`` (Gaussian noise ratio, see ADR-0025),
+    and ``max_grad_norm`` (gradient clipping bound).  All three default to
+    privacy-maximising values (OWASP A04).  ``actual_epsilon`` is written by
+    the training task after completion (T22.2).
+
 Boundary constraints (import-linter enforced):
     - Must NOT import from ``modules/ingestion/``, ``modules/masking/``,
       ``modules/subsetting/``, ``modules/profiler/``, or ``modules/privacy/``.
     - Must NOT import from ``bootstrapper/``.
 
 Task: P4-T4.2c — Huey Task Wiring & Checkpointing
+Task: P22-T22.1 — Job Schema DP Parameters
 """
 
 from __future__ import annotations
@@ -38,6 +47,12 @@ from sqlmodel import Field, SQLModel
 
 #: Default checkpoint interval in epochs.
 _DEFAULT_CHECKPOINT_EVERY_N: int = 5
+
+#: Default noise multiplier for DP-SGD (ADR-0025 calibration).
+_DEFAULT_NOISE_MULTIPLIER: float = 1.1
+
+#: Default gradient clipping bound for DP-SGD.
+_DEFAULT_MAX_GRAD_NORM: float = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +85,15 @@ class SynthesisJob(SQLModel, table=True):
         checkpoint_every_n: Save a ``ModelArtifact`` checkpoint every this
             many epochs.  Defaults to 5.  Callers override for coarser or
             finer checkpointing granularity.  Must be >= 1.
+        enable_dp: Whether to use DP-SGD training.  Defaults to ``True``
+            (privacy-by-design, OWASP A04).
+        noise_multiplier: Gaussian noise ratio for DP-SGD.  Defaults to
+            ``1.1`` (ADR-0025 calibration).  Must be > 0.
+        max_grad_norm: Gradient clipping bound for DP-SGD.  Defaults to
+            ``1.0``.  Must be > 0.
+        actual_epsilon: Actual epsilon privacy budget spent after training.
+            Set by the training task (T22.2).  ``None`` until training
+            completes with DP enabled.
     """
 
     __tablename__ = "synthesis_job"
@@ -83,13 +107,17 @@ class SynthesisJob(SQLModel, table=True):
     table_name: str
     parquet_path: str
     checkpoint_every_n: int = Field(default=_DEFAULT_CHECKPOINT_EVERY_N)
+    enable_dp: bool = Field(default=True)
+    noise_multiplier: float = Field(default=_DEFAULT_NOISE_MULTIPLIER)
+    max_grad_norm: float = Field(default=_DEFAULT_MAX_GRAD_NORM)
+    actual_epsilon: float | None = Field(default=None)
 
     def __init__(self, **data: Any) -> None:
-        """Initialise SynthesisJob, enforcing checkpoint_every_n >= 1.
+        """Initialise SynthesisJob, enforcing field constraints.
 
         SQLModel ``table=True`` models bypass pydantic field validators in
-        ``__init__`` to allow ORM row construction.  This override adds an
-        explicit guard before delegating to ``super().__init__``.
+        ``__init__`` to allow ORM row construction.  This override adds
+        explicit guards before delegating to ``super().__init__``.
 
         Args:
             **data: Keyword arguments forwarded to the SQLModel base class.
@@ -98,8 +126,21 @@ class SynthesisJob(SQLModel, table=True):
             ValueError: If ``checkpoint_every_n`` is less than 1.  A value of
                 0 would cause ``min(0, total - 0) == 0`` in the training loop,
                 making ``completed_epochs`` never advance (infinite loop).
+            ValueError: If ``noise_multiplier`` is not strictly positive.
+                The Opacus API requires a positive noise multiplier.
+            ValueError: If ``max_grad_norm`` is not strictly positive.
+                Gradient clipping requires a positive bound.
         """
         n = data.get("checkpoint_every_n", _DEFAULT_CHECKPOINT_EVERY_N)
         if isinstance(n, int) and n < 1:
             raise ValueError("checkpoint_every_n must be >= 1")
+
+        noise = data.get("noise_multiplier", _DEFAULT_NOISE_MULTIPLIER)
+        if isinstance(noise, int | float) and noise <= 0:
+            raise ValueError("noise_multiplier must be > 0")
+
+        grad_norm = data.get("max_grad_norm", _DEFAULT_MAX_GRAD_NORM)
+        if isinstance(grad_norm, int | float) and grad_norm <= 0:
+            raise ValueError("max_grad_norm must be > 0")
+
         super().__init__(**data)

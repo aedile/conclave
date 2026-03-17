@@ -5,6 +5,7 @@ These schemas sit at the API boundary.  They are distinct from the
 to maintain the one-way dependency flow: bootstrapper → modules.
 
 Task: P5-T5.1 — Task Orchestration API Core
+Task: P22-T22.1 — Job Schema DP Parameters
 """
 
 from __future__ import annotations
@@ -22,12 +23,29 @@ class JobCreateRequest(BaseModel):
         parquet_path: Absolute path to the Parquet file with training data.
         total_epochs: Number of CTGAN training epochs.
         checkpoint_every_n: Epochs between checkpoint saves (default 5).
+        enable_dp: Whether to use DP-SGD training (default True,
+            privacy-by-design per OWASP A04).
+        noise_multiplier: Gaussian noise ratio for DP-SGD (default 1.1,
+            per ADR-0025 calibration).  Must be > 0.
+        max_grad_norm: Gradient clipping bound for DP-SGD (default 1.0).
+            Must be > 0.
     """
 
     table_name: str = Field(..., description="Database table to synthesise.")
     parquet_path: str = Field(..., description="Path to training Parquet file.")
     total_epochs: int = Field(..., gt=0, description="Total training epochs.")
     checkpoint_every_n: int = Field(default=5, ge=1, description="Epochs between checkpoints.")
+    enable_dp: bool = Field(default=True, description="Enable DP-SGD training.")
+    noise_multiplier: float = Field(
+        default=1.1,
+        gt=0,
+        description="Gaussian noise ratio for DP-SGD (ADR-0025).",
+    )
+    max_grad_norm: float = Field(
+        default=1.0,
+        gt=0,
+        description="Gradient clipping bound for DP-SGD.",
+    )
 
     @field_validator("parquet_path")
     @classmethod
@@ -70,6 +88,11 @@ class JobResponse(BaseModel):
         artifact_path: Path to the final model artifact (None until COMPLETE).
         error_msg: Sanitized failure reason (None on success).
         checkpoint_every_n: Checkpoint interval in epochs.
+        enable_dp: Whether DP-SGD training is enabled.
+        noise_multiplier: Gaussian noise ratio used for DP-SGD.
+        max_grad_norm: Gradient clipping bound used for DP-SGD.
+        actual_epsilon: Actual epsilon spent after training (None until set
+            by T22.2 training task).
     """
 
     id: int
@@ -81,6 +104,10 @@ class JobResponse(BaseModel):
     artifact_path: str | None
     error_msg: str | None
     checkpoint_every_n: int
+    enable_dp: bool
+    noise_multiplier: float
+    max_grad_norm: float
+    actual_epsilon: float | None
 
     model_config = {"from_attributes": True}
 
