@@ -42,25 +42,27 @@ DP wiring (P22-T22.2)
 When ``run_synthesis_job`` is called for a job with ``enable_dp=True``, the
 task reads the job's DP parameters (``max_grad_norm``, ``noise_multiplier``)
 from a short-lived pre-flight session and constructs a ``DPTrainingWrapper``
-via ``bootstrapper.factories.build_dp_wrapper``.  The wrapper is then injected
-into ``_run_synthesis_job_impl`` which passes it to every ``engine.train()``
-call.  After training completes, ``dp_wrapper.epsilon_spent(delta=1e-5)`` is
-read and stored on the job record as ``actual_epsilon``.
+via the injected ``_dp_wrapper_factory``.  The wrapper is then injected into
+``_run_synthesis_job_impl`` which passes it to every ``engine.train()`` call.
+After training completes, ``dp_wrapper.epsilon_spent(delta=1e-5)`` is read and
+stored on the job record as ``actual_epsilon``.
 
-Import boundary compliance
---------------------------
-The ``bootstrapper.factories`` module is loaded via ``importlib.import_module``
-inside the ``if job.enable_dp:`` block in ``run_synthesis_job``.
-``importlib.import_module`` calls are NOT detected by ``import-linter`` (which
-only analyses AST ``import`` and ``from ... import`` statements), so this
-pattern is boundary-compliant.  The module-level import list for this file
-contains no references to ``bootstrapper`` or ``modules/privacy``.
+The ``_dp_wrapper_factory`` is registered at startup by the bootstrapper via
+``set_dp_wrapper_factory()`` (ADR-0029: bootstrapper injects INTO modules).
+
+Typing DP wrapper without crossing boundaries
+---------------------------------------------
+``DPTrainingWrapper`` lives in ``modules/privacy/``.  Import-linter enforces
+module independence between ``synthesizer`` and ``privacy``, so this file must
+not import from ``modules/privacy/`` — even under ``TYPE_CHECKING``.  Instead,
+the DP wrapper contract is captured by the local ``_DPWrapperProtocol`` (a
+structural subtype).  The concrete ``DPTrainingWrapper`` satisfies this Protocol
+at runtime; mypy verifies compatibility structurally.
 
 Boundary constraints (import-linter enforced):
     - Must NOT import from ``modules/ingestion/``, ``modules/masking/``,
       ``modules/subsetting/``, ``modules/profiler/``, or ``modules/privacy/``.
-    - Must NOT import from ``bootstrapper/`` (enforced by import-linter on
-      module-level and ``from ... import`` statements).
+    - Must NOT import from ``bootstrapper/``.
 
 Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 Task: P22-T22.2 — Wire DP into run_synthesis_job()
@@ -68,12 +70,12 @@ Task: P22-T22.2 — Wire DP into run_synthesis_job()
 
 from __future__ import annotations
 
-import importlib
 import logging
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from synth_engine.modules.synthesizer.guardrails import (
     OOMGuardrailError,
@@ -88,6 +90,37 @@ if TYPE_CHECKING:
     from synth_engine.modules.synthesizer.engine import SynthesisEngine
 
 _logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# DP wrapper structural interface (Protocol)
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class _DPWrapperProtocol(Protocol):
+    """Structural interface for a DP training wrapper.
+
+    ``DPTrainingWrapper`` from ``modules/privacy/dp_engine`` satisfies this
+    Protocol structurally.  Defining the contract here avoids any import from
+    ``modules/privacy/`` while preserving full type-checking coverage.
+
+    This is the only type reference to DP wrapper behaviour in this module;
+    no ``modules/privacy`` symbols are imported — not even under
+    ``TYPE_CHECKING`` (import-linter scans those blocks too).
+    """
+
+    def epsilon_spent(self, *, delta: float) -> float:
+        """Return the privacy budget spent so far.
+
+        Args:
+            delta: The delta value for (epsilon, delta)-DP.
+
+        Returns:
+            The actual epsilon spent.
+        """
+        ...  # pragma: no cover
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -110,6 +143,33 @@ _OOM_FALLBACK_COLUMNS: int = 50
 #: Delta value used when querying epsilon_spent() after DP training.
 #: 1e-5 is the canonical value from ADR-0025 / Opacus documentation.
 _DP_EPSILON_DELTA: float = 1e-5
+
+
+# ---------------------------------------------------------------------------
+# DI factory callback — injected by bootstrapper at startup (ADR-0029)
+# ---------------------------------------------------------------------------
+
+# Module-level DP wrapper factory — injected by bootstrapper at startup.
+# This follows the DI pattern: bootstrapper injects INTO modules (ADR-0029).
+_dp_wrapper_factory: Callable[[float, float], _DPWrapperProtocol] | None = None
+
+
+def set_dp_wrapper_factory(
+    factory: Callable[[float, float], _DPWrapperProtocol],
+) -> None:
+    """Register the DP wrapper factory (called by bootstrapper at startup).
+
+    The bootstrapper calls this function during application initialization
+    to inject the ``build_dp_wrapper`` factory.  This maintains the correct
+    dependency direction: bootstrapper → modules (ADR-0029).
+
+    Args:
+        factory: A callable accepting ``(max_grad_norm, noise_multiplier)``
+            and returning an object satisfying ``_DPWrapperProtocol``
+            (concretely a ``DPTrainingWrapper`` instance).
+    """
+    global _dp_wrapper_factory
+    _dp_wrapper_factory = factory
 
 
 # ---------------------------------------------------------------------------
@@ -152,33 +212,6 @@ def _get_parquet_dimensions(parquet_path: str) -> tuple[int, int]:
         return _OOM_FALLBACK_ROWS, _OOM_FALLBACK_COLUMNS
 
 
-def _build_dp_wrapper_via_factory(
-    max_grad_norm: float,
-    noise_multiplier: float,
-) -> Any:
-    """Construct a DPTrainingWrapper using the bootstrapper factory.
-
-    Loads ``synth_engine.bootstrapper.factories`` via ``importlib.import_module``
-    and calls ``build_dp_wrapper``.  Using ``importlib`` rather than a direct
-    ``from ... import`` statement keeps this file's module-level import list
-    free of ``bootstrapper`` references, satisfying import-linter's
-    boundary contract (which only scans AST ``import``/``from ... import``
-    nodes, not ``importlib.import_module`` call arguments).
-
-    Args:
-        max_grad_norm: Maximum L2 norm for per-sample gradient clipping.
-        noise_multiplier: Gaussian noise ratio for DP-SGD.
-
-    Returns:
-        A configured ``DPTrainingWrapper`` instance duck-typed as ``Any``.
-    """
-    factories_mod = importlib.import_module("synth_engine.bootstrapper.factories")
-    return factories_mod.build_dp_wrapper(
-        max_grad_norm=max_grad_norm,
-        noise_multiplier=noise_multiplier,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Internal implementation — injectable for unit tests
 # ---------------------------------------------------------------------------
@@ -189,7 +222,7 @@ def _run_synthesis_job_impl(
     session: Session,
     engine: SynthesisEngine,
     checkpoint_dir: str | None = None,
-    dp_wrapper: Any | None = None,
+    dp_wrapper: _DPWrapperProtocol | None = None,
 ) -> None:
     """Core synthesis job logic with injected dependencies.
 
@@ -219,18 +252,10 @@ def _run_synthesis_job_impl(
         checkpoint_dir: Optional filesystem directory for writing checkpoint
             pickle files.  If ``None``, a temporary directory is created and
             cleaned up automatically.
-        dp_wrapper: Optional DP wrapper implementing the duck-type contract::
-
-                wrap(optimizer, model, dataloader, *, max_grad_norm,
-                     noise_multiplier) → dp_optimizer
-                epsilon_spent(*, delta) → float
-                check_budget(*, allocated_epsilon, delta) → None
-
-            Typed as ``Any`` to avoid import-linter boundary violations between
-            ``modules/synthesizer`` and ``modules/privacy``.  The concrete
-            implementation is ``DPTrainingWrapper`` from
-            ``modules/privacy/dp_engine.py``, constructed by the bootstrapper
-            via ``_build_dp_wrapper_via_factory`` and injected here.
+        dp_wrapper: Optional DP wrapper satisfying ``_DPWrapperProtocol``
+            (concretely ``DPTrainingWrapper`` from ``modules/privacy/``).
+            Constructed by the bootstrapper via the injected
+            ``_dp_wrapper_factory`` and passed here.
             When ``None``, vanilla CTGAN training is used (no DP).
 
     Raises:
@@ -407,12 +432,12 @@ def run_synthesis_job(job_id: int) -> None:
     ``job_id``, runs the OOM pre-flight check, trains a CTGAN model with
     epoch checkpointing, and updates the record status throughout.
 
-    When the job has ``enable_dp=True``, a ``DPTrainingWrapper`` is constructed
-    via ``_build_dp_wrapper_via_factory`` (which delegates to
-    ``bootstrapper.factories.build_dp_wrapper`` via ``importlib.import_module``)
-    using the job's ``max_grad_norm`` and ``noise_multiplier`` fields.  The
-    wrapper is then passed to ``_run_synthesis_job_impl``.  After training,
-    the actual epsilon privacy budget is recorded on ``job.actual_epsilon``.
+    When the job has ``enable_dp=True``, a ``_DPWrapperProtocol`` instance is
+    constructed via the injected ``_dp_wrapper_factory`` (registered at startup
+    by the bootstrapper via ``set_dp_wrapper_factory()`` — see ADR-0029) using
+    the job's ``max_grad_norm`` and ``noise_multiplier`` fields.  The wrapper is
+    then passed to ``_run_synthesis_job_impl``.  After training, the actual
+    epsilon privacy budget is recorded on ``job.actual_epsilon``.
 
     This task is registered with the shared Huey instance
     (``shared/task_queue.py``) and is executed by the Huey worker process.
@@ -434,7 +459,13 @@ def run_synthesis_job(job_id: int) -> None:
             from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: F401
 
         This import side-effect registers ``run_synthesis_job`` with the
-        shared Huey instance so the worker process discovers it.
+        shared Huey instance so the worker process discovers it.  The
+        bootstrapper also calls ``set_dp_wrapper_factory(build_dp_wrapper)``
+        to inject the DP factory before any jobs are processed.
+
+    Raises:
+        RuntimeError: If ``enable_dp=True`` but no ``_dp_wrapper_factory``
+            has been registered via ``set_dp_wrapper_factory()``.
     """
     from sqlmodel import Session
 
@@ -448,13 +479,21 @@ def run_synthesis_job(job_id: int) -> None:
     # Pre-flight: read DP settings from the job record before starting impl.
     # A short-lived session is used here so the DP wrapper is constructed
     # before the main training session is opened.
-    dp_wrapper: Any = None
+    dp_wrapper: _DPWrapperProtocol | None = None
     with Session(db_engine) as preflight_session:
         job = preflight_session.get(SynthesisJob, job_id)
+        # If the job is not found here, dp_wrapper stays None and
+        # _run_synthesis_job_impl will raise ValueError on its own lookup.
         if job is not None and job.enable_dp:
-            dp_wrapper = _build_dp_wrapper_via_factory(
-                max_grad_norm=job.max_grad_norm,
-                noise_multiplier=job.noise_multiplier,
+            if _dp_wrapper_factory is None:
+                raise RuntimeError(
+                    "DP training requested but no dp_wrapper_factory has been "
+                    "registered. Ensure bootstrapper calls "
+                    "set_dp_wrapper_factory() at startup."
+                )
+            dp_wrapper = _dp_wrapper_factory(
+                job.max_grad_norm,
+                job.noise_multiplier,
             )
 
     with Session(db_engine) as session:

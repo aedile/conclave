@@ -956,3 +956,79 @@ class TestDPWiringInImpl:
         assert job.actual_epsilon is None, (
             f"Expected actual_epsilon=None on non-DP job; got {job.actual_epsilon}"
         )
+
+
+# ---------------------------------------------------------------------------
+# DI factory injection tests (P22-T22.2 architecture blocker fix)
+# ---------------------------------------------------------------------------
+
+
+class TestDPFactoryInjection:
+    """Tests for the set_dp_wrapper_factory DI injection pattern (ADR-0029).
+
+    These tests verify that run_synthesis_job raises RuntimeError when
+    enable_dp=True but no factory has been registered, and that
+    set_dp_wrapper_factory correctly stores and makes the factory callable.
+    """
+
+    def test_set_dp_wrapper_factory_stores_callable(self) -> None:
+        """set_dp_wrapper_factory must store the provided callable.
+
+        After calling set_dp_wrapper_factory with a mock factory, the module-
+        level _dp_wrapper_factory must reference that exact callable.
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+
+        mock_factory = MagicMock(return_value=MagicMock())
+        original = tasks_mod._dp_wrapper_factory
+        try:
+            tasks_mod.set_dp_wrapper_factory(mock_factory)
+            assert tasks_mod._dp_wrapper_factory is mock_factory
+        finally:
+            # Restore original state so other tests are not affected.
+            tasks_mod._dp_wrapper_factory = original  # type: ignore[assignment]
+
+    def test_dp_requested_without_factory_raises_runtime_error(self) -> None:
+        """run_synthesis_job must raise RuntimeError when enable_dp=True and no factory registered.
+
+        Verifies that the guard in run_synthesis_job() fires with the expected
+        message when _dp_wrapper_factory is None and a DP job is requested.
+
+        Because Session and get_engine are locally imported inside the task
+        function body, they are patched at their source module paths rather
+        than via the tasks module namespace.
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+
+        mock_job = _make_synthesis_job(
+            id=99,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+        )
+
+        mock_session_instance = MagicMock()
+        mock_session_instance.get.return_value = mock_job
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__enter__ = MagicMock(return_value=mock_session_instance)
+        mock_session_ctx.__exit__ = MagicMock(return_value=False)
+
+        original_factory = tasks_mod._dp_wrapper_factory
+        try:
+            tasks_mod._dp_wrapper_factory = None  # type: ignore[assignment]
+
+            with (
+                patch(
+                    "synth_engine.shared.db.get_engine",
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "sqlmodel.Session",
+                    return_value=mock_session_ctx,
+                ),
+                pytest.raises(RuntimeError, match="dp_wrapper_factory"),
+            ):
+                tasks_mod.run_synthesis_job.call_local(99)
+        finally:
+            tasks_mod._dp_wrapper_factory = original_factory  # type: ignore[assignment]

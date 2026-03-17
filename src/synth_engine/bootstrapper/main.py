@@ -128,12 +128,16 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
 
 
 # ---------------------------------------------------------------------------
-# Rule 8 — Huey task wiring (T4.2c)
+# Rule 8 — Huey task wiring (T4.2c) + DI factory injection (ADR-0029)
 # Registers run_synthesis_job and rotate_ale_keys_task with the shared Huey
 # instance at worker startup.  Do NOT remove — silent task drops otherwise.
+# set_dp_wrapper_factory injects build_dp_wrapper so tasks.py never imports
+# from bootstrapper directly (correct DI direction: bootstrapper → modules).
 # ---------------------------------------------------------------------------
-from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: F401, E402
+from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: E402
 from synth_engine.shared.security import rotation as _security_rotation  # noqa: F401, E402
+
+_synthesizer_tasks.set_dp_wrapper_factory(build_dp_wrapper)  # DI: ADR-0029
 
 
 def create_app() -> FastAPI:
