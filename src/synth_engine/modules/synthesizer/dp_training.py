@@ -155,13 +155,13 @@ class DPCompatibleCTGAN:
         # Vanilla mode (no DP)
         model = DPCompatibleCTGAN(metadata=metadata, epochs=300)
         model.fit(df)
-        synthetic_df = model.sample(n_rows=500)
+        synthetic_df = model.sample(num_rows=500)
 
         # DP mode (bootstrapper injects wrapper)
         dp_wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
         model = DPCompatibleCTGAN(metadata=metadata, epochs=300, dp_wrapper=dp_wrapper)
         model.fit(df)
-        synthetic_df = model.sample(n_rows=500)
+        synthetic_df = model.sample(num_rows=500)
     """
 
     def __init__(
@@ -485,24 +485,24 @@ class DPCompatibleCTGAN:
         _logger.info("DPCompatibleCTGAN.fit() complete.")
         return self
 
-    def sample(self, n_rows: int) -> pd.DataFrame:
+    def sample(self, num_rows: int) -> pd.DataFrame:
         """Generate synthetic rows using the trained Generator.
 
-        Calls the underlying ``CTGAN.sample(n_rows)`` to produce
+        Calls the underlying ``CTGAN.sample(num_rows)`` to produce
         transformed synthetic data, then calls
         ``DataProcessor.reverse_transform()`` to convert back to the
         original DataFrame schema (original column names, types).
 
         Args:
-            n_rows: Number of synthetic rows to generate.  Must be > 0.
+            num_rows: Number of synthetic rows to generate.  Must be > 0.
 
         Returns:
-            A :class:`pandas.DataFrame` with ``n_rows`` rows in the same
+            A :class:`pandas.DataFrame` with ``num_rows`` rows in the same
             schema as the training DataFrame passed to :meth:`fit`.
 
         Raises:
             RuntimeError: If :meth:`fit` has not been called yet.
-            ValueError: If ``n_rows`` is 0 or negative.
+            ValueError: If ``num_rows`` is 0 or negative.
         """
         if not self._fitted:
             raise RuntimeError(
@@ -510,15 +510,15 @@ class DPCompatibleCTGAN:
                 "Call fit(df) first to train the model."
             )
 
-        if n_rows <= 0:
+        if num_rows <= 0:
             raise ValueError(
-                f"n_rows must be a positive integer; got {n_rows}. Use at least 1 row."
+                f"num_rows must be a positive integer; got {num_rows}. Use at least 1 row."
             )
 
-        _logger.info("DPCompatibleCTGAN.sample(): generating %d rows.", n_rows)
+        _logger.info("DPCompatibleCTGAN.sample(): generating %d rows.", num_rows)
 
         # Delegate to the trained CTGAN model
-        synthetic_processed: pd.DataFrame = self._ctgan_model.sample(n_rows)
+        synthetic_processed: pd.DataFrame = self._ctgan_model.sample(num_rows)
 
         # Reverse-transform from processed space back to original schema
         with warnings.catch_warnings():

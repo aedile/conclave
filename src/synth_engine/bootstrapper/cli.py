@@ -53,6 +53,7 @@ from synth_engine.modules.masking.algorithms import (
     mask_email,
     mask_first_name,
     mask_last_name,
+    mask_name,
     mask_phone,
     mask_ssn,
 )
@@ -104,6 +105,11 @@ _COLUMN_MASKS: dict[str, dict[str, Callable[[str, str], str]]] = {
         "ssn": mask_ssn,
         "phone": mask_phone,
         "address": mask_address,
+    },
+    "persons": {
+        "full_name": mask_name,
+        "email": mask_email,
+        "ssn": mask_ssn,
     },
 }
 

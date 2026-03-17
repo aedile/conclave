@@ -314,6 +314,23 @@ def _build_spend_budget_fn_for_url(async_url: str) -> Any:
 class TestDPPipelineE2EOrchestration:
     """AC1-4 + AC7: Full DP pipeline via _run_synthesis_job_impl."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_spend_budget_fn(self) -> None:
+        """Reset _spend_budget_fn to None before each test in this class.
+
+        P24-T24.1: Guards against cross-test contamination from test files that
+        import bootstrapper.main at module level.  bootstrapper.main calls
+        set_spend_budget_fn(build_spend_budget_fn()) at import time, which sets
+        the global to a function pointing at an in-memory SQLite DB with no
+        privacy_ledger table.  Tests AC1 and AC2 intentionally do NOT supply a
+        spend_budget fn and rely on the None-check skip path in
+        _run_synthesis_job_impl.  Resetting to None ensures they get that path
+        regardless of prior test ordering.
+        """
+        from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn
+
+        set_spend_budget_fn(None)  # type: ignore[arg-type]
+
     def test_dp_job_reaches_complete_status(self, persons_parquet: str) -> None:
         """AC1 + AC7: A DP-enabled job started via _run_synthesis_job_impl reaches COMPLETE.
 
