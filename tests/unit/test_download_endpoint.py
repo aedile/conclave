@@ -21,7 +21,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -725,7 +724,10 @@ class TestDownloadEndpointHMACSigning:
 
     @pytest.mark.asyncio
     async def test_download_no_signing_key_skips_verification(self, tmp_path: Path) -> None:
-        """GET /jobs/{id}/download returns 200 when ARTIFACT_SIGNING_KEY is not set (no verification)."""
+        """GET /jobs/{id}/download returns 200 when ARTIFACT_SIGNING_KEY is absent.
+
+        Signature verification is skipped when no signing key is configured.
+        """
         from sqlalchemy.pool import StaticPool
 
         from synth_engine.bootstrapper.dependencies.db import get_db_session
@@ -780,9 +782,7 @@ class TestDownloadEndpointHMACSigning:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_download_409_response_uses_problem_detail_format(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_download_409_response_uses_problem_detail_format(self, tmp_path: Path) -> None:
         """GET /jobs/{id}/download 409 response must follow RFC 7807 Problem Details format."""
         from sqlalchemy.pool import StaticPool
 
