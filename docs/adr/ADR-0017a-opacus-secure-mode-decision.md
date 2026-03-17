@@ -1,7 +1,7 @@
 # ADR-0017a — Opacus `secure_mode` Decision (Amendment to ADR-0017)
 
 **Date:** 2026-03-15
-**Status:** Accepted
+**Status:** Superseded by ADR-0017 v2 (see supersession notice below)
 **Deciders:** PM + Architect
 **Task:** P8-T8.2 — Security Hardening (ADV-067)
 **Amends:** ADR-0017 (Synthesizer & Differential Privacy Library Selection)
@@ -113,3 +113,19 @@ The `filterwarnings` entry `"ignore:Secure RNG turned off:UserWarning:opacus"` i
 - Opacus documentation: https://opacus.ai/api/privacy_engine.html (air-gap note: consulted
   prior to deployment; not accessible from within the air-gapped environment at runtime)
 - torchcsprng repository: https://github.com/pytorch/csprng (archived; last release 2021)
+
+---
+
+## Supersession Notice
+
+**Date:** 2026-03-17
+**Superseded by:** ADR-0017 v2 — Synthesizer & DP Library Selection (Consolidated)
+**Superseded by task:** P26-T26.7 — Backend Documentation Overhaul
+
+The content of this amendment (ADR-0017a) has been incorporated inline into
+ADR-0017 v2 under Section "Opacus `secure_mode` Decision (from ADR-0017a)".
+ADR-0017 v2 is the canonical reference going forward.
+
+This file is retained as an append-only historical record per project policy.
+Do not delete it. When referencing the `secure_mode` decision in new code or
+documentation, cite ADR-0017 v2, not this file.
