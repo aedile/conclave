@@ -921,9 +921,7 @@ class TestDPWiringInImpl:
                 dp_wrapper=dp_wrapper,
             )
 
-        assert job.actual_epsilon == 3.14, (
-            f"Expected actual_epsilon=3.14; got {job.actual_epsilon}"
-        )
+        assert job.actual_epsilon == 3.14, f"Expected actual_epsilon=3.14; got {job.actual_epsilon}"
 
     def test_actual_epsilon_is_none_when_dp_disabled(self) -> None:
         """job.actual_epsilon must remain None when no dp_wrapper is provided.
