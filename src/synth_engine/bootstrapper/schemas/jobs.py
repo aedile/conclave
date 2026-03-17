@@ -7,6 +7,7 @@ to maintain the one-way dependency flow: bootstrapper → modules.
 Task: P5-T5.1 — Task Orchestration API Core
 Task: P22-T22.1 — Job Schema DP Parameters
 Task: P23-T23.1 — Generation Step in Huey Task
+Task: P23-T23.2 — /jobs/{id}/download Endpoint (review findings fix)
 """
 
 from __future__ import annotations
@@ -20,7 +21,9 @@ class JobCreateRequest(BaseModel):
     """Request body for POST /jobs.
 
     Attributes:
-        table_name: Name of the database table to synthesise.
+        table_name: Name of the database table to synthesise.  Must match
+            ``^[a-zA-Z0-9_]+$`` (alphanumeric and underscore only) to prevent
+            Content-Disposition header injection and SQL injection vectors.
         parquet_path: Absolute path to the Parquet file with training data.
         total_epochs: Number of CTGAN training epochs.
         num_rows: Number of synthetic rows to generate after training.
@@ -34,7 +37,11 @@ class JobCreateRequest(BaseModel):
             Must be > 0.
     """
 
-    table_name: str = Field(..., description="Database table to synthesise.")
+    table_name: str = Field(
+        ...,
+        pattern=r"^[a-zA-Z0-9_]+$",
+        description=("Database table to synthesise. Alphanumeric and underscore characters only."),
+    )
     parquet_path: str = Field(..., description="Path to training Parquet file.")
     total_epochs: int = Field(..., gt=0, description="Total training epochs.")
     num_rows: int = Field(..., gt=0, description="Number of synthetic rows to generate.")
