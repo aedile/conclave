@@ -12,19 +12,19 @@ All 404 and error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
 
 Task: P5-T5.1 — Task Orchestration API Core
+Task: P22-T22.1 — Job Schema DP Parameters
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import Engine
-from sqlalchemy.orm import Session as SASession
-from sqlalchemy.orm import sessionmaker
 from sqlmodel import Session, col, select
 from sse_starlette.sse import EventSourceResponse
 
@@ -38,6 +38,7 @@ from synth_engine.bootstrapper.schemas.jobs import (
 from synth_engine.bootstrapper.sse import job_event_stream
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 from synth_engine.modules.synthesizer.tasks import run_synthesis_job
+from synth_engine.shared.db import SessionFactory
 
 _logger = logging.getLogger(__name__)
 
@@ -110,6 +111,9 @@ def create_job(
         parquet_path=body.parquet_path,
         total_epochs=body.total_epochs,
         checkpoint_every_n=body.checkpoint_every_n,
+        enable_dp=body.enable_dp,
+        noise_multiplier=body.noise_multiplier,
+        max_grad_norm=body.max_grad_norm,
     )
     session.add(job)
     session.commit()
@@ -185,18 +189,21 @@ def start_job(
     )
 
 
-def _make_session_factory(session: Session) -> Any:
-    """Build a SQLAlchemy sessionmaker from an existing SQLModel Session.
+def _make_session_factory(session: Session) -> SessionFactory:
+    """Build a :data:`SessionFactory` from an existing SQLModel Session.
 
-    Extracts the bound engine from the session and creates a sessionmaker
-    so the SSE generator can open its own sessions after the request
-    session is closed.
+    Extracts the bound engine from the session and returns a zero-argument
+    callable that opens a new :class:`sqlmodel.Session` context manager.
+    This is used by the SSE generator which must open its own sessions
+    after the request session has been closed.
 
     Args:
         session: An open SQLModel ``Session`` bound to an engine.
 
     Returns:
-        A ``sessionmaker`` callable that produces new ``Session`` instances.
+        A zero-argument callable returning an
+        :class:`~contextlib.AbstractContextManager` over a fresh
+        :class:`sqlmodel.Session`.
 
     Raises:
         TypeError: If the session is not bound to a SQLAlchemy Engine.
@@ -204,8 +211,13 @@ def _make_session_factory(session: Session) -> Any:
     bind = session.get_bind()
     if not isinstance(bind, Engine):
         raise TypeError(f"Session must be bound to a SQLAlchemy Engine, got {type(bind)}")
-    factory: sessionmaker[SASession] = sessionmaker(bind=bind, class_=SASession)
-    return factory
+
+    @contextlib.contextmanager
+    def _factory() -> Generator[Session]:
+        with Session(bind) as s:
+            yield s
+
+    return _factory
 
 
 @router.get("/{job_id}/stream", response_model=None)

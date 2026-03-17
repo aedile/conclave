@@ -15,6 +15,7 @@ Pattern guards applied (per RETRO_LOG learning scan):
 
 CONSTITUTION Priority 3: TDD RED/GREEN Phase
 Task: P4-T4.2c — Huey Task Wiring & Checkpointing
+Task: P22-T22.1 — Job Schema DP Parameters
 """
 
 from __future__ import annotations
@@ -166,6 +167,146 @@ class TestSynthesisJobModel:
                 checkpoint_every_n=0,
             )
 
+    # -------------------------------------------------------------------------
+    # DP parameter field tests (P22-T22.1)
+    # -------------------------------------------------------------------------
+
+    def test_synthesis_job_enable_dp_defaults_to_true(self) -> None:
+        """SynthesisJob must default enable_dp to True (privacy-by-design, OWASP A04)."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        job = SynthesisJob(
+            total_epochs=10,
+            table_name="persons",
+            parquet_path="/data/persons.parquet",
+        )
+        assert job.enable_dp is True
+
+    def test_synthesis_job_enable_dp_can_be_set_false(self) -> None:
+        """SynthesisJob must accept enable_dp=False for non-DP training."""
+        job = _make_synthesis_job(enable_dp=False)
+        assert job.enable_dp is False
+
+    def test_synthesis_job_noise_multiplier_defaults_to_1_1(self) -> None:
+        """SynthesisJob must default noise_multiplier to 1.1 (ADR-0025 calibration)."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        job = SynthesisJob(
+            total_epochs=10,
+            table_name="persons",
+            parquet_path="/data/persons.parquet",
+        )
+        assert job.noise_multiplier == 1.1
+
+    def test_synthesis_job_noise_multiplier_can_be_customised(self) -> None:
+        """SynthesisJob must accept a custom noise_multiplier."""
+        job = _make_synthesis_job(noise_multiplier=2.5)
+        assert job.noise_multiplier == 2.5
+
+    def test_synthesis_job_noise_multiplier_zero_raises(self) -> None:
+        """SynthesisJob must reject noise_multiplier=0 with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="noise_multiplier must be > 0"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                noise_multiplier=0.0,
+            )
+
+    def test_synthesis_job_noise_multiplier_negative_raises(self) -> None:
+        """SynthesisJob must reject negative noise_multiplier with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="noise_multiplier must be > 0"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                noise_multiplier=-0.5,
+            )
+
+    def test_synthesis_job_max_grad_norm_defaults_to_1_0(self) -> None:
+        """SynthesisJob must default max_grad_norm to 1.0."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        job = SynthesisJob(
+            total_epochs=10,
+            table_name="persons",
+            parquet_path="/data/persons.parquet",
+        )
+        assert job.max_grad_norm == 1.0
+
+    def test_synthesis_job_max_grad_norm_can_be_customised(self) -> None:
+        """SynthesisJob must accept a custom max_grad_norm."""
+        job = _make_synthesis_job(max_grad_norm=0.5)
+        assert job.max_grad_norm == 0.5
+
+    def test_synthesis_job_max_grad_norm_zero_raises(self) -> None:
+        """SynthesisJob must reject max_grad_norm=0 with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                max_grad_norm=0.0,
+            )
+
+    def test_synthesis_job_max_grad_norm_negative_raises(self) -> None:
+        """SynthesisJob must reject negative max_grad_norm with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                max_grad_norm=-1.0,
+            )
+
+    def test_synthesis_job_actual_epsilon_defaults_to_none(self) -> None:
+        """SynthesisJob must default actual_epsilon to None (set after training)."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        job = SynthesisJob(
+            total_epochs=10,
+            table_name="persons",
+            parquet_path="/data/persons.parquet",
+        )
+        assert job.actual_epsilon is None
+
+    def test_synthesis_job_actual_epsilon_can_be_set(self) -> None:
+        """SynthesisJob must accept a float actual_epsilon value."""
+        job = _make_synthesis_job(actual_epsilon=3.14)
+        assert job.actual_epsilon == 3.14
+
+    def test_synthesis_job_noise_multiplier_above_100_raises(self) -> None:
+        """SynthesisJob must reject noise_multiplier=101 with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="noise_multiplier must be <= 100.0"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                noise_multiplier=101,
+            )
+
+    def test_synthesis_job_max_grad_norm_above_100_raises(self) -> None:
+        """SynthesisJob must reject max_grad_norm=101 with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="max_grad_norm must be <= 100.0"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                max_grad_norm=101,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Huey task registration
@@ -284,7 +425,7 @@ class TestSynthesisTaskSuccessPath:
             )
 
         assert job.artifact_path is not None
-        assert "job1" in job.artifact_path or len(job.artifact_path) > 0
+        assert "job_1" in job.artifact_path
 
     def test_task_calls_session_commit_on_status_transitions(self) -> None:
         """Task must commit the session after each status change."""

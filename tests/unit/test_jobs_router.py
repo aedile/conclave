@@ -3,6 +3,7 @@
 Tests follow TDD RED phase — all tests must fail before implementation.
 
 Task: P5-T5.1 — Task Orchestration API Core
+Task: P22-T22.1 — Job Schema DP Parameters
 CONSTITUTION Priority 3: TDD — RED phase
 """
 
@@ -221,6 +222,34 @@ class TestJobsListEndpoint:
         body = response.json()
         assert len(body["items"]) <= 2
 
+    @pytest.mark.asyncio
+    async def test_list_jobs_response_includes_dp_fields(self) -> None:
+        """GET /jobs items must include the DP parameter fields (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/jobs")
+
+        body = response.json()
+        assert len(body["items"]) > 0
+        item = body["items"][0]
+        assert item["enable_dp"] is True
+        assert item["noise_multiplier"] == 1.1
+        assert item["max_grad_norm"] == 1.0
+        assert item["actual_epsilon"] is None
+
 
 class TestJobGetEndpoint:
     """Tests for GET /jobs/{id}."""
@@ -316,6 +345,76 @@ class TestJobGetEndpoint:
         assert "table_name" in body
         assert body["table_name"] == "customers"
 
+    @pytest.mark.asyncio
+    async def test_get_job_response_includes_dp_fields(self) -> None:
+        """GET /jobs/{id} response must include DP parameter fields (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with Session(engine) as session:
+            from sqlmodel import select
+
+            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+            job = session.exec(select(SynthesisJob)).first()
+            assert job is not None
+            job_id = job.id
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get(f"/jobs/{job_id}")
+
+        body = response.json()
+        assert "enable_dp" in body
+        assert "noise_multiplier" in body
+        assert "max_grad_norm" in body
+        assert "actual_epsilon" in body
+
+    @pytest.mark.asyncio
+    async def test_get_job_dp_defaults_match_spec(self) -> None:
+        """GET /jobs/{id} must return the correct default DP field values (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with Session(engine) as session:
+            from sqlmodel import select
+
+            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+            job = session.exec(select(SynthesisJob)).first()
+            assert job is not None
+            job_id = job.id
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get(f"/jobs/{job_id}")
+
+        body = response.json()
+        assert body["enable_dp"] is True
+        assert body["noise_multiplier"] == 1.1
+        assert body["max_grad_norm"] == 1.0
+        assert body["actual_epsilon"] is None
+
 
 class TestJobCreateEndpoint:
     """Tests for POST /jobs."""
@@ -380,6 +479,256 @@ class TestJobCreateEndpoint:
         assert body["table_name"] == "orders"
         assert body["status"] == "QUEUED"
         assert "id" in body
+
+    @pytest.mark.asyncio
+    async def test_create_job_dp_defaults_applied_when_omitted(self) -> None:
+        """POST /jobs must apply DP defaults when DP params are not supplied (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                    },
+                )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["enable_dp"] is True
+        assert body["noise_multiplier"] == 1.1
+        assert body["max_grad_norm"] == 1.0
+        assert body["actual_epsilon"] is None
+
+    @pytest.mark.asyncio
+    async def test_create_job_accepts_custom_dp_params(self) -> None:
+        """POST /jobs must persist custom DP params when supplied (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "enable_dp": False,
+                        "noise_multiplier": 2.0,
+                        "max_grad_norm": 0.5,
+                    },
+                )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["enable_dp"] is False
+        assert body["noise_multiplier"] == 2.0
+        assert body["max_grad_norm"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_noise_multiplier_zero(self) -> None:
+        """POST /jobs must return 422 when noise_multiplier=0 (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "noise_multiplier": 0.0,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_noise_multiplier_negative(self) -> None:
+        """POST /jobs must return 422 when noise_multiplier is negative (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "noise_multiplier": -1.0,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_max_grad_norm_zero(self) -> None:
+        """POST /jobs must return 422 when max_grad_norm=0 (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "max_grad_norm": 0.0,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_max_grad_norm_negative(self) -> None:
+        """POST /jobs must return 422 when max_grad_norm is negative (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "max_grad_norm": -0.1,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_noise_multiplier_above_100(self) -> None:
+        """POST /jobs must return 422 when noise_multiplier=101 (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "noise_multiplier": 101,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_max_grad_norm_above_100(self) -> None:
+        """POST /jobs must return 422 when max_grad_norm=101 (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "max_grad_norm": 101,
+                    },
+                )
+
+        assert response.status_code == 422
 
 
 class TestJobStartEndpoint:
