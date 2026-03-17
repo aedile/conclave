@@ -13,6 +13,10 @@ Tests verify:
    requested ``ledger_id`` does not exist.
 7. ``spend_budget()`` with a ``Decimal`` input exercises the
    ``isinstance(amount, Decimal)`` fast-path (no float→string→Decimal conversion).
+8. ``reset_budget()`` resets ``total_spent_epsilon`` to zero atomically.
+9. ``reset_budget()`` with ``new_allocated_epsilon`` updates the ceiling.
+10. ``reset_budget()`` raises ``NoResultFound`` for a missing ledger.
+11. ``reset_budget()`` raises ``ValueError`` for a non-positive new allocation.
 
 These tests use ``sqlite+aiosqlite:///:memory:`` so they require no external
 infrastructure.  Concurrency safety is covered by the integration tests which
@@ -22,12 +26,14 @@ CONSTITUTION Priority 3: TDD
 CONSTITUTION Priority 4: 90%+ coverage
 Task: P4-T4.4 — Privacy Accountant
 Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050, arch finding)
+Task: P22-T22.4 — Budget Management API (reset_budget)
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -451,6 +457,13 @@ def test_privacy_module_exports_ledger_classes() -> None:
     assert hasattr(privacy_module, "DPTrainingWrapper")
 
 
+def test_privacy_module_exports_reset_budget() -> None:
+    """Privacy module __init__.py must export reset_budget (P22-T22.4)."""
+    import synth_engine.modules.privacy as privacy_module
+
+    assert hasattr(privacy_module, "reset_budget")
+
+
 # ---------------------------------------------------------------------------
 # Tests: spend_budget() — scientific notation Decimal edge case (ADV-074)
 # ---------------------------------------------------------------------------
@@ -539,3 +552,202 @@ async def test_spend_budget_small_scientific_notation_amount_does_not_raise(
         )
         transactions = tx_result.scalars().all()
         assert len(transactions) == 1, f"Expected 1 transaction, got {len(transactions)}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: reset_budget() — happy path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_resets_spent_to_zero(
+    async_engine: AsyncEngine,
+) -> None:
+    """reset_budget() must reset total_spent_epsilon to Decimal("0.0").
+
+    Arrange: Insert a PrivacyLedger with total_allocated=10.0, total_spent=7.5.
+    Act: Call reset_budget(ledger_id=..., session=...).
+    Assert:
+    - Returns (allocated, spent) where spent == Decimal("0.0").
+    - The DB ledger row has total_spent_epsilon == Decimal("0.0").
+    - total_allocated_epsilon is unchanged at Decimal("10.0").
+    """
+    from sqlalchemy import select
+
+    from synth_engine.modules.privacy.accountant import reset_budget
+
+    async with get_async_session(async_engine) as s:
+        ledger = PrivacyLedger(
+            total_allocated_epsilon=Decimal("10.0"),
+            total_spent_epsilon=Decimal("7.5"),
+        )
+        s.add(ledger)
+        await s.commit()
+        await s.refresh(ledger)
+        ledger_id = ledger.id
+
+    async with get_async_session(async_engine) as s:
+        allocated, spent = await reset_budget(ledger_id=ledger_id, session=s)
+
+    assert spent == Decimal("0.0"), f"Expected spent=0.0, got {spent!r}"
+    assert allocated == Decimal("10.0"), f"Expected allocated=10.0, got {allocated!r}"
+
+    # Verify DB state persisted
+    async with get_async_session(async_engine) as s:
+        result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
+        updated = result.scalar_one()
+        assert updated.total_spent_epsilon == Decimal("0.0")
+        assert updated.total_allocated_epsilon == Decimal("10.0")
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_with_new_allocated_updates_ceiling(
+    async_engine: AsyncEngine,
+) -> None:
+    """reset_budget() with new_allocated_epsilon updates the allocation ceiling.
+
+    Arrange: Insert a PrivacyLedger with total_allocated=10.0, total_spent=5.0.
+    Act: Call reset_budget(ledger_id=..., new_allocated_epsilon=Decimal("25.0"), session=...).
+    Assert:
+    - Returns (allocated=25.0, spent=0.0).
+    - The DB ledger row has total_allocated_epsilon == Decimal("25.0").
+    - total_spent_epsilon == Decimal("0.0").
+    """
+    from sqlalchemy import select
+
+    from synth_engine.modules.privacy.accountant import reset_budget
+
+    async with get_async_session(async_engine) as s:
+        ledger = PrivacyLedger(
+            total_allocated_epsilon=Decimal("10.0"),
+            total_spent_epsilon=Decimal("5.0"),
+        )
+        s.add(ledger)
+        await s.commit()
+        await s.refresh(ledger)
+        ledger_id = ledger.id
+
+    async with get_async_session(async_engine) as s:
+        allocated, spent = await reset_budget(
+            ledger_id=ledger_id,
+            session=s,
+            new_allocated_epsilon=Decimal("25.0"),
+        )
+
+    assert allocated == Decimal("25.0"), f"Expected allocated=25.0, got {allocated!r}"
+    assert spent == Decimal("0.0"), f"Expected spent=0.0, got {spent!r}"
+
+    async with get_async_session(async_engine) as s:
+        result = await s.execute(select(PrivacyLedger).where(PrivacyLedger.id == ledger_id))
+        updated = result.scalar_one()
+        assert updated.total_allocated_epsilon == Decimal("25.0")
+        assert updated.total_spent_epsilon == Decimal("0.0")
+
+
+# ---------------------------------------------------------------------------
+# Tests: reset_budget() — error paths
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_raises_no_result_found_for_missing_ledger(
+    async_engine: AsyncEngine,
+) -> None:
+    """reset_budget() raises NoResultFound when the ledger_id does not exist.
+
+    Arrange: Empty database — no PrivacyLedger rows.
+    Act: Call reset_budget(ledger_id=9999, session=...).
+    Assert: sqlalchemy.exc.NoResultFound is raised.
+    """
+    from synth_engine.modules.privacy.accountant import reset_budget
+
+    async with get_async_session(async_engine) as s:
+        with pytest.raises(NoResultFound):
+            await reset_budget(ledger_id=9999, session=s)
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_raises_value_error_for_zero_new_allocated(
+    async_engine: AsyncEngine,
+) -> None:
+    """reset_budget() raises ValueError when new_allocated_epsilon is zero."""
+    from synth_engine.modules.privacy.accountant import reset_budget
+
+    async with get_async_session(async_engine) as s:
+        with pytest.raises(ValueError, match="new_allocated_epsilon must be positive"):
+            await reset_budget(
+                ledger_id=1,
+                session=s,
+                new_allocated_epsilon=Decimal("0.0"),
+            )
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_raises_value_error_for_negative_new_allocated(
+    async_engine: AsyncEngine,
+) -> None:
+    """reset_budget() raises ValueError when new_allocated_epsilon is negative."""
+    from synth_engine.modules.privacy.accountant import reset_budget
+
+    async with get_async_session(async_engine) as s:
+        with pytest.raises(ValueError, match="new_allocated_epsilon must be positive"):
+            await reset_budget(
+                ledger_id=1,
+                session=s,
+                new_allocated_epsilon=Decimal("-5.0"),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Tests: reset_budget() — locking verification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reset_budget_uses_for_update_locking() -> None:
+    """reset_budget() issues SELECT ... FOR UPDATE to prevent concurrent races.
+
+    This test verifies the locking intent by inspecting the SQL statement
+    constructed inside reset_budget().  We patch ``session.execute`` to
+    capture the statement and confirm ``with_for_update()`` was applied.
+    """
+    from sqlalchemy import select
+
+    from synth_engine.modules.privacy.accountant import reset_budget
+
+    captured_stmts: list[object] = []
+
+    mock_ledger = MagicMock(spec=PrivacyLedger)
+    mock_ledger.id = 1
+    mock_ledger.total_allocated_epsilon = Decimal("10.0")
+    mock_ledger.total_spent_epsilon = Decimal("5.0")
+
+    mock_result = MagicMock()
+    mock_result.scalar_one.return_value = mock_ledger
+
+    async def _mock_execute(stmt: object, *args: object, **kwargs: object) -> object:
+        captured_stmts.append(stmt)
+        return mock_result
+
+    mock_session = AsyncMock(spec=AsyncSession)
+    mock_session.execute = _mock_execute  # type: ignore[method-assign]
+
+    # Use a context manager mock for session.begin()
+    mock_begin = MagicMock()
+    mock_begin.__aenter__ = AsyncMock(return_value=None)
+    mock_begin.__aexit__ = AsyncMock(return_value=False)
+    mock_session.begin.return_value = mock_begin
+
+    with patch(
+        "synth_engine.modules.privacy.accountant.select",
+        wraps=select,
+    ):
+        await reset_budget(ledger_id=1, session=mock_session)
+
+    assert len(captured_stmts) == 1, "Expected exactly one SQL statement to be executed"
+    stmt = captured_stmts[0]
+    # The compiled statement string should contain FOR UPDATE
+    stmt_str = str(stmt.compile(compile_kwargs={"literal_binds": True}))  # type: ignore[union-attr]
+    assert "FOR UPDATE" in stmt_str.upper(), (
+        f"Expected SELECT ... FOR UPDATE in statement, got: {stmt_str}"
+    )
