@@ -140,6 +140,8 @@ class SynthesisJob(SQLModel, table=True):
             **data: Keyword arguments forwarded to the SQLModel base class.
 
         Raises:
+            ValueError: If ``num_rows`` is less than 1.  Generation requires
+                at least one row; zero or negative values are rejected.
             ValueError: If ``checkpoint_every_n`` is less than 1.  A value of
                 0 would cause ``min(0, total - 0) == 0`` in the training loop,
                 making ``completed_epochs`` never advance (infinite loop).
@@ -150,6 +152,11 @@ class SynthesisJob(SQLModel, table=True):
                 exceeds 100.0.  Gradient clipping requires a positive bound;
                 values above 100.0 are almost certainly erroneous.
         """
+        # F3 fix: enforce num_rows >= 1 (docstring mandates this, __init__ must guard it).
+        num_rows = data.get("num_rows")
+        if isinstance(num_rows, int) and num_rows < 1:
+            raise ValueError("num_rows must be >= 1")
+
         n = data.get("checkpoint_every_n", _DEFAULT_CHECKPOINT_EVERY_N)
         if isinstance(n, int) and n < 1:
             raise ValueError("checkpoint_every_n must be >= 1")

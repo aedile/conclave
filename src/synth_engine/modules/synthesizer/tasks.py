@@ -95,7 +95,8 @@ exception name matching::
     "BudgetExhaustion" in type(exc).__name__
 
 This avoids the import violation while preserving correct handling.  The
-pattern is documented here and in the test assertions.
+pattern is documented here and in the test assertions.  See ADR-0033 for the
+full rationale and risk mitigation.
 
 Typing DP wrapper without crossing boundaries
 ---------------------------------------------
@@ -173,6 +174,11 @@ _DEFAULT_LEDGER_ID: int = 1
 #: Environment variable name for the artifact HMAC signing key.
 #: Value must be a hex-encoded byte string (e.g. 64 hex chars for 32 bytes).
 _ARTIFACT_SIGNING_KEY_ENV: str = "ARTIFACT_SIGNING_KEY"
+
+#: Sanitized error message written to job.error_msg on generation failure.
+#: Internal exception details are logged server-side; this generic string is
+#: safe to surface in API responses (finding F4 — DevOps review).
+_GENERATION_FAILED_MSG: str = "Generation failed — see server logs for details"
 
 
 # ---------------------------------------------------------------------------
@@ -280,30 +286,53 @@ def _write_parquet_with_signing(
     WARNING is logged (unsigned artifacts are acceptable in development per the
     T23.1 spec).
 
+    If the key is present but malformed (non-hex characters or odd length),
+    the ``ValueError`` from ``bytes.fromhex`` is caught, a WARNING is logged,
+    and signing is skipped gracefully — the Parquet file has already been
+    written and the job continues normally.
+
     Args:
         df: A :class:`pandas.DataFrame` to serialise as Parquet.  Typed as
             ``object`` to avoid a hard ``pandas`` import at module level; the
             caller (``_run_synthesis_job_impl``) guarantees a real DataFrame.
         parquet_path: Destination filesystem path (must end with ``.parquet``).
+
+    Raises:
+        OSError: If the Parquet write or sidecar write fails due to a
+            filesystem error (e.g. disk full, permission denied).  Callers
+            should catch this and transition the job to FAILED.
     """
+    # F5 fix: log basename only — full paths may expose internal filesystem layout.
+    parquet_name = Path(parquet_path).name
+
     # df.to_parquet() is the pandas DataFrame API.  We call it duck-typed to
     # keep pandas as an optional import at module level; mypy is satisfied by
     # the ``object`` annotation with ``type: ignore`` at the call site.
     df.to_parquet(parquet_path, index=False)  # type: ignore[attr-defined]  # duck-typed pandas DataFrame; guaranteed by caller
+    _logger.debug("Parquet artifact written: %s", parquet_name)
 
     signing_key_hex = os.environ.get(_ARTIFACT_SIGNING_KEY_ENV)
     if not signing_key_hex:
         _logger.warning(
             "ARTIFACT_SIGNING_KEY is not set; Parquet artifact written unsigned: %s",
-            parquet_path,
+            parquet_name,
         )
         return
 
-    signing_key = bytes.fromhex(signing_key_hex)
+    # F2 fix: guard bytes.fromhex() against malformed hex input (ValueError).
+    try:
+        signing_key = bytes.fromhex(signing_key_hex)
+    except ValueError:
+        _logger.warning(
+            "ARTIFACT_SIGNING_KEY is not valid hex; skipping Parquet signing: %s",
+            parquet_name,
+        )
+        return
+
     if len(signing_key) == 0:
         _logger.warning(
             "ARTIFACT_SIGNING_KEY decoded to empty bytes; skipping Parquet signing: %s",
-            parquet_path,
+            parquet_name,
         )
         return
 
@@ -313,10 +342,216 @@ def _write_parquet_with_signing(
 
     sig_path = parquet_path + ".sig"
     Path(sig_path).write_bytes(digest)
+    # F5 fix: log basename only for the sidecar path.
     _logger.info(
         "Parquet artifact HMAC-SHA256 signed; sidecar written to %s",
-        sig_path,
+        Path(sig_path).name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Extracted helpers (F7 — architecture review: extract from _run_synthesis_job_impl)
+# ---------------------------------------------------------------------------
+
+
+def _handle_dp_accounting(
+    job: SynthesisJob,
+    dp_wrapper: DPWrapperProtocol,
+    job_id: int,
+) -> None:
+    """Record actual epsilon after DP training and optionally spend privacy budget.
+
+    Covers steps 5 and 5b of the synthesis lifecycle:
+    - Step 5: read ``epsilon_spent()`` from the DP wrapper and write to
+      ``job.actual_epsilon``.
+    - Step 5b: if ``_spend_budget_fn`` is registered and epsilon was read
+      successfully, call it to deduct from the global ``PrivacyLedger``.
+      On ``BudgetExhaustionError`` (detected by class-name duck-typing per
+      ADR-0033), set ``job.status = FAILED`` and return.  On success, emit a
+      WORM audit event.
+
+    The audit log call is outside the ``BudgetExhaustion`` try/except so that
+    an audit logger failure cannot corrupt the exhaustion-detection path.
+
+    Args:
+        job: The ``SynthesisJob`` record being updated (mutated in place).
+        dp_wrapper: The DP training wrapper whose ``epsilon_spent()`` is
+            called to read the actual epsilon after training.
+        job_id: Job primary key (used for log messages and audit details).
+
+    Returns:
+        Nothing.  Raises if a non-budget exception escapes ``_spend_budget_fn``.
+
+    Raises:
+        Exception: Any non-``BudgetExhaustion`` exception raised by
+            ``_spend_budget_fn`` propagates to the caller.
+    """
+    # ------------------------------------------------------------------
+    # Step 5: Record actual epsilon
+    # ------------------------------------------------------------------
+    try:
+        actual_eps = dp_wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
+        job.actual_epsilon = actual_eps
+        _logger.info(
+            "Job %d: DP training complete, actual_epsilon=%.4f.",
+            job_id,
+            actual_eps,
+        )
+    except Exception:
+        _logger.exception(
+            "Job %d: Failed to read epsilon_spent from DP wrapper.",
+            job_id,
+        )
+        # Training succeeded but epsilon accounting failed.
+        # Continue to COMPLETE — the artifact is valid, actual_epsilon stays None.
+
+    # ------------------------------------------------------------------
+    # Step 5b: Spend privacy budget
+    # ------------------------------------------------------------------
+    # Only deduct budget if DP was used AND epsilon was successfully read.
+    # If epsilon_spent() failed above, actual_epsilon is None and we skip
+    # the deduction — no measurable budget was spent from the system's view.
+    if _spend_budget_fn is None or job.actual_epsilon is None:
+        return
+
+    budget_spent = False
+    try:
+        _spend_budget_fn(
+            amount=job.actual_epsilon,
+            job_id=job_id,
+            ledger_id=_DEFAULT_LEDGER_ID,
+            note=f"DP synthesis job {job_id}",
+        )
+        budget_spent = True
+        _logger.info(
+            "Job %d: privacy budget deducted (epsilon=%.4f, ledger_id=%d).",
+            job_id,
+            job.actual_epsilon,
+            _DEFAULT_LEDGER_ID,
+        )
+    except Exception as exc:
+        # Duck-typing: detect BudgetExhaustionError without importing from
+        # modules/privacy (import-linter enforced boundary).  Any exception
+        # whose class name contains "BudgetExhaustion" is treated as budget
+        # exhaustion.  All other exceptions are re-raised.  See ADR-0033.
+        if "BudgetExhaustion" in type(exc).__name__:
+            _logger.error("Job %d: Privacy budget exhausted — marking FAILED.", job_id)
+            job.status = "FAILED"
+            job.error_msg = "Privacy budget exhausted"
+            return
+        # Unknown exception — re-raise to surface the error.
+        raise
+
+    # WORM audit event — emitted OUTSIDE the BudgetExhaustion try/except
+    # so that an audit logger failure cannot corrupt the exception handler.
+    # The budget was successfully deducted; budget_spent is True here.
+    if budget_spent:
+        try:
+            audit = get_audit_logger()
+            audit.log_event(
+                event_type="PRIVACY_BUDGET_SPEND",
+                actor="system/huey-worker",
+                resource=f"privacy_ledger/{_DEFAULT_LEDGER_ID}",
+                action="spend_budget",
+                details={
+                    "job_id": str(job_id),
+                    "epsilon_spent": str(job.actual_epsilon),
+                },
+            )
+        except Exception:
+            _logger.exception("Job %d: Audit log failed after budget deduction.", job_id)
+            # Budget was deducted successfully — continue to COMPLETE
+            # even if audit logging fails.  The deduction is recorded in
+            # the PrivacyTransaction table by spend_budget() itself.
+
+
+def _generate_and_finalize(
+    job: SynthesisJob,
+    engine: SynthesisEngine,
+    last_artifact: Any,
+    effective_checkpoint_dir: str,
+    session: Session,
+    job_id: int,
+) -> bool:
+    """Generate synthetic data and persist the Parquet output (steps 8-10).
+
+    Calls ``engine.generate()``, writes the result as a Parquet file, updates
+    ``job.output_path``, and transitions the job to ``COMPLETE``.
+
+    Args:
+        job: The ``SynthesisJob`` record being updated (mutated in place).
+        engine: The ``SynthesisEngine`` used to produce synthetic rows.
+        last_artifact: The trained ``ModelArtifact`` to generate from.
+        effective_checkpoint_dir: Filesystem directory for Parquet output.
+        session: Open SQLModel ``Session`` for committing status updates.
+        job_id: Job primary key (used for log messages).
+
+    Returns:
+        ``True`` if generation and persistence succeeded; ``False`` if the job
+        was transitioned to ``FAILED`` and the caller should return early.
+    """
+    # ------------------------------------------------------------------
+    # Step 8: Generate synthetic data
+    # ------------------------------------------------------------------
+    try:
+        synthetic_df = engine.generate(last_artifact, n_rows=job.num_rows)
+    except RuntimeError as exc:
+        _logger.error(
+            "Job %d: RuntimeError during generation: %s",
+            job_id,
+            exc,
+        )
+        job.status = "FAILED"
+        # F4 fix: sanitize error_msg — do not expose raw exception details in
+        # the API response.  Full exception is logged above for diagnostics.
+        job.error_msg = _GENERATION_FAILED_MSG
+        session.add(job)
+        session.commit()
+        return False
+
+    # ------------------------------------------------------------------
+    # Step 9: Persist Parquet output (with optional HMAC signing)
+    # ------------------------------------------------------------------
+    parquet_out = str(Path(effective_checkpoint_dir) / f"job_{job_id}_synthetic.parquet")
+    # F1 fix: wrap _write_parquet_with_signing in a try/except so that
+    # OSError or ValueError from Parquet write or HMAC signing transitions
+    # the job to FAILED instead of leaving it permanently in GENERATING.
+    try:
+        _write_parquet_with_signing(synthetic_df, parquet_out)
+    except (OSError, ValueError) as exc:
+        _logger.error(
+            "Job %d: Failed to write Parquet artifact: %s",
+            job_id,
+            exc,
+        )
+        job.status = "FAILED"
+        # F4 fix: sanitize error_msg for the same reason as RuntimeError above.
+        job.error_msg = _GENERATION_FAILED_MSG
+        session.add(job)
+        session.commit()
+        return False
+
+    job.output_path = parquet_out
+    _logger.info(
+        "Job %d: synthetic Parquet written → %s",
+        job_id,
+        Path(parquet_out).name,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 10: GENERATING → COMPLETE
+    # ------------------------------------------------------------------
+    job.status = "COMPLETE"
+    session.add(job)
+    session.commit()
+
+    _logger.info(
+        "Job %d: COMPLETE (table=%s, output=%s).",
+        job_id,
+        job.table_name,
+        Path(parquet_out).name,
+    )
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -353,18 +588,20 @@ def _run_synthesis_job_impl(
     6. If ``_spend_budget_fn`` is registered and ``job.actual_epsilon`` is set:
        call ``_spend_budget_fn(amount, job_id, ledger_id=1)`` to deduct
        epsilon from the global ``PrivacyLedger``.  On ``BudgetExhaustionError``
-       (detected via exception class name duck-typing): set ``FAILED``,
-       ``error_msg="Privacy budget exhausted"``, commit, and return WITHOUT
-       persisting the artifact.  Emit a WORM audit event on success.
+       (detected via exception class name duck-typing, see ADR-0033): set
+       ``FAILED``, ``error_msg="Privacy budget exhausted"``, commit, and return
+       WITHOUT persisting the artifact.  Emit a WORM audit event on success.
        The audit call is placed OUTSIDE the ``BudgetExhaustion`` try/except
        so audit logger failures do not affect budget exhaustion detection.
     7. Save final artifact; set ``artifact_path``, ``current_epoch``.
     8. Set status → ``GENERATING``; commit.
     9. Call ``engine.generate(artifact, n_rows=job.num_rows)`` to produce
        synthetic DataFrame.  On ``RuntimeError``: set ``FAILED`` +
-       ``error_msg``, commit, return.
+       sanitized ``error_msg``, commit, return.
     10. Write Parquet to ``checkpoint_dir`` as ``job_{id}_synthetic.parquet``.
         If ``ARTIFACT_SIGNING_KEY`` env var is set, write HMAC-SHA256 sidecar.
+        On ``OSError`` or ``ValueError``: set ``FAILED`` + sanitized
+        ``error_msg``, commit, return.
         Set ``job.output_path``; set status → ``COMPLETE``; commit.
 
     Args:
@@ -504,87 +741,15 @@ def _run_synthesis_job_impl(
             session.commit()
 
         # ------------------------------------------------------------------
-        # 5. Record actual epsilon after successful DP training
+        # 5 + 5b. DP accounting and privacy budget spend
         # ------------------------------------------------------------------
         if dp_wrapper is not None:
-            try:
-                actual_eps = dp_wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
-                job.actual_epsilon = actual_eps
-                _logger.info(
-                    "Job %d: DP training complete, actual_epsilon=%.4f.",
-                    job_id,
-                    actual_eps,
-                )
-            except Exception:
-                _logger.exception(
-                    "Job %d: Failed to read epsilon_spent from DP wrapper.",
-                    job_id,
-                )
-                # Training succeeded but epsilon accounting failed.
-                # Continue to COMPLETE — the artifact is valid, actual_epsilon stays None.
-
-        # ------------------------------------------------------------------
-        # 5b. Spend privacy budget (P22-T22.3)
-        # ------------------------------------------------------------------
-        # Only deduct budget if DP was used AND epsilon was successfully read.
-        # If epsilon_spent() failed above, actual_epsilon is None and we skip
-        # the deduction — no measurable budget was spent from the system's view.
-        if (
-            _spend_budget_fn is not None
-            and dp_wrapper is not None
-            and job.actual_epsilon is not None
-        ):
-            budget_spent = False
-            try:
-                _spend_budget_fn(
-                    amount=job.actual_epsilon,
-                    job_id=job_id,
-                    ledger_id=_DEFAULT_LEDGER_ID,
-                    note=f"DP synthesis job {job_id}",
-                )
-                budget_spent = True
-                _logger.info(
-                    "Job %d: privacy budget deducted (epsilon=%.4f, ledger_id=%d).",
-                    job_id,
-                    job.actual_epsilon,
-                    _DEFAULT_LEDGER_ID,
-                )
-            except Exception as exc:
-                # Duck-typing: detect BudgetExhaustionError without importing from
-                # modules/privacy (import-linter enforced boundary).  Any exception
-                # whose class name contains "BudgetExhaustion" is treated as budget
-                # exhaustion.  All other exceptions are re-raised.
-                if "BudgetExhaustion" in type(exc).__name__:
-                    _logger.error("Job %d: Privacy budget exhausted — marking FAILED.", job_id)
-                    job.status = "FAILED"
-                    job.error_msg = "Privacy budget exhausted"
-                    session.add(job)
-                    session.commit()
-                    return
-                # Unknown exception — re-raise to surface the error.
-                raise
-
-            # WORM audit event — emitted OUTSIDE the BudgetExhaustion try/except
-            # so that an audit logger failure cannot corrupt the exception handler.
-            # The budget was successfully deducted; budget_spent is True here.
-            if budget_spent:
-                try:
-                    audit = get_audit_logger()
-                    audit.log_event(
-                        event_type="PRIVACY_BUDGET_SPEND",
-                        actor="system/huey-worker",
-                        resource=f"privacy_ledger/{_DEFAULT_LEDGER_ID}",
-                        action="spend_budget",
-                        details={
-                            "job_id": str(job_id),
-                            "epsilon_spent": str(job.actual_epsilon),
-                        },
-                    )
-                except Exception:
-                    _logger.exception("Job %d: Audit log failed after budget deduction.", job_id)
-                    # Budget was deducted successfully — continue to COMPLETE
-                    # even if audit logging fails.  The deduction is recorded in
-                    # the PrivacyTransaction table by spend_budget() itself.
+            _handle_dp_accounting(job=job, dp_wrapper=dp_wrapper, job_id=job_id)
+            # If budget was exhausted, status is now FAILED — commit and return.
+            if job.status == "FAILED":
+                session.add(job)
+                session.commit()
+                return
 
         # ------------------------------------------------------------------
         # 6. Guard: no artifact produced (total_epochs=0 edge case)
@@ -613,48 +778,15 @@ def _run_synthesis_job_impl(
         _logger.info("Job %d: status set to GENERATING.", job_id)
 
         # ------------------------------------------------------------------
-        # 8. Generate synthetic data
+        # Steps 8-10: Generate synthetic data, persist Parquet, → COMPLETE
         # ------------------------------------------------------------------
-        try:
-            synthetic_df = engine.generate(last_artifact, n_rows=job.num_rows)
-        except RuntimeError as exc:
-            _logger.error(
-                "Job %d: RuntimeError during generation: %s",
-                job_id,
-                exc,
-            )
-            job.status = "FAILED"
-            job.error_msg = str(exc)
-            session.add(job)
-            session.commit()
-            return
-
-        # ------------------------------------------------------------------
-        # 9. Persist Parquet output (with optional HMAC signing)
-        # ------------------------------------------------------------------
-        parquet_out = str(Path(effective_checkpoint_dir) / f"job_{job_id}_synthetic.parquet")
-        _write_parquet_with_signing(synthetic_df, parquet_out)
-        job.output_path = parquet_out
-
-        _logger.info(
-            "Job %d: synthetic Parquet written → %s",
-            job_id,
-            parquet_out,
-        )
-
-        # ------------------------------------------------------------------
-        # 10. GENERATING → COMPLETE
-        # ------------------------------------------------------------------
-        job.status = "COMPLETE"
-        session.add(job)
-        session.commit()
-
-        _logger.info(
-            "Job %d: COMPLETE (table=%s, artifact=%s, output=%s).",
-            job_id,
-            job.table_name,
-            last_ckpt_path,
-            parquet_out,
+        _generate_and_finalize(
+            job=job,
+            engine=engine,
+            last_artifact=last_artifact,
+            effective_checkpoint_dir=effective_checkpoint_dir,
+            session=session,
+            job_id=job_id,
         )
 
     finally:
