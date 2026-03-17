@@ -113,6 +113,18 @@ const failedJob: JobResponse = {
   checkpoint_every_n: 2,
 };
 
+const completeJob2: JobResponse = {
+  id: 5,
+  status: "COMPLETE",
+  current_epoch: 20,
+  total_epochs: 20,
+  table_name: "orders",
+  parquet_path: "/data/orders.parquet",
+  artifact_path: "/output/orders_synth.parquet",
+  error_msg: null,
+  checkpoint_every_n: 4,
+};
+
 /** Shared RFC 7807 error fixture. */
 const apiErrorFixture = {
   type: "about:blank",
@@ -1115,6 +1127,208 @@ describe("Dashboard — download button wiring (P23-T23.3)", () => {
         name: /download synthetic data for products/i,
       });
       expect(btn).not.toBeDisabled();
+    });
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Download — concurrent downloads (FINDING 5)
+// ---------------------------------------------------------------------------
+
+describe("Dashboard — concurrent downloads (FINDING 5)", () => {
+  it("both Download buttons show Downloading… when two downloads are in-flight", async () => {
+    const user = userEvent.setup();
+
+    // Both downloads never resolve — keeps both buttons in-flight
+    mockDownloadJob.mockReturnValue(new Promise(() => {}));
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob, completeJob2], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for orders/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for orders/i }),
+    );
+
+    await waitFor(() => {
+      const btn1 = screen.getByRole("button", {
+        name: /download synthetic data for products/i,
+      });
+      const btn2 = screen.getByRole("button", {
+        name: /download synthetic data for orders/i,
+      });
+      expect(btn1).toBeDisabled();
+      expect(btn1).toHaveTextContent("Downloading\u2026");
+      expect(btn2).toBeDisabled();
+      expect(btn2).toHaveTextContent("Downloading\u2026");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Download — aria-live announcements (FINDING 2)
+// ---------------------------------------------------------------------------
+
+describe("Dashboard — download aria-live announcements (FINDING 2)", () => {
+  it("announces download start in aria-live polite region", async () => {
+    const user = userEvent.setup();
+
+    // Never resolves — keeps the download in-flight so we can check the start announcement
+    mockDownloadJob.mockReturnValue(new Promise(() => {}));
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+
+    await waitFor(() => {
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      expect(liveRegion?.textContent).toMatch(/downloading.*products/i);
+    });
+  });
+
+  it("announces download complete in aria-live polite region", async () => {
+    const user = userEvent.setup();
+
+    const blob = new Blob(["data"], { type: "application/octet-stream" });
+    mockDownloadJob.mockResolvedValue({
+      ok: true,
+      blob,
+      filename: "products_synth.parquet",
+    });
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+
+    await waitFor(() => {
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      expect(liveRegion?.textContent).toMatch(/download complete.*products_synth/i);
+    });
+  });
+
+  it("announces download failure in aria-live polite region", async () => {
+    const user = userEvent.setup();
+
+    mockDownloadJob.mockResolvedValue({
+      ok: false,
+      error: {
+        type: "about:blank",
+        title: "Not Found",
+        status: 404,
+        detail: "Artifact not found.",
+      },
+    });
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: /download synthetic data for products/i }),
+    );
+
+    await waitFor(() => {
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      expect(liveRegion?.textContent).toMatch(/download failed/i);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Download — focus restoration after error toast dismiss (FINDING 3)
+// ---------------------------------------------------------------------------
+
+describe("Dashboard — focus restoration after error toast dismiss (FINDING 3)", () => {
+  it("restores focus to the Download button after error toast is dismissed", async () => {
+    const user = userEvent.setup();
+
+    mockDownloadJob.mockResolvedValue({
+      ok: false,
+      error: {
+        type: "about:blank",
+        title: "Not Found",
+        status: 404,
+        detail: "Artifact not found.",
+      },
+    });
+    mockGetJobs.mockResolvedValue({
+      ok: true,
+      data: { items: [completeJob], next_cursor: null },
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /download synthetic data for products/i }),
+      ).toBeInTheDocument();
+    });
+
+    // Click the download button so it becomes the error trigger
+    const downloadBtn = screen.getByRole("button", {
+      name: /download synthetic data for products/i,
+    });
+    await user.click(downloadBtn);
+
+    // Wait for error toast to appear
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    // Dismiss the toast
+    const dismissBtn = screen.getByRole("button", { name: /dismiss/i });
+    await user.click(dismissBtn);
+
+    // After dismiss, focus should be restored to the download button
+    await waitFor(() => {
+      expect(downloadBtn).toHaveFocus();
     });
   });
 });

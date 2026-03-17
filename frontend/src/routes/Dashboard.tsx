@@ -36,6 +36,12 @@
  * P23-T23.3: Download button wired via handleDownload. A browser anchor trick
  * (create <a>, set href to an object URL, programmatically click, revoke) is
  * used so the file download works without navigating away from the page.
+ *
+ * Review fixes (T23.3 review commit):
+ *   - FINDING 2: aria-live announcements on download start/complete/failure.
+ *   - FINDING 3: focus restored to Download button after error toast dismiss.
+ *   - FINDING 5: downloadingJobIds uses Set<number> to support concurrent
+ *     downloads without state corruption.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -106,12 +112,17 @@ export default function Dashboard(): JSX.Element {
   // Starting state per-job (only one can start at a time in practice)
   const [startingJobId, setStartingJobId] = useState<number | null>(null);
 
-  // Downloading state per-job
-  const [downloadingJobId, setDownloadingJobId] = useState<number | null>(null);
+  // Downloading state — Set<number> to support concurrent downloads without
+  // state corruption (FINDING 5 — QA review).
+  const [downloadingJobIds, setDownloadingJobIds] = useState<Set<number>>(new Set());
 
   // RFC 7807 toast for API errors
   const [apiError, setApiError] = useState<ProblemDetail | null>(null);
   const [errorVisible, setErrorVisible] = useState(false);
+
+  // Ref to the element that triggered the last error, so focus can be
+  // restored when the toast is dismissed (FINDING 3 — UI/UX review).
+  const errorTriggerRef = useRef<Element | null>(null);
 
   // Create Job form
   const [form, setForm] = useState<CreateJobFormState>(EMPTY_FORM);
@@ -237,6 +248,7 @@ export default function Dashboard(): JSX.Element {
       localStorage.setItem(LOCAL_STORAGE_KEY, String(jobId));
       setActiveJobId(jobId);
     } else {
+      errorTriggerRef.current = document.activeElement;
       setApiError(result.error);
       setErrorVisible(true);
     }
@@ -247,21 +259,45 @@ export default function Dashboard(): JSX.Element {
    *
    * Uses the anchor-click pattern to initiate a file download without leaving
    * the page:
-   *   1. Fetch the blob from GET /jobs/{id}/download.
-   *   2. Create an object URL for the blob.
-   *   3. Create a temporary <a> element, set its href and download attributes,
+   *   1. Announce download start to screen readers (FINDING 2).
+   *   2. Fetch the blob from GET /jobs/{id}/download.
+   *   3. Create an object URL for the blob.
+   *   4. Create a temporary <a> element, set its href and download attributes,
    *      click it programmatically, then revoke the object URL to release memory.
    *
-   * On failure the RFC 7807 error toast is shown (AC4).
+   * On failure the RFC 7807 error toast is shown (AC4). Focus is captured
+   * before the call so it can be restored when the toast is dismissed
+   * (FINDING 3).
    *
    * @param jobId - The numeric ID of the COMPLETE job to download.
    */
   const handleDownload = async (jobId: number): Promise<void> => {
-    setDownloadingJobId(jobId);
+    // Capture focus target for restoration on error dismiss (FINDING 3)
+    errorTriggerRef.current = document.activeElement;
+
+    // Look up table_name for the announcement (FINDING 2)
+    const job = jobs.find((j) => j.id === jobId);
+    const jobTableName = job?.table_name ?? String(jobId);
+
+    // Announce download start to screen readers (FINDING 2)
+    const startText = `Downloading synthetic data for ${jobTableName}...`;
+    announcementRef.current = startText;
+    setAnnouncement(startText);
+
+    setDownloadingJobIds((prev) => new Set(prev).add(jobId));
     const result = await downloadJob(jobId);
-    setDownloadingJobId(null);
+    setDownloadingJobIds((prev) => {
+      const next = new Set(prev);
+      next.delete(jobId);
+      return next;
+    });
 
     if (result.ok) {
+      // Announce success (FINDING 2)
+      const completeText = `Download complete for ${result.filename}`;
+      announcementRef.current = completeText;
+      setAnnouncement(completeText);
+
       const objectUrl = URL.createObjectURL(result.blob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
@@ -271,9 +307,30 @@ export default function Dashboard(): JSX.Element {
       document.body.removeChild(anchor);
       URL.revokeObjectURL(objectUrl);
     } else {
+      // Announce failure (FINDING 2)
+      const failText = "Download failed";
+      announcementRef.current = failText;
+      setAnnouncement(failText);
+
       setApiError(result.error);
       setErrorVisible(true);
     }
+  };
+
+  /**
+   * Dismiss the error toast and restore focus to the element that triggered
+   * the error (FINDING 3 — UI/UX review).
+   */
+  const handleErrorDismiss = (): void => {
+    setErrorVisible(false);
+    const target = errorTriggerRef.current;
+    if (target instanceof HTMLElement) {
+      // Defer by a tick so the toast has hidden before focus moves
+      setTimeout(() => {
+        target.focus();
+      }, 0);
+    }
+    errorTriggerRef.current = null;
   };
 
   const handleFormChange = (
@@ -320,6 +377,7 @@ export default function Dashboard(): JSX.Element {
       setForm(EMPTY_FORM);
       await loadJobs();
     } else {
+      errorTriggerRef.current = document.activeElement;
       setApiError(result.error);
       setErrorVisible(true);
     }
@@ -339,7 +397,7 @@ export default function Dashboard(): JSX.Element {
       <RFC7807Toast
         problem={apiError}
         visible={errorVisible}
-        onDismiss={() => setErrorVisible(false)}
+        onDismiss={handleErrorDismiss}
       />
 
       {/* Assertive announcement for API errors — interrupts screen readers for
@@ -531,7 +589,7 @@ export default function Dashboard(): JSX.Element {
                   onStart={(id) => void handleStart(id)}
                   isStarting={startingJobId === job.id}
                   onDownload={(id) => void handleDownload(id)}
-                  isDownloading={downloadingJobId === job.id}
+                  isDownloading={downloadingJobIds.has(job.id)}
                 />
               ))}
             </div>

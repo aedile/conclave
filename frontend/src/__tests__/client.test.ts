@@ -40,18 +40,21 @@ function mockResponse(
  * @param status - HTTP status code.
  * @param blobContent - The blob to return.
  * @param headers - Optional response headers.
+ * @param ok - Override for the `ok` flag (default: status 200-299).
+ * @param jsonBody - Optional JSON body for error responses.
  */
 function mockBlobResponse(
   status: number,
   blobContent: Blob,
   headers: Record<string, string> = {},
   ok: boolean = status >= 200 && status < 300,
+  jsonBody: unknown = {},
 ): Response {
   return {
     ok,
     status,
     blob: () => Promise.resolve(blobContent),
-    json: () => Promise.resolve({}),
+    json: () => Promise.resolve(jsonBody),
     headers: new Headers(headers),
   } as unknown as Response;
 }
@@ -501,14 +504,84 @@ describe("downloadJob", () => {
     }
   });
 
-  it("returns { ok: false, error } on HTTP 404", async () => {
+  it("returns { ok: false, error } on HTTP 404 with RFC 7807 body", async () => {
+    // FINDING 6 (QA): Strengthen 404 assertion to verify error content,
+    // not just ok === false.
+    const error404 = {
+      type: "about:blank",
+      title: "Not Found",
+      status: 404,
+      detail: "Job not found.",
+    };
     mockFetch.mockResolvedValue(
-      mockBlobResponse(404, new Blob(), {}, false),
+      mockBlobResponse(404, new Blob(), {}, false, error404),
     );
 
     const result = await downloadJob(999);
 
     expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.status).toBe(404);
+      expect(typeof result.error.title).toBe("string");
+      expect(result.error.title).toBe("Not Found");
+      expect(result.error.detail).toBe("Job not found.");
+    }
+  });
+
+  it("returns Download Error when blob() rejects after HTTP 200", async () => {
+    // FINDING 4 (QA): blob() can reject if the connection drops mid-stream
+    // after HTTP 200 is received. The button must not stay permanently disabled.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: () => Promise.reject(new Error("Connection reset")),
+      headers: new Headers(),
+    } as unknown as Response);
+
+    const result = await downloadJob(7);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.title).toBe("Download Error");
+      expect(result.error.detail).toContain("Connection lost");
+    }
+  });
+
+  it("parses filename from RFC 5987 filename* header", async () => {
+    // ADVISORY 1 (DevOps): Happy-path test for RFC 5987 encoded filenames.
+    const blob = new Blob(["binary"], { type: "application/octet-stream" });
+    mockFetch.mockResolvedValue(
+      mockBlobResponse(200, blob, {
+        "content-disposition": "attachment; filename*=UTF-8''reports%20synth.parquet",
+      }),
+    );
+
+    const result = await downloadJob(5);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.filename).toBe("reports synth.parquet");
+    }
+  });
+
+  it("strips path separators from server-supplied filename (FINDING 1)", async () => {
+    // FINDING 1 (DevOps): Path separators must be stripped to prevent
+    // path traversal when assigning to anchor.download.
+    const blob = new Blob(["binary"], { type: "application/octet-stream" });
+    mockFetch.mockResolvedValue(
+      mockBlobResponse(200, blob, {
+        "content-disposition": 'attachment; filename="../../etc/passwd"',
+      }),
+    );
+
+    const result = await downloadJob(6);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.filename).not.toContain("/");
+      expect(result.filename).not.toContain("\\");
+      expect(result.filename).toBe(".._.._etc_passwd");
+    }
   });
 
   it("returns network error when fetch throws", async () => {

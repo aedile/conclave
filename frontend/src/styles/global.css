@@ -399,7 +399,13 @@ body {
 }
 
 .job-card__download-btn:disabled {
-  opacity: 0.6;
+  /* ADVISORY 2 (UI/UX): Do not use opacity for disabled state — use explicit
+   * composited colors to guarantee WCAG 1.4.3 contrast is measurable.
+   * #81d1b3 = --color-success (#34d399) composited at 60% over --color-surface (#1a1d27).
+   * #6b7280 = gray-500; disabled components are exempt from 4.5:1 per WCAG 1.4.3
+   * but explicit colors are auditable, unlike opacity-based compositing. */
+  background-color: #81d1b3;
+  color: #6b7280;
   cursor: not-allowed;
 }
 
