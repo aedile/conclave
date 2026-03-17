@@ -20,6 +20,34 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] Phase 23 — Synthesis Job Lifecycle Completion
+
+**Tasks**: T23.1 (generation step), T23.2 (download endpoint), T23.3 (frontend download button), T23.4 (cryptographic erasure)
+
+**Phase exit audit (Rule 4)**:
+- T23.1 AC: Generation step wired into Huey task, GENERATING status, Parquet output with HMAC sidecar — PASS
+- T23.2 AC: GET /jobs/{id}/download streaming endpoint, incremental HMAC verification, Content-Disposition header — PASS
+- T23.3 AC: Download button on COMPLETE cards, disabled during download, error toast, WCAG 2.1 AA — PASS
+- T23.4 AC: POST /jobs/{id}/shred, SHREDDED lifecycle state, NIST 800-88 Clear, WORM audit event — PASS
+- Integration tests present for T23.2 and T23.4 (separate gate): PASS
+- All integration requirements wired in bootstrapper: PASS
+
+**Review findings across phase**: 23 FINDINGs + 2 ADVISORYs across 4 tasks, all fixed inline. 0 open advisories.
+
+**What went well**:
+1. All review findings resolved inline — zero deferrals, zero open advisories at phase close.
+2. Parallel execution of T23.2 + T23.4 saved time while maintaining isolation (after fixing workspace contamination).
+3. UI/UX reviewer caught async button a11y gaps invisible to axe-core — valuable pattern for future briefs.
+
+**What to improve**:
+1. Workspace contamination between T23.2 and T23.4 required cherry-pick cleanup — use worktree isolation for parallel developer agents.
+2. Async button interaction contract needs standard ACs: aria-live announcement on start/end, focus restoration after toast dismiss.
+3. "Documented but untested invariants" pattern recurred (T23.4) — developer briefs should mandate: for every defensive comment, add a matching test.
+
+**README marketing pass**: PR #116 merged (docs-only, README rewrite to capabilities-first structure).
+
+---
+
 ### [2026-03-17] T23.3 — Frontend Download Button
 
 **Review agents**: QA (FINDING), DevOps (FINDING), UI/UX (FINDING)
