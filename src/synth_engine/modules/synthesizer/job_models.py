@@ -112,6 +112,8 @@ class SynthesisJob(SQLModel, table=True):
     max_grad_norm: float = Field(default=_DEFAULT_MAX_GRAD_NORM)
     actual_epsilon: float | None = Field(default=None)
 
+    # Defense-in-depth: these guards duplicate the Pydantic Field constraints in
+    # bootstrapper/schemas/jobs.py.  Both must be updated together.
     def __init__(self, **data: Any) -> None:
         """Initialise SynthesisJob, enforcing field constraints.
 

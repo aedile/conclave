@@ -35,6 +35,8 @@ class JobCreateRequest(BaseModel):
     parquet_path: str = Field(..., description="Path to training Parquet file.")
     total_epochs: int = Field(..., gt=0, description="Total training epochs.")
     checkpoint_every_n: int = Field(default=5, ge=1, description="Epochs between checkpoints.")
+    # Defense-in-depth: these Field constraints are duplicated as __init__ guards
+    # in modules/synthesizer/job_models.py.  Both must be updated together.
     enable_dp: bool = Field(default=True, description="Enable DP-SGD training.")
     noise_multiplier: float = Field(
         default=1.1,
