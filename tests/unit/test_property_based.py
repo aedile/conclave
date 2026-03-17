@@ -612,3 +612,162 @@ def test_profile_compare_self_has_zero_numeric_drift(
         assert abs(score_delta.stddev_drift) < 1e-9, (
             f"Self-comparison stddev_drift should be ~0.0, got {score_delta.stddev_drift}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Section 6 — _row_count_bucket properties (P26-T26.6)
+# ---------------------------------------------------------------------------
+
+_FAST_SETTINGS = settings(max_examples=50, deadline=None)
+
+_VALID_BUCKET_LABELS: frozenset[str] = frozenset({"1-100", "101-1000", "1001-10000", "10001+"})
+_BUCKET_ORDER: tuple[str, ...] = ("1-100", "101-1000", "1001-10000", "10001+")
+
+
+@_FAST_SETTINGS
+@given(n=st.integers(min_value=0, max_value=100_000))
+def test_row_count_bucket_always_returns_valid_label(n: int) -> None:
+    """_row_count_bucket always returns one of the four defined bucket labels.
+
+    The property holds for any non-negative integer: the function must never
+    produce an unrecognised label or raise an exception.
+
+    Args:
+        n: Arbitrary non-negative row count.
+    """
+    from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+    result = _row_count_bucket(n)
+    assert result in _VALID_BUCKET_LABELS, (
+        f"_row_count_bucket({n}) returned unexpected label {result!r}. "
+        f"Expected one of {sorted(_VALID_BUCKET_LABELS)}"
+    )
+
+
+@_FAST_SETTINGS
+@given(
+    a=st.integers(min_value=0, max_value=100_000),
+    b=st.integers(min_value=0, max_value=100_000),
+)
+def test_row_count_bucket_monotonic_ordering(a: int, b: int) -> None:
+    """Bucket labels are monotonically ordered: bucket(a) <= bucket(b) when a <= b.
+
+    If a <= b then the bucket index of a must not exceed the bucket index of b.
+    This verifies that the bucketing function is order-preserving — a larger
+    row count is never placed in a lower-index bucket than a smaller count.
+
+    Args:
+        a: First non-negative row count.
+        b: Second non-negative row count.
+    """
+    from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+    lo, hi = (a, b) if a <= b else (b, a)
+    bucket_lo = _BUCKET_ORDER.index(_row_count_bucket(lo))
+    bucket_hi = _BUCKET_ORDER.index(_row_count_bucket(hi))
+    assert bucket_lo <= bucket_hi, (
+        f"Monotonicity violated: _row_count_bucket({lo}) index={bucket_lo} "
+        f"> _row_count_bucket({hi}) index={bucket_hi}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 7 — apply_fk_post_processing properties (P26-T26.6)
+# ---------------------------------------------------------------------------
+
+_parent_pks_strategy = st.frozensets(
+    st.integers(min_value=1, max_value=100), min_size=1, max_size=20
+)
+_child_fk_strategy = st.lists(st.integers(min_value=1, max_value=200), min_size=1, max_size=50)
+
+
+@_FAST_SETTINGS
+@given(parent_pks=_parent_pks_strategy, fk_values=_child_fk_strategy)
+def test_apply_fk_post_processing_no_orphans_remain(
+    parent_pks: frozenset[int], fk_values: list[int]
+) -> None:
+    """After apply_fk_post_processing all FK values are in valid_parent_pks.
+
+    The post-processing step must leave no orphan FK references — every
+    value in the FK column must be a member of valid_parent_pks.
+
+    Args:
+        parent_pks: Non-empty set of valid parent PKs.
+        fk_values: FK values in the child table (may include orphans).
+    """
+    import pandas as pd
+
+    from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+
+    child_df = pd.DataFrame({"parent_id": fk_values})
+    result = apply_fk_post_processing(
+        child_df=child_df,
+        fk_column="parent_id",
+        valid_parent_pks=set(parent_pks),
+        rng_seed=42,
+    )
+
+    orphans = set(result["parent_id"]) - set(parent_pks)
+    assert not orphans, (
+        f"Found orphan FK values after post-processing: {orphans}. "
+        f"All FK values must belong to valid_parent_pks={sorted(parent_pks)}"
+    )
+
+
+@_FAST_SETTINGS
+@given(parent_pks=_parent_pks_strategy, fk_values=_child_fk_strategy)
+def test_apply_fk_post_processing_preserves_row_count(
+    parent_pks: frozenset[int], fk_values: list[int]
+) -> None:
+    """apply_fk_post_processing never changes the number of rows in the child table.
+
+    The post-processing replaces orphan values in-place — it must not drop
+    or duplicate rows. Row count is invariant regardless of orphan prevalence.
+
+    Args:
+        parent_pks: Non-empty set of valid parent PKs.
+        fk_values: FK values in the child table.
+    """
+    import pandas as pd
+
+    from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+
+    child_df = pd.DataFrame({"parent_id": fk_values})
+    result = apply_fk_post_processing(
+        child_df=child_df,
+        fk_column="parent_id",
+        valid_parent_pks=set(parent_pks),
+        rng_seed=0,
+    )
+
+    assert len(result) == len(child_df), (
+        f"Row count changed: {len(child_df)} -> {len(result)}. "
+        "apply_fk_post_processing must preserve the number of rows."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 8 — deterministic_hash non-negative property (P26-T26.6)
+# ---------------------------------------------------------------------------
+
+
+@_FAST_SETTINGS
+@given(
+    value=st.text(min_size=0, max_size=128),
+    salt=_salt,
+)
+def test_deterministic_hash_is_non_negative(value: str, salt: str) -> None:
+    """deterministic_hash always returns a non-negative integer.
+
+    The deterministic hash is used as a seed for FK value sampling and
+    must never produce a negative value (which would be an invalid seed
+    for NumPy's default_rng).
+
+    Args:
+        value: The string to hash (may be empty or any printable text).
+        salt: Salt following the "table.column" convention.
+    """
+    result = deterministic_hash(value, salt)
+    assert result >= 0, (
+        f"deterministic_hash({value!r}, {salt!r}) returned {result}, expected non-negative integer"
+    )
