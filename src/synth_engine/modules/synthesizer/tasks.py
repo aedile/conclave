@@ -384,13 +384,21 @@ def _run_synthesis_job_impl(
     # 5. Record actual epsilon after successful DP training
     # ------------------------------------------------------------------
     if dp_wrapper is not None:
-        actual_eps = dp_wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
-        job.actual_epsilon = actual_eps
-        _logger.info(
-            "Job %d: DP training complete, actual_epsilon=%.4f.",
-            job_id,
-            actual_eps,
-        )
+        try:
+            actual_eps = dp_wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
+            job.actual_epsilon = actual_eps
+            _logger.info(
+                "Job %d: DP training complete, actual_epsilon=%.4f.",
+                job_id,
+                actual_eps,
+            )
+        except Exception:
+            _logger.exception(
+                "Job %d: Failed to read epsilon_spent from DP wrapper.",
+                job_id,
+            )
+            # Training succeeded but epsilon accounting failed.
+            # Continue to COMPLETE — the artifact is valid, actual_epsilon stays None.
 
     # ------------------------------------------------------------------
     # 6. TRAINING → COMPLETE

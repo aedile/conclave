@@ -922,6 +922,7 @@ class TestDPWiringInImpl:
             )
 
         assert job.actual_epsilon == 3.14, f"Expected actual_epsilon=3.14; got {job.actual_epsilon}"
+        dp_wrapper.epsilon_spent.assert_called_once_with(delta=1e-5)
 
     def test_actual_epsilon_is_none_when_dp_disabled(self) -> None:
         """job.actual_epsilon must remain None when no dp_wrapper is provided.
@@ -955,6 +956,48 @@ class TestDPWiringInImpl:
 
         assert job.actual_epsilon is None, (
             f"Expected actual_epsilon=None on non-DP job; got {job.actual_epsilon}"
+        )
+
+    def test_epsilon_spent_exception_does_not_block_completion(self) -> None:
+        """RuntimeError from epsilon_spent() must not prevent job from reaching COMPLETE.
+
+        Training succeeded; only the epsilon accounting step failed.  The job
+        artifact is valid, so the lifecycle must continue to COMPLETE with
+        actual_epsilon left as None.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=14,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            actual_epsilon=None,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        dp_wrapper = MagicMock()
+        dp_wrapper.epsilon_spent.side_effect = RuntimeError("Opacus error")
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=14,
+                session=mock_session,
+                engine=mock_engine,
+                dp_wrapper=dp_wrapper,
+            )
+
+        assert job.status == "COMPLETE", (
+            f"Expected status=COMPLETE after epsilon_spent() failure; got {job.status}"
+        )
+        assert job.actual_epsilon is None, (
+            f"Expected actual_epsilon=None when epsilon_spent() raises; got {job.actual_epsilon}"
         )
 
 
