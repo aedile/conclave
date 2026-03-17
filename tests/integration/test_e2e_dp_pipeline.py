@@ -334,6 +334,7 @@ class TestDPPipelineE2EOrchestration:
             job = SynthesisJob(
                 status="QUEUED",
                 total_epochs=2,
+                num_rows=100,
                 checkpoint_every_n=2,
                 table_name="persons",
                 parquet_path=persons_parquet,
@@ -386,6 +387,7 @@ class TestDPPipelineE2EOrchestration:
             job = SynthesisJob(
                 status="QUEUED",
                 total_epochs=2,
+                num_rows=100,
                 checkpoint_every_n=2,
                 table_name="persons",
                 parquet_path=persons_parquet,
@@ -456,6 +458,7 @@ class TestDPPipelineE2EOrchestration:
                 job = SynthesisJob(
                     status="QUEUED",
                     total_epochs=2,
+                    num_rows=100,
                     checkpoint_every_n=2,
                     table_name="persons",
                     parquet_path=persons_parquet,
@@ -529,6 +532,7 @@ class TestDPPipelineE2EOrchestration:
                 job = SynthesisJob(
                     status="QUEUED",
                     total_epochs=2,
+                    num_rows=100,
                     checkpoint_every_n=2,
                     table_name="persons",
                     parquet_path=persons_parquet,
@@ -620,6 +624,7 @@ class TestDPPipelineBudgetExhaustion:
                 job = SynthesisJob(
                     status="QUEUED",
                     total_epochs=2,
+                    num_rows=100,
                     checkpoint_every_n=2,
                     table_name="persons",
                     parquet_path=persons_parquet,
@@ -703,6 +708,7 @@ class TestDPPipelineBudgetExhaustion:
                 job = SynthesisJob(
                     status="QUEUED",
                     total_epochs=2,
+                    num_rows=100,
                     checkpoint_every_n=2,
                     table_name="persons",
                     parquet_path=persons_parquet,
@@ -814,6 +820,7 @@ class TestDPPipelineBudgetRefreshResume:
                 job1 = SynthesisJob(
                     status="QUEUED",
                     total_epochs=2,
+                    num_rows=100,
                     checkpoint_every_n=2,
                     table_name="persons",
                     parquet_path=persons_parquet,
@@ -872,6 +879,7 @@ class TestDPPipelineBudgetRefreshResume:
                 job2 = SynthesisJob(
                     status="QUEUED",
                     total_epochs=2,
+                    num_rows=100,
                     checkpoint_every_n=2,
                     table_name="persons",
                     parquet_path=persons_parquet,
@@ -964,6 +972,7 @@ class TestDPWrapperEpsilonAfterOrchestration:
                 job = SynthesisJob(
                     status="QUEUED",
                     total_epochs=2,
+                    num_rows=100,
                     checkpoint_every_n=2,
                     table_name="persons",
                     parquet_path=persons_parquet,

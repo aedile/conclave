@@ -43,7 +43,9 @@ def _make_synthesis_job(**kwargs: Any) -> Any:
         "status": "QUEUED",
         "current_epoch": 0,
         "total_epochs": 10,
+        "num_rows": 100,
         "artifact_path": None,
+        "output_path": None,
         "error_msg": None,
         "table_name": "persons",
         "parquet_path": "/data/persons.parquet",
@@ -1791,9 +1793,7 @@ class TestGeneratingStatusTransition:
 
         assert "GENERATING" in recorded_statuses, "GENERATING status not found"
         assert "COMPLETE" in recorded_statuses, "COMPLETE status not found"
-        idx_generating = max(
-            i for i, s in enumerate(recorded_statuses) if s == "GENERATING"
-        )
+        idx_generating = max(i for i, s in enumerate(recorded_statuses) if s == "GENERATING")
         idx_complete = max(i for i, s in enumerate(recorded_statuses) if s == "COMPLETE")
         assert idx_generating < idx_complete, (
             f"GENERATING must precede COMPLETE; got transitions: {recorded_statuses}"
@@ -1806,7 +1806,7 @@ class TestGeneratingStatusTransition:
 
 
 class TestGenerationStep:
-    """After training, task must call engine.generate(), save Parquet, and set output_path (AC1-4)."""
+    """After training: engine.generate() called, Parquet saved, output_path set (AC1-4)."""
 
     def test_engine_generate_called_with_num_rows(self) -> None:
         """engine.generate() must be called with n_rows=job.num_rows after training.
@@ -1844,10 +1844,12 @@ class TestGenerationStep:
         mock_engine.generate.assert_called_once()
         call_args = mock_engine.generate.call_args
         # First positional arg is the artifact; second kwarg is n_rows.
-        assert call_args.args[0] is mock_artifact or call_args.kwargs.get("artifact") is mock_artifact, (
-            f"engine.generate() must receive the trained artifact; got {call_args}"
+        assert (
+            call_args.args[0] is mock_artifact or call_args.kwargs.get("artifact") is mock_artifact
+        ), f"engine.generate() must receive the trained artifact; got {call_args}"
+        n_rows_actual = (
+            call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("n_rows")
         )
-        n_rows_actual = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("n_rows")
         assert n_rows_actual == 42, (
             f"engine.generate() must be called with n_rows=42; got n_rows={n_rows_actual}"
         )
@@ -2081,13 +2083,14 @@ class TestParquetHMACSigning:
                 checkpoint_dir=tmpdir,
             )
 
-        # File must exist and be a readable Parquet.
-        assert job.output_path is not None
-        df_loaded = pd.read_parquet(job.output_path)
-        assert len(df_loaded) == 4
+            # File must exist and be a readable Parquet — assertions inside the
+            # with block so the tmpdir has not yet been cleaned up.
+            assert job.output_path is not None
+            df_loaded = pd.read_parquet(job.output_path)
+            assert len(df_loaded) == 4
 
     def test_parquet_sidecar_sig_file_written_when_signing_key_set(self) -> None:
-        """When ARTIFACT_SIGNING_KEY is set, a .sig sidecar file must be written alongside the Parquet.
+        """When ARTIFACT_SIGNING_KEY is set, a .sig sidecar must be written alongside the Parquet.
 
         The sidecar file path is output_path + '.sig'.
         The .sig file must contain a 32-byte HMAC-SHA256 digest.
@@ -2127,15 +2130,14 @@ class TestParquetHMACSigning:
                 checkpoint_dir=tmpdir,
             )
 
-        assert job.output_path is not None, "output_path must be set"
-        sig_path = job.output_path + ".sig"
-        assert Path(sig_path).exists(), (
-            f"Sidecar .sig file must exist at {sig_path!r}"
-        )
-        sig_bytes = Path(sig_path).read_bytes()
-        assert len(sig_bytes) == HMAC_DIGEST_SIZE, (
-            f"Signature must be {HMAC_DIGEST_SIZE} bytes; got {len(sig_bytes)}"
-        )
+            # Assertions inside the with block so tmpdir persists during checks.
+            assert job.output_path is not None, "output_path must be set"
+            sig_path = job.output_path + ".sig"
+            assert Path(sig_path).exists(), f"Sidecar .sig file must exist at {sig_path!r}"
+            sig_bytes = Path(sig_path).read_bytes()
+            assert len(sig_bytes) == HMAC_DIGEST_SIZE, (
+                f"Signature must be {HMAC_DIGEST_SIZE} bytes; got {len(sig_bytes)}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -2162,8 +2164,7 @@ class TestMigration006:
         """Migration 006 file must exist in alembic/versions/."""
         path = _find_migration_006()
         assert path is not None, (
-            "Migration 006 not found in alembic/versions/. "
-            "Expected a file matching '006*.py'."
+            "Migration 006 not found in alembic/versions/. Expected a file matching '006*.py'."
         )
 
     def test_migration_006_revision_is_006(self) -> None:

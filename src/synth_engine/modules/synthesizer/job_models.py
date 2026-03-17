@@ -8,8 +8,8 @@ frontend operator UI.
 
 Status lifecycle::
 
-    QUEUED → TRAINING → COMPLETE
-                      ↘ FAILED  (OOM guardrail rejection or RuntimeError)
+    QUEUED → TRAINING → GENERATING → COMPLETE
+                                   ↘ FAILED  (OOM, RuntimeError, BudgetExhaustion)
 
 Checkpointing design:
 
@@ -26,6 +26,13 @@ Differential Privacy parameters (P22-T22.1):
     privacy-maximising values (OWASP A04).  ``actual_epsilon`` is written by
     the training task after completion (T22.2).
 
+Generation parameters (P23-T23.1):
+
+    ``num_rows`` controls how many synthetic rows are generated after training.
+    ``output_path`` records the filesystem path to the generated Parquet file
+    (written after training completes).  ``artifact_path`` continues to point
+    to the final model pickle checkpoint (backward-compatible, Option B).
+
 Boundary constraints (import-linter enforced):
     - Must NOT import from ``modules/ingestion/``, ``modules/masking/``,
       ``modules/subsetting/``, ``modules/profiler/``, or ``modules/privacy/``.
@@ -33,6 +40,7 @@ Boundary constraints (import-linter enforced):
 
 Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 Task: P22-T22.1 — Job Schema DP Parameters
+Task: P23-T23.1 — Generation Step in Huey Task
 """
 
 from __future__ import annotations
@@ -71,12 +79,17 @@ class SynthesisJob(SQLModel, table=True):
         id: Auto-incremented integer primary key.  ``None`` before the record
             is inserted; assigned by the database on first flush.
         status: Job lifecycle status.  One of ``QUEUED``, ``TRAINING``,
-            ``COMPLETE``, or ``FAILED``.
+            ``GENERATING``, ``COMPLETE``, or ``FAILED``.
         current_epoch: Training epoch most recently completed.  Updated
             at each checkpoint boundary and on final completion.
         total_epochs: Total number of epochs requested for this job.
+        num_rows: Number of synthetic rows to generate after training.
+            Must be >= 1.  Required field (no default).
         artifact_path: Filesystem path to the final ``ModelArtifact`` pickle
             file.  ``None`` until the job reaches ``COMPLETE``.
+        output_path: Filesystem path to the generated synthetic Parquet file.
+            ``None`` until generation completes.  Distinct from
+            ``artifact_path`` (Option B: pickle vs Parquet separation).
         error_msg: Human-readable failure reason.  ``None`` on success; set to
             the OOM guardrail message or exception ``str`` on failure.
         table_name: Name of the database table being synthesised.
@@ -102,7 +115,9 @@ class SynthesisJob(SQLModel, table=True):
     status: str = Field(default="QUEUED")
     current_epoch: int = Field(default=0)
     total_epochs: int
+    num_rows: int
     artifact_path: str | None = Field(default=None)
+    output_path: str | None = Field(default=None)
     error_msg: str | None = Field(default=None)
     table_name: str
     parquet_path: str
