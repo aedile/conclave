@@ -325,8 +325,12 @@ describe("JobCard — Download button (P23-T23.3)", () => {
   it("AC3: disables Download button and shows Downloading… when isDownloading=true", () => {
     renderCard(completeJob, { isDownloading: true });
 
-    const button = screen.getByRole("button", { name: /downloading/i });
+    // The aria-label is static; find by it and assert disabled + visible text
+    const button = screen.getByRole("button", {
+      name: /download synthetic data for products/i,
+    });
     expect(button).toBeDisabled();
+    expect(button).toHaveTextContent("Downloading…");
   });
 
   it("AC5: Download button has aria-label containing the job table_name", () => {

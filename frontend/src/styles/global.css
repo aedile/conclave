@@ -25,6 +25,7 @@
   --color-error: #f87171;          /* red-400, contrast: ~4.8:1 on bg */
   --color-warning: #fbbf24;        /* amber-400 */
   --color-success: #34d399;        /* emerald-400 */
+  --color-success-hover: #6ee7b7;  /* emerald-300: hover state for success-bg buttons */
 
   /* Typography */
   --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -371,6 +372,33 @@ body {
 }
 
 .job-card__start-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Download button — COMPLETE jobs only (P23-T23.3).
+ * Background: --color-success (#34d399, emerald-400). Text: --color-bg (#0f1117).
+ * WCAG 1.4.3: dark text (#0f1117) on emerald-400 (#34d399) achieves ~9.1:1 contrast
+ * on the button background, exceeding the 4.5:1 AA minimum.
+ * Hover: --color-success-hover (#6ee7b7, emerald-300), dark text ~12.4:1.
+ * Visually distinct from the Start button (indigo-600 background). */
+.job-card__download-btn {
+  padding: var(--spacing-xs) var(--spacing-md);
+  background-color: var(--color-success);
+  color: var(--color-bg);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.job-card__download-btn:hover:not(:disabled) {
+  background-color: var(--color-success-hover);
+}
+
+.job-card__download-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

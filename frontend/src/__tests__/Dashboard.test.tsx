@@ -1046,8 +1046,12 @@ describe("Dashboard — download button wiring (P23-T23.3)", () => {
     );
 
     await waitFor(() => {
-      const btn = screen.getByRole("button", { name: /downloading/i });
+      // The aria-label is static; find by it and assert disabled + visible text
+      const btn = screen.getByRole("button", {
+        name: /download synthetic data for products/i,
+      });
       expect(btn).toBeDisabled();
+      expect(btn).toHaveTextContent("Downloading…");
     });
   });
 

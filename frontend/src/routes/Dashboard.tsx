@@ -32,11 +32,16 @@
  *     when client-side validation fails, matching the Unseal pattern.
  *   - Visible asterisks in labels are wrapped with aria-hidden="true" so screen
  *     readers rely on aria-required instead of reading the literal "*".
+ *
+ * P23-T23.3: Download button wired via handleDownload. A browser anchor trick
+ * (create <a>, set href to an object URL, programmatically click, revoke) is
+ * used so the file download works without navigating away from the page.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createJob,
+  downloadJob,
   getJob,
   getJobs,
   startJob,
@@ -100,6 +105,9 @@ export default function Dashboard(): JSX.Element {
 
   // Starting state per-job (only one can start at a time in practice)
   const [startingJobId, setStartingJobId] = useState<number | null>(null);
+
+  // Downloading state per-job
+  const [downloadingJobId, setDownloadingJobId] = useState<number | null>(null);
 
   // RFC 7807 toast for API errors
   const [apiError, setApiError] = useState<ProblemDetail | null>(null);
@@ -228,6 +236,40 @@ export default function Dashboard(): JSX.Element {
     if (result.ok) {
       localStorage.setItem(LOCAL_STORAGE_KEY, String(jobId));
       setActiveJobId(jobId);
+    } else {
+      setApiError(result.error);
+      setErrorVisible(true);
+    }
+  };
+
+  /**
+   * Trigger a browser file download for a COMPLETE job's synthesised artefact.
+   *
+   * Uses the anchor-click pattern to initiate a file download without leaving
+   * the page:
+   *   1. Fetch the blob from GET /jobs/{id}/download.
+   *   2. Create an object URL for the blob.
+   *   3. Create a temporary <a> element, set its href and download attributes,
+   *      click it programmatically, then revoke the object URL to release memory.
+   *
+   * On failure the RFC 7807 error toast is shown (AC4).
+   *
+   * @param jobId - The numeric ID of the COMPLETE job to download.
+   */
+  const handleDownload = async (jobId: number): Promise<void> => {
+    setDownloadingJobId(jobId);
+    const result = await downloadJob(jobId);
+    setDownloadingJobId(null);
+
+    if (result.ok) {
+      const objectUrl = URL.createObjectURL(result.blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = result.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(objectUrl);
     } else {
       setApiError(result.error);
       setErrorVisible(true);
@@ -488,6 +530,8 @@ export default function Dashboard(): JSX.Element {
                   sseState={activeJobId === job.id ? sseState : null}
                   onStart={(id) => void handleStart(id)}
                   isStarting={startingJobId === job.id}
+                  onDownload={(id) => void handleDownload(id)}
+                  isDownloading={downloadingJobId === job.id}
                 />
               ))}
             </div>
