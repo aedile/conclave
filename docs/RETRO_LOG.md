@@ -20,6 +20,28 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] T23.3 — Frontend Download Button
+
+**Review agents**: QA (FINDING), DevOps (FINDING), UI/UX (FINDING)
+
+**Findings fixed (6 FINDINGs + 2 ADVISORYs, all inline)**:
+1. **FINDING** (DevOps): Path traversal in `extractFilename` — server-supplied filename passed to `anchor.download` unsanitized. Fixed: `sanitizeFilename()` strips `/` and `\` characters.
+2. **FINDING** (UI/UX): No `aria-live` announcement for download state. Screen reader users received no feedback. Fixed: `setAnnouncement` calls at start, success, and failure of `handleDownload`.
+3. **FINDING** (UI/UX): Focus not restored to Download button after error toast dismissed. Fixed: `errorTriggerRef` captures `document.activeElement` before async call, `handleErrorDismiss` restores focus.
+4. **FINDING** (QA): `response.blob()` outside try/catch — connection drop after HTTP 200 leaves button permanently disabled. Fixed: inner try/catch around blob() returns structured "Download Error" ProblemDetail.
+5. **FINDING** (QA): Race condition — `downloadingJobId: number | null` tracks only one download. Fixed: replaced with `downloadingJobIds: Set<number>` for concurrent download support.
+6. **FINDING** (QA): Weak 404 test assertion (only checked `ok === false`). Fixed: mock supplies RFC 7807 fixture, test verifies `error.status`, `error.title`, `error.detail`.
+7. **ADVISORY** (DevOps): Missing RFC 5987 happy-path test. Fixed: added test for `filename*=UTF-8''` Content-Disposition parsing.
+8. **ADVISORY** (UI/UX): Disabled-state composited contrast at `opacity: 0.6` estimated ~3.6:1. Fixed: replaced opacity with explicit composited colors (`#81d1b3` bg, `#6b7280` text).
+
+**Recurring pattern noted**: Async button patterns need two standard ACs: (1) aria-live announcement on start/end, (2) focus restoration after any modal/toast spawned by the button. Both are invisible to axe-core automated scanning.
+
+**Review commit**: `621a239`
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-17] T23.4 — Cryptographic Erasure Endpoint
 
 **Review agents**: QA (FINDING), DevOps (PASS), Architecture (FINDING)
