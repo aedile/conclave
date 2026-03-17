@@ -20,6 +20,42 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] P22-T22.1 — Job Schema DP Parameters
+
+**Changes**:
+- `src/synth_engine/modules/synthesizer/job_models.py`: Added 4 new ORM columns (`enable_dp`,
+  `noise_multiplier`, `max_grad_norm`, `actual_epsilon`) with privacy-by-design defaults (OWASP A04).
+  Defense-in-depth `__init__` guards for range validation (>0, ≤100).
+- `src/synth_engine/bootstrapper/schemas/jobs.py`: Added DP fields to `JobCreateRequest` and
+  `JobResponse` with Pydantic `Field(gt=0, le=100)` constraints.
+- `src/synth_engine/bootstrapper/routers/jobs.py`: Updated `create_job()` to pass DP params.
+  Fixed `_make_session_factory` return type from `Any` to `SessionFactory`.
+- `alembic/versions/004_add_dp_columns_to_synthesis_job.py`: NEW — migration adds 4 columns
+  with server defaults matching ORM defaults.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 1077 unit tests PASS (97.01% coverage),
+pre-commit PASS (all 8 hooks).
+
+**Review**: QA FINDING (3 fixed), Architecture FINDING (2 fixed), DevOps PASS
+
+**QA** (FINDING — 3 items fixed):
+1. `test_list_jobs_response_includes_dp_fields` used presence-only checks — pinned to actual values.
+2. `test_task_sets_artifact_path_on_complete` had vacuous `or` clause — removed.
+3. `noise_multiplier` and `max_grad_norm` accepted `float('inf')` — added `le=100.0` upper bounds.
+
+**Architecture** (FINDING — 2 items fixed):
+1. `_make_session_factory` return type was `-> Any` — changed to `-> SessionFactory`.
+2. Dual-layer validation (Pydantic + ORM `__init__`) lacked cross-references — added comments.
+
+**Retrospective Note**:
+The dual-layer validation pattern (Pydantic at API boundary, `__init__` at ORM layer) is
+necessary because SQLModel `table=True` bypasses Pydantic validators during ORM construction.
+Cross-reference comments now link the two enforcement points. The `float('inf')` gap is a
+reminder that `gt=0` does not imply finiteness — always add explicit upper bounds on
+numerical parameters that feed into ML training.
+
+---
+
 ### [2026-03-16] P21-T21.3 — Automated E2E Smoke Test for CLI Subset+Mask Pipeline
 
 **Changes**:
