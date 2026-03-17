@@ -217,7 +217,7 @@ class DPTrainingWrapper:
                 "new instance for each training run."
             )
 
-        if PrivacyEngine is None:  # pragma: no cover
+        if PrivacyEngine is None:  # pragma: no cover — opacus absent; optional dep guard
             raise ImportError(
                 "The 'opacus' package is required for DP training. "
                 "Install it with: poetry install --with synthesizer"

@@ -209,7 +209,7 @@ class DPCompatibleCTGAN:
         Raises:
             ImportError: If SDV is not installed (synthesizer group absent).
         """
-        if CTGANSynthesizer is None:  # pragma: no cover
+        if CTGANSynthesizer is None:  # pragma: no cover — synthesizer group absent
             raise ImportError(
                 "The 'sdv' package is required for DPCompatibleCTGAN. "
                 "Install it with: poetry install --with synthesizer"
@@ -269,7 +269,7 @@ class DPCompatibleCTGAN:
         Returns:
             List of column names that are discrete (categorical).
         """
-        if detect_discrete_columns is None:  # pragma: no cover
+        if detect_discrete_columns is None:  # pragma: no cover — synthesizer group absent
             return []
         transformers = sdv_synth._data_processor._hyper_transformer.field_transformers
         return list(detect_discrete_columns(self._metadata, processed_df, transformers))
@@ -294,7 +294,7 @@ class DPCompatibleCTGAN:
             This method must only be called when ``self._dp_wrapper is not None``
             and torch/nn/DataLoader are available.
         """
-        if torch is None or nn is None:  # pragma: no cover
+        if torch is None or nn is None:  # pragma: no cover — synthesizer group absent
             raise ImportError(
                 "PyTorch is required for DP wrapping. "
                 "Install it with: poetry install --with synthesizer"
@@ -463,7 +463,7 @@ class DPCompatibleCTGAN:
             self._activate_opacus(processed_df)
 
         # ---- Phase 3: construct and train CTGAN model ----
-        if CTGAN is None:  # pragma: no cover
+        if CTGAN is None:  # pragma: no cover — synthesizer group absent
             raise ImportError(
                 "The 'ctgan' package is required for DPCompatibleCTGAN. "
                 "Install it with: poetry install --with synthesizer"

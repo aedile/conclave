@@ -35,7 +35,7 @@ class DPWrapperProtocol(Protocol):
         Returns:
             The actual epsilon spent.
         """
-        ...  # pragma: no cover
+        ...  # pragma: no cover — abstract Protocol stub; body is never executed
 
 
 class SpendBudgetProtocol(Protocol):
@@ -70,4 +70,4 @@ class SpendBudgetProtocol(Protocol):
         Raises:
             BudgetExhaustionError: (from modules/privacy) if exhausted.
         """
-        ...  # pragma: no cover
+        ...  # pragma: no cover — abstract Protocol stub; body is never executed

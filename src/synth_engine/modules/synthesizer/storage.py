@@ -116,7 +116,7 @@ class StorageBackend(Protocol):
             key: Object key (e.g. ``"table_customers.parquet"``).
             data: Raw bytes to store.
         """
-        ...  # pragma: no cover
+        ...  # pragma: no cover — abstract StorageBackend stub; body never executed
 
     def get(self, bucket: str, key: str) -> bytes:
         """Retrieve raw bytes from ``bucket/key``.
@@ -131,7 +131,7 @@ class StorageBackend(Protocol):
         Raises:
             KeyError: If the key does not exist.
         """
-        ...  # pragma: no cover
+        ...  # pragma: no cover — abstract StorageBackend stub; body never executed
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ class MinioStorageBackend:
             error_code = exc.response.get("Error", {}).get("Code", "")
             if error_code in ("NoSuchKey", "404"):
                 raise KeyError(f"{bucket}/{key}") from exc
-            raise  # pragma: no cover
+            raise  # pragma: no cover — non-NoSuchKey ClientError; requires real S3/Minio for test
 
 
 # ---------------------------------------------------------------------------

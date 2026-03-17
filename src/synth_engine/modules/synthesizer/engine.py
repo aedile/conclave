@@ -137,7 +137,7 @@ def _build_metadata(df: pd.DataFrame) -> Any:
     """
     try:
         from sdv.metadata import SingleTableMetadata
-    except ImportError as exc:  # pragma: no cover
+    except ImportError as exc:  # pragma: no cover — synthesizer group absent
         raise ImportError(
             "The 'sdv' package is required for synthesis. "
             "Install it with: poetry install --with synthesizer"
@@ -326,7 +326,7 @@ class SynthesisEngine:
                 f"Parquet file not found for table '{table_name}': {parquet_path}"
             )
 
-        if CTGANSynthesizer is None:  # pragma: no cover
+        if CTGANSynthesizer is None:  # pragma: no cover — synthesizer group absent
             raise ImportError(
                 "The 'sdv' package is required for synthesis. "
                 "Install it with: poetry install --with synthesizer"
@@ -341,7 +341,7 @@ class SynthesisEngine:
 
         if dp_wrapper is not None:
             # DP path — use DPCompatibleCTGAN with Opacus wrapping (T7.3)
-            if DPCompatibleCTGAN is None:  # pragma: no cover
+            if DPCompatibleCTGAN is None:  # pragma: no cover — synthesizer group absent
                 raise ImportError(
                     "The 'sdv' package is required for DP synthesis. "
                     "Install it with: poetry install --with synthesizer"
