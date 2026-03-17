@@ -20,6 +20,46 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] P22-T22.4 — Budget Management API
+
+**Changes**:
+- `src/synth_engine/bootstrapper/routers/privacy.py`: NEW — GET /privacy/budget and
+  POST /privacy/budget/refresh endpoints with RFC 7807 errors and WORM audit logging.
+- `src/synth_engine/bootstrapper/schemas/privacy.py`: NEW — BudgetResponse and
+  BudgetRefreshRequest Pydantic schemas at API boundary.
+- `src/synth_engine/bootstrapper/router_registry.py`: Registered privacy router (6th domain router).
+- `src/synth_engine/modules/privacy/accountant.py`: Added `reset_budget()` with
+  `SELECT ... FOR UPDATE` pessimistic locking (mirrors `spend_budget()` pattern).
+- `tests/unit/test_privacy_router.py`: NEW — 31 tests covering happy/error/edge paths.
+- `tests/unit/test_privacy_accountant.py`: 6 new tests for `reset_budget()`.
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 1141 unit tests PASS (96.77% coverage),
+pre-commit PASS.
+
+**Review**: DevOps FINDING (1 fixed), Architecture FINDING (2 fixed), QA FINDING (5 fixed)
+
+**DevOps** (FINDING — 1 item fixed):
+1. `_logger.info` interpolated `actor` (from X-Operator-Id header) into application log — PII
+   risk. Fixed: removed actor from log format string; actor already captured in WORM audit event.
+
+**Architecture** (FINDING — 2 items fixed):
+1. Direct domain-table mutation bypassed `accountant.py` and had no `FOR UPDATE` locking —
+   race condition with concurrent `spend_budget()`. Fixed: added `reset_budget()` to
+   `modules/privacy/accountant.py` with pessimistic locking; router delegates to it.
+2. `refresh_budget` at 76 lines exceeded ~50-line guideline. Fixed: extracted `_emit_refresh_audit()`
+   helper and delegated mutation to domain service, reducing to ~40 lines.
+
+**QA** (FINDING — 5 items fixed):
+1. No test for `new_allocated_epsilon <= 0` at HTTP layer (422 expected). Added 2 tests.
+2. No test for `spent > allocated` exhaustion on GET /privacy/budget. Added test.
+3. Actor fallback assertion was rubber-stamp (`!= ""`). Pinned to `"unknown-operator"`.
+4. No test for audit emission failure path. Added test verifying 500 + DB committed.
+5. Audit event `resource` field not asserted. Added assertion.
+
+**Advisories**: 0 open. All findings resolved inline.
+
+---
+
 ### [2026-03-17] P22-T22.3 — Wire spend_budget() into Synthesis Pipeline
 
 **Changes**:
