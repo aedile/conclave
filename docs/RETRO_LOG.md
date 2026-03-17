@@ -20,6 +20,24 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] T24.1-2 — Integration Test Repair
+
+**Review agents**: QA (PASS), DevOps (PASS), Architecture (ADVISORY — resolved inline)
+
+**Findings**:
+- Architecture ADVISORY: ADR-0025 §Consequences specified `sample(n_rows)` but code now uses `sample(num_rows)`. Resolved: ADR-0025 amended in-place with P24-T24.1 amendment note.
+
+**Fixes applied (3 commits)**:
+1. `DPCompatibleCTGAN.sample()` parameter renamed `n_rows` → `num_rows` to match SDV `CTGANSynthesizer` polymorphic interface (7 integration tests, 12 unit tests updated).
+2. CLI `_COLUMN_MASKS` extended with `persons` table entry (`full_name`→`mask_name`, `email`→`mask_email`, `ssn`→`mask_ssn`) for E2E integration schema.
+3. `_reset_spend_budget_fn` autouse fixture added to `TestDPPipelineE2EOrchestration` — prevents import-side-effect contamination from `bootstrapper.main` setting global `_spend_budget_fn` at import time.
+
+**Root cause analysis**: Parameter name mismatch (`n_rows` vs `num_rows`) survived unit tests because mocks don't enforce keyword-argument signatures. Only integration tests against real SDV caught the failure. The `_spend_budget_fn` contamination was an ordering-dependent global-state bug invisible in isolated runs.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-17] Phase 23 — Synthesis Job Lifecycle Completion
 
 **Tasks**: T23.1 (generation step), T23.2 (download endpoint), T23.3 (frontend download button), T23.4 (cryptographic erasure)
