@@ -41,6 +41,7 @@ def _make_test_app() -> Any:
             table_name="customers",
             parquet_path="/tmp/customers.parquet",
             total_epochs=10,
+            num_rows=100,
         )
         session.add(job)
         session.commit()
@@ -132,6 +133,7 @@ class TestJobsListEndpoint:
                     table_name=f"table_{i}",
                     parquet_path=f"/tmp/t{i}.parquet",
                     total_epochs=10,
+                    num_rows=100,
                 )
                 session.add(job)
             session.commit()
@@ -190,6 +192,7 @@ class TestJobsListEndpoint:
                     table_name=f"table_{i}",
                     parquet_path=f"/tmp/t{i}.parquet",
                     total_epochs=10,
+                    num_rows=100,
                 )
                 session.add(job)
             session.commit()
@@ -443,6 +446,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                     },
                 )
 
@@ -472,6 +476,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                     },
                 )
 
@@ -504,6 +509,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                     },
                 )
 
@@ -538,6 +544,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                         "enable_dp": False,
                         "noise_multiplier": 2.0,
                         "max_grad_norm": 0.5,
@@ -574,6 +581,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                         "noise_multiplier": 0.0,
                     },
                 )
@@ -604,6 +612,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                         "noise_multiplier": -1.0,
                     },
                 )
@@ -634,6 +643,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                         "max_grad_norm": 0.0,
                     },
                 )
@@ -664,6 +674,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                         "max_grad_norm": -0.1,
                     },
                 )
@@ -694,6 +705,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                         "noise_multiplier": 101,
                     },
                 )
@@ -724,6 +736,7 @@ class TestJobCreateEndpoint:
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
+                        "num_rows": 100,
                         "max_grad_norm": 101,
                     },
                 )
@@ -873,6 +886,7 @@ class TestJobSSEEndpoint:
                 table_name="t",
                 parquet_path="/tmp/t.parquet",
                 total_epochs=10,
+                num_rows=100,
                 status="COMPLETE",
                 current_epoch=10,
             )
@@ -933,6 +947,7 @@ class TestJobSSEEndpoint:
                 table_name="t",
                 parquet_path="/tmp/t.parquet",
                 total_epochs=10,
+                num_rows=100,
                 status="FAILED",
                 error_msg="OOM error at /internal/path/to/code.py",
             )

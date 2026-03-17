@@ -110,6 +110,7 @@ def create_job(
         table_name=body.table_name,
         parquet_path=body.parquet_path,
         total_epochs=body.total_epochs,
+        num_rows=body.num_rows,
         checkpoint_every_n=body.checkpoint_every_n,
         enable_dp=body.enable_dp,
         noise_multiplier=body.noise_multiplier,

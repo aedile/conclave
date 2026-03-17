@@ -43,7 +43,9 @@ def _make_synthesis_job(**kwargs: Any) -> Any:
         "status": "QUEUED",
         "current_epoch": 0,
         "total_epochs": 10,
+        "num_rows": 100,
         "artifact_path": None,
+        "output_path": None,
         "error_msg": None,
         "table_name": "persons",
         "parquet_path": "/data/persons.parquet",
@@ -1652,3 +1654,1026 @@ class TestMigration005:
         assert path is not None, "Migration 005 file not found"
         content = path.read_text(encoding="utf-8")
         assert "DELETE" in content.upper(), "Expected DELETE statement in migration 005 downgrade()"
+
+
+# ---------------------------------------------------------------------------
+# T23.1 — num_rows and output_path fields on SynthesisJob (RED)
+# ---------------------------------------------------------------------------
+
+
+class TestSynthesisJobNumRowsField:
+    """SynthesisJob must have num_rows and output_path fields (P23-T23.1 AC1/4)."""
+
+    def test_synthesis_job_has_num_rows_field(self) -> None:
+        """SynthesisJob must have a num_rows integer field."""
+        job = _make_synthesis_job(num_rows=500)
+        assert job.num_rows == 500
+
+    def test_synthesis_job_num_rows_required(self) -> None:
+        """SynthesisJob num_rows is a required integer field."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        job = SynthesisJob(
+            total_epochs=10,
+            table_name="persons",
+            parquet_path="/data/persons.parquet",
+            num_rows=100,
+        )
+        assert job.num_rows == 100
+
+    def test_synthesis_job_has_output_path_field_default_none(self) -> None:
+        """SynthesisJob output_path must default to None (set after generation)."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        job = SynthesisJob(
+            total_epochs=10,
+            table_name="persons",
+            parquet_path="/data/persons.parquet",
+            num_rows=100,
+        )
+        assert job.output_path is None
+
+    def test_synthesis_job_output_path_can_be_set(self) -> None:
+        """SynthesisJob output_path must accept a string value."""
+        job = _make_synthesis_job(output_path="/output/job_1_synthetic.parquet")
+        assert job.output_path == "/output/job_1_synthetic.parquet"
+
+
+# ---------------------------------------------------------------------------
+# T23.1 — GENERATING status transition (RED)
+# ---------------------------------------------------------------------------
+
+
+class TestGeneratingStatusTransition:
+    """After training and before generation, status must transition to GENERATING (AC5)."""
+
+    def test_task_transitions_to_generating_after_training(self) -> None:
+        """Task must set status=GENERATING between training loop and generation step.
+
+        Captures every status value passed to session.add() to confirm
+        the GENERATING transition happens after TRAINING completes and
+        before COMPLETE is set.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=50,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=10,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        # generate() returns a minimal DataFrame
+        import pandas as pd
+
+        mock_engine.generate.return_value = pd.DataFrame({"a": [1, 2, 3]})
+
+        recorded_statuses: list[str] = []
+
+        def _snapshot_status(obj: object) -> None:
+            if hasattr(obj, "status"):
+                recorded_statuses.append(str(obj.status))
+
+        mock_session.add.side_effect = _snapshot_status
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=50,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert "GENERATING" in recorded_statuses, (
+            f"Expected status=GENERATING in status transitions; got: {recorded_statuses}"
+        )
+
+    def test_generating_precedes_complete(self) -> None:
+        """GENERATING must appear before COMPLETE in the status transition sequence."""
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=51,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=10,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        import pandas as pd
+
+        mock_engine.generate.return_value = pd.DataFrame({"a": [1, 2, 3]})
+
+        recorded_statuses: list[str] = []
+
+        def _snapshot_status(obj: object) -> None:
+            if hasattr(obj, "status"):
+                recorded_statuses.append(str(obj.status))
+
+        mock_session.add.side_effect = _snapshot_status
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=51,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert "GENERATING" in recorded_statuses, "GENERATING status not found"
+        assert "COMPLETE" in recorded_statuses, "COMPLETE status not found"
+        idx_generating = max(i for i, s in enumerate(recorded_statuses) if s == "GENERATING")
+        idx_complete = max(i for i, s in enumerate(recorded_statuses) if s == "COMPLETE")
+        assert idx_generating < idx_complete, (
+            f"GENERATING must precede COMPLETE; got transitions: {recorded_statuses}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# T23.1 — Generation step produces Parquet and sets output_path (RED)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerationStep:
+    """After training: engine.generate() called, Parquet saved, output_path set (AC1-4)."""
+
+    def test_engine_generate_called_with_num_rows(self) -> None:
+        """engine.generate() must be called with n_rows=job.num_rows after training.
+
+        AC1: After training completes, run_synthesis_job() calls artifact.model.sample(n_rows).
+        The implementation routes through engine.generate(artifact, n_rows=job.num_rows).
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=60,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=42,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        import pandas as pd
+
+        mock_engine.generate.return_value = pd.DataFrame({"col": range(42)})
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=60,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        mock_engine.generate.assert_called_once()
+        call_args = mock_engine.generate.call_args
+        # First positional arg is the artifact; second kwarg is n_rows.
+        assert (
+            call_args.args[0] is mock_artifact or call_args.kwargs.get("artifact") is mock_artifact
+        ), f"engine.generate() must receive the trained artifact; got {call_args}"
+        n_rows_actual = (
+            call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get("n_rows")
+        )
+        assert n_rows_actual == 42, (
+            f"engine.generate() must be called with n_rows=42; got n_rows={n_rows_actual}"
+        )
+
+    def test_output_path_set_on_job_after_generation(self) -> None:
+        """job.output_path must point to a Parquet file path after generation completes (AC4)."""
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=61,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=10,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        import pandas as pd
+
+        mock_engine.generate.return_value = pd.DataFrame({"x": range(10)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            _run_synthesis_job_impl(
+                job_id=61,
+                session=mock_session,
+                engine=mock_engine,
+                checkpoint_dir=tmpdir,
+            )
+
+        assert job.output_path is not None, "job.output_path must be set after generation"
+        assert job.output_path.endswith(".parquet"), (
+            f"output_path must end with .parquet; got {job.output_path!r}"
+        )
+
+    def test_parquet_file_written_to_checkpoint_dir(self) -> None:
+        """Generated Parquet must be physically written to the checkpoint directory (AC2)."""
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=62,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=5,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        import pandas as pd
+
+        mock_engine.generate.return_value = pd.DataFrame({"col": range(5)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            _run_synthesis_job_impl(
+                job_id=62,
+                session=mock_session,
+                engine=mock_engine,
+                checkpoint_dir=tmpdir,
+            )
+
+            # The Parquet file must exist on disk in tmpdir.
+            assert job.output_path is not None
+            assert Path(job.output_path).exists(), (
+                f"Parquet file must exist at output_path={job.output_path!r}"
+            )
+
+    def test_artifact_path_still_points_to_pickle(self) -> None:
+        """artifact_path must still point to the model checkpoint pickle (backward compat).
+
+        Option B: artifact_path = pickle, output_path = Parquet (AC4).
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=63,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=5,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        import pandas as pd
+
+        mock_engine.generate.return_value = pd.DataFrame({"col": range(5)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            _run_synthesis_job_impl(
+                job_id=63,
+                session=mock_session,
+                engine=mock_engine,
+                checkpoint_dir=tmpdir,
+            )
+
+        assert job.artifact_path is not None, "artifact_path must still be set (pickle)"
+        assert job.artifact_path.endswith(".pkl"), (
+            f"artifact_path must end with .pkl; got {job.artifact_path!r}"
+        )
+
+    def test_job_reaches_complete_after_generation(self) -> None:
+        """Job must reach COMPLETE status after generation succeeds (AC5)."""
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=64,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=7,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        import pandas as pd
+
+        mock_engine.generate.return_value = pd.DataFrame({"x": range(7)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            _run_synthesis_job_impl(
+                job_id=64,
+                session=mock_session,
+                engine=mock_engine,
+                checkpoint_dir=tmpdir,
+            )
+
+        assert job.status == "COMPLETE", f"Expected COMPLETE; got {job.status}"
+
+    def test_generation_runtime_error_sets_failed(self) -> None:
+        """RuntimeError during generation must set job to FAILED."""
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=65,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=10,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.side_effect = RuntimeError("generation failed")
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=65,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert job.status == "FAILED", f"Expected FAILED; got {job.status}"
+        assert job.error_msg is not None
+        # F4 fix: error_msg is now sanitized — raw exception text must not appear.
+        assert "see server logs" in job.error_msg, (
+            f"Expected sanitized error_msg; got {job.error_msg!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# T23.1 — HMAC signing of Parquet artifact (RED)
+# ---------------------------------------------------------------------------
+
+
+class TestParquetHMACSigning:
+    """When ARTIFACT_SIGNING_KEY is set, the Parquet output must be HMAC-signed (AC3)."""
+
+    def test_parquet_written_unsigned_when_no_signing_key(self) -> None:
+        """When ARTIFACT_SIGNING_KEY is not set, Parquet is written without a signature."""
+        import os
+
+        import pandas as pd
+
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=70,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=4,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.return_value = pd.DataFrame({"y": range(4)})
+
+        env_without_key = {k: v for k, v in os.environ.items() if k != "ARTIFACT_SIGNING_KEY"}
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch.dict("os.environ", env_without_key, clear=True),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            _run_synthesis_job_impl(
+                job_id=70,
+                session=mock_session,
+                engine=mock_engine,
+                checkpoint_dir=tmpdir,
+            )
+
+            # File must exist and be a readable Parquet — assertions inside the
+            # with block so the tmpdir has not yet been cleaned up.
+            assert job.output_path is not None
+            df_loaded = pd.read_parquet(job.output_path)
+            assert len(df_loaded) == 4
+
+    def test_parquet_sidecar_sig_file_written_when_signing_key_set(self) -> None:
+        """When ARTIFACT_SIGNING_KEY is set, a .sig sidecar must be written alongside the Parquet.
+
+        The sidecar file path is output_path + '.sig'.
+        The .sig file must contain a 32-byte HMAC-SHA256 digest.
+        """
+        import pandas as pd
+
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.shared.security.hmac_signing import HMAC_DIGEST_SIZE
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=71,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=4,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.return_value = pd.DataFrame({"y": range(4)})
+
+        # A 32-byte key expressed as 64 hex chars.
+        signing_key_hex = "a" * 64
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": signing_key_hex}),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            _run_synthesis_job_impl(
+                job_id=71,
+                session=mock_session,
+                engine=mock_engine,
+                checkpoint_dir=tmpdir,
+            )
+
+            # Assertions inside the with block so tmpdir persists during checks.
+            assert job.output_path is not None, "output_path must be set"
+            sig_path = job.output_path + ".sig"
+            assert Path(sig_path).exists(), f"Sidecar .sig file must exist at {sig_path!r}"
+            sig_bytes = Path(sig_path).read_bytes()
+            assert len(sig_bytes) == HMAC_DIGEST_SIZE, (
+                f"Signature must be {HMAC_DIGEST_SIZE} bytes; got {len(sig_bytes)}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# T23.1 — Migration 006: num_rows and output_path columns (RED)
+# ---------------------------------------------------------------------------
+
+_ALEMBIC_VERSIONS_T23 = Path(__file__).parent.parent.parent / "alembic" / "versions"
+
+
+def _find_migration_006() -> Path | None:
+    """Return the Path of migration 006 file, or None if absent."""
+    for f in _ALEMBIC_VERSIONS_T23.glob("*.py"):
+        if f.name.startswith("__"):
+            continue
+        if "006" in f.name:
+            return f
+    return None
+
+
+class TestMigration006:
+    """Alembic migration 006 must add num_rows and output_path to synthesis_job (AC schema)."""
+
+    def test_migration_006_file_exists(self) -> None:
+        """Migration 006 file must exist in alembic/versions/."""
+        path = _find_migration_006()
+        assert path is not None, (
+            "Migration 006 not found in alembic/versions/. Expected a file matching '006*.py'."
+        )
+
+    def test_migration_006_revision_is_006(self) -> None:
+        """Migration 006 must have revision='006'."""
+        path = _find_migration_006()
+        assert path is not None, "Migration 006 file not found"
+        content = path.read_text(encoding="utf-8")
+        assert 'revision: str = "006"' in content, f"Expected revision='006' in {path.name}"
+
+    def test_migration_006_down_revision_is_005(self) -> None:
+        """Migration 006 must depend on revision 005."""
+        path = _find_migration_006()
+        assert path is not None, "Migration 006 file not found"
+        content = path.read_text(encoding="utf-8")
+        assert 'down_revision: str | None = "005"' in content, (
+            f"Expected down_revision='005' in {path.name}"
+        )
+
+    def test_migration_006_adds_num_rows_column(self) -> None:
+        """Migration 006 upgrade() must add a num_rows column."""
+        path = _find_migration_006()
+        assert path is not None, "Migration 006 file not found"
+        content = path.read_text(encoding="utf-8")
+        assert "num_rows" in content, (
+            f"Expected 'num_rows' column in migration 006; not found in {path.name}"
+        )
+
+    def test_migration_006_adds_output_path_column(self) -> None:
+        """Migration 006 upgrade() must add an output_path column."""
+        path = _find_migration_006()
+        assert path is not None, "Migration 006 file not found"
+        content = path.read_text(encoding="utf-8")
+        assert "output_path" in content, (
+            f"Expected 'output_path' column in migration 006; not found in {path.name}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# T23.1 — JobCreateRequest and JobResponse schema (RED)
+# ---------------------------------------------------------------------------
+
+
+class TestJobSchemaNumRows:
+    """JobCreateRequest and JobResponse must include num_rows (P23-T23.1 schema AC)."""
+
+    def test_job_create_request_has_num_rows_field(self) -> None:
+        """JobCreateRequest must accept num_rows as a required positive integer."""
+        from synth_engine.bootstrapper.schemas.jobs import JobCreateRequest
+
+        req = JobCreateRequest(
+            table_name="customers",
+            parquet_path="/tmp/customers.parquet",
+            total_epochs=10,
+            num_rows=500,
+        )
+        assert req.num_rows == 500
+
+    def test_job_create_request_num_rows_must_be_positive(self) -> None:
+        """JobCreateRequest must reject num_rows <= 0."""
+        from pydantic import ValidationError
+
+        from synth_engine.bootstrapper.schemas.jobs import JobCreateRequest
+
+        with pytest.raises(ValidationError):
+            JobCreateRequest(
+                table_name="customers",
+                parquet_path="/tmp/customers.parquet",
+                total_epochs=10,
+                num_rows=0,
+            )
+
+    def test_job_response_has_num_rows_field(self) -> None:
+        """JobResponse must include a num_rows field."""
+        from synth_engine.bootstrapper.schemas.jobs import JobResponse
+
+        resp = JobResponse(
+            id=1,
+            status="QUEUED",
+            current_epoch=0,
+            total_epochs=10,
+            table_name="customers",
+            parquet_path="/tmp/customers.parquet",
+            artifact_path=None,
+            error_msg=None,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            noise_multiplier=1.1,
+            max_grad_norm=1.0,
+            actual_epsilon=None,
+            num_rows=500,
+            output_path=None,
+        )
+        assert resp.num_rows == 500
+
+    def test_job_response_has_output_path_field(self) -> None:
+        """JobResponse must include an output_path field (None until generation completes)."""
+        from synth_engine.bootstrapper.schemas.jobs import JobResponse
+
+        resp = JobResponse(
+            id=1,
+            status="COMPLETE",
+            current_epoch=10,
+            total_epochs=10,
+            table_name="customers",
+            parquet_path="/tmp/customers.parquet",
+            artifact_path="/output/job_1_epoch_10.pkl",
+            error_msg=None,
+            checkpoint_every_n=5,
+            enable_dp=False,
+            noise_multiplier=1.1,
+            max_grad_norm=1.0,
+            actual_epsilon=None,
+            num_rows=500,
+            output_path="/output/job_1_synthetic.parquet",
+        )
+        assert resp.output_path == "/output/job_1_synthetic.parquet"
+
+
+# ---------------------------------------------------------------------------
+# T23.1 review findings — new edge case tests (RED phase, P23-T23.1)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteParquetWithSigningEdgeCases:
+    """Edge-case tests for _write_parquet_with_signing (review findings F2, F5, F8)."""
+
+    def test_malformed_hex_signing_key_skips_signing_gracefully(self) -> None:
+        """ARTIFACT_SIGNING_KEY with non-hex chars must skip signing without raising.
+
+        Finding F2: bytes.fromhex() raises ValueError on malformed input.
+        After the fix, ValueError is caught and signing is skipped gracefully
+        (no crash, Parquet file still written).
+        """
+        import pandas as pd
+
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=80,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=4,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.return_value = pd.DataFrame({"col": range(4)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": "not-valid-hex"}),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            # Must not raise — malformed key should be handled gracefully.
+            _run_synthesis_job_impl(
+                job_id=80,
+                session=mock_session,
+                engine=mock_engine,
+                checkpoint_dir=tmpdir,
+            )
+
+            # Job still completes and Parquet file is written.
+            assert job.status == "COMPLETE", (
+                f"Malformed signing key must not prevent COMPLETE; got {job.status}"
+            )
+            assert job.output_path is not None
+            assert Path(job.output_path).exists(), (
+                "Parquet must still be written when signing key is malformed"
+            )
+            # No .sig sidecar should exist — signing was skipped.
+            sig_path = job.output_path + ".sig"
+            assert not Path(sig_path).exists(), (
+                "No .sig sidecar should be written when signing key is malformed"
+            )
+
+    def test_whitespace_only_signing_key_skips_signing(self) -> None:
+        """ARTIFACT_SIGNING_KEY containing only whitespace skips signing gracefully.
+
+        bytes.fromhex('   ') raises ValueError (odd-length string after stripping
+        is still non-hex).  After fix F2, this must skip signing without crashing.
+        """
+        import pandas as pd
+
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=81,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=4,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.return_value = pd.DataFrame({"col": range(4)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": "   "}),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            # Must not raise.
+            _run_synthesis_job_impl(
+                job_id=81,
+                session=mock_session,
+                engine=mock_engine,
+                checkpoint_dir=tmpdir,
+            )
+
+            assert job.status == "COMPLETE", (
+                f"Whitespace signing key must not prevent COMPLETE; got {job.status}"
+            )
+            assert job.output_path is not None
+            assert Path(job.output_path).exists()
+
+
+class TestAuditLoggerFailureAfterBudgetDeduction:
+    """Audit log failure after budget deduction must not block job completion (finding F9).
+
+    The audit log call is intentionally outside the BudgetExhaustion try/except
+    so that audit logger failures are isolated.  The budget was already deducted;
+    the job must still proceed to COMPLETE.
+    """
+
+    def test_audit_logger_exception_does_not_block_complete(self) -> None:
+        """When audit log_event() raises after budget deduction, job still reaches COMPLETE.
+
+        The PrivacyTransaction table records the deduction; audit logger failure
+        must not prevent the COMPLETE status (tasks.py lines 583-584 guard).
+        """
+        import pandas as pd
+
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=85,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            actual_epsilon=None,
+            num_rows=3,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.return_value = pd.DataFrame({"x": range(3)})
+
+        dp_wrapper = _make_mock_dp_wrapper(epsilon=1.0)
+        mock_budget_fn = MagicMock()  # budget spend succeeds
+
+        # Audit logger raises an exception.
+        mock_audit_logger = MagicMock()
+        mock_audit_logger.log_event.side_effect = RuntimeError("Audit DB unavailable")
+
+        original_fn = tasks_mod._spend_budget_fn
+        try:
+            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            with (
+                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+                patch(
+                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    return_value=mock_audit_logger,
+                ),
+                tempfile.TemporaryDirectory() as tmpdir,
+            ):
+                _run_synthesis_job_impl(
+                    job_id=85,
+                    session=mock_session,
+                    engine=mock_engine,
+                    dp_wrapper=dp_wrapper,
+                    checkpoint_dir=tmpdir,
+                )
+        finally:
+            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+
+        assert job.status == "COMPLETE", (
+            f"Audit logger failure must not prevent COMPLETE; got {job.status}"
+        )
+
+
+class TestStep9OSErrorTransitionsFailed:
+    """Step 9 OSError during Parquet write must transition job to FAILED (finding F1).
+
+    Before fix F1, an OSError from _write_parquet_with_signing() would propagate
+    unhandled, leaving the job permanently in GENERATING status.
+    After fix F1, the step-9 block catches OSError and sets FAILED.
+    """
+
+    def test_oserror_in_write_parquet_sets_job_failed(self) -> None:
+        """OSError during _write_parquet_with_signing must transition job to FAILED."""
+        import pandas as pd
+
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=90,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=5,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.tasks._write_parquet_with_signing",
+                side_effect=OSError("Disk full"),
+            ),
+        ):
+            _run_synthesis_job_impl(
+                job_id=90,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert job.status == "FAILED", (
+            f"OSError in step 9 must set job.status=FAILED; got {job.status!r}"
+        )
+        assert job.error_msg is not None, "error_msg must be set on OSError failure"
+
+    def test_oserror_in_write_parquet_commits_failed_status(self) -> None:
+        """OSError in step 9 must commit FAILED status to the database."""
+        import pandas as pd
+
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=91,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=5,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.tasks._write_parquet_with_signing",
+                side_effect=OSError("No space left on device"),
+            ),
+        ):
+            _run_synthesis_job_impl(
+                job_id=91,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert mock_session.commit.call_count >= 1, (
+            "session.commit() must be called after OSError to persist FAILED status"
+        )
+
+    def test_oserror_error_msg_is_sanitized(self) -> None:
+        """OSError in step 9 must set a sanitized error_msg (no internal detail).
+
+        Finding F4: error_msg must not contain raw exception internals.
+        """
+        import pandas as pd
+
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=92,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=5,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
+
+        with (
+            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.tasks._write_parquet_with_signing",
+                side_effect=OSError("internal filesystem error xyz"),
+            ),
+        ):
+            _run_synthesis_job_impl(
+                job_id=92,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert job.error_msg is not None
+        # After fix F4: error_msg must be a sanitized static string.
+        assert "see server logs" in job.error_msg, (
+            f"error_msg must be sanitized; got {job.error_msg!r}"
+        )
+
+
+class TestGenerationRuntimeErrorSanitized:
+    """Generation RuntimeError error_msg must be sanitized (finding F4)."""
+
+    def test_generation_runtime_error_msg_is_sanitized(self) -> None:
+        """RuntimeError during generation must NOT expose raw exception text in error_msg.
+
+        Finding F4 (DevOps): job.error_msg is written verbatim from the exception.
+        After fix, error_msg must be a static sanitized string.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        mock_session = MagicMock()
+        job = _make_synthesis_job(
+            id=95,
+            status="QUEUED",
+            total_epochs=3,
+            checkpoint_every_n=5,
+            num_rows=10,
+        )
+        mock_session.get.return_value = job
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+        mock_engine.generate.side_effect = RuntimeError(
+            "internal/path/to/model.py line 42: segfault"
+        )
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=95,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert job.status == "FAILED"
+        assert job.error_msg is not None
+        # Sanitized message — must NOT include internal path details.
+        assert "internal/path" not in job.error_msg, (
+            f"error_msg must not expose internal exception details; got {job.error_msg!r}"
+        )
+        assert "see server logs" in job.error_msg, (
+            f"error_msg must point to server logs; got {job.error_msg!r}"
+        )
+
+
+class TestSynthesisJobNumRowsValidation:
+    """SynthesisJob must reject num_rows < 1 at construction time (finding F3)."""
+
+    def test_synthesis_job_num_rows_zero_raises(self) -> None:
+        """SynthesisJob must reject num_rows=0 with ValueError.
+
+        Finding F3: docstring says 'Must be >= 1' but __init__ does not enforce it.
+        """
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="num_rows must be >= 1"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                num_rows=0,
+            )
+
+    def test_synthesis_job_num_rows_negative_raises(self) -> None:
+        """SynthesisJob must reject num_rows=-1 with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="num_rows must be >= 1"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                num_rows=-1,
+            )
+
+    def test_synthesis_job_num_rows_one_is_valid(self) -> None:
+        """SynthesisJob must accept num_rows=1 (minimum valid value)."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        job = SynthesisJob(
+            total_epochs=10,
+            table_name="persons",
+            parquet_path="/data/persons.parquet",
+            num_rows=1,
+        )
+        assert job.num_rows == 1

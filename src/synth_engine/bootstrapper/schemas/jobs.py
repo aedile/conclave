@@ -6,6 +6,7 @@ to maintain the one-way dependency flow: bootstrapper → modules.
 
 Task: P5-T5.1 — Task Orchestration API Core
 Task: P22-T22.1 — Job Schema DP Parameters
+Task: P23-T23.1 — Generation Step in Huey Task
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ class JobCreateRequest(BaseModel):
         table_name: Name of the database table to synthesise.
         parquet_path: Absolute path to the Parquet file with training data.
         total_epochs: Number of CTGAN training epochs.
+        num_rows: Number of synthetic rows to generate after training.
+            Must be >= 1.
         checkpoint_every_n: Epochs between checkpoint saves (default 5).
         enable_dp: Whether to use DP-SGD training (default True,
             privacy-by-design per OWASP A04).
@@ -34,6 +37,7 @@ class JobCreateRequest(BaseModel):
     table_name: str = Field(..., description="Database table to synthesise.")
     parquet_path: str = Field(..., description="Path to training Parquet file.")
     total_epochs: int = Field(..., gt=0, description="Total training epochs.")
+    num_rows: int = Field(..., gt=0, description="Number of synthetic rows to generate.")
     checkpoint_every_n: int = Field(default=5, ge=1, description="Epochs between checkpoints.")
     # Defense-in-depth: these Field constraints are duplicated as __init__ guards
     # in modules/synthesizer/job_models.py.  Both must be updated together.
@@ -84,12 +88,15 @@ class JobResponse(BaseModel):
 
     Attributes:
         id: Job primary key.
-        status: Lifecycle status (QUEUED, TRAINING, COMPLETE, FAILED).
+        status: Lifecycle status (QUEUED, TRAINING, GENERATING, COMPLETE, FAILED).
         current_epoch: Most recently completed training epoch.
         total_epochs: Total epochs requested.
+        num_rows: Number of synthetic rows to generate after training.
         table_name: Name of the database table being synthesised.
         parquet_path: Path to the training Parquet file.
-        artifact_path: Path to the final model artifact (None until COMPLETE).
+        artifact_path: Path to the final model artifact pickle (None until COMPLETE).
+        output_path: Path to the generated synthetic Parquet file
+            (None until generation completes).
         error_msg: Sanitized failure reason (None on success).
         checkpoint_every_n: Checkpoint interval in epochs.
         enable_dp: Whether DP-SGD training is enabled.
@@ -103,9 +110,11 @@ class JobResponse(BaseModel):
     status: str
     current_epoch: int
     total_epochs: int
+    num_rows: int
     table_name: str
     parquet_path: str
     artifact_path: str | None
+    output_path: str | None
     error_msg: str | None
     checkpoint_every_n: int
     enable_dp: bool

@@ -17,6 +17,7 @@ pytestmark = pytest.mark.unit
 _VALID_BASE = {
     "table_name": "customers",
     "total_epochs": 5,
+    "num_rows": 100,
 }
 
 

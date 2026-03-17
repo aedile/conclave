@@ -97,6 +97,7 @@ class TestSSEProgressStreaming:
                 table_name="customers",
                 parquet_path="/tmp/customers.parquet",
                 total_epochs=10,
+                num_rows=100,
                 status="QUEUED",
             )
             session.add(job)
@@ -217,6 +218,7 @@ class TestSSEProgressStreaming:
                 table_name="orders",
                 parquet_path="/tmp/orders.parquet",
                 total_epochs=10,
+                num_rows=100,
                 status="TRAINING",
                 current_epoch=5,
             )

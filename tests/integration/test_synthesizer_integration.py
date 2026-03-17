@@ -307,6 +307,7 @@ class TestSynthesisJobTaskIntegration:
             job = SynthesisJob(
                 status="QUEUED",
                 total_epochs=3,
+                num_rows=100,
                 checkpoint_every_n=5,
                 table_name="test_table",
                 parquet_path=parquet_path,
