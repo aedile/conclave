@@ -20,6 +20,28 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] T23.2 — `/jobs/{id}/download` Endpoint
+
+**Review agents**: QA (FINDING), DevOps (FINDING), Architecture (FINDING)
+
+**Findings fixed (8 total, all inline)**:
+1. **BLOCKER** (DevOps): Content-Disposition header injection — `table_name` unsanitized. Fixed: regex validator `^[a-zA-Z0-9_]+$` on schema + `_sanitize_filename()` defense-in-depth.
+2. **ADVISORY** (DevOps): `str(exc)` in OSError log exposes full path. Fixed: log `exc.__class__.__name__` + basename only.
+3. **ADVISORY** (Arch): `_verify_artifact_signature` loaded whole file for HMAC. Fixed: incremental HMAC using chunked reads.
+4. **ADVISORY** (Arch): ADR-0021 streaming deviation undocumented. Fixed: added Section 1a to ADR-0021.
+5. **FINDING** (QA): Missing edge case tests (invalid hex key, empty-bytes key, SHREDDED status, multi-chunk, OSError). Fixed: 8 new tests added.
+6. **FINDING** (QA): Vacuously weak assertions. Fixed: `body.get()` → `body[]`, detail substring check.
+7. **FINDING** (QA): Docstring missing ValueError→None return path. Fixed.
+8. **FINDING** (QA): OSError returning 409 instead of skipping verification. Fixed: returns `None` on OSError (skip), `False` reserved for signature mismatch only.
+
+**Cross-cutting issue detected**: T23.2 and T23.4 developer agents shared workspace, causing shred code to bleed into T23.2 branch. Resolved by cherry-pick with conflict resolution and explicit shred code removal.
+
+**Review commit**: `3b71388`
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-17] T23.1 — Generation Step in Huey Task
 
 **Review agents**: QA (FINDING), DevOps (FINDING), Architecture (FINDING)
