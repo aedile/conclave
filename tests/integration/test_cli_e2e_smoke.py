@@ -554,6 +554,8 @@ def test_smoke_all_pii_columns_masked(
     src_engine.dispose()
     tgt_engine.dispose()
 
+    assert len(tgt_rows) == 5, f"Expected 5 target customers, got {len(tgt_rows)}"
+
     for col in pii_columns:
         values_differ = any(
             str(tgt_rows[pid][col]).strip() != str(src_rows[pid][col]).strip() for pid in tgt_rows
@@ -595,6 +597,8 @@ def test_smoke_masking_format_correctness(
         ]
     tgt_engine.dispose()
 
+    assert len(rows) == 5, f"Expected 5 target customers, got {len(rows)}"
+
     ssn_pattern = re.compile(r"^\d{3}-\d{2}-\d{4}$")
 
     for i, row in enumerate(rows):
@@ -634,6 +638,9 @@ def test_smoke_referential_integrity_preserved(
     tgt_engine = create_engine(tgt_url)
 
     with tgt_engine.connect() as conn:
+        customers_count = conn.execute(
+            text("SELECT COUNT(*) FROM customers")  # nosec B608
+        ).scalar()
         orphaned_orders = conn.execute(
             text(  # nosec B608
                 "SELECT COUNT(*) FROM orders o"
@@ -653,6 +660,8 @@ def test_smoke_referential_integrity_preserved(
             )
         ).scalar()
     tgt_engine.dispose()
+
+    assert customers_count == 5, f"Expected 5 target customers, got {customers_count}"
 
     assert orphaned_orders == 0, f"Orphaned orders (no matching customer): {orphaned_orders}"
     assert orphaned_items == 0, f"Orphaned order_items (no matching order): {orphaned_items}"
@@ -718,6 +727,10 @@ def test_smoke_non_pii_columns_unchanged(
 
     src_engine.dispose()
     tgt_engine.dispose()
+
+    assert len(tgt_orders) == 3, f"Expected 3 target orders, got {len(tgt_orders)}"
+    assert len(tgt_items) == 5, f"Expected 5 target order_items, got {len(tgt_items)}"
+    assert len(tgt_payments) == 3, f"Expected 3 target payments, got {len(tgt_payments)}"
 
     assert tgt_orders == src_orders, (
         "orders.total_amount or orders.status changed — non-PII passthrough broken"
