@@ -1161,7 +1161,7 @@ class TestDownloadEndpointHMACSigning:
             p2,
             patch.dict(os.environ, {"ARTIFACT_SIGNING_KEY": signing_key.hex()}),
             patch(
-                "synth_engine.bootstrapper.routers.jobs._verify_artifact_signature",
+                "synth_engine.bootstrapper.routers.jobs_streaming._verify_artifact_signature",
                 return_value=None,
             ),
         ):
@@ -1265,7 +1265,7 @@ class TestVerifyArtifactSignatureUnit:
 
     def test_oserror_on_sidecar_read_returns_none(self, tmp_path: Path) -> None:
         """_verify_artifact_signature returns None (not False) when the sidecar raises OSError."""
-        from synth_engine.bootstrapper.routers.jobs import _verify_artifact_signature
+        from synth_engine.bootstrapper.routers.jobs_streaming import _verify_artifact_signature
 
         parquet_path = tmp_path / "artifact.parquet"
         parquet_path.write_bytes(b"data")
@@ -1296,7 +1296,7 @@ class TestVerifyArtifactSignatureUnit:
         Confirms that the incremental chunked-read HMAC is equivalent to
         computing HMAC over the complete file in one pass.
         """
-        from synth_engine.bootstrapper.routers.jobs import _verify_artifact_signature
+        from synth_engine.bootstrapper.routers.jobs_streaming import _verify_artifact_signature
 
         parquet_bytes = b"A" * 200_000  # 200 KiB — forces multiple 64 KiB chunks
         parquet_path = tmp_path / "big.parquet"
@@ -1314,7 +1314,7 @@ class TestVerifyArtifactSignatureUnit:
 
     def test_oserror_on_artifact_read_returns_none(self, tmp_path: Path) -> None:
         """_verify_artifact_signature returns None when the artifact file raises OSError on read."""
-        from synth_engine.bootstrapper.routers.jobs import _verify_artifact_signature
+        from synth_engine.bootstrapper.routers.jobs_streaming import _verify_artifact_signature
 
         parquet_path = tmp_path / "artifact2.parquet"
         parquet_path.write_bytes(b"data")

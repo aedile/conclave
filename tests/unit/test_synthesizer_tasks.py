@@ -375,7 +375,7 @@ class TestSynthesisTaskSuccessPath:
 
         mock_session.add.side_effect = _snapshot_status
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -399,7 +399,7 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1_final.pkl"
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -422,7 +422,7 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1_final.pkl"
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -445,7 +445,7 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1.pkl"
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -477,7 +477,7 @@ class TestSynthesisTaskOOMRejection:
         mock_engine = MagicMock()
 
         with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("6.8 GiB estimated, 4.0 GiB available"),
         ):
             _run_synthesis_job_impl(
@@ -501,7 +501,7 @@ class TestSynthesisTaskOOMRejection:
 
         oom_msg = "6.8 GiB estimated, 4.0 GiB available -- reduce dataset by 2.00x"
         with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError(oom_msg),
         ):
             _run_synthesis_job_impl(
@@ -525,7 +525,7 @@ class TestSynthesisTaskOOMRejection:
         mock_engine = MagicMock()
 
         with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("too big"),
         ):
             _run_synthesis_job_impl(
@@ -548,7 +548,7 @@ class TestSynthesisTaskOOMRejection:
         mock_engine = MagicMock()
 
         with patch(
-            "synth_engine.modules.synthesizer.tasks.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("too big"),
         ):
             _run_synthesis_job_impl(
@@ -584,7 +584,7 @@ class TestSynthesisTaskRuntimeFailure:
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA out of memory at epoch 3")
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -604,7 +604,7 @@ class TestSynthesisTaskRuntimeFailure:
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA out of memory at epoch 3")
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -639,7 +639,7 @@ class TestSynthesisTaskRuntimeFailure:
         mock_engine.train.side_effect = [first_artifact, RuntimeError("OOM at epoch 5")]
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -663,7 +663,7 @@ class TestSynthesisTaskRuntimeFailure:
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("failed")
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -691,7 +691,7 @@ class TestSynthesisTaskRuntimeFailure:
         mock_session.get.return_value = job
         mock_engine = MagicMock()
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=99,
                 session=mock_session,
@@ -732,7 +732,7 @@ class TestSynthesisTaskCheckpointing:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job4_checkpoint.pkl"
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=4,
                 session=mock_session,
@@ -755,7 +755,7 @@ class TestSynthesisTaskCheckpointing:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job4.pkl"
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=4,
                 session=mock_session,
@@ -784,7 +784,7 @@ class TestSynthesisTaskCheckpointing:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job5_final.pkl"
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=5,
                 session=mock_session,
@@ -875,10 +875,10 @@ class TestDPWiringInImpl:
         dp_wrapper = _make_mock_dp_wrapper(epsilon=2.5)
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
-            patch("synth_engine.modules.synthesizer.tasks._spend_budget_fn"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn"),
             patch(
-                "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -916,7 +916,7 @@ class TestDPWiringInImpl:
         mock_artifact = MagicMock()
         mock_engine.train.return_value = mock_artifact
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=11,
                 session=mock_session,
@@ -957,10 +957,10 @@ class TestDPWiringInImpl:
         dp_wrapper = _make_mock_dp_wrapper(epsilon=3.14)
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
-            patch("synth_engine.modules.synthesizer.tasks._spend_budget_fn"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn"),
             patch(
-                "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -996,7 +996,7 @@ class TestDPWiringInImpl:
         mock_artifact = MagicMock()
         mock_engine.train.return_value = mock_artifact
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=13,
                 session=mock_session,
@@ -1035,7 +1035,7 @@ class TestDPWiringInImpl:
         dp_wrapper = MagicMock()
         dp_wrapper.epsilon_spent.side_effect = RuntimeError("Opacus error")
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=14,
                 session=mock_session,
@@ -1070,16 +1070,16 @@ class TestDPFactoryInjection:
         After calling set_dp_wrapper_factory with a mock factory, the module-
         level _dp_wrapper_factory must reference that exact callable.
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
 
         mock_factory = MagicMock(return_value=MagicMock())
-        original = tasks_mod._dp_wrapper_factory
+        original = orch_mod._dp_wrapper_factory
         try:
-            tasks_mod.set_dp_wrapper_factory(mock_factory)
-            assert tasks_mod._dp_wrapper_factory is mock_factory
+            orch_mod.set_dp_wrapper_factory(mock_factory)
+            assert orch_mod._dp_wrapper_factory is mock_factory
         finally:
             # Restore original state so other tests are not affected.
-            tasks_mod._dp_wrapper_factory = original  # type: ignore[assignment]
+            orch_mod._dp_wrapper_factory = original  # type: ignore[assignment]
 
     def test_dp_requested_without_factory_raises_runtime_error(self) -> None:
         """run_synthesis_job must raise RuntimeError when enable_dp=True and no factory registered.
@@ -1091,6 +1091,7 @@ class TestDPFactoryInjection:
         function body, they are patched at their source module paths rather
         than via the tasks module namespace.
         """
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         import synth_engine.modules.synthesizer.tasks as tasks_mod
 
         mock_job = _make_synthesis_job(
@@ -1107,9 +1108,9 @@ class TestDPFactoryInjection:
         mock_session_ctx.__enter__ = MagicMock(return_value=mock_session_instance)
         mock_session_ctx.__exit__ = MagicMock(return_value=False)
 
-        original_factory = tasks_mod._dp_wrapper_factory
+        original_factory = orch_mod._dp_wrapper_factory
         try:
-            tasks_mod._dp_wrapper_factory = None  # type: ignore[assignment]
+            orch_mod._dp_wrapper_factory = None  # type: ignore[assignment]
 
             with (
                 patch(
@@ -1124,7 +1125,7 @@ class TestDPFactoryInjection:
             ):
                 tasks_mod.run_synthesis_job.call_local(99)
         finally:
-            tasks_mod._dp_wrapper_factory = original_factory  # type: ignore[assignment]
+            orch_mod._dp_wrapper_factory = original_factory  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -1154,7 +1155,7 @@ class TestSpendBudgetWiring:
         Returns:
             Tuple of (job, mock_budget_fn, mock_session).
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
@@ -1178,13 +1179,15 @@ class TestSpendBudgetWiring:
         if budget_fn_side_effect is not None:
             mock_budget_fn.side_effect = budget_fn_side_effect
 
-        original_fn = tasks_mod._spend_budget_fn
+        original_fn = orch_mod._spend_budget_fn
         try:
-            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            orch_mod.set_spend_budget_fn(mock_budget_fn)
             with (
-                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
                 patch(
-                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                ),
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                     return_value=MagicMock(),
                 ),
             ):
@@ -1195,7 +1198,7 @@ class TestSpendBudgetWiring:
                     dp_wrapper=dp_wrapper,
                 )
         finally:
-            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+            orch_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
 
         return job, mock_budget_fn, mock_session
 
@@ -1205,15 +1208,15 @@ class TestSpendBudgetWiring:
         After calling set_spend_budget_fn with a mock, the module-level
         _spend_budget_fn must reference that exact callable.
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
 
         mock_fn = MagicMock()
-        original = tasks_mod._spend_budget_fn
+        original = orch_mod._spend_budget_fn
         try:
-            tasks_mod.set_spend_budget_fn(mock_fn)
-            assert tasks_mod._spend_budget_fn is mock_fn
+            orch_mod.set_spend_budget_fn(mock_fn)
+            assert orch_mod._spend_budget_fn is mock_fn
         finally:
-            tasks_mod._spend_budget_fn = original  # type: ignore[assignment]
+            orch_mod._spend_budget_fn = original  # type: ignore[assignment]
 
     def test_spend_budget_called_after_dp_training(self) -> None:
         """spend_budget fn must be called after successful DP training (AC2).
@@ -1315,7 +1318,7 @@ class TestSpendBudgetWiring:
         When the job does not use DP, no epsilon was spent, so no budget
         deduction should occur.
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
@@ -1332,10 +1335,12 @@ class TestSpendBudgetWiring:
         mock_engine.train.return_value = mock_artifact
 
         mock_budget_fn = MagicMock()
-        original_fn = tasks_mod._spend_budget_fn
+        original_fn = orch_mod._spend_budget_fn
         try:
-            tasks_mod.set_spend_budget_fn(mock_budget_fn)
-            with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            orch_mod.set_spend_budget_fn(mock_budget_fn)
+            with patch(
+                "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+            ):
                 _run_synthesis_job_impl(
                     job_id=26,
                     session=mock_session,
@@ -1343,7 +1348,7 @@ class TestSpendBudgetWiring:
                     dp_wrapper=None,  # Non-DP path
                 )
         finally:
-            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+            orch_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
 
         mock_budget_fn.assert_not_called()
 
@@ -1353,7 +1358,7 @@ class TestSpendBudgetWiring:
         When epsilon_spent() raises, actual_epsilon stays None and budget
         deduction must be skipped (no budget was measurably spent).
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
@@ -1374,10 +1379,12 @@ class TestSpendBudgetWiring:
         dp_wrapper.epsilon_spent.side_effect = RuntimeError("Opacus internal error")
 
         mock_budget_fn = MagicMock()
-        original_fn = tasks_mod._spend_budget_fn
+        original_fn = orch_mod._spend_budget_fn
         try:
-            tasks_mod.set_spend_budget_fn(mock_budget_fn)
-            with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            orch_mod.set_spend_budget_fn(mock_budget_fn)
+            with patch(
+                "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+            ):
                 _run_synthesis_job_impl(
                     job_id=27,
                     session=mock_session,
@@ -1385,7 +1392,7 @@ class TestSpendBudgetWiring:
                     dp_wrapper=dp_wrapper,
                 )
         finally:
-            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+            orch_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
 
         mock_budget_fn.assert_not_called()
 
@@ -1395,7 +1402,7 @@ class TestSpendBudgetWiring:
         Verifies that a WORM audit record is emitted with the correct
         event_type='PRIVACY_BUDGET_SPEND' and actor='system/huey-worker'.
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
@@ -1417,13 +1424,15 @@ class TestSpendBudgetWiring:
 
         mock_audit_logger = MagicMock()
 
-        original_fn = tasks_mod._spend_budget_fn
+        original_fn = orch_mod._spend_budget_fn
         try:
-            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            orch_mod.set_spend_budget_fn(mock_budget_fn)
             with (
-                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
                 patch(
-                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                ),
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                     return_value=mock_audit_logger,
                 ),
             ):
@@ -1434,7 +1443,7 @@ class TestSpendBudgetWiring:
                     dp_wrapper=dp_wrapper,
                 )
         finally:
-            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+            orch_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
 
         mock_audit_logger.log_event.assert_called_once()
         audit_call_kwargs = mock_audit_logger.log_event.call_args.kwargs
@@ -1458,7 +1467,7 @@ class TestSpendBudgetWiring:
         This guards against silent swallowing of infrastructure errors such as
         database connectivity failures (e.g., ConnectionError).
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
@@ -1479,13 +1488,15 @@ class TestSpendBudgetWiring:
         mock_budget_fn = MagicMock()
         mock_budget_fn.side_effect = ConnectionError("DB down")
 
-        original_fn = tasks_mod._spend_budget_fn
+        original_fn = orch_mod._spend_budget_fn
         try:
-            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            orch_mod.set_spend_budget_fn(mock_budget_fn)
             with (
-                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
                 patch(
-                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                ),
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                     return_value=MagicMock(),
                 ),
             ):
@@ -1497,7 +1508,7 @@ class TestSpendBudgetWiring:
                         dp_wrapper=dp_wrapper,
                     )
         finally:
-            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+            orch_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
 
         # Job must NOT be marked FAILED by the BudgetExhaustion handler;
         # the re-raise lets Huey handle the error at the framework level.
@@ -1589,9 +1600,9 @@ class TestSpendBudgetFactoryBootstrapper:
         # Importing main triggers the wiring side-effect; _spend_budget_fn
         # must be non-None after import completes.
         import synth_engine.bootstrapper.main  # noqa: F401 — side-effect import
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
 
-        assert tasks_mod._spend_budget_fn is not None, (
+        assert orch_mod._spend_budget_fn is not None, (
             "_spend_budget_fn must be wired by bootstrapper at import time (Rule 8)"
         )
 
@@ -1743,7 +1754,7 @@ class TestGeneratingStatusTransition:
 
         mock_session.add.side_effect = _snapshot_status
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=50,
                 session=mock_session,
@@ -1784,7 +1795,7 @@ class TestGeneratingStatusTransition:
 
         mock_session.add.side_effect = _snapshot_status
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=51,
                 session=mock_session,
@@ -1834,7 +1845,7 @@ class TestGenerationStep:
 
         mock_engine.generate.return_value = pd.DataFrame({"col": range(42)})
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=60,
                 session=mock_session,
@@ -1877,7 +1888,7 @@ class TestGenerationStep:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(10)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -1915,7 +1926,7 @@ class TestGenerationStep:
         mock_engine.generate.return_value = pd.DataFrame({"col": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -1957,7 +1968,7 @@ class TestGenerationStep:
         mock_engine.generate.return_value = pd.DataFrame({"col": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -1995,7 +2006,7 @@ class TestGenerationStep:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(7)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -2026,7 +2037,7 @@ class TestGenerationStep:
         mock_engine.train.return_value = mock_artifact
         mock_engine.generate.side_effect = RuntimeError("generation failed")
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=65,
                 session=mock_session,
@@ -2075,7 +2086,7 @@ class TestParquetHMACSigning:
         env_without_key = {k: v for k, v in os.environ.items() if k != "ARTIFACT_SIGNING_KEY"}
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch.dict("os.environ", env_without_key, clear=True),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
@@ -2122,7 +2133,7 @@ class TestParquetHMACSigning:
         signing_key_hex = "a" * 64
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": signing_key_hex}),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
@@ -2321,7 +2332,7 @@ class TestWriteParquetWithSigningEdgeCases:
         mock_engine.generate.return_value = pd.DataFrame({"col": range(4)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": "not-valid-hex"}),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
@@ -2373,7 +2384,7 @@ class TestWriteParquetWithSigningEdgeCases:
         mock_engine.generate.return_value = pd.DataFrame({"col": range(4)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": "   "}),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
@@ -2408,7 +2419,7 @@ class TestAuditLoggerFailureAfterBudgetDeduction:
         """
         import pandas as pd
 
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
@@ -2435,13 +2446,15 @@ class TestAuditLoggerFailureAfterBudgetDeduction:
         mock_audit_logger = MagicMock()
         mock_audit_logger.log_event.side_effect = RuntimeError("Audit DB unavailable")
 
-        original_fn = tasks_mod._spend_budget_fn
+        original_fn = orch_mod._spend_budget_fn
         try:
-            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            orch_mod.set_spend_budget_fn(mock_budget_fn)
             with (
-                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
                 patch(
-                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                ),
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                     return_value=mock_audit_logger,
                 ),
                 tempfile.TemporaryDirectory() as tmpdir,
@@ -2454,7 +2467,7 @@ class TestAuditLoggerFailureAfterBudgetDeduction:
                     checkpoint_dir=tmpdir,
                 )
         finally:
-            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+            orch_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
 
         assert job.status == "COMPLETE", (
             f"Audit logger failure must not prevent COMPLETE; got {job.status}"
@@ -2491,9 +2504,9 @@ class TestStep9OSErrorTransitionsFailed:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.tasks._write_parquet_with_signing",
+                "synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing",
                 side_effect=OSError("Disk full"),
             ),
         ):
@@ -2530,9 +2543,9 @@ class TestStep9OSErrorTransitionsFailed:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.tasks._write_parquet_with_signing",
+                "synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing",
                 side_effect=OSError("No space left on device"),
             ),
         ):
@@ -2571,9 +2584,9 @@ class TestStep9OSErrorTransitionsFailed:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.tasks._write_parquet_with_signing",
+                "synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing",
                 side_effect=OSError("internal filesystem error xyz"),
             ),
         ):
@@ -2618,7 +2631,7 @@ class TestGenerationRuntimeErrorSanitized:
             "internal/path/to/model.py line 42: segfault"
         )
 
-        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=95,
                 session=mock_session,

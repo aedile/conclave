@@ -137,7 +137,7 @@ def test_parent_and_worker_spans_share_trace_id(
             "sqlmodel.Session",
             return_value=_make_mock_session_cm(job_return=None),
         ),
-        patch("synth_engine.modules.synthesizer.tasks._run_synthesis_job_impl"),
+        patch("synth_engine.modules.synthesizer.job_orchestration._run_synthesis_job_impl"),
     ):
         run_synthesis_job.call_local(job_id, trace_carrier=carrier)
 
