@@ -111,7 +111,7 @@ to multi-host.
 ## TBD-04 — Custom Prometheus Business Metrics
 
 **Source**: ADR-0029 Gap 8
-**Phase**: TBD — Future observability phase
+**Phase**: 25 — Observability
 **Priority**: TBD
 
 ### Context
@@ -144,7 +144,7 @@ Privacy module's accounting ledger to avoid double-counting across requests
 ## TBD-05 — OTEL Trace Context Propagation into Huey Workers
 
 **Source**: ADR-0029 Gap 9
-**Phase**: TBD — Future observability phase (batch with TBD-04)
+**Phase**: 25 — Observability (batched with TBD-04)
 **Priority**: TBD
 
 ### Context

@@ -751,3 +751,125 @@ async def test_reset_budget_uses_for_update_locking() -> None:
     assert "FOR UPDATE" in stmt_str.upper(), (
         f"Expected SELECT ... FOR UPDATE in statement, got: {stmt_str}"
     )
+
+
+# ---------------------------------------------------------------------------
+# T25.1 — epsilon_spent_total Counter metric tests
+# ---------------------------------------------------------------------------
+
+
+def test_epsilon_spent_total_counter_is_module_attribute() -> None:
+    """accountant module must expose EPSILON_SPENT_TOTAL as a module-level name."""
+    import synth_engine.modules.privacy.accountant as accountant_mod
+
+    assert hasattr(accountant_mod, "EPSILON_SPENT_TOTAL"), (
+        "accountant module must expose EPSILON_SPENT_TOTAL Counter."
+    )
+
+
+def test_epsilon_spent_total_is_counter_instance() -> None:
+    """EPSILON_SPENT_TOTAL must be a prometheus_client.Counter instance."""
+    from prometheus_client import Counter
+
+    from synth_engine.modules.privacy.accountant import EPSILON_SPENT_TOTAL
+
+    assert isinstance(EPSILON_SPENT_TOTAL, Counter)
+
+
+@pytest.mark.asyncio
+async def test_spend_budget_increments_epsilon_counter_on_success(
+    async_engine: AsyncEngine,
+) -> None:
+    """spend_budget() must increment epsilon_spent_total Counter after commit.
+
+    T25.1: The counter must be incremented AFTER a successful budget deduction.
+    Label values: job_id=str(job_id), dataset_id=str(ledger_id).
+
+    Arrange: Insert a PrivacyLedger with total_allocated=5.0, total_spent=0.0.
+    Act: Call spend_budget(0.5, job_id=7, ledger_id=..., session=...).
+    Assert: epsilon_spent_total{job_id="7", dataset_id="<ledger_id>"} == 1.0.
+    """
+    import prometheus_client
+
+    from synth_engine.modules.privacy.accountant import spend_budget
+
+    # Arrange: create ledger
+    async with get_async_session(async_engine) as setup_session:
+        ledger = PrivacyLedger(
+            total_allocated_epsilon=Decimal("5.0"),
+            total_spent_epsilon=Decimal("0.0"),
+        )
+        setup_session.add(ledger)
+        await setup_session.commit()
+        await setup_session.refresh(ledger)
+        ledger_id = ledger.id
+
+    labels = {"job_id": str(7), "dataset_id": str(ledger_id)}
+
+    before = prometheus_client.REGISTRY.get_sample_value(
+        "epsilon_spent_total",
+        labels,
+    )
+    before_val = before if before is not None else 0.0
+
+    # Act
+    async with get_async_session(async_engine) as spend_session:
+        await spend_budget(amount=0.5, job_id=7, ledger_id=ledger_id, session=spend_session)
+
+    after = prometheus_client.REGISTRY.get_sample_value(
+        "epsilon_spent_total",
+        labels,
+    )
+    after_val = after if after is not None else 0.0
+    assert after_val == before_val + 1.0, (
+        f"Counter must increment by 1 on success. Before={before_val}, After={after_val}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_spend_budget_does_not_increment_counter_on_exhaustion(
+    async_engine: AsyncEngine,
+) -> None:
+    """spend_budget() must NOT increment epsilon_spent_total on BudgetExhaustionError.
+
+    T25.1: Counter must only fire after the successful commit. When
+    BudgetExhaustionError is raised (before commit), the counter must stay put.
+
+    Arrange: Insert a PrivacyLedger with total_allocated=1.0, total_spent=0.9.
+    Act: Call spend_budget(0.5, job_id=99, ...) — exhaustion triggers.
+    Assert: Counter is NOT incremented.
+    """
+    import prometheus_client
+
+    from synth_engine.modules.privacy.accountant import spend_budget
+
+    async with get_async_session(async_engine) as setup_session:
+        ledger = PrivacyLedger(
+            total_allocated_epsilon=Decimal("1.0"),
+            total_spent_epsilon=Decimal("0.9"),
+        )
+        setup_session.add(ledger)
+        await setup_session.commit()
+        await setup_session.refresh(ledger)
+        ledger_id = ledger.id
+
+    labels = {"job_id": str(99), "dataset_id": str(ledger_id)}
+
+    before = prometheus_client.REGISTRY.get_sample_value(
+        "epsilon_spent_total",
+        labels,
+    )
+    before_val = before if before is not None else 0.0
+
+    with pytest.raises(BudgetExhaustionError):
+        async with get_async_session(async_engine) as s:
+            await spend_budget(amount=0.5, job_id=99, ledger_id=ledger_id, session=s)
+
+    after = prometheus_client.REGISTRY.get_sample_value(
+        "epsilon_spent_total",
+        labels,
+    )
+    after_val = after if after is not None else 0.0
+    assert after_val == before_val, (
+        f"Counter must NOT increment on exhaustion. Before={before_val}, After={after_val}"
+    )

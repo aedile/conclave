@@ -50,6 +50,7 @@ from synth_engine.modules.synthesizer.shred import shred_artifacts
 from synth_engine.modules.synthesizer.tasks import run_synthesis_job
 from synth_engine.shared.db import SessionFactory
 from synth_engine.shared.security.audit import get_audit_logger
+from synth_engine.shared.telemetry import inject_trace_context
 
 _logger = logging.getLogger(__name__)
 
@@ -208,7 +209,9 @@ def start_job(
     # run_synthesis_job enqueues a Huey task synchronously (blocking call that
     # pushes a message onto the task queue).  FastAPI runs sync route handlers
     # in a threadpool, so this blocking enqueue does not stall the event loop.
-    run_synthesis_job(job_id)
+    # T25.2 AC1-AC2: Inject the current span context into the carrier dict and
+    # pass it to the Huey task so the worker can re-attach the trace.
+    run_synthesis_job(job_id, trace_carrier=inject_trace_context())
     _logger.info("Enqueued synthesis job %d.", job_id)
     return JSONResponse(
         status_code=202,

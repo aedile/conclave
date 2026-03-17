@@ -813,7 +813,15 @@ class TestJobStartEndpoint:
             ) as client:
                 await client.post(f"/jobs/{job_id}/start")
 
-        mock_task.assert_called_once_with(job_id)
+        # T25.2: The dispatch site now passes trace_carrier as a keyword arg.
+        # In this test context no OTEL span is active, so the carrier is empty.
+        # F4: replaced tautological assert_called_once_with that read the actual
+        # value to construct the expected value — the assertion proved nothing.
+        mock_task.assert_called_once()
+        assert mock_task.call_args.args == (job_id,), "start_job must pass job_id as positional arg"
+        assert isinstance(mock_task.call_args.kwargs.get("trace_carrier"), dict), (
+            "trace_carrier must be a dict (T25.2 AC2)"
+        )
 
     @pytest.mark.asyncio
     async def test_start_nonexistent_job_returns_404(self) -> None:

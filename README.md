@@ -259,13 +259,13 @@ Source (real PII):
 Target (masked):
 
 ```
- id |   first_name    |  last_name   |            email             |     ssn
-----+-----------------+--------------+------------------------------+-------------
-  1 | Jeffrey Ayers   | Melissa Beck | garciabrittany@example.org   | 536-35-6662
-  2 | David White     | Lori Owens   | lauradavis@example.com       | 204-28-8133
+ id | first_name |  last_name  |            email             |     ssn
+----+------------+-------------+------------------------------+-------------
+  1 | Jeffrey    | Beck        | garciabrittany@example.org   | 536-35-6662
+  2 | David      | Owens       | lauradavis@example.com       | 204-28-8133
 ```
 
-Every PII column replaced. `Johnson` always maps to `Melissa Beck` — across every row,
+Every PII column replaced. `Johnson` always maps to `Beck` — across every row,
 every table, every run — so join integrity holds. The mapping is not reversible.
 
 FK traversal from this run: 50 customers → 116 orders → 396 order items + 116 payments.

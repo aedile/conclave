@@ -29,10 +29,12 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
+from prometheus_client import Histogram
 
 if TYPE_CHECKING:
     from synth_engine.modules.synthesizer.models import ModelArtifact
@@ -74,6 +76,47 @@ try:
     from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
     DPCompatibleCTGAN: Any = None  # type: ignore[no-redef]  # SDV not installed
+
+
+# ---------------------------------------------------------------------------
+# T25.1 — Custom Prometheus business metric: synthesis_ms_per_row Histogram.
+#
+# Defined at module scope (Prometheus best practice: one singleton per process).
+# Labels:
+#   model_type       — "vanilla" (CTGANSynthesizer) or "dp" (DPCompatibleCTGAN)
+#   row_count_bucket — source row count bucketed into "1-100", "101-1000",
+#                      "1001-10000", or "10001+"
+#
+# Tests read values via prometheus_client.REGISTRY.get_sample_value() using the
+# auto-generated *_count and *_sum sample names.  No custom registry needed.
+# ---------------------------------------------------------------------------
+SYNTHESIS_MS_PER_ROW: Histogram = Histogram(
+    "synthesis_ms_per_row",
+    "Milliseconds per synthesized row, measured around the model.fit() call.",
+    labelnames=["model_type", "row_count_bucket"],
+)
+
+
+def _row_count_bucket(n: int) -> str:
+    """Bucket a source-table row count into a label string.
+
+    Buckets are designed to be meaningful for monitoring without producing
+    high-cardinality label combinations.
+
+    Args:
+        n: Number of rows in the source DataFrame.
+
+    Returns:
+        A string label: "1-100", "101-1000", "1001-10000", or "10001+".
+        Row counts of 0 are placed in "1-100" (degenerate case).
+    """
+    if n <= 100:
+        return "1-100"
+    if n <= 1000:
+        return "101-1000"
+    if n <= 10000:
+        return "1001-10000"
+    return "10001+"
 
 
 def _build_metadata(df: pd.DataFrame) -> Any:
@@ -321,7 +364,15 @@ class SynthesisEngine:
                 epochs=self._epochs,
                 dp_wrapper=dp_wrapper,
             )
+            _fit_start = time.monotonic()
             model.fit(source_df)
+            _fit_elapsed_ms = (time.monotonic() - _fit_start) * 1000.0
+            _n_rows = len(source_df)
+            _ms_per_row = _fit_elapsed_ms / _n_rows if _n_rows > 0 else 0.0
+            SYNTHESIS_MS_PER_ROW.labels(
+                model_type="dp",
+                row_count_bucket=_row_count_bucket(_n_rows),
+            ).observe(_ms_per_row)
 
         else:
             # Vanilla path — use CTGANSynthesizer (unchanged from T4.2b)
@@ -335,7 +386,15 @@ class SynthesisEngine:
 
             metadata = _build_metadata(source_df)
             model = CTGANSynthesizer(metadata=metadata, epochs=self._epochs)
+            _fit_start = time.monotonic()
             model.fit(source_df)
+            _fit_elapsed_ms = (time.monotonic() - _fit_start) * 1000.0
+            _n_rows = len(source_df)
+            _ms_per_row = _fit_elapsed_ms / _n_rows if _n_rows > 0 else 0.0
+            SYNTHESIS_MS_PER_ROW.labels(
+                model_type="vanilla",
+                row_count_bucket=_row_count_bucket(_n_rows),
+            ).observe(_ms_per_row)
 
         _logger.info("Training complete for table '%s'.", table_name)
 

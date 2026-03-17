@@ -2,7 +2,7 @@
   "title": "Conclave Engine",
   "uid": "conclave-engine",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "timezone": "browser",
   "panels": [
     {
@@ -24,6 +24,67 @@
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list" }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Synthesis ms per Row (P99)",
+      "description": "T25.1: 99th-percentile milliseconds per synthesized row, by model_type and row_count_bucket.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "-- Default --"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, model_type, row_count_bucket) (rate(synthesis_ms_per_row_bucket[5m])))",
+          "legendFormat": "P99 {{model_type}} / {{row_count_bucket}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, model_type, row_count_bucket) (rate(synthesis_ms_per_row_bucket[5m])))",
+          "legendFormat": "P50 {{model_type}} / {{row_count_bucket}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list" }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Epsilon Spent per Request",
+      "description": "T25.1: Rate of epsilon_spent_total increments — total budget deductions per second, by job_id and dataset_id.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "-- Default --"
+      },
+      "targets": [
+        {
+          "expr": "rate(epsilon_spent_total[5m])",
+          "legendFormat": "job={{job_id}} dataset={{dataset_id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
           "color": { "mode": "palette-classic" }
         }
       },

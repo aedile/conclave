@@ -532,6 +532,35 @@ class TestBuildMaskingTransformer:
         assert result["phone"] is None
         assert result["address"] is None
 
+    def test_masking_transformer_persons_row_missing_configured_column(self) -> None:
+        """Transformer does not crash when a configured PII column is absent from row.
+
+        T25.1 edge case: the _COLUMN_MASKS config for 'persons' includes 'ssn',
+        but some rows may not carry that key.  The 'if col in result' guard in
+        _build_masking_transformer() must silently skip missing columns.
+
+        Arrange: a 'persons' row without the 'ssn' key.
+        Act: invoke transformer("persons", row).
+        Assert:
+        - No KeyError is raised.
+        - Present PII columns (full_name, email) are still masked.
+        - The missing 'ssn' key is not present in the result.
+        """
+        from synth_engine.bootstrapper.cli import _build_masking_transformer
+
+        transformer = _build_masking_transformer()
+        row: dict[str, Any] = {
+            "id": 5,
+            "full_name": "Bob Jones",
+            "email": "bob@example.com",
+            # ssn key is intentionally absent
+        }
+        result = transformer("persons", row)
+        assert result["id"] == 5, "non-PII id column must be unchanged"
+        assert result["full_name"] != "Bob Jones", "full_name must be masked"
+        assert result["email"] != "bob@example.com", "email must be masked"
+        assert "ssn" not in result, "absent ssn key must not appear in result"
+
 
 # ---------------------------------------------------------------------------
 # Default --mask flag
