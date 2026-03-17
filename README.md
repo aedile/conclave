@@ -1,85 +1,149 @@
 # Conclave
 
-**Conclave** is an enterprise-grade, Air-Gapped Synthetic Data Generation Engine.
+**An enterprise-grade, air-gapped synthetic data generation engine.**
 
-It operates on a strict **Bring Your Own Compute (BYOC)** model within zero-trust, physically
-isolated environments. Its purpose is to ingest sensitive production data and generate
-statistically comparable, relationally intact synthetic datasets using Differential Privacy
-(DP-SGD) and deterministic masking — without relying on any external APIs, cloud telemetry,
-or internet connectivity.
+Conclave transforms production databases into privacy-safe synthetic replicas — inside your
+perimeter, on your hardware, with zero network calls out. It serves data scientists who
+need statistically faithful training data, QA engineers who need a structurally intact
+subset of a production schema, and compliance officers who need mathematical proof that
+no real PII left the building.
 
 ---
 
-## What It Does
+## The Problem
 
-Production databases contain PII that cannot leave the premises — but QA engineers, ML teams,
-and developers need realistic data to work with. Conclave solves this by:
+Production data is the only data that accurately reflects real user behavior. It is also the
+data you cannot freely share.
 
-1. **Connecting read-only** to a source PostgreSQL database, verifying the ingestion account
-   cannot write, and refusing to proceed if it can.
-2. **Subsetting** the data relationally — following foreign key graphs to extract a
-   surgically precise percentage of records while preserving all parent-child integrity.
-3. **Masking deterministically** — the same real name always produces the same fake name,
-   preserving referential integrity across joined tables while making PII unrecoverable.
-4. **Generating synthetically** — training GPU-accelerated tabular models (SDV/CTGAN) with
-   operational Differential Privacy (DP-SGD) guarantees via Opacus, so that individual
-   outlier records cannot be reverse-engineered from the synthetic output. Phase 7 DP
-   integration is complete: `DPCompatibleCTGAN` with real Opacus `PrivacyEngine` wiring,
-   epsilon/delta accounting, and privacy budget enforcement are fully operational.
-5. **Orchestrating via API** — a FastAPI task API with Server-Sent Events streams job
-   progress to a React SPA dashboard in real time.
-6. **Licensing offline** — RS256 JWT hardware-bound license activation for air-gapped
-   deployments; no license server call-home required.
-7. **Egressing** the result into a target PostgreSQL database with Saga-pattern rollback — if
-   anything fails mid-write, the target is wiped clean.
+- **Regulation** (GDPR, CCPA, HIPAA) prohibits moving raw PII into development, QA, or ML
+  training environments — even internally.
+- **Basic masking breaks referential integrity.** Swap a customer name in one table; the
+  foreign-key join to the orders table returns garbage. Tests fail. Models learn noise.
+- **SaaS data platforms require your data to leave your network.** That is categorically
+  disqualified in defense, intelligence, healthcare, and critical infrastructure.
+- **Air-gapped deployments need an entirely self-contained stack.** No license call-home,
+  no model registry cloud pull, no telemetry ping.
 
-Everything runs inside Docker with no external network calls, encrypted volumes, and
-air-gap artifact bundles for sneaker-net deployment.
+Conclave solves all four. It runs entirely on your compute, ingests data read-only, and
+produces output that is statistically comparable to production but contains no real PII.
+
+---
+
+## How It Works
+
+```mermaid
+flowchart LR
+    A[(Source\nPostgreSQL)] -->|read-only| B[Ingestion\n& Pre-flight]
+    B --> C[Schema\nReflection & DAG]
+    C --> D[FK-Aware\nSubsetting]
+    D --> E{Mode}
+    E -->|Mask| F[Deterministic\nMasking Engine]
+    E -->|Synthesize| G[Statistical\nProfiler]
+    G --> H[DP-CTGAN\nTraining]
+    H --> I[Privacy Budget\nAccountant]
+    F --> J[Saga-Pattern\nEgress Writer]
+    I --> J
+    J --> K[(Target\nPostgreSQL)]
+```
+
+**Ingestion & Pre-flight** — Connects read-only to source PostgreSQL. Runs a privilege
+pre-flight check; if the account can write, the job is refused before any data is touched.
+
+**Schema Reflection & DAG** — Reflects the full schema, builds a directed acyclic graph of
+foreign key relationships using Kahn's topological sort. Virtual FK support for schemas
+without formal constraints.
+
+**FK-Aware Subsetting** — Traverses the FK graph from a seed query, following parent-child
+chains to extract a surgically precise percentage of records. Zero orphan rows guaranteed.
+
+**Deterministic Masking** — HMAC-SHA256 seeded Faker replaces PII with realistic-but-fake
+values. The same real value always produces the same fake value across all tables, so
+join integrity is preserved. Output is not reversible.
+
+**Statistical Profiling** — Computes histograms, covariance matrices, and nullability rates
+per column. `ProfileDelta` measures drift between source and synthetic output.
+
+**DP-CTGAN Training** — Custom CTGAN training loop with Opacus DP-SGD integration. Real
+per-sample gradient clipping and Gaussian noise injection provide mathematically provable
+differential privacy guarantees.
+
+**Privacy Budget Accounting** — `EpsilonAccountant` tracks epsilon/delta consumption per
+table per run. Any job that would exceed the configured budget is blocked before training starts.
+
+**Saga-Pattern Egress** — Writes to the target database transactionally. If anything fails
+mid-write, the target is wiped clean. No partial datasets.
 
 ---
 
 ## Architecture
 
 Conclave is a **Python Modular Monolith** — a single deployable unit with strict internal
-module boundaries enforced by `import-linter` contracts.
+module boundaries enforced by `import-linter` contracts at CI time.
 
-```
-src/synth_engine/
-├── bootstrapper/       FastAPI app factory, DI wiring, global middleware
-├── modules/
-│   ├── ingestion/      PostgreSQL read-only adapter, privilege pre-flight check
-│   ├── mapping/        Schema reflection, DAG, Kahn's topological sort
-│   ├── subsetting/     FK traversal, SubsettingEngine, Saga-pattern EgressWriter
-│   ├── masking/        Deterministic FPE registry, collision prevention, LUHN
-│   ├── profiler/       Statistical distributions, covariance, ProfileDelta
-│   ├── synthesizer/    EphemeralStorageClient, OOM guardrails, DPCompatibleCTGAN
-│   └── privacy/        DP-SGD wiring, Opacus PrivacyEngine, Epsilon/Delta accountant
-└── shared/             Cross-cutting: Vault, ALE encryption, audit logger, JWT
+```mermaid
+graph TD
+    subgraph bootstrapper["bootstrapper/ — FastAPI, DI, Middleware"]
+        B1[App Factory]
+        B2[IoC Wiring]
+        B3[Middleware Stack]
+    end
+
+    subgraph modules["modules/"]
+        M1[ingestion/\nPostgreSQL adapter\nprivilege pre-flight]
+        M2[mapping/\nSchema reflection\nFK DAG, topological sort]
+        M3[subsetting/\nFK traversal\nSaga EgressWriter]
+        M4[masking/\nDeterministic FPE\nLUHN, collision prevention]
+        M5[profiler/\nStatistical distributions\nProfileDelta]
+        M6[synthesizer/\nDP-CTGAN\nOOM guardrails]
+        M7[privacy/\nOpacus DP-SGD\nEpsilon/Delta accountant]
+    end
+
+    subgraph shared["shared/ — Cross-cutting"]
+        S1[Vault / ALE Encryption]
+        S2[WORM Audit Logger]
+        S3[JWT / License]
+        S4[HMAC Artifact Signing]
+    end
+
+    bootstrapper --> modules
+    bootstrapper --> shared
+    modules --> shared
 ```
 
-Module boundaries are enforced at CI time via `import-linter`. Modules cannot import from
-each other or from `bootstrapper`. Cross-module communication goes through `shared/` value
-objects or IoC callbacks injected by the bootstrapper.
+**Key design decisions:**
+
+- Modules cannot import from each other. Cross-module communication goes through `shared/`
+  value objects or IoC callbacks injected by the bootstrapper. This is enforced at CI time,
+  not just by convention.
+- Cross-module database queries are forbidden. Each module owns its own data access.
+- The bootstrapper is the sole composition root. Business logic has no knowledge of the
+  framework.
+
+Detailed rationale is captured across 36 Architecture Decision Records in
+[`docs/adr/`](docs/adr/). The full architecture specification is in
+[`docs/ARCHITECTURAL_REQUIREMENTS.md`](docs/ARCHITECTURAL_REQUIREMENTS.md).
 
 ---
 
-## Security Posture
+## Security
 
-Security is Priority Zero — it overrides every other consideration.
+Security is Priority Zero — it overrides every other consideration. See
+[`CONSTITUTION.md`](CONSTITUTION.md) for the binding governance framework and
+[`docs/infrastructure_security.md`](docs/infrastructure_security.md) for infrastructure detail.
 
 | Control | Implementation |
-|---------|---------------|
-| Read-only ingestion | Pre-flight `SELECT FOR UPDATE` privilege check; superuser → immediate reject |
-| PII never in plaintext at rest | Application-Level Encryption (ALE) via Fernet + HKDF-SHA256 from Vault KEK |
+|---------|----------------|
+| Read-only ingestion | Pre-flight `SELECT FOR UPDATE` privilege check; superuser account → immediate reject |
+| PII never in plaintext at rest | Application-Level Encryption (ALE) via Fernet + HKDF-SHA256 derived from Vault KEK |
 | Vault unseal pattern | Operator passphrase derives KEK at runtime; never persisted to disk or env |
 | Deterministic masking | HMAC-SHA256 seeded Faker; same input → same output; not reversible |
-| Differential Privacy | DP-SGD via Opacus PrivacyEngine; Epsilon/Delta budget enforced per training run |
+| Differential Privacy | DP-SGD via Opacus `PrivacyEngine`; Epsilon/Delta budget enforced per training run |
 | WORM audit log | Cryptographically signed, append-only audit trail |
-| HMAC artifact signing | Model artifacts signed with HMAC-SHA256; tampering detected at load time |
-| Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net |
+| HMAC artifact signing | Model artifacts signed at save; tampering raises `SecurityError` at load time |
+| Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net deployment |
 | Supply chain | All GitHub Actions SHA-pinned; Trivy container scan in CI |
 | Secret scanning | `gitleaks` + `detect-secrets` on every commit; hooks cannot be bypassed |
-| Request body limits | RequestBodyLimitMiddleware: 1 MB body limit, JSON depth 100 |
+| Request body limits | `RequestBodyLimitMiddleware`: 1 MB limit, JSON depth 100 |
 | Content Security Policy | CSP middleware: `script-src`, `font-src`, `connect-src` all `'self'` |
 | OWASP ZAP baseline scan | Automated ZAP scan in CI against the running FastAPI app |
 | NIST SP 800-88 erasure | Cryptographic shredding validated against NIST SP 800-88 Rev 1 guidelines |
@@ -88,129 +152,100 @@ Security is Priority Zero — it overrides every other consideration.
 
 ---
 
-## Current Development Status
+## The Interface
 
-**Phase 19 — Production Hardening & Integration Integrity is complete. Phase 20 — Human-in-the-Loop Feedback is complete.**
+The React SPA provides real-time monitoring of synthesis jobs via Server-Sent Events.
+All UI components meet WCAG 2.1 AA: labeled forms, required field indicators, semantic
+headings, full keyboard navigation, 4.5:1 contrast ratios.
 
-| Phase | Status | Summary |
-|-------|--------|---------|
-| 0.6 — Agile Environment | Complete | ChromaDB, Git worktrees, task queue |
-| 0.8 — Technical Spikes | Complete | ML memory physics, FPE math, topological graphing |
-| 1 — CI/CD & Quality Gates | Complete | Pre-commit hooks, Docker hardening, air-gap bundler |
-| 2 — Foundational Architecture | Complete | FastAPI bootstrapper, PostgreSQL+ALE, JWT, Vault, WORM logger |
-| 3 — The "Thin Slice" | Complete | Ingestion, relational mapping, deterministic masking, subsetting+Saga, E2E tests |
-| 3.5 — Technical Debt Sprint | Complete | Module cohesion refactor, Virtual FK, CLI entrypoint, advisory sweep |
-| 4 — Generative AI & DP | Complete | GPU passthrough, profiler, OOM guardrails, DP-SGD engine, privacy accountant |
-| 5 — Orchestration & UI | Complete | Task Orchestration API, React SPA Dashboard, offline licensing, cryptographic shredding |
-| 6 — Integration & Audit | Complete | E2E Playwright tests, NIST erasure validation, OWASP ZAP, fuzz testing, production docs |
-| 7 — Differential Privacy | Complete | Custom CTGAN training loop, Opacus DP-SGD wiring, quality benchmarks, E2E DP pipeline |
-| 8 — Advisory Drain Sprint | Complete | HMAC artifact signing, Alembic migrations, startup config validation, ADR-0017a |
-| **9 — Docs & Advisory Drain** | **Complete** | Operator manual refresh, advisory drain, observability |
-| **10 — Test Infrastructure Repair & Final Polish** | **Complete** | Stale TODO drain, README updates, test infrastructure repair |
-| **11 — Documentation Currency & Workspace Hygiene** | **Complete** | Documentation updates, workspace cleanup, architectural gap ADR |
-| **12 — Final Hygiene & Tooling Polish** | **Complete** | Stale branch cleanup, vulture whitelist, README currency |
-| **13 — Pre-commit Repair & README Finalization** | **Complete** | Fix ruff/vulture whitelist gate, README Phase 12 completion |
-| **14 — Integration Test Repair & Frontend Lint Fix** | **Complete** | Integration test repair, ESLint 9.x config, nosec justifications |
-| **15 — Frontend Coverage Gate & Operational Polish** | **Complete** | Frontend coverage gate repair, README update, branch cleanup |
-| **16 — Migration Drift, Supply Chain & Accessibility Polish** | **Complete** | Alembic migration drift, supply chain, nosec accuracy, skip nav |
-| **17 — Docker Pinning, Dashboard WCAG & Process Cleanup** | **Complete** | Docker SHA pinning, dashboard WCAG aria, RETRO_LOG archival, process governance slimming |
-| **18 — Type Safety, Dependency Audit & E2E Validation** | **Complete** | type:ignore reduction, dependency audit, pgbouncer fix (ADV-015), sample data & E2E validation docs |
-| **19 — Production Hardening & Integration Integrity** | **Complete** | import-linter contracts, mypy strict compliance, bandit clean sweep, worker task config ADR |
-| **20 — Human-in-the-Loop Feedback** | **Complete** | Exception handling, integration tests, accessibility, architecture tightening |
+**Vault unseal** — before any data operations, the operator enters a passphrase to derive
+the ALE key at runtime. The passphrase is never stored.
 
----
+![Vault Unseal Page](docs/screenshots/01-unseal-page.png)
 
-## What's Working Right Now
+**Dashboard — sealed state.** The engine refuses all data operations until the vault is unsealed.
 
-The full Conclave platform is operational across all completed phases:
+![Dashboard Sealed](docs/screenshots/02-dashboard-sealed.png)
 
-**Phase 3 pipeline — validated end-to-end (2026-03-16)**
-- **`PostgresIngestionAdapter`** — connects read-only, runs pre-flight privilege check
-- **`SchemaReflector`** + **`DirectedAcyclicGraph`** — reflects schema, builds FK topology
-- **`DeterministicMaskingEngine`** — masks Names, Emails, SSNs, Credit Cards, Phone Numbers
-  deterministically with collision prevention and LUHN compliance
-- **`SubsettingEngine`** — traverses FK graph from a seed query, applies masking via injected
-  callback, writes to target with Saga rollback
-- **`conclave-subset` CLI** — validated end-to-end: connects read-only to source PostgreSQL,
-  reflects schema, traverses FK graph, applies deterministic masking to all PII columns
-  (names, emails, SSNs, phones, addresses), and egresses with Saga rollback. See
-  [End-to-End Validation](#end-to-end-validation) for live evidence.
+**Dashboard — ready.** Job creation and monitoring. SSE streams progress in real time.
 
-**Phase 4 generative AI — operational**
-- **`StatisticalProfiler`** — profiles DataFrames (histograms, covariance matrices,
-  nullability rates); `compare()` produces `ProfileDelta` for drift detection
-- **`EphemeralStorageClient`** — uploads/downloads Parquet files to MinIO ephemeral bucket
-  via injectable `StorageBackend` Protocol; `FORCE_CPU` fallback tested and operational
-- **`OOM Guardrail`** — `check_memory_feasibility()` pre-flight check rejects jobs that
-  would exhaust available RAM before training starts
-- **`CTGANSynthesizer`** — SDV/CTGAN tabular model training operational
-- **`EpsilonAccountant`** — tracks per-table Epsilon/Delta privacy budget consumption;
-  rejects training runs that would exceed configured budget limits
+![Dashboard Empty](docs/screenshots/02-dashboard-empty.png)
 
-**Phase 5 orchestration — operational**
-- **Task Orchestration API** — FastAPI + Huey/Redis task queue; `POST /tasks/synthesize`
-  enqueues jobs; `GET /tasks/{id}/status` streams progress via Server-Sent Events (SSE)
-- **React SPA Dashboard** — React 18 + TypeScript + Vite; real-time job status via SSE;
-  accessible (WCAG 2.1 AA); offline-capable static build
-- **Offline License Activation** — RS256 JWT hardware binding; QR code challenge/response
-  workflow for air-gapped activation; no call-home required
-- **Cryptographic Shredding** — `CryptographicShredder` destroys ALE key material,
-  rendering encrypted PII permanently unrecoverable
+**Dashboard — active jobs.** Training progress (blue), completed (green), failed with
+error message (red).
 
-**Phase 6 validation — operational**
-- **Playwright E2E tests** — full browser automation across the React SPA + FastAPI backend
-- **NIST SP 800-88 erasure validation** — automated tests verifying cryptographic shredding
-  meets NIST SP 800-88 Rev 1 media sanitization guidelines
-- **OWASP ZAP baseline scan** — automated in CI against the running application
-- **Security fuzz tests** — property-based fuzzing of API endpoints and masking primitives
+![Dashboard with Jobs](docs/screenshots/03-dashboard-with-jobs.png)
 
-**Phase 7 DP-SGD integration — operational**
-- **`DPCompatibleCTGAN`** — custom CTGAN training loop with Opacus DP-SGD integration;
-  drop-in replacement for SDV's `CTGANSynthesizer` with real per-sample gradient clipping
-  and Gaussian noise injection via Opacus `PrivacyEngine`
-- **`DPTrainingWrapper`** — configurable wrapper for `max_grad_norm` and `noise_multiplier`;
-  `epsilon_spent(delta)` returns real epsilon after training; `check_budget()` enforces
-  per-run privacy budget with `BudgetExhaustionError` on exhaustion
-- **`build_dp_wrapper()` bootstrapper factory** — sole entry point for constructing
-  `DPTrainingWrapper`; wires DP into `SynthesisEngine.train(dp_wrapper=...)` via DI
-- **DP quality benchmarks** — epsilon vs. quality degradation curves documented in
-  `docs/DP_QUALITY_REPORT.md`; recommended epsilon ranges by use case
-- **Full E2E DP pipeline** — Parquet → `DPCompatibleCTGAN` training → `sample()` →
-  `StatisticalProfiler.compare()` → `ProfileDelta` validation; all integration-tested
+**Error handling.** Failures surface immediately with actionable messages — including OOM
+pre-flight rejections before any training begins.
 
-**Phase 8 security hardening — operational**
-- **HMAC artifact signing** — `ModelArtifact.save()` / `load()` sign and verify artifacts
-  with `ARTIFACT_SIGNING_KEY`; tampering raises `SecurityError` at load time
-- **Alembic migrations** — database schema managed via Alembic; `alembic upgrade head`
-  applies all pending migrations before first start and after updates
-- **Startup config validation** — `validate_config()` runs at boot; missing required
-  environment variables cause an immediate, descriptive process exit rather than silent
-  misconfiguration
-- **ADR-0017a** — Opacus `secure_mode` decision documented; `filterwarnings` suppression
-  for `UserWarning: Secure RNG turned off` is ADR-backed
+![Error Toast](docs/screenshots/04-error-toast.png)
 
 ---
 
-## End-to-End Validation
+## Getting Started
 
-The complete Conclave pipeline has been validated end-to-end against real Docker
-infrastructure (2026-03-16). This is not a mock or simulation — real PostgreSQL
-containers, real data, real FK traversal, real masking.
+### Prerequisites
 
-### Pipeline Results
+- Docker and Docker Compose (v2.20+)
+- Python 3.14 and [Poetry](https://python-poetry.org/)
+- Node.js (for the React SPA)
 
-| Step | Result |
-|------|--------|
-| Docker Compose (postgres, redis, minio, pgbouncer) | All services healthy |
-| Seed source database (100 customers, 250 orders, 888 items, 250 payments) | PASS |
-| `conclave-subset` CLI — schema reflection + FK graph | PASS |
-| FK traversal: customers → orders → order_items, payments | PASS (50 → 116 → 396 + 116 rows) |
-| Deterministic masking (names, emails, SSNs, phones, addresses) | PASS |
-| Masking determinism (same input + same salt = same output) | PASS |
-| Referential integrity preserved (0 orphan rows across all FKs) | PASS |
-| Saga rollback on failure | PASS (tested via missing target schema) |
+### 1. Clone and install
 
-### Masking Evidence
+```bash
+git clone <repo-url> && cd conclave
+poetry install --with dev,integration,synthesizer
+```
+
+### 2. Start local services
+
+```bash
+docker compose up -d
+# Starts PostgreSQL, Redis, MinIO, pgbouncer, Jaeger, Grafana
+```
+
+### 3. Apply migrations and configure
+
+```bash
+cp .env.example .env
+# Edit .env — set DB credentials, ARTIFACT_SIGNING_KEY, etc.
+
+export DB_USER=conclave DB_PASSWORD=postgres DB_HOST=localhost DB_PORT=5432 DB_NAME=conclave
+poetry run alembic upgrade head
+```
+
+### 4. Run the backend
+
+```bash
+poetry run uvicorn synth_engine.bootstrapper.app:create_app --factory --reload
+# API available at http://localhost:8000
+```
+
+### 5. Run the frontend
+
+```bash
+cd frontend && npm ci && npm run dev
+# SPA available at http://localhost:5173 — proxies API calls to :8000
+```
+
+### Air-gap bundle (for offline deployment)
+
+```bash
+make build-airgap-bundle
+```
+
+Produces a versioned tarball containing all Python wheels, Docker images, and
+configuration for sneaker-net deployment onto an isolated network.
+
+Full production deployment instructions are in the
+[Operator Manual](docs/OPERATOR_MANUAL.md).
+
+---
+
+## Masking Evidence
+
+This is a live run against real Docker infrastructure. Not a mock.
 
 Source (real PII):
 
@@ -230,159 +265,58 @@ Target (masked):
   2 | David White     | Lori Owens   | lauradavis@example.com       | 204-28-8133
 ```
 
-Every PII column is deterministically replaced. Same input (`Johnson`) always produces
-the same output (`Melissa Beck`) across all rows — preserving join integrity while
-making PII unrecoverable.
+Every PII column replaced. `Johnson` always maps to `Melissa Beck` — across every row,
+every table, every run — so join integrity holds. The mapping is not reversible.
 
-### User Interface
-
-The React SPA dashboard provides real-time monitoring of synthesis jobs.
-
-**Vault Unseal** — Operator passphrase entry before any data operations:
-
-![Vault Unseal Page](docs/screenshots/01-unseal-page.png)
-
-**Dashboard** — Job creation and monitoring with SSE-streamed progress:
-
-![Dashboard with Jobs](docs/screenshots/03-dashboard-with-jobs.png)
-
-**Job Status Cards** — Training progress (blue), completed (green), failed with error (red):
-
-The dashboard displays TRAINING jobs with epoch progress bars, COMPLETE jobs with
-green confirmation, and FAILED jobs with the specific error message (e.g., OOM).
-All elements meet WCAG 2.1 AA: labeled forms, required field indicators, semantic
-headings, keyboard-navigable, 4.5:1 contrast ratios.
+FK traversal from this run: 50 customers → 116 orders → 396 order items + 116 payments.
+Zero orphan rows. See [full E2E validation evidence](docs/E2E_VALIDATION.md).
 
 ---
 
-## Quality Gates (All Must Pass)
+## Quality and Development Process
 
-Every commit passes all of the following before it can merge:
+Every commit passes all gates before it can merge:
 
 ```bash
-poetry run ruff check src/ tests/                          # linting
-poetry run ruff format --check src/ tests/                 # formatting
-poetry run mypy src/                                       # strict type checking
-poetry run bandit -c pyproject.toml -r src/               # security scan
-poetry run pytest tests/unit/ --cov=src/synth_engine \
-    --cov-fail-under=90 -W error                           # unit tests + 90% coverage
-poetry run pytest tests/integration/ -v --no-cov \
-    -p pytest_postgresql                                   # integration tests (separate gate)
-poetry run python -m importlinter                          # module boundary enforcement
-pre-commit run --all-files                                 # all hooks
+poetry run ruff check src/ tests/              # linting
+poetry run ruff format --check src/ tests/     # formatting
+poetry run mypy src/                           # strict type checking
+poetry run bandit -c pyproject.toml -r src/    # security scan
+poetry run pytest tests/unit/ \
+    --cov=src/synth_engine --cov-fail-under=90 \
+    -W error                                   # unit tests, 90% coverage gate
+poetry run pytest tests/integration/ -v        # integration tests (separate gate)
+poetry run python -m importlinter              # module boundary enforcement
+pre-commit run --all-files                     # all hooks including gitleaks
 ```
 
-Coverage is enforced at 90% minimum. Integration tests are a separate gate — unit tests with
-mocks do not substitute for integration tests that specify real infrastructure.
+Coverage is enforced at 90% minimum. Integration tests are a separate gate — unit test
+mocks do not substitute for tests against real infrastructure (pytest-postgresql).
+
+The development workflow is TDD (Red → Green → Refactor) enforced by convention and
+by the review process. Every task is reviewed in parallel by four specialized agents:
+QA, DevOps, Architecture, and UI/UX — before any merge. Review findings are tracked
+as open advisories in a living retrospective log. The full workflow is documented in
+[`CLAUDE.md`](CLAUDE.md) and governed by [`CONSTITUTION.md`](CONSTITUTION.md).
 
 ---
 
-## Running Locally
+## Documentation
 
-### Prerequisites
-
-- Docker + Docker Compose
-- Python 3.14
-- Poetry
-- Node.js (for the React SPA)
-- PostgreSQL client (`libpq`) for integration tests
-
-### Backend Setup
-
-```bash
-# Install dependencies (include synthesizer group for DP-SGD training)
-poetry install --with dev,integration,synthesizer
-
-# Start local services (PostgreSQL, Redis, MinIO, Jaeger)
-docker-compose up -d
-
-# Apply database migrations
-export DB_USER=conclave
-export DB_PASSWORD=postgres
-export DB_HOST=localhost
-export DB_PORT=5432
-export DB_NAME=conclave
-poetry run alembic upgrade head
-
-# Unseal the vault (development mode — sets ALE_KEY from .env)
-# Copy .env.example to .env and fill in values
-cp .env.example .env
-
-# Run unit tests
-poetry run pytest tests/unit/ -v
-
-# Run integration tests (requires PostgreSQL on PATH)
-poetry run pytest tests/integration/ -v --no-cov -p pytest_postgresql
-```
-
-### Frontend Setup
-
-```bash
-cd frontend && npm ci && npm run dev
-```
-
-The SPA will be available at `http://localhost:5173` and proxies API calls to the FastAPI
-backend at `http://localhost:8000`.
-
-### Air-Gap Bundle (for offline deployment)
-
-```bash
-make build-airgap-bundle
-```
-
-Produces a deterministic, versioned tarball containing all Python wheels, Docker images, and
-configuration for deployment on an isolated network with no internet access.
-
----
-
-## Development Process
-
-This project runs an autonomous TDD workflow governed by a two-layer governance model:
-
-- **`CONSTITUTION.md`** — The binding priority hierarchy for all agents. Security is Priority 0. Every directive has a programmatic enforcement mechanism (Priority 0.5). Immutable except by explicit ratification.
-- **`CLAUDE.md`** — The operational PM/developer workflow. Defines how the PM orchestrates subagents, delegates implementation, manages the backlog, and runs the review cycle. Living document; amended after retrospectives.
-
-The workflow itself:
-
-- **Red → Green → Refactor** — tests are written before implementation, always
-- **4-parallel-reviewer pattern** — every task is reviewed by QA, DevOps, Architecture, and
-  UI/UX agents in parallel before merge
-- **90% coverage gate** — enforced in CI; cannot be bypassed
-- **docs-gate** — every PR must contain at least one `docs:` commit (Constitution Priority 6)
-- **Living retrospective log** — `docs/RETRO_LOG.md` captures every review finding and
-  open advisory item
-- **ADR-driven decisions** — architectural decisions are documented in `docs/adr/`
-
-See `CLAUDE.md` for the full PM/developer workflow and `CONSTITUTION.md` for the binding
-priority hierarchy.
-
----
-
-## Project Structure
-
-```
-├── src/synth_engine/       Production source code (see Architecture above)
-├── tests/
-│   ├── unit/               Fast isolated unit tests (90% coverage gate)
-│   ├── integration/        pytest-postgresql integration tests (separate CI gate)
-│   └── security/           NIST erasure validation and security fuzz tests
-├── frontend/               React 18 SPA (Vite, TypeScript, Playwright E2E)
-├── docs/
-│   ├── adr/                Architecture Decision Records
-│   ├── backlog/            Phase-by-phase task backlog
-│   ├── screenshots/        Playwright-captured UI screenshots
-│   ├── RETRO_LOG.md        Living review ledger and advisory tracking
-│   ├── OPERATOR_MANUAL.md  Production deployment and operations guide
-│   ├── DP_QUALITY_REPORT.md  DP-SGD epsilon vs. quality benchmarks
-│   ├── DISASTER_RECOVERY.md  Incident response and recovery procedures
-│   ├── LICENSING.md        Offline license activation and hardware binding guide
-│   └── retired/            Retired documents and archived spike files
-├── .claude/agents/         Specialized AI reviewer definitions
-├── alembic/                Database migration scripts (Alembic)
-├── scripts/                Utility scripts (ChromaDB seeding, type generation, etc.)
-├── docker-compose.yml      Local development services
-└── Makefile                Build targets including air-gap bundle
-```
+| Document | Contents |
+|----------|----------|
+| [Operator Manual](docs/OPERATOR_MANUAL.md) | Production deployment, hardware requirements, service configuration |
+| [DP Quality Report](docs/DP_QUALITY_REPORT.md) | Epsilon vs. quality degradation curves; recommended epsilon ranges by use case |
+| [E2E Validation](docs/E2E_VALIDATION.md) | Full end-to-end pipeline validation evidence |
+| [Disaster Recovery](docs/DISASTER_RECOVERY.md) | Incident response and recovery procedures |
+| [Licensing](docs/LICENSING.md) | Offline license activation and hardware binding guide |
+| [Infrastructure Security](docs/infrastructure_security.md) | Infrastructure security controls and threat model |
+| [Dependency Audit](docs/DEPENDENCY_AUDIT.md) | Supply chain audit and dependency provenance |
+| [Business Requirements](docs/BUSINESS_REQUIREMENTS.md) | Full product BRD — the "why" behind every capability |
+| [Architectural Requirements](docs/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification and module boundary contracts |
+| [Architecture Decision Records](docs/adr/) | 36 ADRs covering every significant design decision |
+| [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, and development history |
+| [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
 
 ---
 
