@@ -185,6 +185,16 @@ export type StartJobResult =
   | { ok: true; data: StartJobResponse }
   | { ok: false; error: ProblemDetail };
 
+/**
+ * Result type for GET /jobs/{id}/download.
+ *
+ * On success, carries the raw Blob and the filename parsed from the
+ * Content-Disposition header (or "download.parquet" as a fallback).
+ */
+export type DownloadJobResult =
+  | { ok: true; blob: Blob; filename: string }
+  | { ok: false; error: ProblemDetail };
+
 // ---------------------------------------------------------------------------
 // Shared helper
 // ---------------------------------------------------------------------------
@@ -207,6 +217,50 @@ async function parseProblemDetail(response: Response): Promise<ProblemDetail> {
       detail: `Unexpected server response: HTTP ${response.status}`,
     };
   }
+}
+
+/**
+ * Strip path separators from a filename to prevent path traversal when
+ * assigning to `anchor.download`.
+ *
+ * @param name - Raw filename string.
+ * @returns Sanitized filename with `/` and `\` replaced by `_`.
+ */
+function sanitizeFilename(name: string): string {
+  return name.replace(/[/\\]/g, "_");
+}
+
+/**
+ * Extract the filename from a Content-Disposition header value.
+ *
+ * Parses `filename=` and `filename*=UTF-8''` tokens. Falls back to
+ * "download.parquet" if the header is absent or contains no filename token.
+ * Path separators (`/` and `\`) are stripped to prevent path traversal
+ * (FINDING 1 — DevOps security review).
+ *
+ * @param header - The raw Content-Disposition header string, or null.
+ * @returns The decoded, sanitized filename, or "download.parquet" as a fallback.
+ */
+function extractFilename(header: string | null): string {
+  if (!header) return "download.parquet";
+
+  // Try filename*=UTF-8''<encoded> (RFC 5987)
+  const rfc5987Match = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (rfc5987Match?.[1]) {
+    try {
+      return sanitizeFilename(decodeURIComponent(rfc5987Match[1].trim()));
+    } catch {
+      // Fall through to simple filename= match
+    }
+  }
+
+  // Try filename="<name>" or filename=<name>
+  const simpleMatch = /filename\s*=\s*"?([^";]+)"?/i.exec(header);
+  if (simpleMatch?.[1]) {
+    return sanitizeFilename(simpleMatch[1].trim());
+  }
+
+  return "download.parquet";
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +391,68 @@ export async function startJob(jobId: number): Promise<StartJobResult> {
   if (response.ok) {
     const data = (await response.json()) as StartJobResponse;
     return { ok: true, data };
+  }
+
+  return { ok: false, error: await parseProblemDetail(response) };
+}
+
+/**
+ * GET /jobs/{jobId}/download — download the synthesised artefact for a
+ * COMPLETE job.
+ *
+ * The backend returns `application/octet-stream` with a
+ * `Content-Disposition: attachment; filename="<name>"` header.  This
+ * function reads the response as a Blob and extracts the filename from the
+ * header so the caller can trigger a browser download without ever touching
+ * the raw Response object.
+ *
+ * CONSTITUTION: No PII is stored or logged.  The Blob is passed directly to
+ * the caller for immediate browser-side download initiation.
+ *
+ * Security: The filename is sanitized to strip path separators before being
+ * returned. The caller must assign it to `anchor.download` without further
+ * modification (FINDING 1 — DevOps security review).
+ *
+ * @param jobId - The numeric ID of the COMPLETE job to download.
+ * @returns Discriminated union of `{ blob, filename }` or RFC 7807 error.
+ */
+export async function downloadJob(jobId: number): Promise<DownloadJobResult> {
+  const networkErrorPD: ProblemDetail = {
+    type: "about:blank",
+    title: "Network Error",
+    status: 0,
+    detail: "Unable to connect to the server.",
+  };
+
+  let response: Response;
+
+  try {
+    response = await fetch(`/jobs/${jobId}/download`);
+  } catch {
+    return { ok: false, error: networkErrorPD };
+  }
+
+  if (response.ok) {
+    // blob() can reject if the connection drops after HTTP 200 has been
+    // received. Wrap separately so the button is never stranded disabled
+    // (FINDING 4 — QA review).
+    try {
+      const blob = await response.blob();
+      const filename = extractFilename(
+        response.headers.get("content-disposition"),
+      );
+      return { ok: true, blob, filename };
+    } catch {
+      return {
+        ok: false,
+        error: {
+          type: "about:blank",
+          title: "Download Error",
+          status: 0,
+          detail: "Connection lost during download.",
+        },
+      };
+    }
   }
 
   return { ok: false, error: await parseProblemDetail(response) };

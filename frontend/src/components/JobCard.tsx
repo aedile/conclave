@@ -2,8 +2,9 @@
  * JobCard — displays a single synthesis job with status, progress, and actions.
  *
  * Shows the job's table name, status badge, epoch counter, and progress bar.
- * Renders a "Start" button only for QUEUED jobs. The progress bar is fully
- * accessible with role="progressbar" and aria-value* attributes.
+ * Renders a "Start" button only for QUEUED jobs.  Renders a "Download" button
+ * only for COMPLETE jobs (P23-T23.3).  The progress bar is fully accessible
+ * with role="progressbar" and aria-value* attributes.
  *
  * CONSTITUTION: WCAG 2.1 AA — all interactive elements are keyboard accessible,
  * progress bar has required ARIA attributes, status badges use semantic colours.
@@ -21,6 +22,10 @@
  * WCAG colour fix: TRAINING status badge uses --color-accent-text (#818cf8,
  * indigo-400, ~5.6:1 on --color-surface) instead of --color-accent (#4f46e5,
  * indigo-600, ~3:1 on --color-bg which fails WCAG 1.4.3 for small text).
+ *
+ * P23-T23.3: Download button uses --color-success token so it remains visually
+ * distinct from the Start button (--color-accent-text) and maintains 4.5:1
+ * contrast ratio on --color-surface.
  */
 
 import type { JobResponse } from "../api/client";
@@ -39,6 +44,10 @@ interface JobCardProps {
   onStart: (jobId: number) => void;
   /** Whether a start action is in progress for this job. */
   isStarting: boolean;
+  /** Callback invoked when the user clicks the Download button. */
+  onDownload: (jobId: number) => void;
+  /** Whether a download action is in progress for this job. */
+  isDownloading: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,12 +104,16 @@ function safePercent(currentEpoch: number, totalEpochs: number): number {
  * @param sseState - Live SSE state if streaming; null otherwise.
  * @param onStart - Handler called with the job ID when Start is clicked.
  * @param isStarting - Disables the button while start is pending.
+ * @param onDownload - Handler called with the job ID when Download is clicked.
+ * @param isDownloading - Disables the button while download is in progress.
  */
 export default function JobCard({
   job,
   sseState,
   onStart,
   isStarting,
+  onDownload,
+  isDownloading,
 }: JobCardProps): JSX.Element {
   // Use SSE state if available and training, otherwise fall back to job snapshot
   const isStreaming = sseState !== null && sseState.status !== null;
@@ -183,6 +196,24 @@ export default function JobCard({
           className="job-card__start-btn"
         >
           {isStarting ? "Starting…" : "Start"}
+        </button>
+      )}
+
+      {/* Download button — only shown for COMPLETE jobs.
+          WCAG 2.1 AA (P23-T23.3 AC5):
+          - aria-label encodes the table name for descriptive screen-reader text
+          - type="button" prevents accidental form submission
+          - disabled while download is in progress (AC3)
+          - fully keyboard accessible as a native <button> element */}
+      {job.status === "COMPLETE" && (
+        <button
+          type="button"
+          disabled={isDownloading}
+          onClick={() => onDownload(job.id)}
+          aria-label={`Download synthetic data for ${job.table_name}`}
+          className="job-card__download-btn"
+        >
+          {isDownloading ? "Downloading…" : "Download"}
         </button>
       )}
     </article>
