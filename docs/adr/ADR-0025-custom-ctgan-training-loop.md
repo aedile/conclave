@@ -182,7 +182,7 @@ class DPCompatibleCTGAN:
 
 In a GAN, only the **discriminator** processes real training data. The generator
 receives gradient signal from the discriminator but never sees real records directly.
-DP-SGD protects the discriminator's gradient computation — clipping per-sample
+ DP-SGD protects the discriminator's gradient computation — clipping per-sample
 gradients and adding Gaussian noise — which bounds the information about any single
 training record that leaks through the discriminator to the generator.
 
@@ -210,7 +210,7 @@ Per ADR-0001 and import-linter contracts:
 `DPCompatibleCTGAN` is implemented in `modules/synthesizer/dp_training.py` with:
 - `__init__(metadata, epochs, dp_wrapper=None)` accepting optional DP wrapper
 - `fit(df)` implementing the custom training loop with exposed PyTorch objects
-- `sample(n_rows)` delegating to the trained Generator
+- `sample(num_rows)` delegating to the trained Generator
 
 The class accesses SDV private attributes (`_data_processor`, internal Generator/
 Discriminator classes). This coupling is documented and accepted — SDV does not provide
@@ -266,3 +266,9 @@ gracefully as epsilon decreases (more noise → more privacy → less utility).
 - Xie, L. et al. (2018). "Differentially Private Generative Adversarial Network."
   arXiv:1802.06739. Established the approach of applying DP-SGD only to the
   discriminator in GAN training.
+
+---
+
+## Amendments
+
+- **P24-T24.1** (2026-03-17): `sample()` parameter renamed from `n_rows` to `num_rows` to match the polymorphic SDV `CTGANSynthesizer.sample(num_rows=...)` interface that `SynthesisEngine.generate()` calls.
