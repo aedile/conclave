@@ -245,10 +245,10 @@ class TestJobsListEndpoint:
         body = response.json()
         assert len(body["items"]) > 0
         item = body["items"][0]
-        assert "enable_dp" in item
-        assert "noise_multiplier" in item
-        assert "max_grad_norm" in item
-        assert "actual_epsilon" in item
+        assert item["enable_dp"] is True
+        assert item["noise_multiplier"] == 1.1
+        assert item["max_grad_norm"] == 1.0
+        assert item["actual_epsilon"] is None
 
 
 class TestJobGetEndpoint:
@@ -665,6 +665,66 @@ class TestJobCreateEndpoint:
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
                         "max_grad_norm": -0.1,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_noise_multiplier_above_100(self) -> None:
+        """POST /jobs must return 422 when noise_multiplier=101 (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "noise_multiplier": 101,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_job_rejects_max_grad_norm_above_100(self) -> None:
+        """POST /jobs must return 422 when max_grad_norm=101 (P22-T22.1)."""
+        app, engine = _make_test_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/jobs",
+                    json={
+                        "table_name": "orders",
+                        "parquet_path": "/tmp/orders.parquet",
+                        "total_epochs": 5,
+                        "max_grad_norm": 101,
                     },
                 )
 

@@ -128,10 +128,12 @@ class SynthesisJob(SQLModel, table=True):
             ValueError: If ``checkpoint_every_n`` is less than 1.  A value of
                 0 would cause ``min(0, total - 0) == 0`` in the training loop,
                 making ``completed_epochs`` never advance (infinite loop).
-            ValueError: If ``noise_multiplier`` is not strictly positive.
-                The Opacus API requires a positive noise multiplier.
-            ValueError: If ``max_grad_norm`` is not strictly positive.
-                Gradient clipping requires a positive bound.
+            ValueError: If ``noise_multiplier`` is not strictly positive or
+                exceeds 100.0.  The Opacus API requires a positive noise
+                multiplier; values above 100.0 are almost certainly erroneous.
+            ValueError: If ``max_grad_norm`` is not strictly positive or
+                exceeds 100.0.  Gradient clipping requires a positive bound;
+                values above 100.0 are almost certainly erroneous.
         """
         n = data.get("checkpoint_every_n", _DEFAULT_CHECKPOINT_EVERY_N)
         if isinstance(n, int) and n < 1:
@@ -140,9 +142,13 @@ class SynthesisJob(SQLModel, table=True):
         noise = data.get("noise_multiplier", _DEFAULT_NOISE_MULTIPLIER)
         if isinstance(noise, int | float) and noise <= 0:
             raise ValueError("noise_multiplier must be > 0")
+        if isinstance(noise, int | float) and noise > 100.0:
+            raise ValueError("noise_multiplier must be <= 100.0")
 
         grad_norm = data.get("max_grad_norm", _DEFAULT_MAX_GRAD_NORM)
         if isinstance(grad_norm, int | float) and grad_norm <= 0:
             raise ValueError("max_grad_norm must be > 0")
+        if isinstance(grad_norm, int | float) and grad_norm > 100.0:
+            raise ValueError("max_grad_norm must be <= 100.0")
 
         super().__init__(**data)

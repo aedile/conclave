@@ -41,11 +41,13 @@ class JobCreateRequest(BaseModel):
     noise_multiplier: float = Field(
         default=1.1,
         gt=0,
+        le=100.0,
         description="Gaussian noise ratio for DP-SGD (ADR-0025).",
     )
     max_grad_norm: float = Field(
         default=1.0,
         gt=0,
+        le=100.0,
         description="Gradient clipping bound for DP-SGD.",
     )
 

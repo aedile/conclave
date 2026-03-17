@@ -283,6 +283,30 @@ class TestSynthesisJobModel:
         job = _make_synthesis_job(actual_epsilon=3.14)
         assert job.actual_epsilon == 3.14
 
+    def test_synthesis_job_noise_multiplier_above_100_raises(self) -> None:
+        """SynthesisJob must reject noise_multiplier=101 with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="noise_multiplier must be <= 100.0"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                noise_multiplier=101,
+            )
+
+    def test_synthesis_job_max_grad_norm_above_100_raises(self) -> None:
+        """SynthesisJob must reject max_grad_norm=101 with ValueError."""
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        with pytest.raises(ValueError, match="max_grad_norm must be <= 100.0"):
+            SynthesisJob(
+                total_epochs=10,
+                table_name="persons",
+                parquet_path="/data/persons.parquet",
+                max_grad_norm=101,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Huey task registration
@@ -401,7 +425,7 @@ class TestSynthesisTaskSuccessPath:
             )
 
         assert job.artifact_path is not None
-        assert "job1" in job.artifact_path or len(job.artifact_path) > 0
+        assert "job_1" in job.artifact_path
 
     def test_task_calls_session_commit_on_status_transitions(self) -> None:
         """Task must commit the session after each status change."""
