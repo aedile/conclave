@@ -38,6 +38,7 @@ Task: P22-T22.6 — Integration E2E: Full DP Synthesis Pipeline
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import os
 import tempfile
 import warnings
@@ -101,6 +102,28 @@ def persons_parquet(persons_df: pd.DataFrame) -> Generator[str]:
         yield path
 
 
+@pytest.fixture
+def async_db_url() -> Generator[str]:
+    """Provide a unique aiosqlite URL backed by a temp file, with cleanup.
+
+    SQLite in-memory databases are connection-scoped; using aiosqlite requires
+    a file-based path so multiple connections (sync setup + async spend path)
+    can all share the same data.  The temp file is deleted in ``finally`` after
+    the test completes to avoid leaking ``.db`` files in the OS temp directory.
+
+    Yields:
+        A ``sqlite+aiosqlite:///...`` URL string pointing to a unique temp file.
+    """
+    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    f.close()
+    url = f"sqlite+aiosqlite:///{f.name}"
+    try:
+        yield url
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(f.name)
+
+
 # ---------------------------------------------------------------------------
 # DB setup helpers
 # ---------------------------------------------------------------------------
@@ -117,25 +140,6 @@ def _make_sync_db() -> Any:
     db_engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(db_engine)
     return db_engine
-
-
-def _make_async_db_url() -> str:
-    """Return a unique in-memory aiosqlite URL for one test's async session.
-
-    SQLite in-memory databases are connection-scoped; using ``?check_same_thread``
-    with aiosqlite requires a file-based path or a shared-cache URI.  We use a
-    named temp-file path that is unique per call to avoid cross-test state leakage.
-
-    Returns:
-        A ``sqlite+aiosqlite:///...`` URL string pointing to a unique temp file.
-    """
-    # Use a named temp file so multiple connections to the same URL (from the
-    # sync setup pass and the async spend_budget pass) can both see the data.
-    import tempfile
-
-    f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    f.close()
-    return f"sqlite+aiosqlite:///{f.name}"
 
 
 async def _create_async_tables(async_url: str) -> None:
@@ -421,7 +425,7 @@ class TestDPPipelineE2EOrchestration:
                 f"actual_epsilon must be > 0, got {final_job.actual_epsilon}"
             )
 
-    async def test_dp_job_ledger_debited(self, persons_parquet: str) -> None:
+    async def test_dp_job_ledger_debited(self, persons_parquet: str, async_db_url: str) -> None:
         """AC3 + AC7: PrivacyLedger.total_spent_epsilon > 0 after a complete DP job.
 
         Uses a real in-memory aiosqlite async engine so that spend_budget() is
@@ -437,12 +441,11 @@ class TestDPPipelineE2EOrchestration:
             set_spend_budget_fn,
         )
 
-        async_url = _make_async_db_url()
-        await _create_async_tables(async_url)
-        ledger_id = await _seed_ledger(async_url, allocated=100.0)
+        await _create_async_tables(async_db_url)
+        ledger_id = await _seed_ledger(async_db_url, allocated=100.0)
 
         # Build a spend_budget fn that targets this test's async DB.
-        spend_fn = _build_spend_budget_fn_for_url(async_url)
+        spend_fn = _build_spend_budget_fn_for_url(async_db_url)
         set_spend_budget_fn(spend_fn)
 
         try:
@@ -483,7 +486,7 @@ class TestDPPipelineE2EOrchestration:
                 )
 
             # AC3: ledger must reflect a positive spend
-            _, spent = await _read_ledger(async_url, ledger_id)
+            _, spent = await _read_ledger(async_db_url, ledger_id)
             assert spent > 0.0, (
                 f"PrivacyLedger.total_spent_epsilon must be > 0 after DP job, got {spent}"
             )
@@ -496,7 +499,9 @@ class TestDPPipelineE2EOrchestration:
 
             _reset(build_spend_budget_fn())
 
-    async def test_dp_job_privacy_transaction_written(self, persons_parquet: str) -> None:
+    async def test_dp_job_privacy_transaction_written(
+        self, persons_parquet: str, async_db_url: str
+    ) -> None:
         """AC4: A PrivacyTransaction row is written for the job after COMPLETE.
 
         Vacuous-truth guard: job status is asserted COMPLETE before transaction check.
@@ -510,11 +515,10 @@ class TestDPPipelineE2EOrchestration:
             set_spend_budget_fn,
         )
 
-        async_url = _make_async_db_url()
-        await _create_async_tables(async_url)
-        await _seed_ledger(async_url, allocated=100.0)
+        await _create_async_tables(async_db_url)
+        await _seed_ledger(async_db_url, allocated=100.0)
 
-        spend_fn = _build_spend_budget_fn_for_url(async_url)
+        spend_fn = _build_spend_budget_fn_for_url(async_db_url)
         set_spend_budget_fn(spend_fn)
 
         try:
@@ -555,7 +559,7 @@ class TestDPPipelineE2EOrchestration:
                 )
 
             # AC4: at least one PrivacyTransaction row must exist for this job
-            tx_count = await _count_transactions(async_url, job_id)
+            tx_count = await _count_transactions(async_db_url, job_id)
             assert tx_count >= 1, (
                 f"Expected at least one PrivacyTransaction for job_id={job_id}, got {tx_count}"
             )
@@ -575,7 +579,9 @@ class TestDPPipelineE2EOrchestration:
 class TestDPPipelineBudgetExhaustion:
     """AC5: Running jobs until budget is exhausted marks the next job FAILED."""
 
-    async def test_job_fails_with_budget_exhausted_error_msg(self, persons_parquet: str) -> None:
+    async def test_job_fails_with_budget_exhausted_error_msg(
+        self, persons_parquet: str, async_db_url: str
+    ) -> None:
         """AC5: Next job after budget exhaustion has status=FAILED, 'budget exhausted' msg.
 
         Strategy:
@@ -599,12 +605,11 @@ class TestDPPipelineBudgetExhaustion:
             set_spend_budget_fn,
         )
 
-        async_url = _make_async_db_url()
-        await _create_async_tables(async_url)
+        await _create_async_tables(async_db_url)
         # Seed a ledger with an absurdly small budget — any real DP run will overshoot it.
-        ledger_id = await _seed_ledger(async_url, allocated=1e-10)
+        ledger_id = await _seed_ledger(async_db_url, allocated=1e-10)
 
-        spend_fn = _build_spend_budget_fn_for_url(async_url)
+        spend_fn = _build_spend_budget_fn_for_url(async_db_url)
         set_spend_budget_fn(spend_fn)
 
         try:
@@ -655,7 +660,7 @@ class TestDPPipelineBudgetExhaustion:
                 )
 
             # Verify the ledger was NOT debited (budget exhaustion is a no-op on ledger)
-            _, spent = await _read_ledger(async_url, ledger_id)
+            _, spent = await _read_ledger(async_db_url, ledger_id)
             assert spent == 0.0, (
                 f"Ledger must NOT be debited on budget exhaustion, got total_spent_epsilon={spent}"
             )
@@ -666,7 +671,9 @@ class TestDPPipelineBudgetExhaustion:
 
             _reset(build_spend_budget_fn())
 
-    async def test_ledger_not_modified_when_budget_exhausted(self, persons_parquet: str) -> None:
+    async def test_ledger_not_modified_when_budget_exhausted(
+        self, persons_parquet: str, async_db_url: str
+    ) -> None:
         """AC5 (ledger invariant): Ledger total_spent_epsilon stays 0 when exhausted.
 
         This is the atomicity guarantee from ``spend_budget()``'s
@@ -682,11 +689,10 @@ class TestDPPipelineBudgetExhaustion:
             set_spend_budget_fn,
         )
 
-        async_url = _make_async_db_url()
-        await _create_async_tables(async_url)
-        ledger_id = await _seed_ledger(async_url, allocated=1e-10)
+        await _create_async_tables(async_db_url)
+        ledger_id = await _seed_ledger(async_db_url, allocated=1e-10)
 
-        spend_fn = _build_spend_budget_fn_for_url(async_url)
+        spend_fn = _build_spend_budget_fn_for_url(async_db_url)
         set_spend_budget_fn(spend_fn)
 
         try:
@@ -719,7 +725,7 @@ class TestDPPipelineBudgetExhaustion:
                     )
 
             # Ledger integrity: total_spent must remain 0 after exhaustion rollback
-            _, spent = await _read_ledger(async_url, ledger_id)
+            _, spent = await _read_ledger(async_db_url, ledger_id)
             assert spent == 0.0, (
                 f"Ledger total_spent_epsilon must be 0 after budget exhaustion rollback, "
                 f"got {spent}"
@@ -746,7 +752,9 @@ class TestDPPipelineBudgetRefreshResume:
     production database.
     """
 
-    async def test_budget_refresh_allows_next_job_to_complete(self, persons_parquet: str) -> None:
+    async def test_budget_refresh_allows_next_job_to_complete(
+        self, persons_parquet: str, async_db_url: str
+    ) -> None:
         """AC6: POST /privacy/budget/refresh resets budget; next DP job reaches COMPLETE.
 
         Flow:
@@ -769,21 +777,20 @@ class TestDPPipelineBudgetRefreshResume:
         # We use a named temp file so the sync layer (refresh endpoint's
         # asyncio.run bridge) and the async task path share the same file.
         # ------------------------------------------------------------------
-        async_url = _make_async_db_url()
-        await _create_async_tables(async_url)
+        await _create_async_tables(async_db_url)
 
         # Derive sync URL from async URL for the refresh endpoint's sync ORM.
-        sync_url = async_url.replace("sqlite+aiosqlite:///", "sqlite:///")
+        sync_url = async_db_url.replace("sqlite+aiosqlite:///", "sqlite:///")
 
         # Seed the ledger with a very small budget so the first job fails.
-        ledger_id = await _seed_ledger(async_url, allocated=1e-10)
+        ledger_id = await _seed_ledger(async_db_url, allocated=1e-10)
 
         # Point the FastAPI app's DATABASE_URL at our temp file so the
         # refresh endpoint and its sync session reads from the same ledger.
         original_db_url = os.environ.get("DATABASE_URL")
         os.environ["DATABASE_URL"] = sync_url
 
-        spend_fn = _build_spend_budget_fn_for_url(async_url)
+        spend_fn = _build_spend_budget_fn_for_url(async_db_url)
         set_spend_budget_fn(spend_fn)
 
         try:
@@ -833,7 +840,7 @@ class TestDPPipelineBudgetRefreshResume:
             from synth_engine.modules.privacy.accountant import reset_budget as _reset_budget
 
             async def _do_reset() -> None:
-                engine = _create_async_engine(async_url)
+                engine = _create_async_engine(async_db_url)
                 async with _AsyncSession(engine, expire_on_commit=False) as session:
                     await _reset_budget(
                         ledger_id=ledger_id,

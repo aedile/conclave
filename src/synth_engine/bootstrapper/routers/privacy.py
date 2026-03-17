@@ -188,7 +188,7 @@ def get_budget(
 ) -> BudgetResponse | JSONResponse:
     """Return the current privacy budget ledger state.
 
-    Reads the canonical ``PrivacyLedger`` row (id=1) and returns its
+    Reads the first available ``PrivacyLedger`` row and returns its
     current state including the computed ``remaining_epsilon`` and the
     ``is_exhausted`` flag.
 
