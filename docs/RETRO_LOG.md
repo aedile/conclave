@@ -16,6 +16,53 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+## Phase Retrospectives
+
+---
+
+### [2026-03-17] Phase 22 — DP Pipeline Integration End-to-End
+
+**Goal**: Wire the DP synthesis pipeline end-to-end so that `POST /jobs/{id}/start` runs
+DP-SGD protected synthesis with privacy budget enforcement.
+
+**Tasks completed**: T22.1–T22.6 (6 tasks, PRs #106–#111)
+
+**Exit criteria audit**: ALL PASS (verified by Explore agent with file:line evidence).
+
+**What went well**:
+1. DI factory injection pattern (ADR-0029) cleanly solved the import boundary tension between
+   `modules/synthesizer/tasks.py` and `bootstrapper/factories.py`. Protocol-based typing in
+   `shared/protocols.py` provided type safety without cross-boundary imports.
+2. Review agents caught substantive bugs: URL double-substitution (T22.3), race condition from
+   missing `FOR UPDATE` locking (T22.4), PII leak in application logger (T22.4).
+3. All advisories handled inline — 0 open at phase end. No technical debt accumulated.
+4. T22.5 (property test bump) batched cleanly into the phase per Rule 17.
+
+**What was challenging**:
+1. Async-to-sync bridge for Huey workers required careful design — `asyncio.run()` in
+   `ThreadPoolExecutor` was the correct pattern but not obvious.
+2. Duck-typed exception detection (`"BudgetExhaustion" in type(exc).__name__`) was necessary
+   to avoid importing from `modules/privacy/` into `modules/synthesizer/`, but is fragile.
+3. QA review agent latency — T22.4 QA took multiple cron cycles. Process continued with
+   Architecture/DevOps findings; QA findings incorporated when available.
+
+**What to improve**:
+1. Pre-enumerate all domain mutations when designing a module's service layer. T22.4 discovered
+   that `accountant.py` only had `spend_budget()` — `reset_budget()` was missing and had to be
+   added retroactively when the router needed it.
+2. Docstring accuracy on DB query semantics — write docstrings against actual implementation,
+   not intended design (T22.4: "id=1" vs `.first()`).
+3. Temp file cleanup discipline — any `NamedTemporaryFile(delete=False)` must have registered
+   cleanup (T22.6 DevOps finding).
+
+**Metrics**:
+- 1141 unit tests, 96.77% coverage
+- 8 new integration tests (T22.6)
+- 0 open advisories
+- Review findings: 16 total across 6 tasks (all fixed inline)
+
+---
+
 ## Task Reviews
 
 ---
