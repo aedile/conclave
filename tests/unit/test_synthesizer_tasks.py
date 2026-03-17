@@ -1247,31 +1247,27 @@ class TestSpendBudgetWiring:
     def test_budget_exhaustion_marks_job_failed(self) -> None:
         """BudgetExhaustionError from spend_budget fn must mark job FAILED (AC3).
 
-        The exception name contains 'BudgetExhaustion' — the task uses duck-
-        typing name check to stay boundary-clean (no import from privacy module).
+        P26-T26.2: BudgetExhaustionError now lives in shared/exceptions.py and
+        is caught by type rather than by ADR-0033 duck-typing name matching.
         """
-
-        class _FakeBudgetExhaustionError(Exception):
-            """Simulates BudgetExhaustionError without importing from privacy module."""
+        from synth_engine.shared.exceptions import BudgetExhaustionError
 
         job, mock_budget_fn, mock_session = self._run_impl_with_budget_mock(
             job_id=22,
             epsilon=999.0,
-            budget_fn_side_effect=_FakeBudgetExhaustionError("Budget exhausted"),
+            budget_fn_side_effect=BudgetExhaustionError("Budget exhausted"),
         )
 
         assert job.status == "FAILED", f"Expected FAILED; got {job.status}"
 
     def test_budget_exhaustion_sets_error_msg(self) -> None:
         """BudgetExhaustionError must set job.error_msg to 'Privacy budget exhausted' (AC3)."""
-
-        class _FakeBudgetExhaustionError(Exception):
-            """Simulates BudgetExhaustionError without importing from privacy module."""
+        from synth_engine.shared.exceptions import BudgetExhaustionError
 
         job, _, _ = self._run_impl_with_budget_mock(
             job_id=23,
             epsilon=999.0,
-            budget_fn_side_effect=_FakeBudgetExhaustionError("over budget"),
+            budget_fn_side_effect=BudgetExhaustionError("over budget"),
         )
 
         assert job.error_msg == "Privacy budget exhausted", (
@@ -1284,14 +1280,12 @@ class TestSpendBudgetWiring:
         The artifact_path must remain None — the synthesis artifact must NOT
         be persisted when the privacy budget is exhausted.
         """
-
-        class _FakeBudgetExhaustionError(Exception):
-            """Simulates BudgetExhaustionError without importing from privacy module."""
+        from synth_engine.shared.exceptions import BudgetExhaustionError
 
         job, _, _ = self._run_impl_with_budget_mock(
             job_id=24,
             epsilon=999.0,
-            budget_fn_side_effect=_FakeBudgetExhaustionError("over budget"),
+            budget_fn_side_effect=BudgetExhaustionError("over budget"),
         )
 
         assert job.artifact_path is None, (
@@ -1300,14 +1294,12 @@ class TestSpendBudgetWiring:
 
     def test_budget_exhaustion_commits_failed_status(self) -> None:
         """Budget exhaustion must commit the FAILED status to the database (AC3)."""
-
-        class _FakeBudgetExhaustionError(Exception):
-            """Simulates BudgetExhaustionError without importing from privacy module."""
+        from synth_engine.shared.exceptions import BudgetExhaustionError
 
         _, _, mock_session = self._run_impl_with_budget_mock(
             job_id=25,
             epsilon=999.0,
-            budget_fn_side_effect=_FakeBudgetExhaustionError("over budget"),
+            budget_fn_side_effect=BudgetExhaustionError("over budget"),
         )
 
         assert mock_session.commit.call_count >= 1

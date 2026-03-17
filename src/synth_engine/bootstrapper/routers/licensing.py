@@ -87,7 +87,7 @@ def _render_qr_code(payload: dict[str, str]) -> str:
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return base64.b64encode(buf.getvalue()).decode("ascii")
-    except Exception as exc:
+    except Exception as exc:  # Broad catch intentional: qrcode/Pillow fallback on any render error
         # Fallback: base64-encode the JSON payload as a text token.
         # An operator can decode this with `base64 -d` on the command line.
         _logger.warning(

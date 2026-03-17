@@ -289,7 +289,7 @@ def refresh_budget(
             prev_spent=prev_spent,
             new_allocated=str(ledger.total_allocated_epsilon),
         )
-    except Exception:
+    except Exception:  # Broad catch intentional: audit failure must return 500, not propagate
         _logger.exception("WORM audit emission failed after budget reset — returning 500")
         return JSONResponse(
             status_code=500,

@@ -32,8 +32,12 @@ Boundary constraints (import-linter enforced):
     - Must NOT import from ``modules/ingestion/``, ``modules/masking/``,
       ``modules/subsetting/``, ``modules/profiler/``, or ``modules/privacy/``.
     - Must NOT import from ``bootstrapper/``.
+    - May import from ``shared/`` — this is the approved path for
+      ``BudgetExhaustionError``, which replaces the ADR-0033 duck-typing
+      pattern now that the exception lives in ``shared/exceptions.py``.
 
 Task: P26-T26.1 — Split Oversized Files (Refactor Only)
+Task: P26-T26.2 — Replace ADR-0033 duck-typing with typed BudgetExhaustionError catch
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ from synth_engine.modules.synthesizer.job_finalization import (
     _write_parquet_with_signing,
 )
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.shared.exceptions import BudgetExhaustionError
 from synth_engine.shared.protocols import DPWrapperProtocol, SpendBudgetProtocol
 from synth_engine.shared.security.audit import get_audit_logger
 
@@ -192,12 +197,12 @@ def _handle_dp_accounting(
       ``job.actual_epsilon``.
     - Step 5b: if ``_spend_budget_fn`` is registered and epsilon was read
       successfully, call it to deduct from the global ``PrivacyLedger``.
-      On ``BudgetExhaustionError`` (detected by class-name duck-typing per
-      ADR-0033), set ``job.status = FAILED`` and return.  On success, emit a
+      On :exc:`~synth_engine.shared.exceptions.BudgetExhaustionError`,
+      set ``job.status = FAILED`` and return.  On success, emit a
       WORM audit event.
 
-    The audit log call is outside the ``BudgetExhaustion`` try/except so that
-    an audit logger failure cannot corrupt the exhaustion-detection path.
+    The audit log call is outside the ``BudgetExhaustionError`` try/except so
+    that an audit logger failure cannot corrupt the exhaustion-detection path.
 
     Args:
         job: The ``SynthesisJob`` record being updated (mutated in place).
@@ -209,7 +214,7 @@ def _handle_dp_accounting(
         Nothing.  Raises if a non-budget exception escapes ``_spend_budget_fn``.
 
     Raises:
-        Exception: Any non-``BudgetExhaustion`` exception raised by
+        Exception: Any non-``BudgetExhaustionError`` exception raised by
             ``_spend_budget_fn`` propagates to the caller.
     """
     # ------------------------------------------------------------------
@@ -223,7 +228,10 @@ def _handle_dp_accounting(
             job_id,
             actual_eps,
         )
-    except Exception:
+    except Exception:  # Broad catch intentional: dp_wrapper.epsilon_spent() is a protocol method
+        # whose concrete implementation (Opacus PrivacyEngine.get_epsilon) may raise
+        # opacus-specific exceptions not known at this call site.  Training succeeded;
+        # we log the failure and continue to COMPLETE with actual_epsilon=None.
         _logger.exception(
             "Job %d: Failed to read epsilon_spent from DP wrapper.",
             job_id,
@@ -255,20 +263,16 @@ def _handle_dp_accounting(
             job.actual_epsilon,
             _DEFAULT_LEDGER_ID,
         )
-    except Exception as exc:
-        # Duck-typing: detect BudgetExhaustionError without importing from
-        # modules/privacy (import-linter enforced boundary).  Any exception
-        # whose class name contains "BudgetExhaustion" is treated as budget
-        # exhaustion.  All other exceptions are re-raised.  See ADR-0033.
-        if "BudgetExhaustion" in type(exc).__name__:
-            _logger.error("Job %d: Privacy budget exhausted — marking FAILED.", job_id)
-            job.status = "FAILED"
-            job.error_msg = "Privacy budget exhausted"
-            return
-        # Unknown exception — re-raise to surface the error.
-        raise
+    except BudgetExhaustionError:
+        # BudgetExhaustionError is now imported directly from shared/exceptions.py,
+        # replacing the ADR-0033 duck-typing pattern.  Both modules/synthesizer and
+        # modules/privacy import from shared/; there is no import boundary violation.
+        _logger.error("Job %d: Privacy budget exhausted — marking FAILED.", job_id)
+        job.status = "FAILED"
+        job.error_msg = "Privacy budget exhausted"
+        return
 
-    # WORM audit event — emitted OUTSIDE the BudgetExhaustion try/except
+    # WORM audit event — emitted OUTSIDE the BudgetExhaustionError try/except
     # so that an audit logger failure cannot corrupt the exception handler.
     # The budget was successfully deducted; budget_spent is True here.
     if budget_spent:
@@ -284,7 +288,9 @@ def _handle_dp_accounting(
                     "epsilon_spent": str(job.actual_epsilon),
                 },
             )
-        except Exception:
+        except Exception:  # Broad catch intentional: audit logger failure must NOT prevent
+            # the status transition — the budget was deducted successfully and the
+            # PrivacyTransaction record is already committed.  Log and continue.
             _logger.exception("Job %d: Audit log failed after budget deduction.", job_id)
             # Budget was deducted successfully — continue to COMPLETE
             # even if audit logging fails.  The deduction is recorded in
@@ -409,10 +415,10 @@ def _run_synthesis_job_impl(
     6. If ``_spend_budget_fn`` is registered and ``job.actual_epsilon`` is set:
        call ``_spend_budget_fn(amount, job_id, ledger_id=1)`` to deduct
        epsilon from the global ``PrivacyLedger``.  On ``BudgetExhaustionError``
-       (detected via exception class name duck-typing, see ADR-0033): set
-       ``FAILED``, ``error_msg="Privacy budget exhausted"``, commit, and return
-       WITHOUT persisting the artifact.  Emit a WORM audit event on success.
-       The audit call is placed OUTSIDE the ``BudgetExhaustion`` try/except
+       (from ``shared/exceptions.py``): set ``FAILED``,
+       ``error_msg="Privacy budget exhausted"``, commit, and return WITHOUT
+       persisting the artifact.  Emit a WORM audit event on success.
+       The audit call is placed OUTSIDE the ``BudgetExhaustionError`` try/except
        so audit logger failures do not affect budget exhaustion detection.
     7. Save final artifact; set ``artifact_path``, ``current_epoch``.
     8. Set status → ``GENERATING``; commit.

@@ -216,6 +216,7 @@ class RFC7807Middleware:
 
         try:
             await self.app(scope, receive, _send_wrapper)
+        # Broad catch intentional: ASGI middleware must convert all unhandled errors to RFC 7807
         except Exception as exc:
             if headers_sent:
                 # Cannot send a new response — headers already committed.

@@ -76,7 +76,7 @@ class TestExceptionHierarchy:
         """SynthEngineError must be catchable as a plain Exception."""
         from synth_engine.shared.exceptions import SynthEngineError
 
-        with pytest.raises(Exception):
+        with pytest.raises(SynthEngineError, match="test"):
             raise SynthEngineError("test")
 
     def test_budget_exhaustion_carries_message(self) -> None:
@@ -126,7 +126,10 @@ class TestBackwardCompatImports:
         from synth_engine.shared.exceptions import ArtifactTamperingError
         from synth_engine.shared.security.hmac_signing import SecurityError
 
-        assert issubclass(SecurityError, ArtifactTamperingError) or SecurityError is ArtifactTamperingError
+        assert (
+            issubclass(SecurityError, ArtifactTamperingError)
+            or SecurityError is ArtifactTamperingError
+        )
 
     def test_vault_sealed_error_import_from_vault_is_same_class(self) -> None:
         """vault.VaultSealedError must be the shared class (or its subclass)."""
@@ -174,7 +177,8 @@ class TestBudgetExhaustionCatchByType:
             caught_as_shared = True
 
         assert caught_as_shared, (
-            "dp_engine.BudgetExhaustionError raised must be catchable as shared BudgetExhaustionError"
+            "dp_engine.BudgetExhaustionError raised must be catchable as "
+            "shared BudgetExhaustionError"
         )
 
 
@@ -225,7 +229,9 @@ class TestSafeErrorMsgModulePaths:
         """Combined messages with module path + filesystem path must strip both."""
         from synth_engine.shared.errors import safe_error_msg
 
-        msg = "synth_engine.modules.ingestion.postgres_adapter.PrivilegeEscalationError at /etc/conf"
+        msg = (
+            "synth_engine.modules.ingestion.postgres_adapter.PrivilegeEscalationError at /etc/conf"
+        )
         result = safe_error_msg(msg)
         assert "synth_engine.modules" not in result
         assert "/etc/conf" not in result

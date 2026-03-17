@@ -270,7 +270,7 @@ def shred_job(
                 "table_name": job.table_name,
             },
         )
-    except Exception:
+    except Exception:  # Broad catch intentional: audit failure must not block status update
         # Audit log failure must NOT prevent the status transition --
         # the files are already deleted; aborting here would leave the
         # record in COMPLETE with no artifacts.

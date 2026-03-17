@@ -196,7 +196,7 @@ class SubsettingEngine:
                 self._egress.write(table, rows)
                 result.tables_written.append(table)
                 result.row_counts[table] = len(rows)
-        except Exception:
+        except Exception:  # Broad catch intentional: any write error must trigger full rollback
             self._egress.rollback()
             raise
 
