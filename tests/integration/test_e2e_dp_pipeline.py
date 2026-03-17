@@ -18,11 +18,11 @@ Acceptance Criteria (P22-T22.6):
   AC8: All quality gates pass.
 
 Architecture:
-  - Option A (AC1-AC5): Exercise ``_run_synthesis_job_impl`` directly with
+  - Option A throughout: Exercise ``_run_synthesis_job_impl`` directly with
     real CTGAN + real in-memory SQLite (sync ORM) + real aiosqlite (async
-    spend_budget path).  Bypasses Huey but tests real wiring.
-  - Option B (AC6): Full HTTP-layer test via FastAPI TestClient to verify the
-    ``POST /privacy/budget/refresh`` → resume cycle.
+    spend_budget path).  Bypasses Huey but tests real wiring.  AC6 calls
+    ``reset_budget()`` directly via async bridge — exercises the accountant
+    layer, not the HTTP endpoint.
 
 Known Failure Patterns (from RETRO_LOG):
   - P21-T21.3: Vacuous-truth trap.  Always assert preconditions (job COMPLETE,
@@ -157,13 +157,12 @@ async def _create_async_tables(async_url: str) -> None:
     await async_engine.dispose()
 
 
-async def _seed_ledger(async_url: str, *, allocated: float, ledger_id_expected: int = 1) -> int:
+async def _seed_ledger(async_url: str, *, allocated: float) -> int:
     """Seed a ``PrivacyLedger`` row in the async database at ``async_url``.
 
     Args:
         async_url: Async-driver SQLAlchemy URL.
         allocated: Total epsilon allocation to seed.
-        ledger_id_expected: The ledger row must land on this id (auto-increment).
 
     Returns:
         The ``id`` assigned to the newly-inserted ledger row.
@@ -724,6 +723,17 @@ class TestDPPipelineBudgetExhaustion:
                         dp_wrapper=dp_wrapper,
                     )
 
+            # Vacuous-truth guard: confirm job reached FAILED before checking ledger.
+            # If the impl silently left the job QUEUED, the ledger assertion would
+            # pass vacuously — verifying status first prevents that trap.
+            with Session(db_engine) as session:
+                final_job = session.get(SynthesisJob, job_id)
+                assert final_job is not None
+                assert final_job.status == "FAILED", (
+                    f"Precondition: job must be FAILED after budget exhaustion, "
+                    f"got {final_job.status!r} (error_msg={final_job.error_msg!r})"
+                )
+
             # Ledger integrity: total_spent must remain 0 after exhaustion rollback
             _, spent = await _read_ledger(async_db_url, ledger_id)
             assert spent == 0.0, (
@@ -746,8 +756,8 @@ class TestDPPipelineBudgetExhaustion:
 class TestDPPipelineBudgetRefreshResume:
     """AC6: After budget refresh, a subsequent DP job succeeds.
 
-    Uses the FastAPI TestClient (ASGI transport) so the refresh endpoint
-    is exercised through the full HTTP stack.  The sync DB is overridden
+    Calls ``reset_budget()`` directly via async bridge — exercises the
+    accountant layer, not the HTTP endpoint.  The sync DB is overridden
     via the ``DATABASE_URL`` environment variable to avoid touching the
     production database.
     """
@@ -912,9 +922,6 @@ class TestDPPipelineBudgetRefreshResume:
             _reset(build_spend_budget_fn())
 
 
-# ---------------------------------------------------------------------------
-# AC2 (wrapper level): epsilon_spent > 0 from the DP wrapper after training.
-# This guards the engine-wrapper wiring independently of the orchestration path.
 # ---------------------------------------------------------------------------
 # AC2 (wrapper level): epsilon_spent > 0 from the DP wrapper after training.
 # This guards the engine-wrapper wiring independently of the orchestration path.
