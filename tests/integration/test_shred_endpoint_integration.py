@@ -154,9 +154,7 @@ async def test_shred_deletes_real_artifact_files_and_transitions_to_shredded(
             return_value=isolated_audit_logger,
         ),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(f"/jobs/{job_id}/shred")
 
     # AC4: HTTP 200 with SHREDDED body
@@ -227,15 +225,11 @@ async def test_shred_emits_worm_audit_event_with_correct_fields(
         ),
         caplog.at_level(logging.INFO, logger="synth_engine.security.audit"),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             await client.post(f"/jobs/{job_id}/shred")
 
     # AC2: Verify the audit log contains the expected event
-    audit_records = [
-        r for r in caplog.records if r.name == "synth_engine.security.audit"
-    ]
+    audit_records = [r for r in caplog.records if r.name == "synth_engine.security.audit"]
     assert len(audit_records) >= 1, "Expected at least one WORM audit log entry"
 
     import json
@@ -278,9 +272,7 @@ async def test_shred_non_complete_jobs_return_404() -> None:
 
     vault_patch, license_patch = _vault_and_license_patches()
     with vault_patch, license_patch:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             for jid, status in job_ids:
                 response = await client.post(f"/jobs/{jid}/shred")
                 assert response.status_code == 404, (

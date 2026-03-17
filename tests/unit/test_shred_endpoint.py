@@ -8,7 +8,6 @@ CONSTITUTION Priority 3: TDD — RED phase
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -442,8 +441,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_deletes_output_path(self, tmp_path: Path) -> None:
         """shred_artifacts() must delete the output Parquet file."""
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.shred import shred_artifacts
 
         parquet = tmp_path / "out.parquet"
         parquet.write_bytes(b"fake parquet data")
@@ -462,8 +461,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_deletes_sig_sidecar(self, tmp_path: Path) -> None:
         """shred_artifacts() must delete the .sig sidecar alongside the Parquet."""
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.shred import shred_artifacts
 
         parquet = tmp_path / "out.parquet"
         sig = tmp_path / "out.parquet.sig"
@@ -485,8 +484,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_deletes_artifact_path(self, tmp_path: Path) -> None:
         """shred_artifacts() must delete the model artifact pickle file."""
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.shred import shred_artifacts
 
         pickle_file = tmp_path / "model.pkl"
         pickle_file.write_bytes(b"fake model pickle")
@@ -505,8 +504,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_tolerates_missing_output_path(self) -> None:
         """shred_artifacts() must not raise if output_path is None."""
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.shred import shred_artifacts
 
         job = SynthesisJob(
             table_name="t",
@@ -521,12 +520,10 @@ class TestShredArtifactsDomainFunction:
         # Must not raise
         shred_artifacts(job)
 
-    def test_shred_artifacts_tolerates_missing_artifact_path(
-        self, tmp_path: Path
-    ) -> None:
+    def test_shred_artifacts_tolerates_missing_artifact_path(self, tmp_path: Path) -> None:
         """shred_artifacts() must not raise if artifact_path is None."""
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.shred import shred_artifacts
 
         parquet = tmp_path / "out.parquet"
         parquet.write_bytes(b"fake parquet data")
@@ -547,8 +544,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_tolerates_already_deleted_files(self) -> None:
         """shred_artifacts() must not raise if files are already gone (idempotent)."""
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.shred import shred_artifacts
 
         job = SynthesisJob(
             table_name="t",
@@ -563,12 +560,10 @@ class TestShredArtifactsDomainFunction:
         # Must not raise — NIST 800-88: idempotent erasure is acceptable
         shred_artifacts(job)
 
-    def test_shred_artifacts_tolerates_sig_already_deleted(
-        self, tmp_path: Path
-    ) -> None:
+    def test_shred_artifacts_tolerates_sig_already_deleted(self, tmp_path: Path) -> None:
         """shred_artifacts() must not raise if only the Parquet exists (no .sig)."""
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.shred import shred_artifacts
 
         parquet = tmp_path / "out.parquet"
         parquet.write_bytes(b"fake parquet data")
