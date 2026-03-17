@@ -20,8 +20,11 @@ Task: P23-T23.2 — /jobs/{id}/download Endpoint
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import hmac
 import logging
 import os
+import re
 from collections.abc import AsyncGenerator, Generator, Iterator
 from pathlib import Path
 from typing import Annotated, Any
@@ -43,7 +46,6 @@ from synth_engine.bootstrapper.sse import job_event_stream
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 from synth_engine.modules.synthesizer.tasks import run_synthesis_job
 from synth_engine.shared.db import SessionFactory
-from synth_engine.shared.security.hmac_signing import verify_hmac
 
 _logger = logging.getLogger(__name__)
 
@@ -63,6 +65,9 @@ _DOWNLOAD_CHUNK_SIZE: int = 65536
 
 #: Environment variable name for the artifact HMAC signing key.
 _ARTIFACT_SIGNING_KEY_ENV: str = "ARTIFACT_SIGNING_KEY"
+
+#: Pattern for safe filename characters in Content-Disposition header.
+_SAFE_FILENAME_RE: re.Pattern[str] = re.compile(r"[^a-zA-Z0-9_\-]")
 
 
 @router.get("", response_model=JobListResponse)
@@ -229,14 +234,18 @@ def _iter_file_chunks(path: str, chunk_size: int = _DOWNLOAD_CHUNK_SIZE) -> Iter
 def _verify_artifact_signature(output_path: str) -> bool | None:
     """Check the HMAC-SHA256 signature of a Parquet artifact.
 
-    Reads ``ARTIFACT_SIGNING_KEY`` from the environment.  If absent or
-    empty, verification is skipped and ``None`` is returned (unsigned
-    artifacts are acceptable in development).
+    Reads ``ARTIFACT_SIGNING_KEY`` from the environment.  If absent,
+    empty, or whitespace-only, verification is skipped and ``None`` is
+    returned (unsigned artifacts are acceptable in development).
 
-    If the key is present, reads the ``.sig`` sidecar file at
-    ``output_path + '.sig'``.  If the sidecar is absent or the digest
-    does not match, returns ``False``.  On a valid match, returns
-    ``True``.
+    If the key is present, the ``.sig`` sidecar file at
+    ``output_path + '.sig'`` is read.  If the sidecar is absent, returns
+    ``False``.  The HMAC is computed incrementally by reading the artifact
+    in :data:`_DOWNLOAD_CHUNK_SIZE` chunks — the entire file is never
+    loaded into memory.  On a valid match, returns ``True``; on mismatch,
+    returns ``False``.  If any ``OSError`` is raised while reading the
+    artifact or sidecar, ``None`` is returned so the caller can
+    distinguish an I/O failure from a confirmed signature mismatch.
 
     Args:
         output_path: Absolute filesystem path to the Parquet file.
@@ -244,14 +253,17 @@ def _verify_artifact_signature(output_path: str) -> bool | None:
     Returns:
         ``True`` if verification succeeds.
         ``False`` if verification fails (missing sidecar or wrong digest).
-        ``None`` if signing is not enabled (no key set).
+        ``None`` if signing is not enabled (no key set, whitespace-only
+        key, or key that is not valid hexadecimal — logged at WARNING;
+        verification skipped) or if an ``OSError`` occurred reading the
+        artifact or sidecar (also logged at WARNING; verification skipped).
     """
-    signing_key_hex = os.environ.get(_ARTIFACT_SIGNING_KEY_ENV)
-    if not signing_key_hex:
+    raw_key_env = os.environ.get(_ARTIFACT_SIGNING_KEY_ENV)
+    if not raw_key_env or not raw_key_env.strip():
         return None  # signing not enabled — skip verification
 
     try:
-        signing_key = bytes.fromhex(signing_key_hex)
+        signing_key = bytes.fromhex(raw_key_env.strip())
     except ValueError:
         _logger.warning(
             "ARTIFACT_SIGNING_KEY is not valid hex; skipping signature verification for %s",
@@ -275,15 +287,36 @@ def _verify_artifact_signature(output_path: str) -> bool | None:
 
     try:
         stored_digest = Path(sig_path).read_bytes()
-        parquet_bytes = Path(output_path).read_bytes()
+        # Compute HMAC incrementally — never load the whole Parquet into memory.
+        h = hmac.new(signing_key, digestmod=hashlib.sha256)
+        for chunk in _iter_file_chunks(output_path, _DOWNLOAD_CHUNK_SIZE):
+            h.update(chunk)
+        actual_digest = h.digest()
     except OSError as exc:
         _logger.warning(
-            "Failed to read artifact or sidecar for verification: %s",
-            str(exc),
+            "Failed to read artifact or sidecar for verification: %s — %s",
+            exc.__class__.__name__,
+            Path(output_path).name,
         )
-        return False
+        return None  # I/O failure — distinct from confirmed signature mismatch
 
-    return verify_hmac(signing_key, parquet_bytes, stored_digest)
+    return hmac.compare_digest(actual_digest, stored_digest)
+
+
+def _sanitize_filename(name: str) -> str:
+    """Strip characters unsafe for use in a Content-Disposition filename.
+
+    Removes any character that is not alphanumeric, underscore, or hyphen.
+    This is a defense-in-depth measure; the primary guard is the
+    ``table_name`` pattern validator on :class:`JobCreateRequest`.
+
+    Args:
+        name: Raw filename string (without extension).
+
+    Returns:
+        Sanitized string containing only ``[a-zA-Z0-9_-]`` characters.
+    """
+    return _SAFE_FILENAME_RE.sub("", name)
 
 
 @router.get("/{job_id}/download", response_model=None)
@@ -312,7 +345,8 @@ def download_job(
         - **404** if the job does not exist.
         - **404** if the job status is not ``COMPLETE``.
         - **404** if ``output_path`` is ``None`` or the file does not exist.
-        - **409** if the artifact HMAC signature verification fails.
+        - **409** if the artifact HMAC signature verification fails
+          (confirmed mismatch or missing sidecar).
     """
     job = session.get(SynthesisJob, job_id)
     if job is None:
@@ -361,6 +395,9 @@ def download_job(
         )
 
     # Verify HMAC signature before serving (C&C 2 / AC2).
+    # Returns False  → confirmed mismatch (409 Conflict).
+    # Returns None   → signing disabled or I/O error (skip; proceed to stream).
+    # Returns True   → verified OK.
     verification_result = _verify_artifact_signature(job.output_path)
     if verification_result is False:
         _logger.warning(
@@ -376,7 +413,11 @@ def download_job(
             ),
         )
 
-    filename = f"{job.table_name}-synthetic.parquet"
+    # Defense-in-depth: sanitize table_name before embedding in header.
+    # The primary guard is the pattern validator on JobCreateRequest; this
+    # strips any residual unsafe characters from legacy or directly-inserted rows.
+    safe_name = _sanitize_filename(job.table_name)
+    filename = f"{safe_name}-synthetic.parquet"
     return StreamingResponse(
         _iter_file_chunks(job.output_path),
         media_type="application/octet-stream",

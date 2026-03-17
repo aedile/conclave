@@ -68,6 +68,27 @@ communication — for example, job cancellation triggered from the browser
 during an active stream, or interactive query refinement. Until such a
 requirement exists, SSE remains the selected protocol.
 
+### 1a. Amendment (P23-T23.2, 2026-03-17) — Binary artifact download uses raw StreamingResponse
+
+The `GET /jobs/{id}/download` endpoint intentionally uses FastAPI's raw
+`StreamingResponse` rather than `sse-starlette`'s `EventSourceResponse`.
+
+**Rationale:** SSE is a text-only protocol (`text/event-stream` content type).
+Binary Parquet artifacts cannot be encoded as SSE events without base64
+wrapping, which would add encoding overhead, break byte-exact verification
+(the HMAC is computed over raw bytes), and require the client to decode the
+stream.  Raw `StreamingResponse` with `Content-Type: application/octet-stream`
+is the correct mechanism for binary file downloads.
+
+**This is not a deviation from the SSE protocol decision.**  SSE remains the
+selected protocol for all *structured event streams* (progress, complete,
+error events).  Binary artifact download is a distinct use case — a file
+transfer, not an event stream — and is therefore served differently.
+
+**Rule:** Use `sse-starlette` `EventSourceResponse` for structured unidirectional
+event streams.  Use plain `StreamingResponse` for raw binary file transfers.
+These are complementary, not competing, patterns.
+
 ---
 
 ### 2. Bootstrapper-owned SQLModel tables
@@ -143,3 +164,5 @@ dependencies beyond `starlette`, which is already a FastAPI dependency.
   implementation ADR must be created before implementation begins.
 - The `sse-starlette` version is pinned in `pyproject.toml`. Upgrades must
   be reviewed for breaking changes to `EventSourceResponse`.
+- Binary artifact download endpoints use plain `StreamingResponse`; this is
+  the correct and documented pattern (see Amendment 1a above).
