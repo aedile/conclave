@@ -1,9 +1,10 @@
 """DI factory functions for synthesis-layer application dependencies.
 
-Houses the lazy factory functions that construct :class:`SynthesisEngine`
-and :class:`DPTrainingWrapper` instances.  These factories are called at
-synthesis-job start time, never at application startup, so missing GPU
-infrastructure does not prevent the health check from responding.
+Houses the lazy factory functions that construct :class:`SynthesisEngine`,
+:class:`DPTrainingWrapper`, and the sync ``spend_budget`` wrapper instances.
+These factories are called at synthesis-job start time, never at application
+startup, so missing GPU or database infrastructure does not prevent the
+health check from responding.
 
 The Docker-secrets cluster (``_read_secret``, ``_SECRETS_DIR``,
 ``_MINIO_ENDPOINT``, ``_EPHEMERAL_BUCKET``, ``MinioStorageBackend``,
@@ -14,7 +15,11 @@ without modification (AC3 of the bootstrapper-decomposition task).
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+from collections.abc import Callable
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -97,3 +102,104 @@ def build_dp_wrapper(
         noise_multiplier,
     )
     return _DPTrainingWrapper(max_grad_norm=max_grad_norm, noise_multiplier=noise_multiplier)
+
+
+def build_spend_budget_fn() -> Callable[..., None]:
+    """Build a sync callable wrapping async ``spend_budget()`` for Huey context.
+
+    The Huey task runner is synchronous.  ``spend_budget()`` in
+    ``modules/privacy/accountant`` is ``async def`` and requires an
+    ``AsyncSession``.  This factory returns a sync wrapper that:
+
+    1. Creates a fresh ``AsyncSession`` for each call (required by
+       ``spend_budget``'s concurrency contract — sessions must not be shared).
+    2. Calls ``asyncio.run()`` to execute the async code from Huey's
+       synchronous context.  ``asyncio.run()`` creates a new event loop,
+       making this safe even if no event loop exists in the current thread.
+
+    The returned callable signature matches ``_SpendBudgetProtocol`` in
+    ``modules/synthesizer/tasks.py`` and is registered via
+    ``set_spend_budget_fn()`` at bootstrapper startup (Rule 8).
+
+    Import note:
+        This factory defers all privacy-module imports inside the closure so
+        that environments without a live database do not fail at import time.
+        The ``spend_budget`` function and ``BudgetExhaustionError`` are imported
+        lazily inside ``_async_spend``.
+
+    Returns:
+        A sync callable ``(*, amount, job_id, ledger_id, note=None) -> None``
+        that deducts epsilon from the global ``PrivacyLedger`` atomically.
+
+    Raises:
+        Any exception raised by ``spend_budget()`` propagates to the caller,
+        including ``BudgetExhaustionError`` when budget is exhausted.
+
+    Example::
+
+        fn = build_spend_budget_fn()
+        set_spend_budget_fn(fn)
+        # Later, in Huey task:
+        fn(amount=0.5, job_id=42, ledger_id=1)
+    """
+
+    async def _async_spend(
+        amount: float | Decimal,
+        job_id: int,
+        ledger_id: int,
+        note: str | None,
+    ) -> None:
+        """Async inner function: opens a session and calls spend_budget().
+
+        Args:
+            amount: Epsilon to deduct.
+            job_id: Synthesis job identifier.
+            ledger_id: Primary key of the PrivacyLedger row.
+            note: Optional annotation.
+        """
+        # Deferred imports — keeps startup fast and avoids import errors
+        # in environments where aiosqlite/asyncpg is not installed.
+        from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        from synth_engine.modules.privacy.accountant import spend_budget
+
+        database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+        # Promote sync postgres URL to async driver if needed.
+        async_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        # Promote sync sqlite URL to async driver if needed.
+        async_url = async_url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+
+        async_engine = create_async_engine(async_url)
+        async with _AsyncSession(async_engine) as session:
+            await spend_budget(
+                amount=amount,
+                job_id=job_id,
+                ledger_id=ledger_id,
+                session=session,
+                note=note,
+            )
+
+    def _sync_wrapper(
+        *,
+        amount: float,
+        job_id: int,
+        ledger_id: int,
+        note: str | None = None,
+    ) -> None:
+        """Sync wrapper: calls _async_spend via asyncio.run() for Huey compat.
+
+        Args:
+            amount: Epsilon to deduct.  Must be positive.
+            job_id: Synthesis job identifier written to the audit trail.
+            ledger_id: Primary key of the PrivacyLedger row to debit.
+            note: Optional human-readable annotation for the transaction.
+
+        Raises:
+            BudgetExhaustionError: If the privacy budget is exhausted.
+            ValueError: If ``amount`` is not positive.
+        """
+        asyncio.run(_async_spend(amount, job_id, ledger_id, note))
+
+    _logger.info("spend_budget sync wrapper built.")
+    return _sync_wrapper

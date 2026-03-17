@@ -29,6 +29,7 @@ from prometheus_client import make_asgi_app
 
 from synth_engine.bootstrapper.factories import (  # noqa: F401 — re-exported for test patches
     build_dp_wrapper,
+    build_spend_budget_fn,
     build_synthesis_engine,
 )
 from synth_engine.bootstrapper.lifecycle import (
@@ -133,11 +134,13 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
 # instance at worker startup.  Do NOT remove — silent task drops otherwise.
 # set_dp_wrapper_factory injects build_dp_wrapper so tasks.py never imports
 # from bootstrapper directly (correct DI direction: bootstrapper → modules).
+# set_spend_budget_fn injects the async→sync spend_budget wrapper (T22.3).
 # ---------------------------------------------------------------------------
 from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: E402
 from synth_engine.shared.security import rotation as _security_rotation  # noqa: F401, E402
 
 _synthesizer_tasks.set_dp_wrapper_factory(build_dp_wrapper)  # DI: ADR-0029
+_synthesizer_tasks.set_spend_budget_fn(build_spend_budget_fn())  # DI: T22.3
 
 
 def create_app() -> FastAPI:
