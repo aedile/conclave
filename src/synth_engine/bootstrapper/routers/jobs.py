@@ -3,7 +3,6 @@
 Implements CRUD for :class:`SynthesisJob` resources plus:
     - ``POST /jobs/{id}/start``: enqueues the Huey synthesis task.
     - ``GET /jobs/{id}/stream``: Server-Sent Events progress stream.
-    - ``POST /jobs/{id}/shred``: NIST 800-88 compliant artifact erasure.
     - ``GET /jobs/{id}/download``: streams the synthetic Parquet artifact.
 
 Cursor-based pagination uses the integer ``id`` column as the cursor.
@@ -16,7 +15,6 @@ All 404 and error responses use RFC 7807 Problem Details format via
 Task: P5-T5.1 — Task Orchestration API Core
 Task: P22-T22.1 — Job Schema DP Parameters
 Task: P23-T23.2 — /jobs/{id}/download Endpoint
-Task: P23-T23.4 — Cryptographic Erasure Endpoint
 """
 
 from __future__ import annotations
@@ -43,10 +41,8 @@ from synth_engine.bootstrapper.schemas.jobs import (
 )
 from synth_engine.bootstrapper.sse import job_event_stream
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
-from synth_engine.modules.synthesizer.shred import shred_artifacts
 from synth_engine.modules.synthesizer.tasks import run_synthesis_job
 from synth_engine.shared.db import SessionFactory
-from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.security.hmac_signing import verify_hmac
 
 _logger = logging.getLogger(__name__)
@@ -61,12 +57,6 @@ _MAX_PAGE_SIZE: int = 100
 
 #: SSE polling interval injected for testing (seconds).
 _SSE_POLL_INTERVAL: float = 1.0
-
-#: Job status that permits the shred operation.
-_SHRED_ELIGIBLE_STATUS: str = "COMPLETE"
-
-#: Job status applied after successful artifact erasure.
-_SHREDDED_STATUS: str = "SHREDDED"
 
 #: Chunk size for streaming Parquet downloads (64 KiB).
 _DOWNLOAD_CHUNK_SIZE: int = 65536
@@ -208,79 +198,6 @@ def start_job(
     return JSONResponse(
         status_code=202,
         content={"status": "accepted", "job_id": job_id},
-    )
-
-
-@router.post("/{job_id}/shred", status_code=200)
-def shred_job(
-    job_id: int,
-    session: Annotated[Session, Depends(get_db_session)],
-) -> JSONResponse:
-    """Shred all synthesis artifacts for a COMPLETE job (NIST SP 800-88).
-
-    Deletes the generated Parquet output, its HMAC-SHA256 signature sidecar,
-    and the trained model artifact pickle from the filesystem.  Emits a WORM
-    audit event and transitions the job status to ``SHREDDED``.
-
-    Only jobs in ``COMPLETE`` status are eligible.  Jobs in any other status
-    (including already-``SHREDDED`` jobs) return a 404 Problem Detail response.
-
-    Args:
-        job_id: The integer primary key of the job to shred.
-        session: Database session (injected by FastAPI DI).
-
-    Returns:
-        ``{"status": "SHREDDED", "job_id": <id>}`` with HTTP 200 on success,
-        or RFC 7807 404 if the job does not exist or is not eligible.
-    """
-    job = session.get(SynthesisJob, job_id)
-
-    if job is None or job.status != _SHRED_ELIGIBLE_STATUS:
-        detail = (
-            f"SynthesisJob with id={job_id} not found or not eligible for shredding. "
-            f"Only jobs with status=COMPLETE may be shredded."
-        )
-        return JSONResponse(
-            status_code=404,
-            content=problem_detail(
-                status=404,
-                title="Not Found",
-                detail=detail,
-            ),
-        )
-
-    # Delegate physical file deletion to the domain function.
-    # This follows the pattern from T22.4: routers delegate to domain services.
-    shred_artifacts(job)
-
-    # Emit WORM audit event (CONSTITUTION Priority 0: Security).
-    # Must be called AFTER deletion so the event records what was accomplished.
-    try:
-        audit = get_audit_logger()
-        audit.log_event(
-            event_type="ARTIFACT_SHREDDED",
-            actor="system/api",
-            resource=f"synthesis_job/{job_id}",
-            action="shred",
-            details={
-                "job_id": str(job_id),
-                "table_name": job.table_name,
-            },
-        )
-    except Exception:
-        # Audit log failure must NOT prevent the status transition —
-        # the files are already deleted; aborting here would leave the
-        # record in COMPLETE with no artifacts.
-        _logger.exception("Job %d: WORM audit log failed after artifact shredding.", job_id)
-
-    job.status = _SHREDDED_STATUS
-    session.add(job)
-    session.commit()
-
-    _logger.info("Job %d: artifacts shredded, status set to SHREDDED.", job_id)
-    return JSONResponse(
-        status_code=200,
-        content={"status": _SHREDDED_STATUS, "job_id": job_id},
     )
 
 
