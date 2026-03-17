@@ -81,14 +81,14 @@ class TestDPCompatibleCTGANSchemaIntegration:
 
             model = DPCompatibleCTGAN(metadata=metadata, epochs=2)
             model.fit(persons_df)
-            result = model.sample(n_rows=30)
+            result = model.sample(num_rows=30)
 
         assert isinstance(result, pd.DataFrame), (
             f"sample() must return pd.DataFrame, got {type(result)}"
         )
 
     def test_sample_returns_correct_row_count(self, persons_df: pd.DataFrame) -> None:
-        """sample(n_rows=N) must return exactly N rows."""
+        """sample(num_rows=N) must return exactly N rows."""
         from sdv.metadata import (
             SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
         )
@@ -104,7 +104,7 @@ class TestDPCompatibleCTGANSchemaIntegration:
 
             model = DPCompatibleCTGAN(metadata=metadata, epochs=2)
             model.fit(persons_df)
-            result = model.sample(n_rows=n_rows)
+            result = model.sample(num_rows=n_rows)
 
         assert len(result) == n_rows, f"Expected {n_rows} rows, got {len(result)}."
 
@@ -127,7 +127,7 @@ class TestDPCompatibleCTGANSchemaIntegration:
 
             model = DPCompatibleCTGAN(metadata=metadata, epochs=2)
             model.fit(persons_df)
-            result = model.sample(n_rows=20)
+            result = model.sample(num_rows=20)
 
         # Column set must match the training DataFrame's column set
         assert set(result.columns) == set(persons_df.columns), (
@@ -152,7 +152,7 @@ class TestDPCompatibleCTGANSchemaIntegration:
 
             model = DPCompatibleCTGAN(metadata=metadata, epochs=2)
             model.fit(persons_df)
-            result = model.sample(n_rows=30)
+            result = model.sample(num_rows=30)
 
         for col in result.columns:
             all_nan = result[col].isna().all()
@@ -206,7 +206,7 @@ class TestDPCompatibleCTGANVanillaQuality:
 
             model = DPCompatibleCTGAN(metadata=metadata, epochs=2, dp_wrapper=None)
             model.fit(persons_df)
-            synthetic_df = model.sample(n_rows=100)
+            synthetic_df = model.sample(num_rows=100)
 
         # Profile both DataFrames using the project's DataProfiler
         profiler = StatisticalProfiler()
@@ -239,7 +239,7 @@ class TestDPCompatibleCTGANVanillaQuality:
     def test_vanilla_mode_synthetic_row_count_matches_request(
         self, persons_df: pd.DataFrame
     ) -> None:
-        """sample(n_rows=N) in vanilla mode must produce exactly N rows.
+        """sample(num_rows=N) in vanilla mode must produce exactly N rows.
 
         Per Known Failure Pattern: return-value assertions check both schema
         and content (row count).
@@ -259,7 +259,7 @@ class TestDPCompatibleCTGANVanillaQuality:
 
             model = DPCompatibleCTGAN(metadata=metadata, epochs=2, dp_wrapper=None)
             model.fit(persons_df)
-            result = model.sample(n_rows=n_rows)
+            result = model.sample(num_rows=n_rows)
 
         assert len(result) == n_rows, f"Expected {n_rows} rows from vanilla mode, got {len(result)}"
 
@@ -282,7 +282,7 @@ class TestDPCompatibleCTGANVanillaQuality:
 
             model = DPCompatibleCTGAN(metadata=metadata, epochs=2, dp_wrapper=None)
             model.fit(persons_df)
-            result = model.sample(n_rows=50)
+            result = model.sample(num_rows=50)
 
         for col in persons_df.columns:
             assert col in result.columns, f"Column '{col}' missing from synthetic output"

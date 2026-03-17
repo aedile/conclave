@@ -583,11 +583,11 @@ class TestDPCompatibleCTGANSample:
 
         instance = self._fit_instance(mock_sdv_synth, mock_ctgan_instance, n_rows=50)
 
-        result = instance.sample(n_rows=20)
+        result = instance.sample(num_rows=20)
         assert isinstance(result, pd.DataFrame)
 
     def test_sample_returns_correct_row_count(self) -> None:
-        """sample(n_rows=N) must return exactly N rows."""
+        """sample(num_rows=N) must return exactly N rows."""
         mock_sdv_synth = _make_mock_sdv_synthesizer()
         n_rows = 30
         mock_ctgan_instance = _make_mock_ctgan_model(n_rows=n_rows)
@@ -600,7 +600,7 @@ class TestDPCompatibleCTGANSample:
         )
 
         instance = self._fit_instance(mock_sdv_synth, mock_ctgan_instance, n_rows=50)
-        result = instance.sample(n_rows=n_rows)
+        result = instance.sample(num_rows=n_rows)
 
         assert len(result) == n_rows, f"Expected {n_rows} rows, got {len(result)}"
 
@@ -613,7 +613,7 @@ class TestDPCompatibleCTGANSample:
         )
 
         instance = self._fit_instance(mock_sdv_synth, mock_ctgan_instance)
-        instance.sample(n_rows=10)
+        instance.sample(num_rows=10)
 
         mock_ctgan_instance.sample.assert_called_once_with(10)
 
@@ -630,7 +630,7 @@ class TestDPCompatibleCTGANSample:
         )
 
         instance = self._fit_instance(mock_sdv_synth, mock_ctgan_instance)
-        instance.sample(n_rows=15)
+        instance.sample(num_rows=15)
 
         mock_sdv_synth._data_processor.reverse_transform.assert_called_once()
 
@@ -642,10 +642,10 @@ class TestDPCompatibleCTGANSample:
         instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2)
 
         with pytest.raises(RuntimeError, match="fit"):
-            instance.sample(n_rows=10)
+            instance.sample(num_rows=10)
 
     def test_sample_zero_rows_raises_value_error(self) -> None:
-        """sample(n_rows=0) must raise ValueError."""
+        """sample(num_rows=0) must raise ValueError."""
         mock_sdv_synth = _make_mock_sdv_synthesizer()
         mock_ctgan_instance = _make_mock_ctgan_model()
         mock_sdv_synth._data_processor.reverse_transform.return_value = pd.DataFrame(
@@ -654,11 +654,11 @@ class TestDPCompatibleCTGANSample:
 
         instance = self._fit_instance(mock_sdv_synth, mock_ctgan_instance)
 
-        with pytest.raises(ValueError, match="n_rows"):
-            instance.sample(n_rows=0)
+        with pytest.raises(ValueError, match="num_rows"):
+            instance.sample(num_rows=0)
 
     def test_sample_negative_rows_raises_value_error(self) -> None:
-        """sample(n_rows<0) must raise ValueError."""
+        """sample(num_rows<0) must raise ValueError."""
         mock_sdv_synth = _make_mock_sdv_synthesizer()
         mock_ctgan_instance = _make_mock_ctgan_model()
         mock_sdv_synth._data_processor.reverse_transform.return_value = pd.DataFrame(
@@ -667,8 +667,8 @@ class TestDPCompatibleCTGANSample:
 
         instance = self._fit_instance(mock_sdv_synth, mock_ctgan_instance)
 
-        with pytest.raises(ValueError, match="n_rows"):
-            instance.sample(n_rows=-1)
+        with pytest.raises(ValueError, match="num_rows"):
+            instance.sample(num_rows=-1)
 
 
 # ---------------------------------------------------------------------------

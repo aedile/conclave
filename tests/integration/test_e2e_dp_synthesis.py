@@ -138,7 +138,7 @@ class TestE2EDPSynthesisPipeline:
         # Generate synthetic rows via sample()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            synthetic_df = artifact.model.sample(n_rows=50)
+            synthetic_df = artifact.model.sample(num_rows=50)
 
         assert isinstance(synthetic_df, pd.DataFrame), (
             f"sample() must return pd.DataFrame, got {type(synthetic_df)}"
@@ -168,7 +168,7 @@ class TestE2EDPSynthesisPipeline:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            synthetic_df = artifact.model.sample(n_rows=60)
+            synthetic_df = artifact.model.sample(num_rows=60)
 
         assert set(synthetic_df.columns) == set(persons_df.columns), (
             f"Column mismatch: expected {set(persons_df.columns)}, got {set(synthetic_df.columns)}"
@@ -197,7 +197,7 @@ class TestE2EDPSynthesisPipeline:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            synthetic_df = artifact.model.sample(n_rows=40)
+            synthetic_df = artifact.model.sample(num_rows=40)
 
         for col in synthetic_df.columns:
             all_nan = synthetic_df[col].isna().all()
@@ -234,7 +234,7 @@ class TestE2EDPSynthesisPipeline:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            synthetic_df = artifact.model.sample(n_rows=100)
+            synthetic_df = artifact.model.sample(num_rows=100)
 
         # Profile both DataFrames
         profiler = StatisticalProfiler()
@@ -281,7 +281,7 @@ class TestE2EDPSynthesisPipeline:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            _synthetic_df = artifact.model.sample(n_rows=50)
+            _synthetic_df = artifact.model.sample(num_rows=50)
 
         epsilon = wrapper.epsilon_spent(delta=1e-5)
 
@@ -329,7 +329,7 @@ class TestE2EFKPostProcessing:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            synthetic_df = artifact.model.sample(n_rows=50)
+            synthetic_df = artifact.model.sample(num_rows=50)
 
         # Use a known set of valid parent PKs (first 30 IDs from the source fixture)
         valid_pks = set(range(1, 31))
