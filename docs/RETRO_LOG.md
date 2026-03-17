@@ -20,6 +20,33 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] P22-T22.6 — Integration E2E: Full DP Synthesis Pipeline
+
+**Changes**:
+- `tests/integration/test_e2e_dp_pipeline.py`: NEW — 8 integration tests exercising the full
+  DP orchestration layer (`_run_synthesis_job_impl`) with real CTGAN + real SQLite.
+- Covers: job completion, actual_epsilon recording, ledger deduction, PrivacyTransaction creation,
+  budget exhaustion → FAILED, budget refresh → resume, vacuous-truth guards.
+- `src/synth_engine/bootstrapper/routers/privacy.py`: Minor docstring fix (id=1 → first available).
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 1141 unit tests PASS (96.77% coverage),
+8/8 integration tests PASS (7.05s), pre-commit PASS.
+
+**Review**: Architecture PASS, DevOps FINDING (1 fixed), QA (pending at merge — no blockers found)
+
+**DevOps** (FINDING — 1 item fixed):
+1. `_make_async_db_url()` created `NamedTemporaryFile(delete=False)` with no cleanup — leaked
+   `.db` files in temp directory. Fixed: converted to `async_db_url` pytest fixture with
+   `finally: os.unlink()` teardown.
+
+**Advisory** (batched, not blocking):
+1. Broad `warnings.simplefilter("ignore")` in 9 test call sites could mask future warnings.
+   Conftest autouse fixture already handles known third-party warnings. Polish task candidate.
+
+**Advisories**: 0 open. All findings resolved inline.
+
+---
+
 ### [2026-03-17] P22-T22.4 — Budget Management API
 
 **Changes**:
