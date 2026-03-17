@@ -20,6 +20,27 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] Phase 25 — Observability: Custom Metrics + OTEL Trace Propagation
+
+**Tasks**: T25.1 (Custom Prometheus business metrics), T25.2 (OTEL trace context propagation into Huey workers)
+
+**Review agents**: QA (FINDING), DevOps (FINDING), Architecture (PASS)
+
+**Findings fixed (5 FINDINGs, all inline)**:
+- F1 (DevOps): Grafana PromQL double-suffix `epsilon_spent_total_total` → `epsilon_spent_total`
+- F2 (DevOps): `telemetry.py` logger → _logger (private naming convention, pre-existing but expanded)
+- F3 (QA): Integration test rewired to exercise actual `run_synthesis_job` OTEL span creation
+- F4 (QA): Circular assert in test_jobs_router.py replaced with non-tautological form
+- F5 (QA): Telemetry test fixture converted to yield-based teardown for OTEL global state cleanup
+
+**Additional fix**: README masking evidence corrected (per-column first/last names instead of full names in both columns).
+
+**ADR-0029 closure**: Gaps 8 (custom Prometheus metrics) and 9 (OTEL trace propagation) formally closed. TBD-04 and TBD-05 assigned to Phase 25 in both ADR-0029 summary table and deferred-items backlog.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-17] T24.1-2 — Integration Test Repair
 
 **Review agents**: QA (PASS), DevOps (PASS), Architecture (ADVISORY — resolved inline)
