@@ -670,6 +670,38 @@ class TestSynthesisTaskRuntimeFailure:
 
         assert mock_session.commit.call_count >= 1
 
+    def test_total_epochs_zero_marks_job_failed(self) -> None:
+        """_run_synthesis_job_impl must mark job FAILED when total_epochs=0.
+
+        total_epochs=0 skips the training while-loop entirely, leaving
+        last_ckpt_path as None.  The step-6 guard must catch this and set
+        status=FAILED with an error_msg containing 'No artifact produced'.
+        """
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=99,
+            status="QUEUED",
+            total_epochs=0,
+            checkpoint_every_n=5,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+        mock_engine = MagicMock()
+
+        with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            _run_synthesis_job_impl(
+                job_id=99,
+                session=mock_session,
+                engine=mock_engine,
+            )
+
+        assert job.status == "FAILED", f"Expected FAILED; got {job.status}"
+        assert job.error_msg is not None
+        assert "No artifact produced" in job.error_msg, (
+            f"Expected 'No artifact produced' in error_msg; got {job.error_msg!r}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Checkpointing behaviour
@@ -1413,6 +1445,64 @@ class TestSpendBudgetWiring:
             f"Expected actor='system/huey-worker'; got {audit_call_kwargs.get('actor')!r}"
         )
 
+    def test_non_budget_exception_from_spend_budget_propagates(self) -> None:
+        """Non-BudgetExhaustion exceptions from _spend_budget_fn must propagate.
+
+        When _spend_budget_fn raises an exception whose class name does NOT
+        contain 'BudgetExhaustion', the task must re-raise it.  The job must
+        NOT be marked FAILED by the budget-exhaustion handler — Huey handles
+        re-raised exceptions at the task framework level.
+
+        This guards against silent swallowing of infrastructure errors such as
+        database connectivity failures (e.g., ConnectionError).
+        """
+        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+
+        job = _make_synthesis_job(
+            id=29,
+            status="QUEUED",
+            total_epochs=5,
+            checkpoint_every_n=5,
+            enable_dp=True,
+            actual_epsilon=None,
+        )
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        dp_wrapper = _make_mock_dp_wrapper(epsilon=1.0)
+        mock_budget_fn = MagicMock()
+        mock_budget_fn.side_effect = ConnectionError("DB down")
+
+        original_fn = tasks_mod._spend_budget_fn
+        try:
+            tasks_mod.set_spend_budget_fn(mock_budget_fn)
+            with (
+                patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"),
+                patch(
+                    "synth_engine.modules.synthesizer.tasks.get_audit_logger",
+                    return_value=MagicMock(),
+                ),
+            ):
+                with pytest.raises(ConnectionError, match="DB down"):
+                    _run_synthesis_job_impl(
+                        job_id=29,
+                        session=mock_session,
+                        engine=mock_engine,
+                        dp_wrapper=dp_wrapper,
+                    )
+        finally:
+            tasks_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
+
+        # Job must NOT be marked FAILED by the BudgetExhaustion handler;
+        # the re-raise lets Huey handle the error at the framework level.
+        assert job.status != "FAILED", (
+            f"Non-BudgetExhaustion exception must not set job.status=FAILED; got {job.status!r}"
+        )
+
 
 class TestSpendBudgetFactoryBootstrapper:
     """Tests for build_spend_budget_fn factory in bootstrapper/factories.py (AC4).
@@ -1427,6 +1517,66 @@ class TestSpendBudgetFactoryBootstrapper:
 
         fn = build_spend_budget_fn()
         assert callable(fn)
+
+    def test_build_spend_budget_fn_does_not_corrupt_async_url(self) -> None:
+        """build_spend_budget_fn must not double-substitute async driver prefixes.
+
+        If DATABASE_URL already contains an async driver prefix (e.g.,
+        'sqlite+aiosqlite:///:memory:' or 'postgresql+asyncpg://host/db'),
+        the URL promotion logic must pass it through unchanged and not corrupt
+        it by re-substituting the sync prefix.
+
+        This is a regression guard for F3 (review finding): the original
+        code applied string.replace() unconditionally, which would corrupt
+        URLs that already contained the async prefix.
+        """
+        import logging
+        from unittest.mock import AsyncMock
+        from unittest.mock import patch as _patch
+
+        from synth_engine.bootstrapper.factories import build_spend_budget_fn
+
+        fn = build_spend_budget_fn()
+
+        # Capture the URL passed to create_async_engine.
+        captured_urls: list[str] = []
+
+        mock_session_cm = MagicMock()
+        mock_session_cm.__aenter__ = AsyncMock(return_value=MagicMock())
+        mock_session_cm.__aexit__ = AsyncMock(return_value=False)
+
+        def _capture_create_async_engine(url: str, **kwargs: object) -> MagicMock:
+            captured_urls.append(url)
+            return MagicMock()
+
+        with (
+            _patch(
+                "synth_engine.bootstrapper.factories.os.environ.get",
+                return_value="sqlite+aiosqlite:///:memory:",
+            ),
+            _patch(
+                "sqlalchemy.ext.asyncio.create_async_engine",
+                side_effect=_capture_create_async_engine,
+            ),
+            _patch(
+                "sqlalchemy.ext.asyncio.AsyncSession",
+                return_value=mock_session_cm,
+            ),
+            _patch(
+                "synth_engine.modules.privacy.accountant.spend_budget",
+                new_callable=lambda: lambda: AsyncMock(),
+            ),
+        ):
+            try:
+                fn(amount=0.5, job_id=1, ledger_id=1)
+            except Exception as err:
+                logging.getLogger(__name__).debug("Expected mock error: %s", err)
+
+        if captured_urls:
+            # The URL must not have been double-substituted.
+            assert captured_urls[0] == "sqlite+aiosqlite:///:memory:", (
+                f"URL was corrupted: {captured_urls[0]!r}"
+            )
 
     def test_bootstrapper_wires_spend_budget_fn_into_tasks(self) -> None:
         """bootstrapper/main.py must call set_spend_budget_fn at module import time.

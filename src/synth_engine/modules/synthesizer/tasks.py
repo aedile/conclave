@@ -66,6 +66,8 @@ bootstrapper via ``set_spend_budget_fn()``.  It wraps the async
 
 A WORM audit event (``PRIVACY_BUDGET_SPEND``) is emitted after each
 successful budget deduction via the shared ``AuditLogger`` singleton.
+The audit call is placed OUTSIDE the ``BudgetExhaustion`` try/except so
+that an audit logger failure does not corrupt the BudgetExhaustion handler.
 
 Boundary note — BudgetExhaustionError
 --------------------------------------
@@ -85,9 +87,9 @@ Typing DP wrapper without crossing boundaries
 ``DPTrainingWrapper`` lives in ``modules/privacy/``.  Import-linter enforces
 module independence between ``synthesizer`` and ``privacy``, so this file must
 not import from ``modules/privacy/`` — even under ``TYPE_CHECKING``.  Instead,
-the DP wrapper contract is captured by the local ``_DPWrapperProtocol`` (a
-structural subtype).  The concrete ``DPTrainingWrapper`` satisfies this Protocol
-at runtime; mypy verifies compatibility structurally.
+the DP wrapper contract is captured by ``DPWrapperProtocol`` from
+``shared/protocols`` (a structural subtype).  The concrete ``DPTrainingWrapper``
+satisfies this Protocol at runtime; mypy verifies compatibility structurally.
 
 Boundary constraints (import-linter enforced):
     - Must NOT import from ``modules/ingestion/``, ``modules/masking/``,
@@ -106,13 +108,14 @@ import os
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING
 
 from synth_engine.modules.synthesizer.guardrails import (
     OOMGuardrailError,
     check_memory_feasibility,
 )
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.shared.protocols import DPWrapperProtocol, SpendBudgetProtocol
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.task_queue import huey
 
@@ -122,74 +125,6 @@ if TYPE_CHECKING:
     from synth_engine.modules.synthesizer.engine import SynthesisEngine
 
 _logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# DP wrapper structural interface (Protocol)
-# ---------------------------------------------------------------------------
-
-
-@runtime_checkable
-class _DPWrapperProtocol(Protocol):
-    """Structural interface for a DP training wrapper.
-
-    ``DPTrainingWrapper`` from ``modules/privacy/dp_engine`` satisfies this
-    Protocol structurally.  Defining the contract here avoids any import from
-    ``modules/privacy/`` while preserving full type-checking coverage.
-
-    This is the only type reference to DP wrapper behaviour in this module;
-    no ``modules/privacy`` symbols are imported — not even under
-    ``TYPE_CHECKING`` (import-linter scans those blocks too).
-    """
-
-    def epsilon_spent(self, *, delta: float) -> float:
-        """Return the privacy budget spent so far.
-
-        Args:
-            delta: The delta value for (epsilon, delta)-DP.
-
-        Returns:
-            The actual epsilon spent.
-        """
-        ...  # pragma: no cover
-
-
-# ---------------------------------------------------------------------------
-# spend_budget sync callable interface (Protocol)
-# ---------------------------------------------------------------------------
-
-
-class _SpendBudgetProtocol(Protocol):
-    """Structural interface for the sync spend_budget wrapper callable.
-
-    The concrete implementation is ``build_spend_budget_fn()`` in
-    ``bootstrapper/factories.py``, which wraps the async
-    ``modules/privacy/accountant.spend_budget()`` via ``asyncio.run()``.
-
-    Defining the protocol here avoids any import from ``modules/privacy/``
-    while allowing mypy to verify call-site correctness structurally.
-    """
-
-    def __call__(
-        self,
-        *,
-        amount: float,
-        job_id: int,
-        ledger_id: int,
-        note: str | None = None,
-    ) -> None:
-        """Deduct epsilon from the privacy budget ledger synchronously.
-
-        Args:
-            amount: Epsilon to deduct.  Must be positive.
-            job_id: Synthesis job identifier written to the audit trail.
-            ledger_id: Primary key of the PrivacyLedger row to debit.
-            note: Optional human-readable annotation for the transaction.
-
-        Raises:
-            BudgetExhaustionError: (from modules/privacy) if exhausted.
-        """
-        ...  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
@@ -225,16 +160,16 @@ _DEFAULT_LEDGER_ID: int = 1
 
 # Module-level DP wrapper factory — injected by bootstrapper at startup.
 # This follows the DI pattern: bootstrapper injects INTO modules (ADR-0029).
-_dp_wrapper_factory: Callable[[float, float], _DPWrapperProtocol] | None = None
+_dp_wrapper_factory: Callable[[float, float], DPWrapperProtocol] | None = None
 
 # Module-level spend_budget callable — injected by bootstrapper at startup.
 # This follows the same DI pattern as _dp_wrapper_factory (ADR-0029).
 # The callable wraps async spend_budget() with asyncio.run() for Huey compat.
-_spend_budget_fn: _SpendBudgetProtocol | None = None
+_spend_budget_fn: SpendBudgetProtocol | None = None
 
 
 def set_dp_wrapper_factory(
-    factory: Callable[[float, float], _DPWrapperProtocol],
+    factory: Callable[[float, float], DPWrapperProtocol],
 ) -> None:
     """Register the DP wrapper factory (called by bootstrapper at startup).
 
@@ -244,14 +179,14 @@ def set_dp_wrapper_factory(
 
     Args:
         factory: A callable accepting ``(max_grad_norm, noise_multiplier)``
-            and returning an object satisfying ``_DPWrapperProtocol``
+            and returning an object satisfying ``DPWrapperProtocol``
             (concretely a ``DPTrainingWrapper`` instance).
     """
     global _dp_wrapper_factory
     _dp_wrapper_factory = factory
 
 
-def set_spend_budget_fn(fn: _SpendBudgetProtocol) -> None:
+def set_spend_budget_fn(fn: SpendBudgetProtocol) -> None:
     """Register the sync spend_budget callable (called by bootstrapper at startup).
 
     The bootstrapper calls this at application startup to inject the sync
@@ -260,7 +195,7 @@ def set_spend_budget_fn(fn: _SpendBudgetProtocol) -> None:
     (ADR-0029, Rule 8).
 
     Args:
-        fn: A sync callable satisfying ``_SpendBudgetProtocol`` that wraps
+        fn: A sync callable satisfying ``SpendBudgetProtocol`` that wraps
             the async ``modules/privacy/accountant.spend_budget()`` via
             ``asyncio.run()`` for Huey's synchronous task context.
     """
@@ -318,7 +253,7 @@ def _run_synthesis_job_impl(
     session: Session,
     engine: SynthesisEngine,
     checkpoint_dir: str | None = None,
-    dp_wrapper: _DPWrapperProtocol | None = None,
+    dp_wrapper: DPWrapperProtocol | None = None,
 ) -> None:
     """Core synthesis job logic with injected dependencies.
 
@@ -344,6 +279,8 @@ def _run_synthesis_job_impl(
        (detected via exception class name duck-typing): set ``FAILED``,
        ``error_msg="Privacy budget exhausted"``, commit, and return WITHOUT
        persisting the artifact.  Emit a WORM audit event on success.
+       The audit call is placed OUTSIDE the ``BudgetExhaustion`` try/except
+       so audit logger failures do not affect budget exhaustion detection.
     7. Save final artifact; set ``artifact_path``, ``current_epoch``,
        status → ``COMPLETE``; commit.
 
@@ -354,7 +291,7 @@ def _run_synthesis_job_impl(
         checkpoint_dir: Optional filesystem directory for writing checkpoint
             pickle files.  If ``None``, a temporary directory is created and
             cleaned up automatically.
-        dp_wrapper: Optional DP wrapper satisfying ``_DPWrapperProtocol``
+        dp_wrapper: Optional DP wrapper satisfying ``DPWrapperProtocol``
             (concretely ``DPTrainingWrapper`` from ``modules/privacy/``).
             Constructed by the bootstrapper via the injected
             ``_dp_wrapper_factory`` and passed here.
@@ -509,30 +446,20 @@ def _run_synthesis_job_impl(
     # If epsilon_spent() failed above, actual_epsilon is None and we skip
     # the deduction — no measurable budget was spent from the system's view.
     if _spend_budget_fn is not None and dp_wrapper is not None and job.actual_epsilon is not None:
+        budget_spent = False
         try:
             _spend_budget_fn(
                 amount=job.actual_epsilon,
                 job_id=job_id,
                 ledger_id=_DEFAULT_LEDGER_ID,
-                note=f"DP training job {job_id}",
+                note=f"DP synthesis job {job_id}",
             )
+            budget_spent = True
             _logger.info(
                 "Job %d: privacy budget deducted (epsilon=%.4f, ledger_id=%d).",
                 job_id,
                 job.actual_epsilon,
                 _DEFAULT_LEDGER_ID,
-            )
-            # WORM audit event — emitted after successful deduction (AC5).
-            audit = get_audit_logger()
-            audit.log_event(
-                event_type="PRIVACY_BUDGET_SPEND",
-                actor="system/huey-worker",
-                resource=f"privacy_ledger/{_DEFAULT_LEDGER_ID}",
-                action="spend_budget",
-                details={
-                    "job_id": str(job_id),
-                    "epsilon_spent": str(job.actual_epsilon),
-                },
             )
         except Exception as exc:
             # Duck-typing: detect BudgetExhaustionError without importing from
@@ -548,6 +475,28 @@ def _run_synthesis_job_impl(
                 return
             # Unknown exception — re-raise to surface the error.
             raise
+
+        # WORM audit event — emitted OUTSIDE the BudgetExhaustion try/except
+        # so that an audit logger failure cannot corrupt the exception handler.
+        # The budget was successfully deducted; budget_spent is True here.
+        if budget_spent:
+            try:
+                audit = get_audit_logger()
+                audit.log_event(
+                    event_type="PRIVACY_BUDGET_SPEND",
+                    actor="system/huey-worker",
+                    resource=f"privacy_ledger/{_DEFAULT_LEDGER_ID}",
+                    action="spend_budget",
+                    details={
+                        "job_id": str(job_id),
+                        "epsilon_spent": str(job.actual_epsilon),
+                    },
+                )
+            except Exception:
+                _logger.exception("Job %d: Audit log failed after budget deduction.", job_id)
+                # Budget was deducted successfully — continue to COMPLETE
+                # even if audit logging fails.  The deduction is recorded in
+                # the PrivacyTransaction table by spend_budget() itself.
 
     # ------------------------------------------------------------------
     # 6. TRAINING → COMPLETE
@@ -589,7 +538,7 @@ def run_synthesis_job(job_id: int) -> None:
     ``job_id``, runs the OOM pre-flight check, trains a CTGAN model with
     epoch checkpointing, and updates the record status throughout.
 
-    When the job has ``enable_dp=True``, a ``_DPWrapperProtocol`` instance is
+    When the job has ``enable_dp=True``, a ``DPWrapperProtocol`` instance is
     constructed via the injected ``_dp_wrapper_factory`` (registered at startup
     by the bootstrapper via ``set_dp_wrapper_factory()`` — see ADR-0029) using
     the job's ``max_grad_norm`` and ``noise_multiplier`` fields.  The wrapper is
@@ -644,7 +593,7 @@ def run_synthesis_job(job_id: int) -> None:
     # Pre-flight: read DP settings from the job record before starting impl.
     # A short-lived session is used here so the DP wrapper is constructed
     # before the main training session is opened.
-    dp_wrapper: _DPWrapperProtocol | None = None
+    dp_wrapper: DPWrapperProtocol | None = None
     with Session(db_engine) as preflight_session:
         job = preflight_session.get(SynthesisJob, job_id)
         # If the job is not found here, dp_wrapper stays None and

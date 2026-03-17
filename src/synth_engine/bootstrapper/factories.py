@@ -18,9 +18,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Callable
 from decimal import Decimal
 from typing import TYPE_CHECKING
+
+from synth_engine.shared.protocols import SpendBudgetProtocol
 
 if TYPE_CHECKING:
     from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
@@ -104,7 +105,7 @@ def build_dp_wrapper(
     return _DPTrainingWrapper(max_grad_norm=max_grad_norm, noise_multiplier=noise_multiplier)
 
 
-def build_spend_budget_fn() -> Callable[..., None]:
+def build_spend_budget_fn() -> SpendBudgetProtocol:
     """Build a sync callable wrapping async ``spend_budget()`` for Huey context.
 
     The Huey task runner is synchronous.  ``spend_budget()`` in
@@ -117,9 +118,9 @@ def build_spend_budget_fn() -> Callable[..., None]:
        synchronous context.  ``asyncio.run()`` creates a new event loop,
        making this safe even if no event loop exists in the current thread.
 
-    The returned callable signature matches ``_SpendBudgetProtocol`` in
-    ``modules/synthesizer/tasks.py`` and is registered via
-    ``set_spend_budget_fn()`` at bootstrapper startup (Rule 8).
+    The returned callable signature matches ``SpendBudgetProtocol`` from
+    ``shared/protocols`` and is registered via ``set_spend_budget_fn()`` at
+    bootstrapper startup (Rule 8).
 
     Import note:
         This factory defers all privacy-module imports inside the closure so
@@ -127,9 +128,16 @@ def build_spend_budget_fn() -> Callable[..., None]:
         The ``spend_budget`` function and ``BudgetExhaustionError`` are imported
         lazily inside ``_async_spend``.
 
+    URL promotion note:
+        The ``DATABASE_URL`` environment variable may already contain an async
+        driver prefix (e.g., ``sqlite+aiosqlite:///``) in some environments.
+        The URL promotion logic checks for the async driver prefix before
+        substituting to avoid double-substitution corruption (F3 review fix).
+
     Returns:
         A sync callable ``(*, amount, job_id, ledger_id, note=None) -> None``
         that deducts epsilon from the global ``PrivacyLedger`` atomically.
+        The returned callable satisfies ``SpendBudgetProtocol``.
 
     Raises:
         Any exception raised by ``spend_budget()`` propagates to the caller,
@@ -165,10 +173,16 @@ def build_spend_budget_fn() -> Callable[..., None]:
         from synth_engine.modules.privacy.accountant import spend_budget
 
         database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-        # Promote sync postgres URL to async driver if needed.
-        async_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        # Promote sync sqlite URL to async driver if needed.
-        async_url = async_url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+
+        # Promote sync driver URLs to their async counterparts.
+        # Each branch guards against double-substitution by checking whether
+        # the async driver prefix is already present before replacing.
+        if "postgresql://" in database_url and "+asyncpg" not in database_url:
+            async_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif "sqlite:///" in database_url and "+aiosqlite" not in database_url:
+            async_url = database_url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+        else:
+            async_url = database_url
 
         async_engine = create_async_engine(async_url)
         async with _AsyncSession(async_engine) as session:

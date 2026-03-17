@@ -189,6 +189,11 @@ ignore = ["S101"]
 # BLE001: errors.py catches broad Exception intentionally — it is the RFC 7807
 # catch-all middleware boundary; all exceptions must be captured for sanitized output.
 "src/synth_engine/bootstrapper/errors.py" = ["BLE001"]
+# S608: SQL injection — alembic migration uses float() validated value embedded in SQL;
+#   epsilon_float is the result of float(str) so it cannot contain SQL injection characters.
+#   Alembic data migrations must use op.execute() with raw SQL (not ORM models) to
+#   avoid coupling migration history to model code changes (see migration docstring).
+"alembic/versions/**" = ["S608"]
 # F821: undefined names — vulture whitelist uses bare identifiers intentionally so vulture's
 #       AST walker sees the names as "used". These are not real undefined names; the file
 #       exists solely as a vulture false-positive suppression mechanism (T12.2, P13-T13.1).

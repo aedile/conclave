@@ -95,6 +95,4 @@ def downgrade() -> None:
     Deletes only rows where ``total_spent_epsilon = 0`` (the seeded default).
     Rows with recorded spend are left intact to preserve the audit chain.
     """
-    op.execute(
-        "DELETE FROM privacy_ledger WHERE total_spent_epsilon = 0.0"
-    )
+    op.execute("DELETE FROM privacy_ledger WHERE total_spent_epsilon = 0.0")
