@@ -659,3 +659,260 @@ class TestSynthesisEngineWithDPWrapper:
         assert "dp_wrapper" in sig.parameters
         param = sig.parameters["dp_wrapper"]
         assert param.default is None
+
+
+# ---------------------------------------------------------------------------
+# T25.1 — synthesis_ms_per_row Histogram metric tests
+# ---------------------------------------------------------------------------
+
+
+class TestSynthesisMsPerRowHistogram:
+    """Tests for the synthesis_ms_per_row Histogram instrument (T25.1).
+
+    Verifies that:
+    - The histogram is incremented after a successful train() call.
+    - The correct model_type label is used ("vanilla" vs "dp").
+    - The correct row_count_bucket label is derived from source row count.
+    - The histogram is accessible as a module-level attribute.
+    """
+
+    def _make_persons_df(self, n: int = 10) -> pd.DataFrame:
+        """Build a minimal persons DataFrame for training tests."""
+        import numpy as np
+
+        rng = np.random.default_rng(42)
+        return pd.DataFrame(
+            {
+                "id": range(1, n + 1),
+                "age": rng.integers(18, 80, size=n).tolist(),
+                "salary": rng.integers(30000, 100000, size=n).tolist(),
+            }
+        )
+
+    def test_synthesis_ms_per_row_histogram_is_module_attribute(self) -> None:
+        """engine module must expose synthesis_ms_per_row as a module-level name."""
+        import synth_engine.modules.synthesizer.engine as engine_mod
+
+        assert hasattr(engine_mod, "SYNTHESIS_MS_PER_ROW"), (
+            "engine module must expose SYNTHESIS_MS_PER_ROW Histogram."
+        )
+
+    def test_synthesis_ms_per_row_is_histogram_instance(self) -> None:
+        """SYNTHESIS_MS_PER_ROW must be a prometheus_client.Histogram instance."""
+        from prometheus_client import Histogram
+
+        from synth_engine.modules.synthesizer.engine import SYNTHESIS_MS_PER_ROW
+
+        assert isinstance(SYNTHESIS_MS_PER_ROW, Histogram)
+
+    def test_train_increments_histogram_for_vanilla_model(self) -> None:
+        """train() must observe a value in the histogram after vanilla CTGAN fit."""
+        import prometheus_client
+
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+
+        # Read the pre-call sample count using REGISTRY
+        before = prometheus_client.REGISTRY.get_sample_value(
+            "synthesis_ms_per_row_count",
+            {"model_type": "vanilla", "row_count_bucket": "1-100"},
+        )
+        before_count = before if before is not None else 0.0
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+        ):
+            mock_instance = MagicMock()
+            mock_ctgan.return_value = mock_instance
+
+            df = self._make_persons_df(n=10)
+            parquet_path = str(Path(tmpdir) / "persons.parquet")
+            df.to_parquet(parquet_path, index=False, engine="pyarrow")
+
+            engine = SynthesisEngine()
+            engine.train(table_name="persons", parquet_path=parquet_path)
+
+        after = prometheus_client.REGISTRY.get_sample_value(
+            "synthesis_ms_per_row_count",
+            {"model_type": "vanilla", "row_count_bucket": "1-100"},
+        )
+        after_count = after if after is not None else 0.0
+        assert after_count == before_count + 1.0, (
+            f"Expected histogram count to increment by 1. "
+            f"Before={before_count}, After={after_count}"
+        )
+
+    def test_train_increments_histogram_for_dp_model(self) -> None:
+        """train() with dp_wrapper must use model_type='dp' label."""
+        import prometheus_client
+
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+
+        before = prometheus_client.REGISTRY.get_sample_value(
+            "synthesis_ms_per_row_count",
+            {"model_type": "dp", "row_count_bucket": "1-100"},
+        )
+        before_count = before if before is not None else 0.0
+
+        mock_dp_wrapper = MagicMock()
+        mock_dp_wrapper.max_grad_norm = 1.0
+        mock_dp_wrapper.noise_multiplier = 1.1
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
+        ):
+            mock_ctgan.return_value = MagicMock()
+            mock_dp_instance = MagicMock()
+            mock_dp_ctgan.return_value = mock_dp_instance
+
+            df = self._make_persons_df(n=10)
+            parquet_path = str(Path(tmpdir) / "persons.parquet")
+            df.to_parquet(parquet_path, index=False, engine="pyarrow")
+
+            engine = SynthesisEngine()
+            engine.train(
+                table_name="persons",
+                parquet_path=parquet_path,
+                dp_wrapper=mock_dp_wrapper,
+            )
+
+        after = prometheus_client.REGISTRY.get_sample_value(
+            "synthesis_ms_per_row_count",
+            {"model_type": "dp", "row_count_bucket": "1-100"},
+        )
+        after_count = after if after is not None else 0.0
+        assert after_count == before_count + 1.0, (
+            f"Expected dp histogram count to increment by 1. "
+            f"Before={before_count}, After={after_count}"
+        )
+
+
+class TestRowCountBucketLogic:
+    """Tests for the _row_count_bucket() helper function (T25.1).
+
+    Verifies that row counts are bucketed into the correct label strings.
+    """
+
+    def test_bucket_1_row(self) -> None:
+        """1 row must fall in '1-100' bucket."""
+        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+        assert _row_count_bucket(1) == "1-100"
+
+    def test_bucket_100_rows(self) -> None:
+        """100 rows must fall in '1-100' bucket."""
+        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+        assert _row_count_bucket(100) == "1-100"
+
+    def test_bucket_101_rows(self) -> None:
+        """101 rows must fall in '101-1000' bucket."""
+        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+        assert _row_count_bucket(101) == "101-1000"
+
+    def test_bucket_1000_rows(self) -> None:
+        """1000 rows must fall in '101-1000' bucket."""
+        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+        assert _row_count_bucket(1000) == "101-1000"
+
+    def test_bucket_1001_rows(self) -> None:
+        """1001 rows must fall in '1001-10000' bucket."""
+        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+        assert _row_count_bucket(1001) == "1001-10000"
+
+    def test_bucket_10000_rows(self) -> None:
+        """10000 rows must fall in '1001-10000' bucket."""
+        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+        assert _row_count_bucket(10000) == "1001-10000"
+
+    def test_bucket_10001_rows(self) -> None:
+        """10001 rows must fall in '10001+' bucket."""
+        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+        assert _row_count_bucket(10001) == "10001+"
+
+    def test_bucket_zero_rows(self) -> None:
+        """0 rows must fall in '1-100' bucket (degenerate case)."""
+        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+
+        assert _row_count_bucket(0) == "1-100"
+
+
+class TestGrafanaDashboardPanels:
+    """Tests verifying Grafana dashboard JSON includes the T25.1 KPI panels (T25.1).
+
+    Both panels must be present in grafana/provisioning/dashboards/synth_engine.json.
+    """
+
+    def _load_dashboard(self) -> dict:  # type: ignore[type-arg]
+        """Load and return the parsed Grafana dashboard JSON."""
+        import json
+        from pathlib import Path
+
+        dashboard_path = (
+            Path(__file__).parent.parent.parent
+            / "grafana"
+            / "provisioning"
+            / "dashboards"
+            / "synth_engine.json"
+        )
+        return json.loads(dashboard_path.read_text())  # type: ignore[return-value]
+
+    def test_dashboard_has_synthesis_ms_per_row_panel(self) -> None:
+        """Dashboard must contain a panel for synthesis_ms_per_row."""
+        dashboard = self._load_dashboard()
+        panels = dashboard.get("panels", [])
+        titles = [p.get("title", "") for p in panels]
+        assert any("synthesis_ms_per_row" in t.lower() or "ms per row" in t.lower() for t in titles), (
+            f"Expected a synthesis_ms_per_row panel in dashboard. Found panels: {titles}"
+        )
+
+    def test_dashboard_has_epsilon_spent_panel(self) -> None:
+        """Dashboard must contain a panel for epsilon_spent_total."""
+        dashboard = self._load_dashboard()
+        panels = dashboard.get("panels", [])
+        titles = [p.get("title", "") for p in panels]
+        assert any("epsilon" in t.lower() for t in titles), (
+            f"Expected an epsilon_spent panel in dashboard. Found panels: {titles}"
+        )
+
+    def test_dashboard_synthesis_panel_uses_histogram_query(self) -> None:
+        """synthesis_ms_per_row panel must use a histogram_quantile or rate query."""
+        import json
+
+        dashboard = self._load_dashboard()
+        panels = dashboard.get("panels", [])
+        synthesis_panels = [
+            p
+            for p in panels
+            if "synthesis_ms_per_row" in p.get("title", "").lower()
+            or "ms per row" in p.get("title", "").lower()
+        ]
+        assert synthesis_panels, "synthesis_ms_per_row panel must exist"
+        panel = synthesis_panels[0]
+        targets = panel.get("targets", [])
+        assert targets, "synthesis_ms_per_row panel must have at least one target query"
+        exprs = [t.get("expr", "") for t in targets]
+        assert any("synthesis_ms_per_row" in e for e in exprs), (
+            f"synthesis_ms_per_row panel must reference synthesis_ms_per_row metric. Exprs: {exprs}"
+        )
+
+    def test_dashboard_epsilon_panel_uses_counter_query(self) -> None:
+        """epsilon_spent_total panel must reference epsilon_spent_total metric."""
+        dashboard = self._load_dashboard()
+        panels = dashboard.get("panels", [])
+        epsilon_panels = [p for p in panels if "epsilon" in p.get("title", "").lower()]
+        assert epsilon_panels, "epsilon panel must exist"
+        panel = epsilon_panels[0]
+        targets = panel.get("targets", [])
+        assert targets, "epsilon panel must have at least one target query"
+        exprs = [t.get("expr", "") for t in targets]
+        assert any("epsilon_spent_total" in e for e in exprs), (
+            f"epsilon panel must reference epsilon_spent_total metric. Exprs: {exprs}"
+        )
