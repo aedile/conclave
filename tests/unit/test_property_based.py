@@ -17,6 +17,8 @@ exhaustively cover:
 CONSTITUTION Priority 3: TDD — property-based tests, GREEN phase.
 CONSTITUTION Priority 0: Security — no PII, no real credentials.
 Task: P19-T19.3 — Integration Test CI Gate & Property-Based Testing
+P22-T22.5 — max_examples bumped per QA finding: critical invariants → 200,
+             non-critical property tests → 100.
 """
 
 from __future__ import annotations
@@ -42,12 +44,27 @@ from synth_engine.shared.schema_topology import (
 )
 
 # ---------------------------------------------------------------------------
-# Hypothesis settings: fast profile for default CI runs.
-# deadline=None prevents slow-machine flakiness; max_examples=50 keeps wall
-# time reasonable while still exploring the parameter space.
+# Hypothesis settings profiles (P22-T22.5):
+#
+# _CRITICAL_SETTINGS (max_examples=200):
+#   Used for security-critical invariants where shallow example counts could
+#   miss adversarial inputs:
+#     - Masking determinism (foundation of FK referential-integrity preservation)
+#     - FK traversal ordering (topological order correctness)
+#     - Epsilon accounting monotonicity (privacy budget correctness)
+#
+# _DEFAULT_SETTINGS (max_examples=100):
+#   Used for correctness properties that are important but not directly
+#   tied to security or privacy guarantees:
+#     - FK subsetting integrity
+#     - Profile comparison symmetry
+#     - Profile self-comparison zero-drift
+#
+# deadline=None on all profiles prevents slow-machine flakiness.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SETTINGS = settings(max_examples=50, deadline=None)
+_CRITICAL_SETTINGS = settings(max_examples=200, deadline=None)
+_DEFAULT_SETTINGS = settings(max_examples=100, deadline=None)
 
 # ---------------------------------------------------------------------------
 # Shared strategies
@@ -81,11 +98,11 @@ _rows_strategy = st.lists(_row_strategy, min_size=2, max_size=20)
 
 
 # ---------------------------------------------------------------------------
-# 1. Deterministic masking roundtrip
+# 1. Deterministic masking roundtrip — CRITICAL (max_examples=200)
 # ---------------------------------------------------------------------------
 
 
-@_DEFAULT_SETTINGS
+@_CRITICAL_SETTINGS
 @given(value=_printable_text, salt=_salt)
 def test_mask_value_same_input_same_output(value: str, salt: str) -> None:
     """For any (value, salt) pair the masked output is always identical.
@@ -106,7 +123,7 @@ def test_mask_value_same_input_same_output(value: str, salt: str) -> None:
     )
 
 
-@_DEFAULT_SETTINGS
+@_CRITICAL_SETTINGS
 @given(value=_printable_text, salt=_salt)
 def test_deterministic_hash_same_input_same_output(value: str, salt: str) -> None:
     """deterministic_hash(value, salt) returns the same integer every time.
@@ -124,7 +141,7 @@ def test_deterministic_hash_same_input_same_output(value: str, salt: str) -> Non
     )
 
 
-@_DEFAULT_SETTINGS
+@_CRITICAL_SETTINGS
 @given(value=_printable_text, salt=_salt)
 def test_mask_email_determinism_and_contains_at(value: str, salt: str) -> None:
     """mask_email returns the same value on two calls and the result contains '@'.
@@ -302,7 +319,7 @@ def test_fk_traversal_parent_before_child_parametrized(
         )
 
 
-@_DEFAULT_SETTINGS
+@_CRITICAL_SETTINGS
 @given(parent_id=st.integers(min_value=1, max_value=10_000))
 def test_fk_traversal_parent_always_before_child_hypothesis(parent_id: int) -> None:
     """Hypothesis property: for any parent_id, departments precedes employees.
@@ -342,11 +359,11 @@ def test_fk_traversal_parent_always_before_child_hypothesis(parent_id: int) -> N
 
 
 # ---------------------------------------------------------------------------
-# 3. Epsilon accounting monotonicity
+# 3. Epsilon accounting monotonicity — CRITICAL (max_examples=200)
 # ---------------------------------------------------------------------------
 
 
-@_DEFAULT_SETTINGS
+@_CRITICAL_SETTINGS
 @given(
     initial_spent=st.decimals(
         min_value=Decimal("0"),
