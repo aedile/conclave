@@ -488,12 +488,12 @@ class TestBuildMaskingTransformer:
             "P21-T21.2: use mask_last_name (Faker.last_name()), not mask_name."
         )
 
-    def test_masking_transformer_passthrough_for_unknown_persons_table(self) -> None:
-        """'persons' is not a configured PII table — rows pass through unchanged.
+    def test_masking_transformer_masks_persons_table(self) -> None:
+        """'persons' is a configured PII table — full_name/email/ssn are masked.
 
-        P21-T21.1: the old config had 'persons' as the PII table.  After the fix,
-        'persons' is not in _COLUMN_MASKS.  A row from a 'persons' table must pass
-        through the transformer unchanged.
+        P24-T24.2: added 'persons' entry to _COLUMN_MASKS to support the E2E
+        integration test schema (persons/accounts/transactions).  A row from the
+        'persons' table must have its PII columns replaced with masked values.
         """
         from synth_engine.bootstrapper.cli import _build_masking_transformer
 
@@ -505,8 +505,10 @@ class TestBuildMaskingTransformer:
             "ssn": "123-45-6789",
         }
         result = transformer("persons", row)
-        # 'persons' is not configured — entire row passes through unchanged
-        assert result == row
+        assert result["id"] == 1, "non-PII id column must be unchanged"
+        assert result["full_name"] != "Alice Smith", "full_name must be masked"
+        assert result["email"] != "alice@example.com", "email must be masked"
+        assert result["ssn"] != "123-45-6789", "ssn must be masked"
 
     def test_masking_transformer_passthrough_for_none_pii_values(self) -> None:
         """Transformer passes through None-valued PII columns in 'customers' unchanged."""
@@ -930,17 +932,18 @@ class TestColumnMasksConfig:
             "Previous config incorrectly used 'persons'."
         )
 
-    def test_column_masks_does_not_have_persons_key(self) -> None:
-        """_COLUMN_MASKS must not contain a stale 'persons' key.
+    def test_column_masks_has_persons_key(self) -> None:
+        """_COLUMN_MASKS must contain a 'persons' key for the E2E integration schema.
 
-        The sample data schema has no 'persons' table.  A stale 'persons' key
-        means masking silently passes through all rows without masking anything.
+        P24-T24.2: added 'persons' entry to _COLUMN_MASKS so the CLI masking
+        transformer handles the integration test schema (persons/accounts/transactions).
+        The 'persons' table has full_name, email, and ssn PII columns.
         """
         from synth_engine.bootstrapper.cli import _COLUMN_MASKS
 
-        assert "persons" not in _COLUMN_MASKS, (
-            "_COLUMN_MASKS must not contain 'persons' — no such table in sample data. "
-            "Stale key causes masking to silently skip all rows."
+        assert "persons" in _COLUMN_MASKS, (
+            "_COLUMN_MASKS must contain a 'persons' key for E2E integration test schema. "
+            "Without it, masking silently skips all rows in the persons table."
         )
 
     def test_customers_config_has_first_name(self) -> None:
