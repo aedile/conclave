@@ -37,6 +37,7 @@ Task: P22-T22.6 — Integration E2E: Full DP Synthesis Pipeline
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import tempfile
 import warnings
@@ -266,7 +267,12 @@ def _build_spend_budget_fn_for_url(async_url: str) -> Any:
         ledger_id: int,
         note: str | None = None,
     ) -> None:
-        """Sync wrapper: calls spend_budget() via asyncio.run().
+        """Sync wrapper: calls spend_budget() via asyncio.run() in a worker thread.
+
+        Uses ThreadPoolExecutor to run asyncio.run() in a fresh thread
+        that has no running event loop.  This mirrors the production Huey worker
+        context (fully synchronous thread, no event loop) and is safe when called
+        from inside an async pytest-asyncio test where a loop is already running.
 
         Args:
             amount: Epsilon to deduct.
@@ -287,7 +293,11 @@ def _build_spend_budget_fn_for_url(async_url: str) -> Any:
                 )
             await engine.dispose()
 
-        asyncio.run(_inner())
+        # Run asyncio.run() in a worker thread so it can create a new event
+        # loop even when called from inside a running pytest-asyncio event loop.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, _inner())
+            future.result()  # Re-raises any exception from the worker thread.
 
     return _sync_spend
 
@@ -899,6 +909,9 @@ class TestDPPipelineBudgetRefreshResume:
 # AC2 (wrapper level): epsilon_spent > 0 from the DP wrapper after training.
 # This guards the engine-wrapper wiring independently of the orchestration path.
 # ---------------------------------------------------------------------------
+# AC2 (wrapper level): epsilon_spent > 0 from the DP wrapper after training.
+# This guards the engine-wrapper wiring independently of the orchestration path.
+# ---------------------------------------------------------------------------
 
 
 class TestDPWrapperEpsilonAfterOrchestration:
@@ -910,52 +923,70 @@ class TestDPWrapperEpsilonAfterOrchestration:
         This test exercises the same wrapper that gets passed to the task, confirming
         that the Opacus PrivacyEngine was actually engaged during the training call
         inside ``_run_synthesis_job_impl``.
+
+        The ``_spend_budget_fn`` is temporarily set to ``None`` for this test so
+        that the budget-spend path is skipped — this isolates the test to the
+        engine-wrapper epsilon wiring only (the budget integration is covered by
+        ``TestDPPipelineE2EOrchestration.test_dp_job_ledger_debited``).
         """
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
         from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.tasks import (
+            _run_synthesis_job_impl,
+            set_spend_budget_fn,
+        )
 
-        db_engine = _make_sync_db()
-        synthesis_engine = build_synthesis_engine(epochs=2)
-        dp_wrapper = build_dp_wrapper(max_grad_norm=1.0, noise_multiplier=1.1)
+        # Temporarily disable the spend_budget_fn so this test does not require
+        # a live PrivacyLedger row — it is testing wrapper epsilon only.
+        set_spend_budget_fn(None)  # type: ignore[arg-type]
+        try:
+            db_engine = _make_sync_db()
+            synthesis_engine = build_synthesis_engine(epochs=2)
+            dp_wrapper = build_dp_wrapper(max_grad_norm=1.0, noise_multiplier=1.1)
 
-        with Session(db_engine) as session:
-            job = SynthesisJob(
-                status="QUEUED",
-                total_epochs=2,
-                checkpoint_every_n=2,
-                table_name="persons",
-                parquet_path=persons_parquet,
-                enable_dp=True,
-            )
-            session.add(job)
-            session.commit()
-            session.refresh(job)
-            job_id: int = job.id  # type: ignore[assignment]
+            with Session(db_engine) as session:
+                job = SynthesisJob(
+                    status="QUEUED",
+                    total_epochs=2,
+                    checkpoint_every_n=2,
+                    table_name="persons",
+                    parquet_path=persons_parquet,
+                    enable_dp=True,
+                )
+                session.add(job)
+                session.commit()
+                session.refresh(job)
+                job_id: int = job.id  # type: ignore[assignment]
 
-        with Session(db_engine) as session:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                _run_synthesis_job_impl(
-                    job_id=job_id,
-                    session=session,
-                    engine=synthesis_engine,
-                    dp_wrapper=dp_wrapper,
+            with Session(db_engine) as session:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    _run_synthesis_job_impl(
+                        job_id=job_id,
+                        session=session,
+                        engine=synthesis_engine,
+                        dp_wrapper=dp_wrapper,
+                    )
+
+            # Vacuous-truth: verify job completed before checking wrapper state
+            with Session(db_engine) as session:
+                final_job = session.get(SynthesisJob, job_id)
+                assert final_job is not None
+                assert final_job.status == "COMPLETE", (
+                    f"Precondition: job must be COMPLETE, got {final_job.status!r}"
                 )
 
-        # Vacuous-truth: verify job completed before checking wrapper state
-        with Session(db_engine) as session:
-            final_job = session.get(SynthesisJob, job_id)
-            assert final_job is not None
-            assert final_job.status == "COMPLETE", (
-                f"Precondition: job must be COMPLETE, got {final_job.status!r}"
+            # The wrapper must have tracked actual Opacus gradient steps
+            epsilon = dp_wrapper.epsilon_spent(delta=1e-5)
+            assert epsilon > 0.0, (
+                f"dp_wrapper.epsilon_spent(delta=1e-5) must be > 0 after orchestrated DP run, "
+                f"got {epsilon}. Opacus must have been activated during _run_synthesis_job_impl."
             )
+        finally:
+            # Restore the production DI wiring unconditionally.
+            from synth_engine.bootstrapper.factories import build_spend_budget_fn
+            from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn as _reset
 
-        # The wrapper must have tracked actual Opacus gradient steps
-        epsilon = dp_wrapper.epsilon_spent(delta=1e-5)
-        assert epsilon > 0.0, (
-            f"dp_wrapper.epsilon_spent(delta=1e-5) must be > 0 after orchestrated DP run, "
-            f"got {epsilon}. Opacus must have been activated during _run_synthesis_job_impl."
-        )
+            _reset(build_spend_budget_fn())
