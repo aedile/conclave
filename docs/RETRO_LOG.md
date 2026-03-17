@@ -20,6 +20,36 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-16] P21-T21.3 — Automated E2E Smoke Test for CLI Subset+Mask Pipeline
+
+**Changes**:
+- `tests/integration/test_cli_e2e_smoke.py`: NEW — 6 E2E integration tests exercising the real
+  CLI `_COLUMN_MASKS` config against the real `customers → orders → order_items → payments`
+  sample data schema using pytest-postgresql.
+  Tests: CLI exit code, masking applied to all PII columns, masking format correctness
+  (single-word first/last names, valid email/SSN), FK referential integrity, row counts,
+  non-PII passthrough, config drift detection (`_COLUMN_MASKS` keys vs schema columns).
+
+**Quality Gates**: ruff PASS, mypy PASS, bandit PASS, 1052 unit tests PASS (96.85% coverage),
+6/6 integration tests PASS. pre-commit PASS (all 8 hooks).
+
+**Review**: QA FINDING (1 fixed), DevOps PASS, Architecture PASS
+
+**QA** (FINDING — 1 blocker fixed):
+1. Vacuous-truth trap: tests 3-6 read from target DB but didn't assert non-empty before
+   behavioral checks. If target empty, 3 of 4 tests silently pass. Fixed by adding explicit
+   row-count pre-assertions (`assert len(rows) == 5`) at the start of each test.
+
+**Retrospective Note**:
+The vacuous-truth trap is a recurring pattern in DB integration tests where `for row in empty_result:`
+silently passes all loop-body assertions. Future integration tests should always include a
+row-count precondition assertion before behavioral checks. The config drift detection test
+(`test_smoke_config_keys_match_source_schema`) is the structural guard that would have caught
+T21.1 (`"persons"` vs `"customers"`) — this test class should be a template for any future
+module where production code embeds table or column names.
+
+---
+
 ### [2026-03-16] P21-T21.2 — Masking Algorithm Split: first_name, last_name, address
 
 **Changes**:
