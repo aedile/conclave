@@ -136,6 +136,7 @@ from synth_engine.shared.protocols import DPWrapperProtocol, SpendBudgetProtocol
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.security.hmac_signing import HMAC_DIGEST_SIZE, compute_hmac
 from synth_engine.shared.task_queue import huey
+from synth_engine.shared.telemetry import extract_trace_context, get_tracer
 
 if TYPE_CHECKING:
     from sqlmodel import Session
@@ -800,7 +801,7 @@ def _run_synthesis_job_impl(
 
 
 @huey.task()  # type: ignore[untyped-decorator]  # huey.task() has no type stub; unfixable without upstream py.typed marker
-def run_synthesis_job(job_id: int) -> None:
+def run_synthesis_job(job_id: int, *, trace_carrier: dict[str, str] | None = None) -> None:
     """Huey background task: run a synthesis training job by ID.
 
     Reads job configuration from the ``SynthesisJob`` record identified by
@@ -823,6 +824,11 @@ def run_synthesis_job(job_id: int) -> None:
 
     Args:
         job_id: Primary key of the ``SynthesisJob`` record to process.
+        trace_carrier: Optional W3C Trace Context carrier dict produced by
+            ``inject_trace_context()`` at the dispatch site.  When present,
+            the remote span context is extracted and a child span is created
+            to continue the distributed trace across the queue boundary
+            (T25.2 AC1-AC3).  Defaults to ``None`` for backward compatibility.
 
     Note:
         On OOM guardrail rejection or ``RuntimeError`` during training or
@@ -852,39 +858,47 @@ def run_synthesis_job(job_id: int) -> None:
         RuntimeError: If ``enable_dp=True`` but no ``_dp_wrapper_factory``
             has been registered via ``set_dp_wrapper_factory()``.
     """
-    from sqlmodel import Session
+    # T25.2 AC1-AC3: Re-attach the distributed trace context propagated
+    # from the dispatch site. extract_trace_context handles None gracefully
+    # (returns default Context) for backward compatibility with callers that
+    # predate T25.2. The child span links this worker execution to the
+    # originating FastAPI request span under the same trace ID.
+    _task_tracer = get_tracer(__name__)
+    _trace_ctx = extract_trace_context(trace_carrier)
+    with _task_tracer.start_as_current_span("run_synthesis_job", context=_trace_ctx):
+        from sqlmodel import Session
 
-    from synth_engine.modules.synthesizer.engine import SynthesisEngine
-    from synth_engine.shared.db import get_engine
+        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.shared.db import get_engine
 
-    database_url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
-    db_engine = get_engine(database_url)
-    synthesis_engine = SynthesisEngine()
+        database_url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
+        db_engine = get_engine(database_url)
+        synthesis_engine = SynthesisEngine()
 
-    # Pre-flight: read DP settings from the job record before starting impl.
-    # A short-lived session is used here so the DP wrapper is constructed
-    # before the main training session is opened.
-    dp_wrapper: DPWrapperProtocol | None = None
-    with Session(db_engine) as preflight_session:
-        job = preflight_session.get(SynthesisJob, job_id)
-        # If the job is not found here, dp_wrapper stays None and
-        # _run_synthesis_job_impl will raise ValueError on its own lookup.
-        if job is not None and job.enable_dp:
-            if _dp_wrapper_factory is None:
-                raise RuntimeError(
-                    "DP training requested but no dp_wrapper_factory has been "
-                    "registered. Ensure bootstrapper calls "
-                    "set_dp_wrapper_factory() at startup."
+        # Pre-flight: read DP settings from the job record before starting impl.
+        # A short-lived session is used here so the DP wrapper is constructed
+        # before the main training session is opened.
+        dp_wrapper: DPWrapperProtocol | None = None
+        with Session(db_engine) as preflight_session:
+            job = preflight_session.get(SynthesisJob, job_id)
+            # If the job is not found here, dp_wrapper stays None and
+            # _run_synthesis_job_impl will raise ValueError on its own lookup.
+            if job is not None and job.enable_dp:
+                if _dp_wrapper_factory is None:
+                    raise RuntimeError(
+                        "DP training requested but no dp_wrapper_factory has been "
+                        "registered. Ensure bootstrapper calls "
+                        "set_dp_wrapper_factory() at startup."
+                    )
+                dp_wrapper = _dp_wrapper_factory(
+                    job.max_grad_norm,
+                    job.noise_multiplier,
                 )
-            dp_wrapper = _dp_wrapper_factory(
-                job.max_grad_norm,
-                job.noise_multiplier,
-            )
 
-    with Session(db_engine) as session:
-        _run_synthesis_job_impl(
-            job_id=job_id,
-            session=session,
-            engine=synthesis_engine,
-            dp_wrapper=dp_wrapper,
-        )
+        with Session(db_engine) as session:
+            _run_synthesis_job_impl(
+                job_id=job_id,
+                session=session,
+                engine=synthesis_engine,
+                dp_wrapper=dp_wrapper,
+            )

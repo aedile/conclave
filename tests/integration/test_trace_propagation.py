@@ -11,10 +11,9 @@ AC4: End-to-end trace test verifying parent + child spans share the same trace I
 
 from __future__ import annotations
 
-import os
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from opentelemetry import trace
@@ -23,13 +22,35 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 
-@pytest.fixture()
-def otel_in_memory() -> Generator[tuple[TracerProvider, InMemorySpanExporter], None, None]:
+def _force_reset_tracer_provider(provider: TracerProvider) -> None:
+    """Force-reset the global TracerProvider, bypassing the once-only guard.
+
+    OpenTelemetry's ``set_tracer_provider()`` can only be called once per process
+    (a thread-safety guard using ``Once``).  In integration test suites where
+    other tests have already configured a global provider, the guard prevents
+    our test fixture from installing its own InMemorySpanExporter.
+
+    This helper directly resets the internal state so each test starts with a
+    clean, isolated TracerProvider.  It must only be used in test code.
+
+    Args:
+        provider: The new TracerProvider to install as the global.
+    """
+    import opentelemetry.trace as _trace_module
+
+    _trace_module._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    _trace_module._TRACER_PROVIDER_SET_ONCE._done = False  # type: ignore[attr-defined]
+    _trace_module.set_tracer_provider(provider)
+
+
+@pytest.fixture
+def otel_in_memory() -> Generator[tuple[TracerProvider, InMemorySpanExporter]]:
     """Provide a TracerProvider backed by an InMemorySpanExporter.
 
-    Resets the global TracerProvider before and after the test to ensure
-    full isolation. Uses SimpleSpanProcessor so spans are immediately
-    available in the exporter after the span ends.
+    Force-resets the global TracerProvider before and after the test to ensure
+    full isolation even when other tests have already configured the global
+    provider. Uses SimpleSpanProcessor so spans are immediately available in
+    the exporter after the span ends.
 
     Yields:
         A tuple of (TracerProvider, InMemorySpanExporter).
@@ -37,15 +58,15 @@ def otel_in_memory() -> Generator[tuple[TracerProvider, InMemorySpanExporter], N
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
+    _force_reset_tracer_provider(provider)
 
     yield provider, exporter
 
-    # Reset to a clean provider after the test
-    trace.set_tracer_provider(TracerProvider())
+    # Restore a clean no-op provider after the test
+    _force_reset_tracer_provider(TracerProvider())
 
 
-@pytest.fixture()
+@pytest.fixture
 def synthesis_job_stub() -> Any:
     """Return a minimal SynthesisJob-like stub for task testing.
 
@@ -121,8 +142,7 @@ def test_parent_and_worker_spans_share_trace_id(
     assert parent_trace_id != 0, "Parent trace ID must not be zero"
     assert worker_trace_id != 0, "Worker trace ID must not be zero"
     assert parent_trace_id == worker_trace_id, (
-        f"Trace ID mismatch: parent={parent_trace_id:#034x}, "
-        f"worker={worker_trace_id:#034x}"
+        f"Trace ID mismatch: parent={parent_trace_id:#034x}, worker={worker_trace_id:#034x}"
     )
 
     # Verify both spans are recorded in the exporter
@@ -138,50 +158,31 @@ def test_worker_task_accepts_trace_carrier_kwarg() -> None:
 
     AC1/AC2/AC3: The Huey task signature must accept ``trace_carrier``
     as an optional keyword argument (default None) to preserve backward
-    compatibility. This test calls the task's underlying implementation
-    function directly — bypassing Huey queue machinery — to verify
-    the signature.
+    compatibility. Uses AST inspection to verify the source-level signature
+    because the Huey decorator obscures the runtime signature (wrapping
+    the function as ``(*args, **kwargs)``).
     """
-    from synth_engine.modules.synthesizer.tasks import run_synthesis_job
+    import ast
+    from pathlib import Path
 
-    # Inspect the function signature (the Huey-decorated task wraps the original)
-    import inspect
-
-    # Huey wraps the function; the original is accessible via __wrapped__ or
-    # we can inspect the task object directly.
-    # For Huey tasks, the wrapped callable is accessible as the task itself.
-    try:
-        sig = inspect.signature(run_synthesis_job)
-    except (ValueError, TypeError):
-        # If Huey's wrapper obscures the signature, check via source inspection
-        import ast
-        from pathlib import Path
-
-        tasks_path = (
-            Path(__file__).parent.parent.parent
-            / "src"
-            / "synth_engine"
-            / "modules"
-            / "synthesizer"
-            / "tasks.py"
-        )
-        source = tasks_path.read_text()
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "run_synthesis_job":
-                arg_names = [a.arg for a in node.args.args] + [
-                    kw.arg for kw in node.args.kwonlyargs
-                ]
-                defaults = node.args.defaults + node.args.kw_defaults
-                assert "trace_carrier" in arg_names, (
-                    "run_synthesis_job must accept 'trace_carrier' parameter (AC2)"
-                )
-                return
-        pytest.fail("run_synthesis_job not found in tasks.py AST")
-    else:
-        assert "trace_carrier" in sig.parameters, (
-            "run_synthesis_job must accept 'trace_carrier' parameter (AC2)"
-        )
+    tasks_path = (
+        Path(__file__).parent.parent.parent
+        / "src"
+        / "synth_engine"
+        / "modules"
+        / "synthesizer"
+        / "tasks.py"
+    )
+    source = tasks_path.read_text()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "run_synthesis_job":
+            arg_names = [a.arg for a in node.args.args] + [kw.arg for kw in node.args.kwonlyargs]
+            assert "trace_carrier" in arg_names, (
+                "run_synthesis_job must accept 'trace_carrier' parameter (AC2)"
+            )
+            return
+    pytest.fail("run_synthesis_job not found in tasks.py AST")
 
 
 @pytest.mark.integration
@@ -208,9 +209,12 @@ def test_worker_task_carrier_defaults_to_none() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "run_synthesis_job":
             # Check keyword-only arguments with defaults
-            for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults):
+            for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=False):
                 if arg.arg == "trace_carrier":
-                    assert isinstance(default, ast.Constant) and default.value is None, (
+                    assert isinstance(default, ast.Constant), (
+                        "trace_carrier default must be a constant (AC2 backward compatibility)"
+                    )
+                    assert default.value is None, (
                         "trace_carrier must default to None (AC2 backward compatibility)"
                     )
                     return
@@ -225,7 +229,10 @@ def test_worker_task_carrier_defaults_to_none() -> None:
                     default_idx = i - offset
                     if default_idx >= 0:
                         default = all_defaults[default_idx]
-                        assert isinstance(default, ast.Constant) and default.value is None, (
+                        assert isinstance(default, ast.Constant), (
+                            "trace_carrier default must be a constant (AC2 backward compatibility)"
+                        )
+                        assert default.value is None, (
                             "trace_carrier must default to None (AC2 backward compatibility)"
                         )
                     return

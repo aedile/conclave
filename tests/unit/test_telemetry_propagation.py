@@ -17,31 +17,50 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 
+def _force_reset_tracer_provider(provider: TracerProvider) -> None:
+    """Force-reset the global TracerProvider, bypassing the once-only guard.
+
+    OpenTelemetry's ``set_tracer_provider()`` uses an internal ``Once`` guard
+    that prevents it from being called more than once per process.  In a test
+    suite the same process runs many tests sequentially, so the guard blocks
+    subsequent fixture setups.  This helper directly resets the internal state
+    so each test starts with a clean, isolated TracerProvider.
+
+    Must only be called from test fixtures.
+
+    Args:
+        provider: The new TracerProvider to install as the global.
+    """
+    import opentelemetry.trace as _trace_module
+
+    _trace_module._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    _trace_module._TRACER_PROVIDER_SET_ONCE._done = False  # type: ignore[attr-defined]
+    _trace_module.set_tracer_provider(provider)
+
+
 @pytest.fixture(autouse=True)
 def reset_tracer_provider() -> None:
     """Reset the global TracerProvider before each test to prevent state leakage.
 
-    OpenTelemetry keeps a global TracerProvider singleton. Tests that configure
-    a custom provider must reset the global state afterward to avoid contaminating
-    subsequent tests.
+    OpenTelemetry keeps a global TracerProvider singleton protected by a
+    once-only guard. This fixture force-resets the guard so each test
+    starts with a clean, isolated provider.
     """
-    # Set a fresh provider before each test to ensure isolation.
-    provider = TracerProvider()
-    trace.set_tracer_provider(provider)
+    _force_reset_tracer_provider(TracerProvider())
 
 
-@pytest.fixture()
+@pytest.fixture
 def in_memory_provider() -> tuple[TracerProvider, InMemorySpanExporter]:
     """Provide a TracerProvider backed by an InMemorySpanExporter.
 
     Returns:
         A tuple of (TracerProvider, InMemorySpanExporter) configured for testing.
-        The provider is also set as the global provider for the duration of the test.
+        The provider is force-set as the global provider for the duration of the test.
     """
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
+    _force_reset_tracer_provider(provider)
     return provider, exporter
 
 
