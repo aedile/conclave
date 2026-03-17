@@ -111,8 +111,9 @@ repos:
       - id: bandit
         args: [-c, pyproject.toml, -r, src/, scripts/]
         files: ^(src|scripts)/
+
   # ---------------------------------------------------------------------------
-  # Module boundary enforcement -- import-linter (AC1 -- T20.4)
+  # Module boundary enforcement — import-linter (AC1 — T20.4)
   #
   # Enforces the import contracts defined in [tool.importlinter] in pyproject.toml:
   #   - Module independence: ingestion, mapping, profiler, masking, synthesizer,

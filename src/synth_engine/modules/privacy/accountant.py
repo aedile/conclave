@@ -1,21 +1,31 @@
-"""Global epsilon budget accountant — pessimistic locking spend_budget().
+"""Global epsilon budget accountant — pessimistic locking spend_budget() and reset_budget().
 
-Provides :func:`spend_budget`, an async function that atomically deducts
-epsilon from the global :class:`~synth_engine.modules.privacy.ledger.PrivacyLedger`
-using ``SELECT ... FOR UPDATE`` to prevent concurrent synthesis jobs from
-overrunning the privacy budget.
+Provides two async functions:
+
+- :func:`spend_budget`: Atomically deducts epsilon from the global
+  :class:`~synth_engine.modules.privacy.ledger.PrivacyLedger` using
+  ``SELECT ... FOR UPDATE`` to prevent concurrent synthesis jobs from
+  overrunning the privacy budget.
+
+- :func:`reset_budget`: Atomically resets ``total_spent_epsilon`` to zero
+  (and optionally updates ``total_allocated_epsilon``) using
+  ``SELECT ... FOR UPDATE`` to prevent races with concurrent
+  ``spend_budget()`` calls.
 
 Locking protocol
 ----------------
 1. Begin an explicit transaction (via ``async with session.begin()``).
 2. Acquire a ``SELECT ... FOR UPDATE`` lock on the target ``PrivacyLedger`` row.
 3. Read ``total_spent_epsilon`` and ``total_allocated_epsilon`` under the lock.
-4. If ``total_spent + amount > total_allocated``: raise
-   :exc:`~synth_engine.modules.privacy.dp_engine.BudgetExhaustionError`.
+4. For ``spend_budget``: raise
+   :exc:`~synth_engine.modules.privacy.dp_engine.BudgetExhaustionError` if
+   ``total_spent + amount > total_allocated``.
    The transaction context manager rolls back automatically on exception,
    releasing the lock.
-5. If budget is available: deduct ``amount``, write a :class:`PrivacyTransaction`
+5. For ``spend_budget``: deduct ``amount``, write a :class:`PrivacyTransaction`
    record, and let the transaction context manager commit — releasing the lock.
+6. For ``reset_budget``: reset ``total_spent_epsilon`` to ``Decimal("0.0")``,
+   optionally update ``total_allocated_epsilon``, and commit.
 
 The ``async with session.begin()`` pattern ensures rollback occurs automatically
 when an exception propagates out of the block.  This avoids calling
@@ -44,6 +54,7 @@ CONSTITUTION Priority 0: Security — no PII, no credential leaks
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P4-T4.4 — Privacy Accountant
 Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050)
+Task: P22-T22.4 — Budget Management API (reset_budget)
 """
 
 from __future__ import annotations
@@ -173,3 +184,81 @@ async def spend_budget(
         ledger.total_spent_epsilon,
         ledger.total_allocated_epsilon - ledger.total_spent_epsilon,
     )
+
+
+async def reset_budget(
+    *,
+    ledger_id: int,
+    session: AsyncSession,
+    new_allocated_epsilon: Decimal | None = None,
+) -> tuple[Decimal, Decimal]:
+    """Atomically reset the privacy budget spent counter.
+
+    Opens an explicit transaction via ``async with session.begin()``.  Within
+    the transaction, acquires a ``SELECT ... FOR UPDATE`` pessimistic lock on
+    the :class:`~synth_engine.modules.privacy.ledger.PrivacyLedger` row
+    identified by ``ledger_id``.
+
+    Under the lock, sets ``total_spent_epsilon`` to ``Decimal("0.0")`` and,
+    if ``new_allocated_epsilon`` is provided, updates ``total_allocated_epsilon``
+    to that value.  The lock is released on commit.
+
+    This function does NOT emit audit events — that responsibility belongs to
+    the router layer.
+
+    Args:
+        ledger_id: Primary key of the :class:`PrivacyLedger` row to reset.
+        session: An open :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
+            The caller is responsible for providing a fresh session per call;
+            sharing a session across concurrent calls is not supported.
+        new_allocated_epsilon: Optional new total epsilon allocation ceiling.
+            When provided, ``total_allocated_epsilon`` is updated to this value.
+            When ``None``, the existing allocation is preserved.  Must be
+            positive if provided.
+
+    Returns:
+        A 2-tuple ``(allocated, spent)`` reflecting the post-reset ledger
+        state, where ``spent`` is always ``Decimal("0.0")``.
+
+    Raises:
+        ValueError: If ``new_allocated_epsilon`` is provided and is not
+            strictly positive.
+        sqlalchemy.exc.NoResultFound: If no ``PrivacyLedger`` row exists for
+            the given ``ledger_id``.
+
+    Example::
+
+        async with get_async_session(engine) as session:
+            allocated, spent = await reset_budget(
+                ledger_id=1,
+                session=session,
+                new_allocated_epsilon=Decimal("20.0"),
+            )
+    """
+    if new_allocated_epsilon is not None and new_allocated_epsilon <= 0:
+        raise ValueError(f"new_allocated_epsilon must be positive, got {new_allocated_epsilon!r}")
+
+    async with session.begin():
+        # Acquire pessimistic lock — same pattern as spend_budget() to prevent
+        # races between concurrent refresh and spend operations.
+        stmt = (
+            select(PrivacyLedger)
+            .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
+            .with_for_update()
+        )
+        result = await session.execute(stmt)
+        ledger = result.scalar_one()
+
+        # Apply the reset: spent always returns to zero.
+        ledger.total_spent_epsilon = Decimal("0.0")
+        if new_allocated_epsilon is not None:
+            ledger.total_allocated_epsilon = new_allocated_epsilon
+
+        # session.begin() context manager commits automatically on successful exit.
+
+    _logger.info(
+        "Budget reset: ledger_id=%d, allocated=%s, spent reset to 0",
+        ledger_id,
+        ledger.total_allocated_epsilon,
+    )
+    return ledger.total_allocated_epsilon, ledger.total_spent_epsilon

@@ -144,6 +144,47 @@ def _common_patches() -> list[Any]:
     ]
 
 
+def _make_reset_budget_patch(engine: Any) -> Any:
+    """Return a patch for ``_run_reset_budget`` that uses the given sync engine.
+
+    The router's ``_run_reset_budget`` opens its own async engine. In unit tests
+    we redirect it to run against the test's in-memory SQLite engine instead,
+    using the sync SQLModel session directly.
+
+    Args:
+        engine: The SQLAlchemy sync engine backing the test's in-memory DB.
+
+    Returns:
+        A ``unittest.mock.patch`` context manager for
+        ``synth_engine.bootstrapper.routers.privacy._run_reset_budget``.
+    """
+    from synth_engine.modules.privacy.ledger import PrivacyLedger
+
+    def _fake_run_reset_budget(
+        *,
+        ledger_id: int,
+        new_allocated_epsilon: Decimal | None,
+    ) -> tuple[Decimal, Decimal]:
+        with Session(engine) as s:
+            ledger = s.get(PrivacyLedger, ledger_id)
+            if ledger is None:
+                from sqlalchemy.exc import NoResultFound
+
+                raise NoResultFound(f"No PrivacyLedger with id={ledger_id}")
+            ledger.total_spent_epsilon = Decimal("0.0")
+            if new_allocated_epsilon is not None:
+                ledger.total_allocated_epsilon = new_allocated_epsilon
+            s.add(ledger)
+            s.commit()
+            s.refresh(ledger)
+            return ledger.total_allocated_epsilon, ledger.total_spent_epsilon
+
+    return patch(
+        "synth_engine.bootstrapper.routers.privacy._run_reset_budget",
+        side_effect=_fake_run_reset_budget,
+    )
+
+
 # ---------------------------------------------------------------------------
 # GET /privacy/budget
 # ---------------------------------------------------------------------------
@@ -252,6 +293,55 @@ class TestBudgetQueryEndpoint:
         assert body["remaining_epsilon"] == pytest.approx(0.0)
 
     @pytest.mark.asyncio
+    async def test_get_budget_is_exhausted_true_when_spent_exceeds_allocated(
+        self,
+    ) -> None:
+        """GET /privacy/budget must set is_exhausted=True when spent > allocated (overspend)."""
+        from sqlalchemy.pool import StaticPool
+
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.errors import register_error_handlers
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.bootstrapper.routers.privacy import router as privacy_router
+        from synth_engine.modules.privacy.ledger import PrivacyLedger
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+
+        with Session(engine) as session:
+            ledger = PrivacyLedger(
+                total_allocated_epsilon=Decimal("10.0"),
+                total_spent_epsilon=Decimal("15.0"),
+            )
+            session.add(ledger)
+            session.commit()
+
+        app = create_app()
+        register_error_handlers(app)
+        app.include_router(privacy_router)
+
+        def _override() -> Any:
+            with Session(engine) as s:
+                yield s
+
+        app.dependency_overrides[get_db_session] = _override
+
+        patches = _common_patches()
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/privacy/budget")
+
+        body = response.json()
+        assert body["is_exhausted"] is True
+        assert body["remaining_epsilon"] == pytest.approx(0.0)
+
+    @pytest.mark.asyncio
     async def test_get_budget_returns_404_when_no_ledger(self) -> None:
         """GET /privacy/budget must return RFC 7807 404 when no ledger row exists."""
         app, _ = _make_empty_app()
@@ -282,10 +372,10 @@ class TestBudgetRefreshEndpoint:
     @pytest.mark.asyncio
     async def test_refresh_budget_returns_200(self) -> None:
         """POST /privacy/budget/refresh must return HTTP 200 on success."""
-        app, _ = _make_test_app()
+        app, engine = _make_test_app()
         patches = _common_patches()
 
-        with patches[0], patches[1]:
+        with patches[0], patches[1], _make_reset_budget_patch(engine):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -299,10 +389,10 @@ class TestBudgetRefreshEndpoint:
     @pytest.mark.asyncio
     async def test_refresh_budget_resets_spent_to_zero(self) -> None:
         """POST /privacy/budget/refresh must reset total_spent_epsilon to 0."""
-        app, _ = _make_test_app()
+        app, engine = _make_test_app()
         patches = _common_patches()
 
-        with patches[0], patches[1]:
+        with patches[0], patches[1], _make_reset_budget_patch(engine):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -318,10 +408,10 @@ class TestBudgetRefreshEndpoint:
     @pytest.mark.asyncio
     async def test_refresh_budget_preserves_allocated(self) -> None:
         """POST /privacy/budget/refresh without new_allocated keeps original value."""
-        app, _ = _make_test_app()
+        app, engine = _make_test_app()
         patches = _common_patches()
 
-        with patches[0], patches[1]:
+        with patches[0], patches[1], _make_reset_budget_patch(engine):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -337,10 +427,10 @@ class TestBudgetRefreshEndpoint:
     @pytest.mark.asyncio
     async def test_refresh_budget_with_new_allocated_sets_new_value(self) -> None:
         """POST /privacy/budget/refresh with new_allocated_epsilon sets new budget."""
-        app, _ = _make_test_app()
+        app, engine = _make_test_app()
         patches = _common_patches()
 
-        with patches[0], patches[1]:
+        with patches[0], patches[1], _make_reset_budget_patch(engine):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -392,9 +482,49 @@ class TestBudgetRefreshEndpoint:
         assert response.status_code == 422
 
     @pytest.mark.asyncio
+    async def test_refresh_budget_rejects_zero_new_allocated(self) -> None:
+        """POST /privacy/budget/refresh with new_allocated_epsilon=0.0 returns 422."""
+        app, _ = _make_test_app()
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/privacy/budget/refresh",
+                    json={
+                        "justification": "Testing zero allocation rejection",
+                        "new_allocated_epsilon": 0.0,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_refresh_budget_rejects_negative_new_allocated(self) -> None:
+        """POST /privacy/budget/refresh with new_allocated_epsilon=-5.0 returns 422."""
+        app, _ = _make_test_app()
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/privacy/budget/refresh",
+                    json={
+                        "justification": "Testing negative allocation rejection",
+                        "new_allocated_epsilon": -5.0,
+                    },
+                )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
     async def test_refresh_budget_emits_worm_audit_event(self) -> None:
         """POST /privacy/budget/refresh must emit a WORM HMAC-signed audit event."""
-        app, _ = _make_test_app()
+        app, engine = _make_test_app()
         patches = _common_patches()
 
         mock_audit = MagicMock()
@@ -403,6 +533,7 @@ class TestBudgetRefreshEndpoint:
         with (
             patches[0],
             patches[1],
+            _make_reset_budget_patch(engine),
             patch(
                 "synth_engine.bootstrapper.routers.privacy.get_audit_logger",
                 return_value=mock_audit,
@@ -422,13 +553,14 @@ class TestBudgetRefreshEndpoint:
         assert call_kwargs["action"] == "refresh_budget"
         assert "justification" in call_kwargs["details"]
         assert call_kwargs["details"]["justification"] == "Audit test justification"
+        assert call_kwargs["resource"].startswith("privacy_ledger/")
 
     @pytest.mark.asyncio
     async def test_refresh_budget_audit_event_includes_actor_from_header(
         self,
     ) -> None:
         """Refresh audit event must capture the X-Operator-Id header as actor."""
-        app, _ = _make_test_app()
+        app, engine = _make_test_app()
         patches = _common_patches()
 
         mock_audit = MagicMock()
@@ -437,6 +569,7 @@ class TestBudgetRefreshEndpoint:
         with (
             patches[0],
             patches[1],
+            _make_reset_budget_patch(engine),
             patch(
                 "synth_engine.bootstrapper.routers.privacy.get_audit_logger",
                 return_value=mock_audit,
@@ -459,7 +592,7 @@ class TestBudgetRefreshEndpoint:
         self,
     ) -> None:
         """Refresh audit event must use a fallback actor when X-Operator-Id is absent."""
-        app, _ = _make_test_app()
+        app, engine = _make_test_app()
         patches = _common_patches()
 
         mock_audit = MagicMock()
@@ -468,6 +601,7 @@ class TestBudgetRefreshEndpoint:
         with (
             patches[0],
             patches[1],
+            _make_reset_budget_patch(engine),
             patch(
                 "synth_engine.bootstrapper.routers.privacy.get_audit_logger",
                 return_value=mock_audit,
@@ -482,8 +616,8 @@ class TestBudgetRefreshEndpoint:
                 )
 
         call_kwargs = mock_audit.log_event.call_args.kwargs
-        # Actor must not be empty — it should have a non-empty fallback value.
-        assert call_kwargs["actor"] != ""
+        # Actor must be the well-known fallback constant — not empty.
+        assert call_kwargs["actor"] == "unknown-operator"
 
     @pytest.mark.asyncio
     async def test_refresh_budget_returns_404_when_no_ledger(self) -> None:
@@ -504,6 +638,44 @@ class TestBudgetRefreshEndpoint:
         body = response.json()
         assert body.get("status") == 404
         assert "type" in body
+
+    @pytest.mark.asyncio
+    async def test_refresh_budget_returns_500_when_audit_fails(self) -> None:
+        """POST /privacy/budget/refresh returns 500 if audit emission raises."""
+        app, engine = _make_test_app()
+        patches = _common_patches()
+
+        mock_audit = MagicMock()
+        mock_audit.log_event = MagicMock(side_effect=RuntimeError("audit backend down"))
+
+        with (
+            patches[0],
+            patches[1],
+            _make_reset_budget_patch(engine),
+            patch(
+                "synth_engine.bootstrapper.routers.privacy.get_audit_logger",
+                return_value=mock_audit,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/privacy/budget/refresh",
+                    json={"justification": "Testing audit failure path"},
+                )
+
+        assert response.status_code == 500
+
+        # Verify the DB write was committed: ledger spent should be 0
+        from synth_engine.modules.privacy.ledger import PrivacyLedger
+
+        with Session(engine) as s:
+            ledger = s.exec(
+                __import__("sqlmodel", fromlist=["select"]).select(PrivacyLedger)
+            ).first()
+            assert ledger is not None
+            assert ledger.total_spent_epsilon == Decimal("0.0")
 
 
 # ---------------------------------------------------------------------------
