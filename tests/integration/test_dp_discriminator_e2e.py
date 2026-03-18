@@ -1,11 +1,21 @@
-"""Integration tests: real Opacus on real Discriminator — end-to-end DP pipeline.
+"""Integration tests: full DP pipeline with real Opacus on a real Discriminator.
 
-Exercises the full DP training pipeline with real Opacus (not mocks):
-  1. Full DP training pipeline produces positive epsilon after fit().
-  2. Sampling after DP training returns a valid DataFrame.
-  3. Budget exhaustion raises BudgetExhaustionError when allocated_epsilon is tiny.
+Exercises ``DPCompatibleCTGAN`` + ``DPTrainingWrapper`` end-to-end with real
+Opacus (no mocks).  Confirms:
 
-No PII is used.  All fixture data is fictional.
+  Test 1: Full DP training produces positive epsilon
+    - ``DPTrainingWrapper.epsilon_spent(delta=1e-5) > 0`` after ``fit()``.
+
+  Test 2: Sampling after DP training
+    - ``model.sample(5)`` returns a ``pd.DataFrame`` with 5 rows.
+    - Soft assertion: exceptions from ``sample()`` at 2 epochs are tolerated;
+      the KEY invariant is epsilon > 0 (Test 1).
+
+  Test 3: Budget exhaustion
+    - ``DPCompatibleCTGAN.fit()`` raises ``BudgetExhaustionError`` when
+      ``allocated_epsilon=0.0001`` (tiny budget exhausted within first epoch).
+
+All fixture data is fictional (deterministic ``range()`` values).  No PII.
 
 These tests require the synthesizer dependency group:
   poetry install --with synthesizer
@@ -13,7 +23,7 @@ These tests require the synthesizer dependency group:
 Run with:
   poetry run pytest tests/integration/test_dp_discriminator_e2e.py -v --no-cov
 
-Task: T30.5 — Integration Test: Real Opacus on Real Discriminator
+Task: P30-T30.5 — Integration Test: Real Opacus on Real Discriminator
 ADR: ADR-0036 (Discriminator-Level DP-SGD Architecture)
 """
 
@@ -24,256 +34,235 @@ import warnings
 import pandas as pd
 import pytest
 
-pytestmark = [pytest.mark.integration, pytest.mark.synthesizer]
-
-# ---------------------------------------------------------------------------
-# Shared fictional fixture DataFrame
-# ---------------------------------------------------------------------------
-
-_TRAINING_DF = pd.DataFrame(
-    {
-        "age": [
-            25,
-            30,
-            35,
-            40,
-            45,
-            50,
-            55,
-            60,
-            65,
-            70,
-            25,
-            30,
-            35,
-            40,
-            45,
-            50,
-            55,
-            60,
-            65,
-            70,
-        ],
-        "salary": [
-            30000,
-            40000,
-            50000,
-            60000,
-            70000,
-            80000,
-            90000,
-            100000,
-            110000,
-            120000,
-            30000,
-            40000,
-            50000,
-            60000,
-            70000,
-            80000,
-            90000,
-            100000,
-            110000,
-            120000,
-        ],
-        "department": [
-            "A",
-            "B",
-            "A",
-            "B",
-            "A",
-            "B",
-            "A",
-            "B",
-            "A",
-            "B",
-            "A",
-            "B",
-            "A",
-            "B",
-            "A",
-            "B",
-            "A",
-            "B",
-            "A",
-            "B",
-        ],
-    }
-)
+pytestmark = [pytest.mark.synthesizer, pytest.mark.integration]
 
 
 # ---------------------------------------------------------------------------
-# Helper: build metadata from the fictional DataFrame
+# Shared fixture: a 40-row DataFrame with numeric and categorical columns.
+# 40 rows ensures batch_size is divisible by pac=10 (the CTGAN default) and
+# Opacus has sufficient samples for meaningful per-sample gradient accounting.
 # ---------------------------------------------------------------------------
 
 
-def _build_metadata(df: pd.DataFrame) -> object:
-    """Build SDV SingleTableMetadata from a DataFrame.
+@pytest.fixture
+def training_df() -> pd.DataFrame:
+    """Return a 40-row fictional training DataFrame.
 
-    Args:
-        df: The DataFrame to detect metadata from.
+    All values are deterministically generated from ``range()`` — no PII.
+    The DataFrame contains two numeric columns (age, salary) and one
+    categorical column (dept) to exercise CTGAN's mixed-type training path.
 
     Returns:
-        A ``SingleTableMetadata`` instance with all columns detected.
+        DataFrame with 40 rows: age (int), salary (int), dept (str).
     """
-    from sdv.metadata import (
-        SingleTableMetadata,  # type: ignore[import-untyped]  # sdv lacks py.typed; unfixable
+    return pd.DataFrame(
+        {
+            "age": list(range(20, 40)) * 2,  # 40 rows: 20–39, repeated
+            "salary": list(range(30000, 50000, 1000)) * 2,  # 40 rows
+            "dept": (["A", "B"] * 10) * 2,  # 40 rows alternating A/B
+        }
     )
-
-    metadata = SingleTableMetadata()
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore")
-        metadata.detect_from_dataframe(df)
-    return metadata
 
 
 # ---------------------------------------------------------------------------
-# Test 1: Full DP training pipeline produces positive epsilon
+# Test 1: Full DP training produces positive epsilon
 # ---------------------------------------------------------------------------
 
 
 class TestDPTrainingProducesPositiveEpsilon:
-    """Verify that real Opacus accounting yields epsilon_spent > 0 after fit()."""
+    """Verify that real Opacus accounting yields epsilon_spent > 0 after fit().
 
-    def test_full_dp_pipeline_epsilon_is_positive(self) -> None:
-        """Fit DPCompatibleCTGAN in DP mode; epsilon_spent must be positive.
+    Uses ``allocated_epsilon=50.0`` (high budget) so training completes
+    without exhausting the budget during the 2-epoch run.
+    """
 
-        Creates a real DPTrainingWrapper and a real DPCompatibleCTGAN, fits on
-        the fictional _TRAINING_DF (20 rows, 3 columns), and asserts that
-        dp_wrapper.epsilon_spent(delta=1e-5) > 0 after training completes.
+    def test_full_dp_training_epsilon_positive(self, training_df: pd.DataFrame) -> None:
+        """Fit DPCompatibleCTGAN in DP mode; epsilon_spent must be positive after fit().
 
-        This verifies that Opacus performs real gradient accounting through the
-        OpacusCompatibleDiscriminator — not a proxy or stub.
+        Creates a real ``DPTrainingWrapper`` and a real ``DPCompatibleCTGAN``,
+        fits on the fictional ``training_df`` (40 rows, 3 columns), and asserts
+        that ``dp_wrapper.epsilon_spent(delta=1e-5) > 0`` after training.
+
+        A positive epsilon confirms that Opacus performed real gradient
+        accounting — not a proxy path or no-op.
+
+        Note:
+            ``allocated_epsilon=50.0`` is set generously high so the budget is
+            never exhausted during the 2-epoch training run.  This test
+            isolates the epsilon-positivity invariant.  Budget exhaustion is
+            tested separately in ``TestBudgetExhaustionRaisesError``.
+
+        Args:
+            training_df: 40-row fictional DataFrame from the shared fixture.
         """
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv lacks py.typed; unfixable
+        )
+
         from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 
-        df = _TRAINING_DF.copy()
-        metadata = _build_metadata(df)
+        metadata = SingleTableMetadata()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            metadata.detect_from_dataframe(training_df)
 
-        dp_wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
+        wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
+        model = DPCompatibleCTGAN(
+            metadata=metadata,
+            epochs=2,
+            dp_wrapper=wrapper,
+            allocated_epsilon=50.0,
+            delta=1e-5,
+        )
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
-            model = DPCompatibleCTGAN(
-                metadata=metadata,
-                epochs=2,
-                dp_wrapper=dp_wrapper,
-                allocated_epsilon=10.0,
-                delta=1e-5,
-            )
-            model.fit(df)
+            model.fit(training_df)
 
-        epsilon = dp_wrapper.epsilon_spent(delta=1e-5)
-
-        assert epsilon > 0, (
-            f"epsilon_spent must be > 0 after real Opacus DP training, got {epsilon}. "
-            "If epsilon is 0.0, Opacus accounting was not activated on the real "
-            "Discriminator (T30.3 discriminator-level DP path may have fallen back)."
+        eps = wrapper.epsilon_spent(delta=1e-5)
+        assert eps > 0, (
+            f"Expected positive epsilon after DP training, got {eps}. "
+            "Opacus PrivacyEngine must have been activated and accumulated "
+            "at least one gradient step for epsilon_spent to be non-zero."
         )
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Sampling after DP training produces valid output
+# Test 2: Sampling after DP training
 # ---------------------------------------------------------------------------
 
 
-class TestDPTrainingSamplingProducesValidOutput:
-    """Verify that sample() after DP training returns a valid DataFrame."""
+class TestDPTrainingSampling:
+    """Verify sample() after DP training returns a DataFrame with correct row count.
 
-    def test_sample_after_dp_training_returns_dataframe(self) -> None:
-        """sample() after DP training must return a pd.DataFrame.
+    Note on soft assertion: ``reverse_transform`` may produce data-quality
+    issues at only 2 epochs (the Generator has not fully converged).  Any
+    exception from ``sample()`` is caught and the row-count assertion is
+    skipped — the KEY invariant (epsilon > 0, Test 1) is tested separately.
+    """
 
-        Fits DPCompatibleCTGAN in DP mode on the fictional fixture, then calls
-        sample(num_rows=5).  The result must be a pd.DataFrame regardless of
-        synthesis quality (only 2 epochs is expected to produce low-quality output).
+    def test_sample_after_dp_training_returns_five_rows(
+        self, training_df: pd.DataFrame
+    ) -> None:
+        """sample(num_rows=5) must return a DataFrame with exactly 5 rows.
 
-        Per task spec: 'The output may not be perfect quality with only 2 epochs,
-        but should be a valid DataFrame.'  If reverse_transform() fails due to
-        low-quality Generator output, the test still verifies DP correctness by
-        checking the epsilon > 0 invariant.
+        Fits ``DPCompatibleCTGAN`` in DP mode, confirms epsilon > 0 (pre-
+        condition), then calls ``sample(num_rows=5)``.  If ``sample()`` raises
+        any exception (e.g. ``reverse_transform`` mismatch due to low epoch
+        count), the row-count assertion is skipped via ``pytest.skip``.
+
+        The skip is acceptable: ``sample()`` correctness at 2 epochs is
+        documented as non-guaranteed per ADR-0025 §T7.3 consequences;
+        full sample correctness is covered by ``test_dp_training_integration.py``
+        with standard epoch counts.
+
+        Args:
+            training_df: 40-row fictional DataFrame from the shared fixture.
         """
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv lacks py.typed; unfixable
+        )
+
         from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 
-        df = _TRAINING_DF.copy()
-        metadata = _build_metadata(df)
+        metadata = SingleTableMetadata()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            metadata.detect_from_dataframe(training_df)
 
-        dp_wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
+        wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
+        model = DPCompatibleCTGAN(
+            metadata=metadata,
+            epochs=2,
+            dp_wrapper=wrapper,
+            allocated_epsilon=50.0,
+            delta=1e-5,
+        )
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
-            model = DPCompatibleCTGAN(
-                metadata=metadata,
-                epochs=2,
-                dp_wrapper=dp_wrapper,
-                allocated_epsilon=10.0,
-                delta=1e-5,
-            )
-            model.fit(df)
+            model.fit(training_df)
 
-            # epsilon > 0 confirms real Opacus accounting happened
-            assert dp_wrapper.epsilon_spent(delta=1e-5) > 0, (
-                "Pre-condition failed: epsilon_spent must be > 0 before sampling."
-            )
+        # Pre-condition: epsilon > 0 confirms real Opacus activation.
+        assert wrapper.epsilon_spent(delta=1e-5) > 0, (
+            "Pre-condition: epsilon_spent must be > 0 before sampling."
+        )
 
-            try:
-                result = model.sample(num_rows=5)
-            except Exception as exc:  # reverse_transform may fail at 2 epochs
-                # Per task spec: reverse_transform may fail with only 2 epochs.
-                # The key assertion (epsilon > 0) is already verified above.
-                # We do not re-raise — the DP correctness is confirmed.
-                pytest.skip(
-                    f"sample() raised {type(exc).__name__}: {exc}. "
-                    "This is acceptable at 2 epochs — DP correctness already confirmed by "
-                    "epsilon > 0 assertion above."
-                )
-            else:
-                assert isinstance(result, pd.DataFrame), (
-                    f"sample() must return pd.DataFrame, got {type(result)}"
-                )
-                assert len(result) == 5, (
-                    f"sample(num_rows=5) must return exactly 5 rows, got {len(result)}"
-                )
+        try:
+            result = model.sample(num_rows=5)
+        except Exception:  # noqa: BLE001  # soft assertion: sample() may fail at 2 epochs
+            pytest.skip(
+                "sample() raised an exception after 2-epoch DP training — "
+                "reverse_transform instability at low epoch count is expected. "
+                "DP correctness already confirmed by epsilon > 0 pre-condition."
+            )
+            return  # unreachable after pytest.skip; keeps type-checker happy
+
+        assert isinstance(result, pd.DataFrame), (
+            f"sample() must return pd.DataFrame, got {type(result)}"
+        )
+        assert len(result) == 5, (
+            f"sample(num_rows=5) must return exactly 5 rows, got {len(result)}"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Budget exhaustion raises BudgetExhaustionError
+# Test 3: Budget exhaustion raises BudgetExhaustionError during fit()
 # ---------------------------------------------------------------------------
 
 
 class TestBudgetExhaustionRaisesError:
-    """Verify that a tiny allocated_epsilon triggers BudgetExhaustionError."""
+    """Verify that a tiny allocated_epsilon triggers BudgetExhaustionError.
 
-    def test_tiny_budget_raises_budget_exhaustion_error(self) -> None:
+    ``DPCompatibleCTGAN.fit()`` calls ``dp_wrapper.check_budget()`` after
+    the Opacus activation step.  With ``allocated_epsilon=0.0001`` the budget
+    is guaranteed to be exhausted on the first check (any real Opacus run
+    produces epsilon >> 0.0001), so ``BudgetExhaustionError`` propagates
+    immediately from ``fit()``.
+    """
+
+    def test_tiny_budget_raises_budget_exhaustion_error(
+        self, training_df: pd.DataFrame
+    ) -> None:
         """fit() must raise BudgetExhaustionError when allocated_epsilon is tiny.
 
-        Uses allocated_epsilon=0.0001 (smaller than one DP-SGD epoch's epsilon
-        spend) so the budget is exhausted after the first epoch's check_budget()
-        call.
+        Uses ``allocated_epsilon=0.0001`` — smaller than the epsilon produced
+        by a single Opacus gradient step.  The budget is exhausted the moment
+        ``check_budget()`` is called inside ``fit()``, which raises
+        ``BudgetExhaustionError``.
 
-        BudgetExhaustionError is imported from shared.exceptions per T26.2.
-        The error must propagate immediately from fit() — not be swallowed or
-        wrapped in another exception type.
+        ``BudgetExhaustionError`` is imported from ``shared.exceptions``
+        per P26-T26.2.  The error must propagate directly from ``fit()`` —
+        not be swallowed or wrapped in another exception type.
+
+        Args:
+            training_df: 40-row fictional DataFrame from the shared fixture.
         """
+        from sdv.metadata import (
+            SingleTableMetadata,  # type: ignore[import-untyped]  # sdv lacks py.typed; unfixable
+        )
+
         from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
-        df = _TRAINING_DF.copy()
-        metadata = _build_metadata(df)
-
-        dp_wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
-
+        metadata = SingleTableMetadata()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
-            model = DPCompatibleCTGAN(
-                metadata=metadata,
-                epochs=2,
-                dp_wrapper=dp_wrapper,
-                allocated_epsilon=0.0001,
-                delta=1e-5,
-            )
+            metadata.detect_from_dataframe(training_df)
 
-            with pytest.raises(BudgetExhaustionError):
-                model.fit(df)
+        wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
+        model = DPCompatibleCTGAN(
+            metadata=metadata,
+            epochs=10,
+            dp_wrapper=wrapper,
+            allocated_epsilon=0.0001,
+            delta=1e-5,
+        )
+
+        with pytest.raises(BudgetExhaustionError):
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                model.fit(training_df)
