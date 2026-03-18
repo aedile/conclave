@@ -20,6 +20,32 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-18] Phase 32 — Dead Module Cleanup & Development Process Documentation
+
+**Tasks**: T32.1 (Dead module removal), T32.2 (README dev process section), T32.3 (Development Story case study)
+
+**Review agents**: QA (FINDING — 2 items + 1 advisory fixed inline), Architecture (FINDING — 4 ADR amendments fixed inline), DevOps (PASS)
+
+**Findings fixed (all inline)**:
+- F1 (QA): `_module_spec_found()` caught `ValueError` but Python 3.14 raises `AttributeError` for `None` input — corrected exception type and docstring.
+- F2 (QA advisory): DEVELOPMENT_STORY.md file counts (89→82 source files) updated to reflect post-T32.1 state with parenthetical explaining the change.
+- F3 (Arch): ADR-0003, ADR-0005, ADR-0007, ADR-0008 amended with T32.1 removal notes and TBD-06/07/08 cross-references.
+
+**What went well**:
+1. Clean deletion: 7 source files and 5 companion test files removed with zero dangling imports. All quality gates passed immediately.
+2. Net -686 lines — the codebase got smaller, not larger. Removing dead code improved the signal-to-noise ratio.
+3. Development Story (811 lines) uses verified git data for every claim — all metrics were gathered via git commands before writing.
+4. Deferred-items.md entries (TBD-06/07/08) preserve the removed functionality's design intent with trigger conditions and full AC.
+5. Architecture reviewer caught the ADR documentation gap — ADRs describing removed code need amendment notes.
+
+**What to improve**:
+1. Documentation-within-branch staleness (recurring): DEVELOPMENT_STORY.md was committed before the refactor commit that changed the metrics it reports. Same class of error as docstring-implementation drift (Phases 30, 31). When docs and code are committed in the same branch, docs should be committed AFTER implementation to avoid immediate staleness.
+2. ADR lifecycle gap: the project has strong conventions for creating ADRs but no enforced convention for amending them when subject code is removed. Consider adding "does this diff remove code covered by an accepted ADR?" to the architecture review checklist.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-18] Phase 31 — Code Health & Bus Factor Elimination
 
 **Tasks**: T31.1 (Developer Guide), T31.2 (Vulture Whitelist Audit), T31.3 (dp_training Decomposition)
