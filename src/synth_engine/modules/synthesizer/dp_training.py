@@ -98,6 +98,7 @@ ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 Task: P20-T20.1 — AC2 Targeted warning suppression (filterwarnings vs simplefilter)
 Task: P30-T30.3 — Custom GAN Training Loop with Discriminator DP-SGD
 ADR: ADR-0036 (Discriminator-Level DP-SGD Architecture)
+Task: P31-T31.3 — dp_training.py Decomposition (code health)
 """
 
 from __future__ import annotations
@@ -404,90 +405,32 @@ class DPCompatibleCTGAN:
         )
         return dataloader
 
-    def _train_dp_discriminator(
-        self,
-        processed_df: pd.DataFrame,
-        model_kwargs: dict[str, Any],
-    ) -> None:
-        """Run the custom discriminator-level DP-SGD GAN training loop.
+    def _prepare_dp_dataloader_checked(
+        self, processed_df: pd.DataFrame, batch_size: int
+    ) -> tuple[Any, int]:
+        """Build the DP DataLoader and resolve ``data_dim``, raising on zero batches.
 
-        Constructs an :class:`OpacusCompatibleDiscriminator` and CTGAN
-        ``Generator`` from ``model_kwargs``.  Wraps the Discriminator's Adam
-        optimizer via ``dp_wrapper.wrap()``.  Runs a simplified WGAN loop:
-
-        For each epoch:
-            For each batch:
-                1. Discriminator step (DP): forward real + fake, compute
-                   WGAN loss (-(real.mean() - fake.mean())), backward, ``dp_optimizer.step()``.
-                   Note: gradient penalty is omitted — torch.autograd.grad() conflicts
-                   with Opacus per-sample gradient hooks in DP mode.
-                2. Generator step (non-DP): forward fake, compute loss,
-                   backward, ``optimizer_g.step()``.
-            Call ``dp_wrapper.check_budget(allocated_epsilon, delta)`` for
-            early stopping on budget exhaustion.
-
-        After training, stores the Generator in ``self._dp_generator`` for
-        use by :meth:`sample`.
+        Delegates DataLoader construction to :meth:`_build_dp_dataloader`.
+        Resolves ``data_dim`` as the number of numeric features (minimum 1).
+        Raises ``RuntimeError`` if the resulting DataLoader has zero batches,
+        which would produce a false DP guarantee.
 
         Args:
-            processed_df: Preprocessed (VGM-normalized) DataFrame from SDV's
-                ``DataProcessor``.
-            model_kwargs: Dict of CTGAN model hyperparameters extracted from
-                the ``CTGANSynthesizer`` (via ``_get_model_kwargs()``).
+            processed_df: Preprocessed (VGM-normalized) DataFrame.
+            batch_size: Pac-divisible, Opacus-compatible batch size.
+
+        Returns:
+            A 2-tuple ``(dataloader, data_dim)``.
 
         Raises:
-            BudgetExhaustionError: If ``dp_wrapper.check_budget()`` raises,
-                it propagates immediately (not caught or swallowed).
-            RuntimeError: If the processed DataFrame is too small to form
-                a valid DataLoader batch.
-
-        Note:
-            Generator does NOT require DP — it never directly sees real training
-            data.  Only the Discriminator is wrapped with Opacus.
-            This is the standard DP-GAN threat model per Xie et al. (2018).
+            RuntimeError: If the DataLoader has zero batches (dataset too small).
         """
-        assert self._dp_wrapper is not None, (  # type guard for mypy
-            "_train_dp_discriminator must only be called when dp_wrapper is not None"
-        )
-        embedding_dim: int = int(model_kwargs.get("embedding_dim", 128))
-        self._dp_embedding_dim = embedding_dim
-        self._dp_numeric_columns = list(processed_df.select_dtypes(include=[float, int]).columns)
-        self._dp_processed_df_sample = processed_df
-        generator_dim: tuple[int, ...] = tuple(model_kwargs.get("generator_dim", (256, 256)))
-        discriminator_dim: tuple[int, ...] = tuple(
-            model_kwargs.get("discriminator_dim", (256, 256))
-        )
-        batch_size: int = int(model_kwargs.get("batch_size", 500))
-        pac: int = int(model_kwargs.get("pac", 10))
-        discriminator_steps: int = int(model_kwargs.get("discriminator_steps", 1))
-
-        # Cap batch_size to ensure the Opacus DPDataLoader has >= 2 batches per epoch.
-        # Opacus's DPDataLoader.from_data_loader sets sample_rate = 1/len(data_loader).
-        # When len(data_loader) == 1 (i.e. batch_size >= n_rows), sample_rate = 1.0.
-        # Opacus's PRV accountant raises a numpy divide-by-zero RuntimeWarning
-        # (promoted to error in tests under -W error) when log(1 - q) is computed
-        # for q = 1.0.
-        # Fix: cap batch_size <= n_rows // 2 so len(data_loader) >= 2 and q <= 0.5.
-        n_rows = len(processed_df)
-        batch_size = min(batch_size, n_rows // 2)
-
-        # Opacus requires batch_size >= 2; enforce pac-divisibility
-        # Use max(pac, batch_size) — pac is the minimum for one discriminator group.
-        batch_size = max(pac, batch_size)
-        batch_size = (batch_size // pac) * pac
-        if batch_size == 0:
-            batch_size = pac
-
         n_features = processed_df.select_dtypes(include=[float, int]).shape[1]
-        if n_features == 0:
-            n_features = 1
-        data_dim = n_features
+        data_dim = max(n_features, 1)
 
         dataloader = self._build_dp_dataloader(processed_df, batch_size)
 
-        # Guard: zero batches means no gradient steps will occur, producing a false
-        # DP guarantee (epsilon_spent() would return 0.0 with no actual accounting).
-        # This matches the guard in _activate_opacus_proxy() (Privacy Priority 0).
+        # Guard: zero batches means no gradient steps — false DP guarantee (Privacy P0).
         if len(dataloader) == 0:
             raise RuntimeError(
                 "DPCompatibleCTGAN._train_dp_discriminator: DataLoader has zero batches. "
@@ -496,7 +439,91 @@ class DPCompatibleCTGAN:
                 "(epsilon_spent() returns 0.0 with no actual accounting). "
                 "Ensure the training DataFrame has enough rows for at least one batch."
             )
+        return dataloader, data_dim
 
+    def _parse_gan_hyperparams(
+        self, model_kwargs: dict[str, Any]
+    ) -> tuple[int, tuple[int, ...], tuple[int, ...], int, int, int]:
+        """Extract GAN architecture hyperparameters from CTGAN model kwargs.
+
+        Centralises ``model_kwargs`` extraction to keep
+        :meth:`_train_dp_discriminator` focused on orchestration.
+
+        Args:
+            model_kwargs: CTGAN hyperparameter dict from ``_get_model_kwargs()``.
+
+        Returns:
+            A 6-tuple ``(embedding_dim, generator_dim, discriminator_dim,
+            pac, discriminator_steps, batch_size)``.
+        """
+        embedding_dim = int(model_kwargs.get("embedding_dim", 128))
+        generator_dim: tuple[int, ...] = tuple(model_kwargs.get("generator_dim", (256, 256)))
+        discriminator_dim: tuple[int, ...] = tuple(
+            model_kwargs.get("discriminator_dim", (256, 256))
+        )
+        pac = int(model_kwargs.get("pac", 10))
+        discriminator_steps = int(model_kwargs.get("discriminator_steps", 1))
+        batch_size = int(model_kwargs.get("batch_size", 500))
+        return embedding_dim, generator_dim, discriminator_dim, pac, discriminator_steps, batch_size
+
+    def _cap_batch_size(self, n_samples: int, requested_batch_size: int, pac: int) -> int:
+        """Clamp batch size to satisfy Opacus sample-rate and pac-divisibility constraints.
+
+        Opacus's ``DPDataLoader.from_data_loader`` sets
+        ``sample_rate = 1 / len(data_loader)``.  When ``len(data_loader) == 1``
+        (i.e. ``batch_size >= n_rows``), ``sample_rate == 1.0`` and Opacus's PRV
+        accountant raises a ``RuntimeWarning`` on ``log(1 - q)`` for ``q = 1.0``
+        (promoted to an error under ``-W error`` in tests).
+
+        Fix: cap ``batch_size <= n_samples // 2`` so ``len(data_loader) >= 2``
+        and ``q <= 0.5``.  Then enforce pac-divisibility (pac is the minimum
+        grouping for one Discriminator pass).
+
+        Args:
+            n_samples: Number of rows in the training DataFrame.
+            requested_batch_size: Raw batch size from CTGAN model kwargs.
+            pac: PacGAN grouping factor from model kwargs.
+
+        Returns:
+            A valid batch size that is pac-divisible and satisfies the
+            Opacus minimum-batch constraint.
+        """
+        batch_size = min(requested_batch_size, n_samples // 2)
+        # Opacus requires batch_size >= 2; enforce pac-divisibility.
+        # Use max(pac, batch_size) — pac is the minimum for one discriminator group.
+        batch_size = max(pac, batch_size)
+        batch_size = (batch_size // pac) * pac
+        if batch_size == 0:
+            batch_size = pac
+        return batch_size
+
+    def _build_gan_models(
+        self,
+        data_dim: int,
+        embedding_dim: int,
+        generator_dim: tuple[int, ...],
+        discriminator_dim: tuple[int, ...],
+        pac: int,
+        model_kwargs: dict[str, Any],
+    ) -> tuple[Any, Any, Any, Any]:
+        """Construct Generator, Discriminator, and their Adam optimizers.
+
+        Builds the two GAN networks and their respective Adam optimizers
+        using hyperparameters from ``model_kwargs``.  The Discriminator
+        optimizer will subsequently be wrapped by Opacus in
+        :meth:`_wrap_discriminator_with_opacus`.
+
+        Args:
+            data_dim: Number of input features (processed DataFrame columns).
+            embedding_dim: Noise embedding dimension for the Generator.
+            generator_dim: Hidden layer sizes for the Generator.
+            discriminator_dim: Hidden layer sizes for the Discriminator.
+            pac: PacGAN grouping factor.
+            model_kwargs: Full CTGAN model kwargs dict (for LR and weight decay).
+
+        Returns:
+            A 4-tuple ``(generator, discriminator, optimizer_g, optimizer_d)``.
+        """
         discriminator = OpacusCompatibleDiscriminator(
             input_dim=data_dim,
             discriminator_dim=discriminator_dim,
@@ -507,7 +534,6 @@ class DPCompatibleCTGAN:
             generator_dim=generator_dim,
             data_dim=data_dim,
         )
-
         optimizer_d = torch.optim.Adam(
             discriminator.parameters(),
             lr=float(model_kwargs.get("discriminator_lr", 2e-4)),
@@ -518,6 +544,36 @@ class DPCompatibleCTGAN:
             lr=float(model_kwargs.get("generator_lr", 2e-4)),
             weight_decay=float(model_kwargs.get("generator_decay", 1e-6)),
         )
+        return generator, discriminator, optimizer_g, optimizer_d
+
+    def _wrap_discriminator_with_opacus(
+        self,
+        discriminator: Any,
+        optimizer_d: Any,
+        dataloader: Any,
+        batch_size: int,
+    ) -> tuple[Any, Any]:
+        """Wrap the Discriminator optimizer with Opacus DP-SGD.
+
+        Reads ``max_grad_norm`` and ``noise_multiplier`` from
+        ``self._dp_wrapper``, calls ``dp_wrapper.wrap()`` under Opacus
+        warning suppression, and resolves the wrapped Discriminator module
+        (Opacus stores it as ``wrapper.wrapped_module``).
+
+        Args:
+            discriminator: The ``OpacusCompatibleDiscriminator`` instance.
+            optimizer_d: The Discriminator's Adam optimizer (pre-wrap).
+            dataloader: The training ``DataLoader`` (needed by Opacus for
+                sample-rate computation).
+            batch_size: Effective batch size (used for logging only).
+
+        Returns:
+            A 2-tuple ``(dp_optimizer, dp_discriminator)`` where
+            ``dp_discriminator`` is the Opacus-wrapped
+            ``GradSampleModule`` (or the original ``discriminator`` if
+            ``wrapped_module`` is not set on the wrapper).
+        """
+        assert self._dp_wrapper is not None  # type guard — caller ensures this
 
         max_grad_norm: float = float(getattr(self._dp_wrapper, "max_grad_norm", 1.0))
         noise_multiplier: float = float(getattr(self._dp_wrapper, "noise_multiplier", 1.1))
@@ -543,84 +599,242 @@ class DPCompatibleCTGAN:
                 noise_multiplier=noise_multiplier,
             )
 
+        # After wrap(), the Opacus GradSampleModule is stored on the wrapper.
+        # Use it for Discriminator steps so Opacus applies per-sample gradients
+        # and DP noise.  Fall back to the original discriminator if not present.
+        dp_discriminator: Any = getattr(self._dp_wrapper, "wrapped_module", discriminator)
+        return dp_optimizer, dp_discriminator
+
+    def _run_gan_epoch(
+        self,
+        generator: Any,
+        dp_discriminator: Any,
+        dataloader: Any,
+        optimizer_g: Any,
+        dp_optimizer: Any,
+        embedding_dim: int,
+        data_dim: int,
+        pac: int,
+        batch_size: int,
+        discriminator_steps: int,
+    ) -> None:
+        """Execute a single epoch of the WGAN training loop.
+
+        Iterates over all batches in ``dataloader``.  For each batch:
+
+        1. **Discriminator steps** (Opacus hooks active): runs
+           ``discriminator_steps`` gradient steps on the DP optimizer using
+           WGAN loss ``-(real.mean() - fake.mean())``.  Gradient penalty is
+           omitted — ``torch.autograd.grad()`` conflicts with Opacus per-sample
+           gradient hooks in DP mode.
+        2. **Generator step** (Opacus hooks disabled): scores fake samples
+           through the Discriminator with hooks disabled (to prevent the
+           "Poisson sampling not compatible with grad accumulation" error),
+           computes Generator loss, and updates Generator parameters.
+
+        Args:
+            generator: The CTGAN ``Generator`` module.
+            dp_discriminator: The Opacus-wrapped Discriminator
+                (``GradSampleModule`` or original if wrap failed).
+            dataloader: Training ``DataLoader``.
+            optimizer_g: Generator's Adam optimizer (not DP-wrapped).
+            dp_optimizer: Discriminator's Opacus-wrapped DP optimizer.
+            embedding_dim: Noise vector dimension for the Generator.
+            data_dim: Number of processed feature columns.
+            pac: PacGAN grouping factor (batch must be divisible by pac).
+            batch_size: Effective batch size (used for Generator noise shape).
+            discriminator_steps: Number of Discriminator updates per batch.
+        """
+        for batch_tensors in dataloader:
+            (real_data,) = batch_tensors
+
+            # --- Discriminator steps (Opacus hooks active) ---
+            for _ in range(discriminator_steps):
+                dp_optimizer.zero_grad()
+
+                noise = torch.randn(len(real_data), embedding_dim)
+                fake_data = generator(noise).detach()
+
+                if real_data.shape[1] < data_dim:
+                    pad = torch.zeros(real_data.shape[0], data_dim - real_data.shape[1])
+                    real_data_padded = torch.cat([real_data, pad], dim=1)
+                else:
+                    real_data_padded = real_data[:, :data_dim]
+
+                n_samples = (len(real_data_padded) // pac) * pac
+                if n_samples == 0:
+                    continue
+                real_pac = real_data_padded[:n_samples]
+                fake_pac = fake_data[:n_samples]
+
+                real_score = dp_discriminator(real_pac)
+                fake_score = dp_discriminator(fake_pac)
+
+                loss_d = -(real_score.mean() - fake_score.mean())
+                loss_d.backward()
+                dp_optimizer.step()
+
+            # --- Generator step (Opacus hooks disabled) ---
+            # Opacus with Poisson sampling (DPDataLoader) raises ValueError if
+            # backward() is called without a preceding optimizer.step().  The
+            # Generator step uses the Discriminator only for scoring — it does
+            # not contribute to Discriminator DP accounting.  Disabling Opacus
+            # hooks here prevents the "grad accumulation" error while preserving
+            # gradient flow through the Generator parameters.
+            optimizer_g.zero_grad()
+            noise_g = torch.randn(batch_size, embedding_dim)
+            fake_g = generator(noise_g)
+
+            n_samples_g = (len(fake_g) // pac) * pac
+            if n_samples_g > 0:
+                fake_g_pac = fake_g[:n_samples_g]
+                if hasattr(dp_discriminator, "disable_hooks"):
+                    dp_discriminator.disable_hooks()
+                gen_score = dp_discriminator(fake_g_pac)
+                loss_g = -gen_score.mean()
+                loss_g.backward()
+                if hasattr(dp_discriminator, "enable_hooks"):
+                    dp_discriminator.enable_hooks()
+                optimizer_g.step()
+
+    def _store_dp_training_state(self, generator: Any) -> None:
+        """Store the trained Generator and mark the DP path as complete.
+
+        Called at the end of :meth:`_train_dp_discriminator` after all epochs
+        have run.  Sets ``self._dp_generator`` for use by :meth:`sample` and
+        flips ``self._dp_trained`` so the sample path routes to the custom
+        Generator rather than ``self._ctgan_model``.
+
+        Args:
+            generator: The trained CTGAN ``Generator`` instance.
+        """
+        _logger.info("DPCompatibleCTGAN: custom DP training loop complete.")
+        self._dp_generator = generator
+        self._dp_trained = True
+
+    def _train_dp_discriminator(
+        self,
+        processed_df: pd.DataFrame,
+        model_kwargs: dict[str, Any],
+    ) -> None:
+        """Run the custom discriminator-level DP-SGD GAN training loop.
+
+        Delegates to focused helpers: :meth:`_parse_gan_hyperparams`,
+        :meth:`_cap_batch_size`, :meth:`_prepare_dp_dataloader_checked`,
+        :meth:`_build_gan_models`, :meth:`_wrap_discriminator_with_opacus`,
+        :meth:`_run_gan_epoch` (per epoch), and :meth:`_store_dp_training_state`.
+        Generator is NOT DP-wrapped — it never sees real data directly.
+
+        Args:
+            processed_df: Preprocessed DataFrame from SDV's ``DataProcessor``.
+            model_kwargs: CTGAN hyperparameters from ``_get_model_kwargs()``.
+
+        Raises:
+            BudgetExhaustionError: Propagated immediately from ``check_budget()``.
+            RuntimeError: If processed_df is too small to form a valid DataLoader.
+        """
+        assert self._dp_wrapper is not None, (  # type guard for mypy
+            "_train_dp_discriminator must only be called when dp_wrapper is not None"
+        )
+        embedding_dim, generator_dim, discriminator_dim, pac, discriminator_steps, raw_bs = (
+            self._parse_gan_hyperparams(model_kwargs)
+        )
+        self._dp_embedding_dim = embedding_dim
+        self._dp_numeric_columns = list(processed_df.select_dtypes(include=[float, int]).columns)
+        self._dp_processed_df_sample = processed_df
+        batch_size = self._cap_batch_size(len(processed_df), raw_bs, pac)
+        dataloader, data_dim = self._prepare_dp_dataloader_checked(processed_df, batch_size)
+
+        generator, discriminator, optimizer_g, optimizer_d = self._build_gan_models(
+            data_dim=data_dim,
+            embedding_dim=embedding_dim,
+            generator_dim=generator_dim,
+            discriminator_dim=discriminator_dim,
+            pac=pac,
+            model_kwargs=model_kwargs,
+        )
+        dp_optimizer, dp_discriminator = self._wrap_discriminator_with_opacus(
+            discriminator=discriminator,
+            optimizer_d=optimizer_d,
+            dataloader=dataloader,
+            batch_size=batch_size,
+        )
+
         _logger.info(
-            "DPCompatibleCTGAN: starting custom WGAN training loop (%d epochs, %d batches/epoch).",
+            "DPCompatibleCTGAN: starting WGAN loop (%d epochs, %d batches/epoch).",
             self._epochs,
             len(dataloader),
         )
-
-        # After dp_wrapper.wrap(), the Opacus-wrapped GradSampleModule is stored
-        # on the wrapper as wrapped_module.  We must use this wrapped module for
-        # Discriminator steps (so Opacus computes per-sample gradients and applies
-        # DP noise).  For the Generator step, Opacus hooks must be disabled to
-        # prevent the "Poisson sampling not compatible with grad accumulation" error.
-        dp_discriminator: Any = getattr(self._dp_wrapper, "wrapped_module", discriminator)
-
         dp_discriminator.train()
         generator.train()
 
         for _epoch in range(self._epochs):
-            for batch_tensors in dataloader:
-                (real_data,) = batch_tensors
-
-                # --- Discriminator steps (Opacus hooks active) ---
-                for _ in range(discriminator_steps):
-                    dp_optimizer.zero_grad()
-
-                    noise = torch.randn(len(real_data), embedding_dim)
-                    fake_data = generator(noise).detach()
-
-                    if real_data.shape[1] < data_dim:
-                        pad = torch.zeros(real_data.shape[0], data_dim - real_data.shape[1])
-                        real_data_padded = torch.cat([real_data, pad], dim=1)
-                    else:
-                        real_data_padded = real_data[:, :data_dim]
-
-                    n_samples = (len(real_data_padded) // pac) * pac
-                    if n_samples == 0:
-                        continue
-                    real_pac = real_data_padded[:n_samples]
-                    fake_pac = fake_data[:n_samples]
-
-                    real_score = dp_discriminator(real_pac)
-                    fake_score = dp_discriminator(fake_pac)
-
-                    loss_d = -(real_score.mean() - fake_score.mean())
-                    loss_d.backward()
-                    dp_optimizer.step()
-
-                # --- Generator step (Opacus hooks disabled) ---
-                # Opacus with Poisson sampling (DPDataLoader) raises ValueError if
-                # backward() is called without a preceding optimizer.step().  The
-                # Generator step uses the Discriminator only for scoring — it does
-                # not contribute to Discriminator DP accounting.  Disabling Opacus
-                # hooks here prevents the "grad accumulation" error while preserving
-                # gradient flow through the Generator parameters.
-                optimizer_g.zero_grad()
-                noise_g = torch.randn(batch_size, embedding_dim)
-                fake_g = generator(noise_g)
-
-                n_samples_g = (len(fake_g) // pac) * pac
-                if n_samples_g > 0:
-                    fake_g_pac = fake_g[:n_samples_g]
-                    if hasattr(dp_discriminator, "disable_hooks"):
-                        dp_discriminator.disable_hooks()
-                    gen_score = dp_discriminator(fake_g_pac)
-                    loss_g = -gen_score.mean()
-                    loss_g.backward()
-                    if hasattr(dp_discriminator, "enable_hooks"):
-                        dp_discriminator.enable_hooks()
-                    optimizer_g.step()
-
-            # Budget check after each epoch — BudgetExhaustionError propagates immediately
-            self._dp_wrapper.check_budget(
+            self._run_gan_epoch(
+                generator=generator,
+                dp_discriminator=dp_discriminator,
+                dataloader=dataloader,
+                optimizer_g=optimizer_g,
+                dp_optimizer=dp_optimizer,
+                embedding_dim=embedding_dim,
+                data_dim=data_dim,
+                pac=pac,
+                batch_size=batch_size,
+                discriminator_steps=discriminator_steps,
+            )
+            self._dp_wrapper.check_budget(  # BudgetExhaustionError propagates immediately
                 allocated_epsilon=self._allocated_epsilon,
                 delta=self._delta,
             )
 
-        _logger.info("DPCompatibleCTGAN: custom DP training loop complete.")
-        self._dp_generator = generator
-        self._dp_trained = True
+        self._store_dp_training_state(generator)
+
+    def _build_proxy_dataloader(self, processed_df: pd.DataFrame) -> tuple[Any, int]:
+        """Build the DataLoader and determine batch size for proxy model training.
+
+        Converts numeric columns to a float32 tensor, sanitises non-finite
+        values, and constructs a DataLoader with a proxy-appropriate batch
+        size (min(64, n_rows // 2), clamped to at least 2).
+
+        Args:
+            processed_df: Preprocessed (VGM-normalized) DataFrame.
+
+        Returns:
+            A 2-tuple ``(dataloader, n_features)`` where ``dataloader`` is a
+            ``torch.utils.data.DataLoader`` wrapping the processed data and
+            ``n_features`` is the number of numeric feature columns (at least 1).
+
+        Raises:
+            RuntimeError: If the DataFrame is too small to form even one batch
+                (i.e. ``len(dataloader) == 0``).
+        """
+        arr = processed_df.select_dtypes(include=[float, int]).values.astype("float32")
+        if arr.shape[1] == 0:
+            arr = np.zeros((len(processed_df), 1), dtype="float32")
+        arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+
+        batch_size = min(64, max(1, len(arr) // 2))
+        batch_size = max(2, batch_size)
+
+        tensor_data = torch.tensor(arr)
+        dataset = TensorDataset(tensor_data)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
+
+        if len(dataloader) == 0:
+            raise RuntimeError(
+                "DPCompatibleCTGAN: processed_df has too few rows for Opacus "
+                "DataLoader (need >= 2*batch_size rows for DP-SGD). "
+                "A too-small dataset would produce a false DP guarantee "
+                "(epsilon_spent() would return 0.0 with no actual accounting). "
+                "Ensure the training DataFrame has at least 4 rows."
+            )
+
+        n_features: int = arr.shape[1]
+        return dataloader, n_features
 
     def _activate_opacus_proxy(self, processed_df: pd.DataFrame) -> None:
         """Activate Opacus PrivacyEngine via dp_wrapper.wrap() on a proxy model.
@@ -656,35 +870,9 @@ class DPCompatibleCTGAN:
                 "Install it with: poetry install --with synthesizer"
             )
 
-        arr = processed_df.select_dtypes(include=[float, int]).values.astype("float32")
-        if arr.shape[1] == 0:
-            arr = np.zeros((len(processed_df), 1), dtype="float32")
-        arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        dataloader, n_features = self._build_proxy_dataloader(processed_df)
 
-        batch_size = min(64, max(1, len(arr) // 2))
-        batch_size = max(2, batch_size)
-
-        tensor_data = torch.tensor(arr)
-        dataset = TensorDataset(tensor_data)
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            drop_last=True,
-        )
-
-        if len(dataloader) == 0:
-            raise RuntimeError(
-                "DPCompatibleCTGAN: processed_df has too few rows for Opacus "
-                "DataLoader (need >= 2*batch_size rows for DP-SGD). "
-                "A too-small dataset would produce a false DP guarantee "
-                "(epsilon_spent() would return 0.0 with no actual accounting). "
-                "Ensure the training DataFrame has at least 4 rows."
-            )
-
-        n_features = arr.shape[1]
         proxy_model = nn.Linear(n_features, 1)
-
         optimizer = torch.optim.Adam(proxy_model.parameters(), lr=1e-3)
 
         max_grad_norm: float = float(getattr(self._dp_wrapper, "max_grad_norm", 1.0))
@@ -692,9 +880,8 @@ class DPCompatibleCTGAN:
 
         _logger.info(
             "DPCompatibleCTGAN: activating Opacus on proxy linear model "
-            "(n_features=%d, batch_size=%d, max_grad_norm=%.2f, noise_multiplier=%.2f).",
+            "(n_features=%d, max_grad_norm=%.2f, noise_multiplier=%.2f).",
             n_features,
-            batch_size,
             max_grad_norm,
             noise_multiplier,
         )
@@ -712,13 +899,12 @@ class DPCompatibleCTGAN:
                 noise_multiplier=noise_multiplier,
             )
 
-        steps_per_epoch = len(dataloader)
         loss_fn = nn.MSELoss()
         proxy_model.train()
 
         _logger.info(
             "DPCompatibleCTGAN: running %d DP gradient steps for epsilon accounting.",
-            steps_per_epoch,
+            len(dataloader),
         )
 
         for batch_tensors in dataloader:
