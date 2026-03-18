@@ -451,14 +451,15 @@ class DPCompatibleCTGAN:
         pac: int = int(model_kwargs.get("pac", 10))
         discriminator_steps: int = int(model_kwargs.get("discriminator_steps", 1))
 
-        # Cap batch_size to ensure the Opacus DPDataLoader sampling rate q = batch/N
-        # is strictly less than 1.0.  Opacus's PRV accountant raises a divide-by-zero
-        # RuntimeWarning (promoted to error in tests) when q == 1.0.
-        # Strategy: cap to at most n_rows - pac (leaving at least one pac-group out
-        # per epoch), then pac-align downward.  This guarantees q < 1.0 for any N > pac.
-        # The minimum viable batch size for the WGAN-GP Discriminator is pac (one group).
+        # Cap batch_size to ensure the Opacus DPDataLoader has >= 2 batches per epoch.
+        # Opacus's DPDataLoader.from_data_loader sets sample_rate = 1/len(data_loader).
+        # When len(data_loader) == 1 (i.e. batch_size >= n_rows), sample_rate = 1.0.
+        # Opacus's PRV accountant raises a numpy divide-by-zero RuntimeWarning
+        # (promoted to error in tests under -W error) when log(1 - q) is computed
+        # for q = 1.0.
+        # Fix: cap batch_size <= n_rows // 2 so len(data_loader) >= 2 and q <= 0.5.
         n_rows = len(processed_df)
-        batch_size = min(batch_size, n_rows - pac)
+        batch_size = min(batch_size, n_rows // 2)
 
         # Opacus requires batch_size >= 2; enforce pac-divisibility
         # Use max(pac, batch_size) — pac is the minimum for one discriminator group.
