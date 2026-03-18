@@ -1,4 +1,4 @@
-"""Unit tests for the shared exception hierarchy (AC1–AC5, P26-T26.2).
+"""Unit tests for the shared exception hierarchy (AC1–AC5, P26-T26.2; T34.1).
 
 Tests follow TDD RED phase — written before implementation.
 
@@ -7,9 +7,11 @@ Key goals:
 - Verify BudgetExhaustionError can be caught without duck-typing.
 - Verify safe_error_msg strips Python module paths from error messages.
 - Verify error sanitization for HTTP exposure.
+- Verify vault and license exceptions are unified under SynthEngineError (T34.1).
 
 CONSTITUTION Priority 3: TDD — RED phase
 Task: P26-T26.2 — Exception Hierarchy + Error Sanitization + Type Tightening
+Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 """
 
 from __future__ import annotations
@@ -69,6 +71,10 @@ class TestExceptionHierarchy:
             "PrivilegeEscalationError",
             "ArtifactTamperingError",
             "VaultSealedError",
+            "VaultEmptyPassphraseError",
+            "VaultAlreadyUnsealedError",
+            "VaultConfigError",
+            "LicenseError",
         ):
             assert name in mod.__all__, f"{name} missing from __all__"
 
@@ -235,3 +241,111 @@ class TestSafeErrorMsgModulePaths:
         result = safe_error_msg(msg)
         assert "synth_engine.modules" not in result
         assert "/etc/conf" not in result
+
+
+class TestVaultExceptionHierarchyT34:
+    """T34.1 AC1: Vault exceptions must inherit SynthEngineError (not ValueError).
+
+    These tests verify the three vault exceptions that previously inherited
+    ValueError are now unified under the domain hierarchy.
+    """
+
+    def test_vault_empty_passphrase_error_is_synth_engine_error(self) -> None:
+        """VaultEmptyPassphraseError instance must satisfy isinstance(exc, SynthEngineError)."""
+        from synth_engine.shared.exceptions import SynthEngineError, VaultEmptyPassphraseError
+
+        exc = VaultEmptyPassphraseError("Passphrase must not be empty.")
+        assert isinstance(exc, SynthEngineError)
+
+    def test_vault_already_unsealed_error_is_synth_engine_error(self) -> None:
+        """VaultAlreadyUnsealedError instance must satisfy isinstance(exc, SynthEngineError)."""
+        from synth_engine.shared.exceptions import SynthEngineError, VaultAlreadyUnsealedError
+
+        exc = VaultAlreadyUnsealedError("Vault is already unsealed.")
+        assert isinstance(exc, SynthEngineError)
+
+    def test_vault_config_error_is_synth_engine_error(self) -> None:
+        """VaultConfigError instance must satisfy isinstance(exc, SynthEngineError)."""
+        from synth_engine.shared.exceptions import SynthEngineError, VaultConfigError
+
+        exc = VaultConfigError("VAULT_SEAL_SALT is not set.")
+        assert isinstance(exc, SynthEngineError)
+
+    def test_vault_empty_passphrase_error_not_value_error(self) -> None:
+        """VaultEmptyPassphraseError must NOT inherit ValueError after T34.1.
+
+        Changing the base class away from ValueError is the whole point of the task.
+        A VaultEmptyPassphraseError must NOT be caught by a bare 'except ValueError'.
+        """
+        from synth_engine.shared.exceptions import VaultEmptyPassphraseError
+
+        assert not issubclass(VaultEmptyPassphraseError, ValueError)
+
+    def test_vault_already_unsealed_error_not_value_error(self) -> None:
+        """VaultAlreadyUnsealedError must NOT inherit ValueError after T34.1."""
+        from synth_engine.shared.exceptions import VaultAlreadyUnsealedError
+
+        assert not issubclass(VaultAlreadyUnsealedError, ValueError)
+
+    def test_vault_config_error_not_value_error(self) -> None:
+        """VaultConfigError must NOT inherit ValueError after T34.1."""
+        from synth_engine.shared.exceptions import VaultConfigError
+
+        assert not issubclass(VaultConfigError, ValueError)
+
+    def test_vault_exceptions_importable_from_shared_exceptions(self) -> None:
+        """All three vault exceptions must be importable from shared.exceptions directly."""
+        from synth_engine.shared.exceptions import (  # noqa: F401
+            VaultAlreadyUnsealedError,
+            VaultConfigError,
+            VaultEmptyPassphraseError,
+        )
+
+    def test_vault_exceptions_re_exported_from_vault_module(self) -> None:
+        """vault.py must still export the three exceptions for backward compatibility."""
+        from synth_engine.shared.security.vault import (  # noqa: F401
+            VaultAlreadyUnsealedError,
+            VaultConfigError,
+            VaultEmptyPassphraseError,
+        )
+
+
+class TestLicenseExceptionHierarchyT34:
+    """T34.1 AC2: LicenseError must inherit SynthEngineError (not bare Exception).
+
+    Previously LicenseError(Exception) bypassed the domain exception middleware.
+    After T34.1 it must be LicenseError(SynthEngineError).
+    """
+
+    def test_license_error_is_synth_engine_error(self) -> None:
+        """LicenseError instance must satisfy isinstance(exc, SynthEngineError)."""
+        from synth_engine.shared.exceptions import LicenseError, SynthEngineError
+
+        exc = LicenseError("License token has expired.")
+        assert isinstance(exc, SynthEngineError)
+
+    def test_license_error_not_bare_exception(self) -> None:
+        """LicenseError must not directly inherit bare Exception after T34.1.
+
+        It should only be an Exception through SynthEngineError.
+        """
+        from synth_engine.shared.exceptions import LicenseError, SynthEngineError
+
+        assert issubclass(LicenseError, SynthEngineError)
+        # Its immediate base must be SynthEngineError, not Exception directly
+        assert LicenseError.__bases__ == (SynthEngineError,)
+
+    def test_license_error_preserves_detail_attribute(self) -> None:
+        """LicenseError.detail must carry the message string after hierarchy change."""
+        from synth_engine.shared.exceptions import LicenseError
+
+        exc = LicenseError("License token has expired.")
+        assert exc.detail == "License token has expired."
+
+    def test_license_error_importable_from_shared_exceptions(self) -> None:
+        """LicenseError must be importable directly from shared.exceptions."""
+        from synth_engine.shared.exceptions import LicenseError  # noqa: F401
+
+    def test_license_error_re_exported_from_licensing_module(self) -> None:
+        """licensing.py must still export LicenseError for backward compatibility."""
+        from synth_engine.shared.security.licensing import LicenseError  # noqa: F401
