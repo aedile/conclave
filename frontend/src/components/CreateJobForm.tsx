@@ -120,6 +120,7 @@ export default function CreateJobForm({
             type="text"
             required
             aria-required="true"
+            aria-describedby="form-error"
             value={form.table_name}
             onChange={(e) => onFormChange("table_name", e.target.value)}
             placeholder="e.g. customers"
@@ -143,6 +144,7 @@ export default function CreateJobForm({
             type="text"
             required
             aria-required="true"
+            aria-describedby="form-error"
             value={form.parquet_path}
             onChange={(e) => onFormChange("parquet_path", e.target.value)}
             placeholder="e.g. /data/customers.parquet"

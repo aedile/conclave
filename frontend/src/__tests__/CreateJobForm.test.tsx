@@ -323,7 +323,7 @@ describe("CreateJobForm — callbacks", () => {
     await user.type(screen.getByLabelText(/table name/i), "orders");
 
     await waitFor(() => {
-      expect(onFormChange).toHaveBeenCalledWith("table_name", expect.any(String));
+      expect(onFormChange).toHaveBeenLastCalledWith("table_name", "s");
     });
   });
 
@@ -345,7 +345,7 @@ describe("CreateJobForm — callbacks", () => {
     await user.type(screen.getByLabelText(/parquet path/i), "/data/orders.parquet");
 
     await waitFor(() => {
-      expect(onFormChange).toHaveBeenCalledWith("parquet_path", expect.any(String));
+      expect(onFormChange).toHaveBeenLastCalledWith("parquet_path", "t");
     });
   });
 

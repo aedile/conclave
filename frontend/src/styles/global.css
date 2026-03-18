@@ -514,7 +514,7 @@ body {
   transition: border-color 0.15s ease;
 }
 
-.dashboard-form__input:focus {
+.dashboard-form__input:focus-visible {
   border-color: var(--color-accent-text);
   outline: none;
 }
@@ -676,7 +676,7 @@ body {
   border-color: var(--color-error);
 }
 
-.unseal-form__input:focus {
+.unseal-form__input:focus-visible {
   border-color: var(--color-accent-text);
   outline: none;
 }
