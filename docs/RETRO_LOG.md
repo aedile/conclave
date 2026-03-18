@@ -20,6 +20,35 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] Phase 27 — Frontend Production Hardening
+
+**Tasks**: T27.1 (responsive breakpoints), T27.2 (Dashboard extraction), T27.3 (AsyncButton standardization), T27.4 (E2E accessibility tests), T27.5 (design tokens docs)
+
+**Review agents**: QA (FINDING), DevOps (PASS), UI/UX (FINDING)
+
+**Findings fixed (4 FINDINGs, all inline)**:
+- F1 (UI/UX): `.dashboard-form__input:focus` → `:focus-visible` — prevented global focus ring override (WCAG 1.4.11)
+- F2 (UI/UX): `.unseal-form__input:focus` → `:focus-visible` — same fix for Unseal form inputs
+- F3 (UI/UX): Added permanent `aria-describedby="form-error"` to `table_name` and `parquet_path` inputs in CreateJobForm (WCAG 3.3.1)
+- F4 (QA): Strengthened `CreateJobForm.test.tsx` callback assertions from `expect.any(String)` to specific typed values
+
+**What went well**:
+1. Five tasks executed across 3 dependency waves with worktree isolation for parallel work.
+2. All review findings resolved inline — zero deferrals, zero open advisories.
+3. Dashboard extraction (618→364 lines) cleanly separated concerns into CreateJobForm + JobList.
+4. AsyncButton standardized all 5 async button locations with proper ARIA live region mechanics.
+5. 77 new accessibility tests provide strong WCAG 2.1 AA regression safety net.
+6. Frontend test suite grew from 248 to 325 tests across 15 files.
+
+**What to improve**:
+1. CSS `:focus` vs `:focus-visible` specificity ambush: component-scoped `:focus` rules silently override global accessibility rules. Future input styles should default to `:focus-visible`.
+2. Callback-forwarding tests should always assert specific values, not `expect.any(Type)` — weak matchers can mask regressions.
+3. DevOps noted: CI `npm audit --audit-level=high` should be upgraded to `--audit-level=moderate` before npm dependency count grows further.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-17] Phase 26 — Backend Production Hardening
 
 **Tasks**: T26.1 (file splitting), T26.2 (exception hierarchy), T26.3 (Protocol typing), T26.4 (HTTP round-trip tests), T26.5 (licensing/migration/FK tests), T26.6 (test infrastructure overhaul), T26.7 (docs overhaul)
