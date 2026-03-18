@@ -31,6 +31,12 @@ URL mapping applied by ``build_spend_budget_fn()``:
 - ``postgresql+asyncpg://`` → ``postgresql://`` (psycopg2 sync driver)
 - ``sqlite+aiosqlite:///`` → ``sqlite:///`` (sync SQLite for unit tests)
 - Any other URL is used as-is (already a sync-compatible URL).
+
+Engine lifecycle (ADR-0035):
+The synchronous engine is constructed **once** at factory build time (not on
+every ``_sync_wrapper`` call) using ``NullPool``.  ``NullPool`` is correct for
+Huey workers because each task is a single DB round-trip — pooling idle
+connections between invocations provides no benefit and wastes server resources.
 """
 
 from __future__ import annotations
@@ -168,6 +174,11 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
     requirement entirely.  The async API routes are unaffected — they
     continue to use the async engine via ``shared/db.py:get_async_session``.
 
+    The sync engine is constructed **once** at factory build time using
+    ``NullPool`` (ADR-0035).  ``NullPool`` is correct here because Huey
+    workers are single-call-per-job — pooling idle connections between
+    invocations wastes DB server resources.
+
     The returned callable implements the same pessimistic-locking protocol
     as the async ``spend_budget()``:
 
@@ -177,8 +188,8 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
     4. Commit (or rollback on error).
 
     Import note:
-        All privacy-module and SQLAlchemy imports are deferred inside the
-        closure so environments without a live database do not fail at
+        All privacy-module and SQLAlchemy imports are deferred inside this
+        function so environments without a live database do not fail at
         import time.
 
     URL promotion note:
@@ -203,6 +214,17 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         # Later, in Huey task:
         fn(amount=0.5, job_id=42, ledger_id=1)
     """
+    # Deferred imports — keeps startup fast and avoids import errors in
+    # environments where psycopg2 or the privacy module is not installed.
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import NullPool
+
+    database_url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
+    sync_url = _promote_to_sync_url(database_url)
+
+    # Build the engine once at factory scope — reused for every invocation of
+    # the returned _sync_wrapper.  NullPool: no idle connections between calls.
+    engine = create_engine(sync_url, poolclass=NullPool)
 
     def _sync_wrapper(
         *,
@@ -213,9 +235,9 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
     ) -> None:
         """Sync wrapper: calls spend_budget logic via a synchronous DB session.
 
-        Uses a synchronous SQLAlchemy engine (psycopg2 for PostgreSQL,
-        stdlib sqlite3 for SQLite) to avoid ``MissingGreenlet`` errors when
-        called from a Huey worker thread (P28-F4).
+        Uses the factory-scoped synchronous SQLAlchemy engine (psycopg2 for
+        PostgreSQL, stdlib sqlite3 for SQLite) to avoid ``MissingGreenlet``
+        errors when called from a Huey worker thread (P28-F4, ADR-0035).
 
         Args:
             amount: Epsilon to deduct.  Must be positive.
@@ -227,24 +249,16 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
             BudgetExhaustionError: If the privacy budget is exhausted.
             ValueError: If ``amount`` is not positive.
         """
-        # Deferred imports — keeps startup fast and avoids import errors in
-        # environments where psycopg2 or the privacy module is not installed.
-        from sqlalchemy import create_engine, select
+        from sqlalchemy import select
         from sqlalchemy.orm import Session
 
         from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
         from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
 
-        decimal_amount: Decimal = (
-            amount if isinstance(amount, Decimal) else Decimal(str(amount))
-        )
+        decimal_amount: Decimal = amount if isinstance(amount, Decimal) else Decimal(str(amount))
         if decimal_amount <= 0:
             raise ValueError(f"amount must be positive, got {amount!r}")
 
-        database_url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
-        sync_url = _promote_to_sync_url(database_url)
-
-        engine = create_engine(sync_url)
         with Session(engine) as session:
             with session.begin():
                 # Pessimistic lock — same protocol as the async spend_budget().

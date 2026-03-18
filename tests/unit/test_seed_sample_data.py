@@ -817,8 +817,8 @@ class TestE2eValidationDoc:
         assert "BLOCKER" in content, (
             "E2E_VALIDATION.md must document findings from the live validation run"
         )
-        # P28 Playwright evidence: 10 screenshots, all passing
-        assert "10 passed" in content, "E2E_VALIDATION.md must contain Playwright test run evidence"
+        # P28 Playwright evidence: 32 specs passing (4 pre-existing unseal.spec.ts failures)
+        assert "32 passed" in content, "E2E_VALIDATION.md must contain Playwright test run evidence"
         # P28 live API evidence: HTTP responses captured
         assert "HTTP/1.1 200" in content, (
             "E2E_VALIDATION.md must contain live HTTP response evidence"
