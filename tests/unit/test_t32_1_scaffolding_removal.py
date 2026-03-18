@@ -54,6 +54,10 @@ def _module_spec_found(dotted_name: str) -> bool:
     — both outcomes mean the module is absent, so both are treated as
     ``False``.
 
+    In Python 3.14, passing ``None`` to ``find_spec`` raises
+    ``AttributeError`` (not ``ValueError``); this is caught as a defensive
+    guard even though the parameterised tests below never pass ``None``.
+
     Args:
         dotted_name: Fully-qualified Python module path.
 
@@ -63,9 +67,9 @@ def _module_spec_found(dotted_name: str) -> bool:
     sys.modules.pop(dotted_name, None)
     try:
         spec = importlib.util.find_spec(dotted_name)
-    except (ModuleNotFoundError, ValueError):
+    except (ModuleNotFoundError, AttributeError):
         # ModuleNotFoundError: parent package absent — module definitely gone.
-        # ValueError: empty or None string (defensive guard).
+        # AttributeError: None passed to find_spec (defensive guard, Python 3.14+).
         return False
     return spec is not None
 

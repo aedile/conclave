@@ -46,3 +46,13 @@ No additional wheels or network access are needed at runtime.
 - Run `poetry run pip-audit` on every dependency update to monitor for new CVEs.
 - If RS256/ES256 is required in production, no library change is needed — only a `JWTConfig`
   change to supply the PEM key and update the `algorithm` field.
+
+---
+
+## Amendment — T32.1 (Phase 32)
+
+Implementation removed in T32.1 as unwired scaffolding — the module was defined but never
+wired into the application (zero call sites in `bootstrapper/`). The design decision remains
+sound and will be re-implemented when the trigger condition is met.
+
+See `docs/backlog/deferred-items.md` TBD-06 for acceptance criteria and trigger condition.

@@ -58,3 +58,13 @@ Additional constraints applied to the implementation:
   outage window.  Operators must monitor Redis health to detect this condition.
 - **Negative:** The 128-character key length cap may require client adjustment if
   existing keys are longer (unlikely for UUIDs and short tokens).
+
+---
+
+## Amendment — T32.1 (Phase 32)
+
+Implementation removed in T32.1 as unwired scaffolding — the module was defined but never
+wired into the application (zero call sites in `bootstrapper/`). The design decision remains
+sound and will be re-implemented when the trigger condition is met.
+
+See `docs/backlog/deferred-items.md` TBD-07 for acceptance criteria and trigger condition.

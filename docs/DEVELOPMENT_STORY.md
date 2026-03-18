@@ -596,7 +596,7 @@ Medium: 0
 Low: 0
 ```
 
-This covers 89 Python source files totaling 14,809 lines. The `bandit` gate runs in
+This covers 82 Python source files totaling 14,809 lines (after Phase 32 cleanup; 89 before removal of scaffolding modules). The `bandit` gate runs in
 pre-commit on every commit, not just in CI. No security findings have been merged at any
 point in the project's history.
 
@@ -705,7 +705,7 @@ the exact type prefix.
 
 | Category | Files | Lines |
 |----------|-------|-------|
-| Production Python (`src/`) | 89 | 14,809 |
+| Production Python (`src/`) | 82 (after Phase 32 cleanup; 89 before removal of scaffolding modules) | 14,809 |
 | Test Python (`tests/`) | 116 | 44,706 |
 | Frontend test files | 182 | 6,131 |
 
