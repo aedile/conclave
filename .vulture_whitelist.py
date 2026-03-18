@@ -63,7 +63,6 @@ dispatch  # unused method — Starlette middleware protocol (CSPMiddleware)
 # Vulture cannot trace string-based or Depends()-based injection.
 # ---------------------------------------------------------------------------
 
-get_current_user  # unused function — FastAPI Depends() (dependencies/auth.py)
 require_unsealed  # unused function — FastAPI Depends() (dependencies/vault.py)
 build_synthesis_engine  # unused function — DI factory (bootstrapper/factories.py)
 build_ephemeral_storage_client  # unused function — DI factory (bootstrapper/main.py)
@@ -74,7 +73,6 @@ _vault_sealed_error_handler  # unused function — FastAPI exception handler (ro
 get_async_engine  # unused function — FastAPI Depends() (shared/db.py)
 get_session  # unused function — FastAPI Depends() (shared/db.py)
 get_async_session  # unused function — FastAPI Depends() (shared/db.py)
-create_access_token  # unused function — JWT utility exported for the auth login route (shared/auth/jwt.py); no /auth/token route is implemented yet — kept for future OAuth2 wiring
 
 # ---------------------------------------------------------------------------
 # Category D — Pydantic model fields and validators
@@ -108,29 +106,22 @@ updated_at  # unused variable — SQLAlchemy ORM column (shared/db.py)
 nullable  # unused variable — DataColumn field (shared/schema_topology.py)
 
 # ---------------------------------------------------------------------------
-# Category D (continued) — JWT payload fields
-# exp and iat are standard JWT claims written into the token dict; the dict
-# is serialised as a whole — neither field is read back individually in src/.
-# ---------------------------------------------------------------------------
-
-exp  # unused variable — JWT claim field (shared/auth/jwt.py)
-iat  # unused variable — JWT claim field (shared/auth/jwt.py)
-
-# ---------------------------------------------------------------------------
-# Category D (continued) — task model fields
-# OrphanTaskReaper model columns; read by SQLAlchemy ORM, not by direct access.
-# ---------------------------------------------------------------------------
-
-started_at  # unused variable — ORM column (shared/tasks/reaper.py)
-locked_by  # unused variable — ORM column (shared/tasks/reaper.py)
-
-# ---------------------------------------------------------------------------
 # Category D (continued) — PrivacyLedger ORM column
 # last_updated is a SQLAlchemy column populated by server_onupdate; not read
 # by application code directly.
 # ---------------------------------------------------------------------------
 
 last_updated  # unused variable — SQLAlchemy ORM column (modules/privacy/ledger.py)
+
+# ---------------------------------------------------------------------------
+# Category D (continued) — HTTP error status_code fields
+# status_code is a dataclass field on OperatorErrorEntry (bootstrapper/errors.py)
+# and an instance attribute on VaultSealedError (shared/exceptions.py).
+# Both are read by FastAPI exception handlers via dynamic attribute access;
+# vulture cannot trace dict-lookup or exception-handler attribute reads.
+# ---------------------------------------------------------------------------
+
+status_code  # unused variable — error presentation field (bootstrapper/errors.py, shared/exceptions.py)
 
 # ---------------------------------------------------------------------------
 # Category E — SQLAlchemy TypeDecorator protocol methods
@@ -166,9 +157,6 @@ generate_ale_key  # unused function — ALE key provisioning utility exported fo
 verify_event  # unused method — AuditLogger.verify_event used in audit chain verification
 deactivate  # unused method — LicenseManager.deactivate (shared/security/licensing.py)
 get_claims  # unused method — LicenseManager.get_claims (shared/security/licensing.py)
-OrphanTaskReaper  # unused class — wired into Huey task scheduler (shared/tasks/reaper.py)
-reap  # unused method — OrphanTaskReaper.reap called by Huey scheduled task
-IdempotencyMiddleware  # unused class — registered in ASGI middleware stack (shared/middleware/idempotency.py)
 
 # ---------------------------------------------------------------------------
 # Category G — Test-isolation utilities

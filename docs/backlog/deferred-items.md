@@ -173,12 +173,135 @@ observability improvements that share the same implementation phase.
 
 ---
 
+## TBD-06 — JWT Authentication & Route-Level Authorization
+
+**Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
+**Phase**: TBD — When the system is exposed to multiple users/tenants
+**Priority**: TBD
+
+### Context
+
+`shared/auth/jwt.py` and `shared/auth/scopes.py` were scaffolded in Phase 2
+(P2-T2.3) for zero-trust JWT authentication with mTLS client binding. The
+implementation was complete and well-tested but never wired to any FastAPI
+route via `Depends(get_current_user(...))`. The single-tenant, single-operator
+air-gapped deployment does not require per-user authentication today.
+
+The module was removed in Phase 32 (T32.1) as unwired dead code to bring
+coverage reporting and static analysis back to a clean baseline.
+
+### Acceptance Criteria (when scheduled)
+
+1. Reintroduce `shared/auth/jwt.py` with `create_access_token()`, `verify_token()`,
+   and `JWTConfig`. Client binding (mTLS SAN or IP hash) must be preserved.
+2. Reintroduce `shared/auth/scopes.py` with `Scope` StrEnum and `has_required_scope()`.
+3. Reintroduce `bootstrapper/dependencies/auth.py` with `get_current_user()` factory.
+4. Wire `Depends(get_current_user(Scope.X))` on all mutating routes (jobs, connections,
+   settings, vault, licensing).
+5. Add a `/auth/token` route for OAuth2 password-flow token issuance.
+6. Implement refresh token rotation.
+7. Unit tests: token issuance, expiry, client binding mismatch, scope enforcement.
+8. Integration test: full round-trip from `/auth/token` to a protected route.
+
+### Blocking Prerequisite
+
+Requires a multi-user or multi-tenant deployment topology where caller
+identity matters for access control. Must not be scheduled for single-operator
+air-gapped deployments without a concrete user-story trigger.
+
+---
+
+## TBD-07 — Idempotency Middleware
+
+**Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
+**Phase**: TBD — When clients need exactly-once semantics for job creation
+**Priority**: TBD
+
+### Context
+
+`shared/middleware/idempotency.py` was scaffolded in Phase 2 (P2-T2.1) as a
+Redis-backed deduplication middleware using atomic `SET NX EX`. The
+implementation was complete (atomic TOCTOU-safe, degraded-mode pass-through,
+key release on handler exception) but was never added to the ASGI middleware
+stack in `bootstrapper/main.py`.
+
+The module was removed in Phase 32 (T32.1) as unwired dead code.
+
+### Acceptance Criteria (when scheduled)
+
+1. Reintroduce `shared/middleware/idempotency.py` with `IdempotencyMiddleware`.
+2. Wire `app.add_middleware(IdempotencyMiddleware, redis_client=..., ttl_seconds=...)`
+   in `bootstrapper/main.py` using the existing Redis client from the task queue.
+3. Configurable TTL via environment variable (e.g., `IDEMPOTENCY_TTL_SECONDS`,
+   default 300).
+4. HTTP 409 response with `{"detail": "Duplicate request", "idempotency_key": "..."}`.
+5. HTTP 400 rejection for keys exceeding 128 characters.
+6. Graceful Redis-down degradation: log warning and pass through (no service block).
+7. Unit tests: duplicate detection, pass-through, key length cap, Redis-down mode,
+   key release on handler exception.
+8. Integration test: duplicate POST with a real Redis connection returns 409.
+
+### Blocking Prerequisite
+
+Requires clients that issue retryable mutating requests (e.g., mobile clients
+with unreliable connections, CI pipelines retrying on transient failures).
+Must not be scheduled without a concrete client use-case.
+
+---
+
+## TBD-08 — Orphan Task Reaper
+
+**Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
+**Phase**: TBD — When Huey workers run in multi-node deployment where worker
+crashes leave stale jobs
+**Priority**: TBD
+
+### Context
+
+`shared/tasks/reaper.py` was scaffolded in Phase 2 (P2-T2.1) as an
+`OrphanTaskReaper` that detects IN_PROGRESS tasks exceeding a staleness
+threshold and marks them FAILED. The implementation was complete with a clean
+abstract `TaskRepository` interface, but was never registered as a Huey
+periodic task.
+
+In single-worker deployments, Huey's own crash recovery handles stale tasks.
+The reaper becomes necessary in multi-node deployments where a crashed worker
+releases its process but the task record remains IN_PROGRESS in the database.
+
+The module was removed in Phase 32 (T32.1) as unwired dead code.
+
+### Acceptance Criteria (when scheduled)
+
+1. Reintroduce `shared/tasks/reaper.py` with `OrphanTaskReaper`, `TaskRepository`
+   ABC, and `Task` dataclass.
+2. Implement a concrete `SQLAlchemyTaskRepository` in `modules/ingestion/` (or
+   `shared/tasks/`) using the existing async SQLAlchemy session.
+3. Register `OrphanTaskReaper.reap()` as a Huey periodic task with configurable
+   schedule (e.g., `@huey.periodic_task(crontab(minute='*/15'))`).
+4. Configurable staleness threshold via environment variable (e.g.,
+   `REAPER_STALE_THRESHOLD_MINUTES`, default 60).
+5. Audit log entry for each reaped task (using `shared/security/audit.py`).
+6. Unit tests: stale detection, skip-recent, per-task error isolation, INFO log.
+7. Integration test: inject an artificial stale task into the DB, run the reaper,
+   assert the task transitions to FAILED.
+
+### Blocking Prerequisite
+
+Requires multi-node Huey worker deployment (e.g., Kubernetes Deployment with
+`replicas > 1`). Single-worker deployments do not accumulate orphaned tasks
+in a way that requires periodic sweeping.
+
+---
+
 ## Triage Notes
 
 - ~~Items TBD-04 and TBD-05 should be implemented in the same phase~~ — DONE (Phase 25).
 - Items TBD-01 through TBD-03 each require a distinct deployment trigger
   (external integrations, multi-tenancy, multi-host Kubernetes) — they must
   NOT be batched together without verifying the triggering condition exists.
+- Items TBD-06 through TBD-08 were removed as unwired scaffolding in Phase 32
+  (T32.1) and must be re-implemented from scratch (or restored from git history)
+  when their respective triggering conditions arise.
 - A phase assignment for any of these items requires an ADR update to ADR-0029
   changing the `Target Phase` in the summary table from "TBD" to the assigned
   phase number.

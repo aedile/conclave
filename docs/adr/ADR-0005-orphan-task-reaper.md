@@ -61,3 +61,13 @@ without a live PostgreSQL instance.
   trade-off for Phase 2 given the absence of heartbeat infrastructure.
 - **Future work:** Replace or supplement with a heartbeat-based lease mechanism
   in Phase 4+ when worker infrastructure matures.
+
+---
+
+## Amendment — T32.1 (Phase 32)
+
+Implementation removed in T32.1 as unwired scaffolding — the module was defined but never
+wired into the application (zero call sites in `bootstrapper/`). The design decision remains
+sound and will be re-implemented when the trigger condition is met.
+
+See `docs/backlog/deferred-items.md` TBD-08 for acceptance criteria and trigger condition.

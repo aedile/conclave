@@ -60,3 +60,13 @@ All JWT logic lives in `synth_engine.shared.auth.jwt` (framework-agnostic). The 
   Applications should design token lifetimes and refresh flows accordingly.
 - Future deployments using mutual TLS should prefer the `X-Client-Cert-SAN` path, as IP
   binding is weaker (NAT, CDN, shared egress).
+
+---
+
+## Amendment — T32.1 (Phase 32)
+
+Implementation removed in T32.1 as unwired scaffolding — the module was defined but never
+wired into the application (zero call sites in `bootstrapper/`). The design decision remains
+sound and will be re-implemented when the trigger condition is met.
+
+See `docs/backlog/deferred-items.md` TBD-06 for acceptance criteria and trigger condition.

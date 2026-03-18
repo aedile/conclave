@@ -320,6 +320,38 @@ as open advisories in a living retrospective log. The full workflow is documente
 
 ---
 
+## How This Was Built
+
+Conclave was written by AI agents operating under a Constitutional governance framework.
+A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.md),
+[`CLAUDE.md`](CLAUDE.md), backlog tasks, and architecture specifications), then AI agents
+executed every development task: writing failing tests first, implementing the minimal code
+to pass them, running all quality gates, and submitting work for multi-agent review before
+merge. No code was written outside this process.
+
+**Timeline**: March 9–18, 2026 — 9 calendar days from first commit to Phase 32.
+
+**By the numbers** (verifiable from `git log`):
+
+| Metric | Value |
+|--------|-------|
+| Commits | 515 |
+| Pull requests merged | 126 |
+| Architecture Decision Records | 36 |
+| Production source lines | ~15,500 |
+| Test lines | ~45,700 |
+| Reported test coverage | 98% integration |
+
+Every architectural decision was documented in an ADR before implementation. Every
+non-trivial design choice — library selection, DP threat model, module boundary exceptions —
+required written rationale. The retrospective log records every review finding and advisory
+raised across all 32 phases.
+
+The full account of how this project was structured, what worked, and what the process
+looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STORY.md).
+
+---
+
 ## Documentation
 
 | Document | Contents |
@@ -335,6 +367,7 @@ as open advisories in a living retrospective log. The full workflow is documente
 | [Architectural Requirements](docs/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification and module boundary contracts |
 | [Architecture Decision Records](docs/adr/) | 36 ADRs covering every significant design decision |
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, and development history |
+| [Development Story](docs/DEVELOPMENT_STORY.md) | How this codebase was built — methodology, process, and retrospective |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
 
 ---
