@@ -331,12 +331,12 @@ merge. No code was written outside this process.
 
 **Timeline**: March 9–18, 2026 — 9 calendar days from first commit to Phase 32.
 
-**By the numbers** (verifiable from `git log`):
+**By the numbers** (at Phase 32 completion, commit `3fa02cd`; verifiable from `git log`):
 
 | Metric | Value |
 |--------|-------|
-| Commits | 515 |
-| Pull requests merged | 126 |
+| Commits | 523 |
+| Pull requests merged | 127 |
 | Architecture Decision Records | 36 |
 | Production source lines | ~15,500 |
 | Test lines | ~45,700 |
@@ -369,6 +369,8 @@ looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STO
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, and development history |
 | [Development Story](docs/DEVELOPMENT_STORY.md) | How this codebase was built — methodology, process, and retrospective |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
+| [Changelog](CHANGELOG.md) | Phase-by-phase release notes from Phase 1 through Phase 32 |
+| [API Reference](docs/api/API_REFERENCE.md) | REST API endpoint reference (static export from OpenAPI schema) |
 
 ---
 

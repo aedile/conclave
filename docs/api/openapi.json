@@ -1,0 +1,1454 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Conclave Engine",
+    "description": "Air-Gapped Synthetic Data Generation Engine",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Health Check",
+        "description": "Liveness probe for container orchestrators and load balancers.\n\nReturns:\n    JSON body ``{\"status\": \"ok\"}`` with HTTP 200.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/unseal": {
+      "post": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Unseal Vault",
+        "description": "Unseal the vault by deriving the KEK from the operator passphrase.\n\nReads ``VAULT_SEAL_SALT`` from the environment, runs PBKDF2-HMAC-\nSHA256 (600k iterations) in a thread pool to avoid blocking the event\nloop, stores the result in ephemeral memory, and logs an audit event.\n\nArgs:\n    body: JSON body containing the operator passphrase.\n\nReturns:\n    ``{\"status\": \"unsealed\"}`` with HTTP 200 on success.\n    RFC 7807 Problem Details with HTTP 400 on failure, using\n    operator-friendly titles and actionable detail messages.",
+        "operationId": "unseal_vault_unseal_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnsealRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "description": "List synthesis jobs with cursor-based pagination.\n\nArgs:\n    session: Database session (injected by FastAPI DI).\n    after: Integer cursor -- only return jobs with ``id > after``.\n    limit: Maximum number of results to return (default 20, max 100).\n\nReturns:\n    :class:`JobListResponse` with a list of jobs and an optional\n    ``next_cursor`` for fetching the next page.",
+        "operationId": "list_jobs_jobs_get",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cursor: return jobs with id > after",
+              "title": "After"
+            },
+            "description": "Cursor: return jobs with id > after"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Create Job",
+        "description": "Create a new synthesis job in QUEUED status.\n\nThe job is persisted to the database but NOT yet enqueued.  Call\n``POST /jobs/{id}/start`` to enqueue and begin training.\n\nArgs:\n    body: Job creation request payload.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    The newly created :class:`JobResponse`.",
+        "operationId": "create_job_jobs_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "description": "Get a synthesis job by ID.\n\nArgs:\n    job_id: The integer primary key of the job.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    :class:`JobResponse` on success, or RFC 7807 404 on not found.",
+        "operationId": "get_job_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/start": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Start Job",
+        "description": "Enqueue a synthesis job for background processing.\n\nLooks up the :class:`SynthesisJob` by ``job_id``, then calls\n``run_synthesis_job(job_id)`` to enqueue the Huey task.  Returns\n``202 Accepted`` immediately -- the job runs asynchronously.\n\nArgs:\n    job_id: The integer primary key of the job to start.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    ``{\"status\": \"accepted\", \"job_id\": <id>}`` with HTTP 202, or\n    RFC 7807 404 if the job does not exist.",
+        "operationId": "start_job_jobs__job_id__start_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/shred": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Shred Job",
+        "description": "Shred all synthesis artifacts for a COMPLETE job (NIST SP 800-88).\n\nDeletes the generated Parquet output, its HMAC-SHA256 signature sidecar,\nand the trained model artifact pickle from the filesystem.  Emits a WORM\naudit event and transitions the job status to ``SHREDDED``.\n\nOnly jobs in ``COMPLETE`` status are eligible.  Jobs in any other status\n(including already-``SHREDDED`` jobs) return a 404 Problem Detail response.\n\nArgs:\n    job_id: The integer primary key of the job to shred.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    ``{\"status\": \"SHREDDED\", \"job_id\": <id>}`` with HTTP 200 on success,\n    RFC 7807 404 if the job does not exist or is not eligible, or\n    RFC 7807 500 if an ``OSError`` prevents artifact deletion.",
+        "operationId": "shred_job_jobs__job_id__shred_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/stream": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Stream Job",
+        "description": "Stream real-time progress for a synthesis job via Server-Sent Events.\n\nPolls the database for status changes and yields SSE events:\n  - ``progress``: Training in progress with ``percent`` field.\n  - ``complete``: Job finished successfully.\n  - ``error``: Job failed; sanitized error detail included.\n\nArgs:\n    job_id: The integer primary key of the job to stream.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    :class:`sse_starlette.sse.EventSourceResponse` streaming events, or\n    RFC 7807 404 :class:`fastapi.responses.JSONResponse` if not found.",
+        "operationId": "stream_job_jobs__job_id__stream_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/download": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Download Job",
+        "description": "Stream the synthetic Parquet artifact for a completed job.\n\nVerifies the artifact HMAC-SHA256 signature before serving (if\n``ARTIFACT_SIGNING_KEY`` is set in the environment).  Uses\n:class:`~fastapi.responses.StreamingResponse` to stream raw bytes\nin 64 KiB chunks \u2014 the entire file is never loaded into memory\n(security mandate C&C 3).\n\nArgs:\n    job_id: The integer primary key of the job.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    :class:`~fastapi.responses.StreamingResponse` with\n    ``Content-Type: application/octet-stream`` and\n    ``Content-Disposition: attachment; filename=\"<table_name>-synthetic.parquet\"``\n    on success; or RFC 7807 JSON responses for error conditions:\n\n    - **404** if the job does not exist.\n    - **404** if the job status is not ``COMPLETE``.\n    - **404** if ``output_path`` is ``None`` or the file does not exist.\n    - **409** if the artifact HMAC signature verification fails\n      (confirmed mismatch or missing sidecar).",
+        "operationId": "download_job_jobs__job_id__download_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connections": {
+      "get": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "List Connections",
+        "description": "List all stored database connections.\n\nArgs:\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    :class:`ConnectionListResponse` with all connections.",
+        "operationId": "list_connections_connections_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Create Connection",
+        "description": "Create a new database connection configuration.\n\nArgs:\n    body: Connection creation request payload.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    The newly created :class:`ConnectionResponse`.",
+        "operationId": "create_connection_connections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connections/{connection_id}": {
+      "get": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Get Connection",
+        "description": "Get a database connection by ID.\n\nArgs:\n    connection_id: String UUID primary key of the connection.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    :class:`ConnectionResponse` on success, or RFC 7807 404 on not found.",
+        "operationId": "get_connection_connections__connection_id__get",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "connections"
+        ],
+        "summary": "Delete Connection",
+        "description": "Delete a database connection by ID.\n\nArgs:\n    connection_id: String UUID primary key of the connection to delete.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    HTTP 204 No Content on success, or RFC 7807 404 on not found.",
+        "operationId": "delete_connection_connections__connection_id__delete",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List Settings",
+        "description": "List all application settings.\n\nArgs:\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    :class:`SettingListResponse` with all stored key-value pairs.",
+        "operationId": "list_settings_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/{key}": {
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Upsert Setting",
+        "description": "Create or update a setting by key.\n\nUpsert semantics: if ``key`` exists, update its value; otherwise create\na new entry.\n\nArgs:\n    key: The setting key (URL path parameter).\n    body: Request body containing the new value.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    The upserted :class:`SettingResponse`.",
+        "operationId": "upsert_setting_settings__key__put",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Setting",
+        "description": "Get a setting by key.\n\nArgs:\n    key: The setting key to look up.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    :class:`SettingResponse` on success, or RFC 7807 404 on not found.",
+        "operationId": "get_setting_settings__key__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Delete Setting",
+        "description": "Delete a setting by key.\n\nArgs:\n    key: The setting key to delete.\n    session: Database session (injected by FastAPI DI).\n\nReturns:\n    HTTP 204 No Content on success, or RFC 7807 404 on not found.",
+        "operationId": "delete_setting_settings__key__delete",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/license/challenge": {
+      "get": {
+        "tags": [
+          "license"
+        ],
+        "summary": "Get License Challenge",
+        "description": "Generate a hardware-bound challenge payload for offline activation.\n\nThe returned ``hardware_id`` uniquely identifies this machine.  The\noperator copies it to an internet-connected device, submits it to the\ncentral licensing server, and receives a signed JWT in return.\n\nThe ``qr_code`` field contains a base64-encoded PNG of the challenge\npayload rendered as a QR code for convenient visual transfer.  If the\nQR code library is unavailable, a base64-encoded JSON fallback is\nreturned instead.\n\nThe ``alt_text`` field provides an accessibility description of the QR\ncode for screen readers and other assistive technology (WCAG 2.1 AA).\n\nReturns:\n    :class:`LicenseChallengeResponse` with the challenge fields.",
+        "operationId": "get_license_challenge_license_challenge_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseChallengeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/license/activate": {
+      "post": {
+        "tags": [
+          "license"
+        ],
+        "summary": "Post License Activate",
+        "description": "Activate the software license using a signed JWT.\n\nValidates the RS256 signature against the embedded public key (or the\n``LICENSE_PUBLIC_KEY`` environment variable override), then asserts that\nthe JWT's ``hardware_id`` claim matches this machine.  On success,\n:class:`~synth_engine.shared.security.licensing.LicenseState` is\ntransitioned to the LICENSED state.\n\nKey resolution is handled internally by :func:`verify_license_jwt`:\n``LICENSE_PUBLIC_KEY`` env var takes precedence over the embedded key.\n\nArgs:\n    body: JSON body containing the ``token`` field (compact JWT string).\n\nReturns:\n    :class:`LicenseActivateResponse` with ``status=\"activated\"`` on\n    success, or an RFC 7807 403 response on any validation failure.\n\nNote:\n    ``LicenseError`` carries no HTTP status code (ADV-054).  This handler\n    is the authoritative HTTP mapping point: all ``LicenseError`` instances\n    become ``HTTP 403 Forbidden``.",
+        "operationId": "post_license_activate_license_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LicenseActivateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseActivateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/security/shred": {
+      "post": {
+        "tags": [
+          "security",
+          "security"
+        ],
+        "summary": "Shred Vault",
+        "description": "Zeroize the master wrapping key, rendering all ALE ciphertext unrecoverable.\n\nThis endpoint implements an emergency cryptographic shred protocol.\nIt calls :meth:`VaultState.seal()` which:\n- Overwrites every byte of the in-memory KEK ``bytearray`` with ``0x00``.\n- Sets ``VaultState._is_sealed = True``.\n- Sets ``VaultState._kek = None``.\n\nAfter this call, :func:`~synth_engine.shared.security.ale.get_fernet` can\nno longer derive the ALE key, so every subsequent attempt to decrypt\nciphertext from the database will raise ``InvalidToken`` or\n``RuntimeError``.  The data is permanently unrecoverable without the\noriginal passphrase (which must be destroyed independently by the operator).\n\nAn audit event ``CRYPTO_SHRED`` is emitted before the seal so that the\nshred operation itself is on the audit record.\n\nReturns:\n    ``{\"status\": \"shredded\"}`` with HTTP 200.",
+        "operationId": "shred_vault_security_shred_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/security/keys/rotate": {
+      "post": {
+        "tags": [
+          "security",
+          "security"
+        ],
+        "summary": "Rotate Keys",
+        "description": "Enqueue a Huey background task to re-encrypt all ALE-encrypted columns.\n\nThis endpoint initiates an asynchronous key rotation workflow.  It:\n1. Verifies the vault is currently unsealed (rotation requires the current KEK).\n2. Emits a ``KEY_ROTATION_REQUESTED`` audit event.\n3. Generates a fresh Fernet key for the new ALE encryption.\n4. Wraps the new Fernet key using the current vault KEK via Fernet wrapping\n   so that it is never passed to the broker in plaintext.\n5. Enqueues a Huey task (``rotate_ale_keys_task``) that decrypts all\n   existing ciphertext with the current ALE key and re-encrypts it with\n   the new key.\n6. Returns ``202 Accepted`` immediately \u2014 the actual rotation runs in the\n   Huey worker background.\n\nThe presence of ``new_passphrase`` in the request body is noted in the\naudit trail to document operator intent.  It is NOT used to derive the\nnew Fernet key; a random key is generated for the re-encryption.\n\nArgs:\n    body: JSON body containing ``new_passphrase``.\n\nReturns:\n    ``{\"status\": \"accepted\", \"detail\": \"...\"}`` with HTTP 202 on success.\n    RFC 7807 423 if the vault is sealed (cannot rotate without the current KEK).",
+        "operationId": "rotate_keys_security_keys_rotate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/privacy/budget": {
+      "get": {
+        "tags": [
+          "privacy"
+        ],
+        "summary": "Get Budget",
+        "description": "Return the current privacy budget ledger state.\n\nReads the first available ``PrivacyLedger`` row and returns its\ncurrent state including the computed ``remaining_epsilon`` and the\n``is_exhausted`` flag.\n\nArgs:\n    session: Database session injected by FastAPI DI.\n\nReturns:\n    :class:`BudgetResponse` on success, or RFC 7807 404\n    :class:`fastapi.responses.JSONResponse` if no ledger row exists.",
+        "operationId": "get_budget_privacy_budget_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/privacy/budget/refresh": {
+      "post": {
+        "tags": [
+          "privacy"
+        ],
+        "summary": "Refresh Budget",
+        "description": "Reset the privacy budget and emit a WORM audit event.\n\nResets ``total_spent_epsilon`` to zero via :func:`reset_budget` (which\nuses ``SELECT ... FOR UPDATE`` to prevent races with concurrent\n``spend_budget()`` calls).  If ``body.new_allocated_epsilon`` is provided,\nthe ``total_allocated_epsilon`` ceiling is also updated.\n\nA HMAC-signed WORM audit event (``PRIVACY_BUDGET_REFRESH``) is emitted via\n:func:`~synth_engine.shared.security.audit.get_audit_logger` capturing the\noperator identity (``X-Operator-Id`` header) and the justification text.\n\nThe DB write (via :func:`reset_budget`) occurs BEFORE the audit emit so\nthat a DB failure does not produce an orphaned audit record.  If the audit\nemit fails after a successful DB write, a 500 is returned.\n\nArgs:\n    body: Refresh request containing justification and optional new\n        allocation ceiling.\n    request: The raw Starlette request (used to read the ``X-Operator-Id``\n        header for the audit event actor identity).\n    session: Database session injected by FastAPI DI.\n\nReturns:\n    :class:`BudgetResponse` reflecting the post-refresh state on success,\n    RFC 7807 404 :class:`fastapi.responses.JSONResponse` if no ledger\n    row exists, or RFC 7807 500 if the audit emit fails.",
+        "operationId": "refresh_budget_privacy_budget_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BudgetRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BudgetRefreshRequest": {
+        "properties": {
+          "justification": {
+            "type": "string",
+            "minLength": 10,
+            "title": "Justification",
+            "description": "Reason for the budget refresh (minimum 10 characters)."
+          },
+          "new_allocated_epsilon": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Allocated Epsilon",
+            "description": "Optional new total epsilon allocation ceiling (must be > 0)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "justification"
+        ],
+        "title": "BudgetRefreshRequest",
+        "description": "Request body for POST /privacy/budget/refresh.\n\nAttributes:\n    justification: Human-readable reason for the budget refresh.  Required\n        by the WORM audit log.  Must be at least 10 characters to discourage\n        trivial or empty explanations.\n    new_allocated_epsilon: Optional new total budget ceiling.  When provided,\n        the ledger's ``total_allocated_epsilon`` is set to this value in\n        addition to resetting ``total_spent_epsilon`` to zero.  When omitted,\n        only the spent counter is reset and the current allocation is kept."
+      },
+      "BudgetResponse": {
+        "properties": {
+          "total_allocated_epsilon": {
+            "type": "number",
+            "title": "Total Allocated Epsilon"
+          },
+          "total_spent_epsilon": {
+            "type": "number",
+            "title": "Total Spent Epsilon"
+          },
+          "remaining_epsilon": {
+            "type": "number",
+            "title": "Remaining Epsilon"
+          },
+          "is_exhausted": {
+            "type": "boolean",
+            "title": "Is Exhausted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_allocated_epsilon",
+          "total_spent_epsilon",
+          "remaining_epsilon",
+          "is_exhausted"
+        ],
+        "title": "BudgetResponse",
+        "description": "Response body for GET /privacy/budget and POST /privacy/budget/refresh.\n\nAttributes:\n    total_allocated_epsilon: Maximum cumulative epsilon allowed across all\n        synthesis jobs.\n    total_spent_epsilon: Running total epsilon spent by completed jobs.\n    remaining_epsilon: Computed difference between allocated and spent.\n    is_exhausted: True when remaining_epsilon is zero or negative; further\n        generation requests must be blocked until an operator refreshes the\n        budget."
+      },
+      "ConnectionCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "title": "Port"
+          },
+          "database": {
+            "type": "string",
+            "title": "Database"
+          },
+          "schema_name": {
+            "type": "string",
+            "title": "Schema Name",
+            "default": "public"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "host",
+          "port",
+          "database"
+        ],
+        "title": "ConnectionCreateRequest",
+        "description": "Request body for POST /connections.\n\nAttributes:\n    name: Human-readable display name.\n    host: Database hostname or IP.\n    port: Database port.\n    database: Database name.\n    schema_name: Schema to use (default: public)."
+      },
+      "ConnectionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ConnectionListResponse",
+        "description": "Paginated list response for GET /connections.\n\nAttributes:\n    items: List of connection objects.\n    next_cursor: String UUID cursor for next page (None if last page)."
+      },
+      "ConnectionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "title": "Port"
+          },
+          "database": {
+            "type": "string",
+            "title": "Database"
+          },
+          "schema_name": {
+            "type": "string",
+            "title": "Schema Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "host",
+          "port",
+          "database",
+          "schema_name"
+        ],
+        "title": "ConnectionResponse",
+        "description": "Response body for a single Connection resource.\n\nThe ``id`` is returned as a string (UUID format) for JSON serialization.\n\nAttributes:\n    id: UUID primary key as a string.\n    name: Display name.\n    host: Database hostname.\n    port: Database port.\n    database: Database name.\n    schema_name: Schema name."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JobCreateRequest": {
+        "properties": {
+          "table_name": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_]+$",
+            "title": "Table Name",
+            "description": "Database table to synthesise. Alphanumeric and underscore characters only."
+          },
+          "parquet_path": {
+            "type": "string",
+            "title": "Parquet Path",
+            "description": "Path to training Parquet file."
+          },
+          "total_epochs": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Total Epochs",
+            "description": "Total training epochs."
+          },
+          "num_rows": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Num Rows",
+            "description": "Number of synthetic rows to generate."
+          },
+          "checkpoint_every_n": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Checkpoint Every N",
+            "description": "Epochs between checkpoints.",
+            "default": 5
+          },
+          "enable_dp": {
+            "type": "boolean",
+            "title": "Enable Dp",
+            "description": "Enable DP-SGD training.",
+            "default": true
+          },
+          "noise_multiplier": {
+            "type": "number",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Noise Multiplier",
+            "description": "Gaussian noise ratio for DP-SGD (ADR-0025).",
+            "default": 1.1
+          },
+          "max_grad_norm": {
+            "type": "number",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Grad Norm",
+            "description": "Gradient clipping bound for DP-SGD.",
+            "default": 1.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "table_name",
+          "parquet_path",
+          "total_epochs",
+          "num_rows"
+        ],
+        "title": "JobCreateRequest",
+        "description": "Request body for POST /jobs.\n\nAttributes:\n    table_name: Name of the database table to synthesise.  Must match\n        ``^[a-zA-Z0-9_]+$`` (alphanumeric and underscore only) to prevent\n        Content-Disposition header injection and SQL injection vectors.\n    parquet_path: Absolute path to the Parquet file with training data.\n    total_epochs: Number of CTGAN training epochs.\n    num_rows: Number of synthetic rows to generate after training.\n        Must be >= 1.\n    checkpoint_every_n: Epochs between checkpoint saves (default 5).\n    enable_dp: Whether to use DP-SGD training (default True,\n        privacy-by-design per OWASP A04).\n    noise_multiplier: Gaussian noise ratio for DP-SGD (default 1.1,\n        per ADR-0025 calibration).  Must be > 0.\n    max_grad_norm: Gradient clipping bound for DP-SGD (default 1.0).\n        Must be > 0."
+      },
+      "JobListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "JobListResponse",
+        "description": "Paginated list response for GET /jobs.\n\nAttributes:\n    items: List of job response objects.\n    next_cursor: Cursor value for the next page (None if last page)."
+      },
+      "JobResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "current_epoch": {
+            "type": "integer",
+            "title": "Current Epoch"
+          },
+          "total_epochs": {
+            "type": "integer",
+            "title": "Total Epochs"
+          },
+          "num_rows": {
+            "type": "integer",
+            "title": "Num Rows"
+          },
+          "table_name": {
+            "type": "string",
+            "title": "Table Name"
+          },
+          "parquet_path": {
+            "type": "string",
+            "title": "Parquet Path"
+          },
+          "artifact_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Path"
+          },
+          "output_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Path"
+          },
+          "error_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Msg"
+          },
+          "checkpoint_every_n": {
+            "type": "integer",
+            "title": "Checkpoint Every N"
+          },
+          "enable_dp": {
+            "type": "boolean",
+            "title": "Enable Dp"
+          },
+          "noise_multiplier": {
+            "type": "number",
+            "title": "Noise Multiplier"
+          },
+          "max_grad_norm": {
+            "type": "number",
+            "title": "Max Grad Norm"
+          },
+          "actual_epsilon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Epsilon"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "current_epoch",
+          "total_epochs",
+          "num_rows",
+          "table_name",
+          "parquet_path",
+          "artifact_path",
+          "output_path",
+          "error_msg",
+          "checkpoint_every_n",
+          "enable_dp",
+          "noise_multiplier",
+          "max_grad_norm",
+          "actual_epsilon"
+        ],
+        "title": "JobResponse",
+        "description": "Response body for a single Job.\n\nAttributes:\n    id: Job primary key.\n    status: Lifecycle status (QUEUED, TRAINING, GENERATING, COMPLETE, FAILED).\n    current_epoch: Most recently completed training epoch.\n    total_epochs: Total epochs requested.\n    num_rows: Number of synthetic rows to generate after training.\n    table_name: Name of the database table being synthesised.\n    parquet_path: Path to the training Parquet file.\n    artifact_path: Path to the final model artifact pickle (None until COMPLETE).\n    output_path: Path to the generated synthetic Parquet file\n        (None until generation completes).\n    error_msg: Sanitized failure reason (None on success).\n    checkpoint_every_n: Checkpoint interval in epochs.\n    enable_dp: Whether DP-SGD training is enabled.\n    noise_multiplier: Gaussian noise ratio used for DP-SGD.\n    max_grad_norm: Gradient clipping bound used for DP-SGD.\n    actual_epsilon: Actual epsilon spent after training (None until set\n        by T22.2 training task)."
+      },
+      "LicenseActivateRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "RS256-signed license JWT from the licensing server."
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "LicenseActivateRequest",
+        "description": "Request body for POST /license/activate.\n\nAttributes:\n    token: RS256-signed JWT issued by the central licensing server."
+      },
+      "LicenseActivateResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Activation status."
+          },
+          "licensee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Licensee",
+            "description": "Licensee name from the JWT claims."
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier",
+            "description": "License tier from the JWT claims."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "LicenseActivateResponse",
+        "description": "Response body for POST /license/activate.\n\nAttributes:\n    status: Activation status \u2014 ``\"activated\"`` on success.\n    licensee: The ``licensee`` claim extracted from the JWT, if present.\n    tier: The ``tier`` claim extracted from the JWT, if present."
+      },
+      "LicenseChallengeResponse": {
+        "properties": {
+          "hardware_id": {
+            "type": "string",
+            "title": "Hardware Id",
+            "description": "SHA-256 hardware identifier for this machine."
+          },
+          "app_version": {
+            "type": "string",
+            "title": "App Version",
+            "description": "Application version string."
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp",
+            "description": "ISO-8601 UTC generation timestamp."
+          },
+          "qr_code": {
+            "type": "string",
+            "title": "Qr Code",
+            "description": "Base64-encoded PNG QR code of the challenge payload, or a plain-text fallback if image rendering is unavailable."
+          },
+          "alt_text": {
+            "type": "string",
+            "title": "Alt Text",
+            "description": "Accessibility description of the QR code content for screen readers."
+          }
+        },
+        "type": "object",
+        "required": [
+          "hardware_id",
+          "app_version",
+          "timestamp",
+          "qr_code",
+          "alt_text"
+        ],
+        "title": "LicenseChallengeResponse",
+        "description": "Response body for GET /license/challenge.\n\nAttributes:\n    hardware_id: SHA-256 hex digest of MAC + app seed for this machine.\n    app_version: Current application version string.\n    timestamp: ISO-8601 UTC timestamp of when the challenge was generated.\n    qr_code: Base64-encoded PNG of the challenge QR code, or a plain-text\n        fallback if Pillow / qrcode rendering is unavailable.\n    alt_text: Accessibility description of the QR code for screen readers\n        and other assistive technology (WCAG 2.1 AA)."
+      },
+      "RotateRequest": {
+        "properties": {
+          "new_passphrase": {
+            "type": "string",
+            "title": "New Passphrase"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_passphrase"
+        ],
+        "title": "RotateRequest",
+        "description": "Request body for the key rotation endpoint.\n\nAttributes:\n    new_passphrase: New operator passphrase.  The rotation task derives a\n        fresh Fernet key independently; this passphrase is used to document\n        operator intent and MAY be used in future implementations to unseal\n        with a new passphrase.  Currently the rotation generates a fresh\n        random Fernet key and re-encrypts all columns."
+      },
+      "SettingListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SettingResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "SettingListResponse",
+        "description": "List response for GET /settings.\n\nAttributes:\n    items: List of setting objects."
+      },
+      "SettingResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "SettingResponse",
+        "description": "Response body for a single Setting.\n\nAttributes:\n    key: Setting key.\n    value: Setting value."
+      },
+      "SettingUpsertRequest": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "SettingUpsertRequest",
+        "description": "Request body for PUT /settings/{key}.\n\nAttributes:\n    value: New string value to store for the key."
+      },
+      "UnsealRequest": {
+        "properties": {
+          "passphrase": {
+            "type": "string",
+            "title": "Passphrase"
+          }
+        },
+        "type": "object",
+        "required": [
+          "passphrase"
+        ],
+        "title": "UnsealRequest",
+        "description": "Request body for the /unseal endpoint.\n\nAttributes:\n    passphrase: Operator-provided passphrase used to derive the KEK."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

@@ -314,7 +314,7 @@ bdcbb16  test: RED — CLI subset command and bootstrapper CycleDetectionError 4
 74a68c8  feat: implement discriminator-level DP-SGD training loop (T30.3)
 ```
 
-The discipline held across 515 total commits, including review fixes (which also follow
+The discipline held across 523 total commits (at Phase 32 completion, commit `3fa02cd`), including review fixes (which also follow
 TDD: `test:` for the failing test, `fix:` for the fix).
 
 ### Two-Gate Test Policy
@@ -678,9 +678,10 @@ All figures are verified from git log, file counts, or test output.
 | First commit | 2026-03-09 |
 | Last commit (this document) | 2026-03-18 |
 | Active calendar days | 9 (March 9, 11–18) |
-| Total commits | 515 |
-| Total merged PRs | 125 |
+| Total commits | 523 |
+| Total merged PRs | 127 |
 | Closed-unmerged PRs | 1 |
+| Snapshot | Phase 32 completion (commit `3fa02cd`) |
 
 ### Commit Type Distribution
 
