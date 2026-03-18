@@ -180,10 +180,9 @@ describe("BEM convention — responsive overrides follow existing naming", () =>
   it("responsive block selectors use existing BEM class names without new modifiers", () => {
     const mobileBlock = extractMediaBlock(cssText, "640px");
     const tabletBlock = extractMediaBlock(cssText, "1024px");
-    const combined = mobileBlock + tabletBlock;
 
-    // All class selectors must be valid BEM names already used in the base CSS
-    // We spot-check the known classes that should be overridden
+    // All class selectors must be valid BEM names already used in the base CSS.
+    // Spot-check the known classes that must be overridden at some breakpoint.
     const expectedClasses = [
       ".dashboard-main",
       ".dashboard-form__input",
