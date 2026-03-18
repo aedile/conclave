@@ -57,7 +57,7 @@ def training_df() -> pd.DataFrame:
     """
     return pd.DataFrame(
         {
-            "age": list(range(20, 40)) * 2,  # 40 rows: 20–39, repeated
+            "age": list(range(20, 40)) * 2,  # 40 rows: 20-39, repeated
             "salary": list(range(30000, 50000, 1000)) * 2,  # 40 rows
             "dept": (["A", "B"] * 10) * 2,  # 40 rows alternating A/B
         }
@@ -142,9 +142,7 @@ class TestDPTrainingSampling:
     skipped — the KEY invariant (epsilon > 0, Test 1) is tested separately.
     """
 
-    def test_sample_after_dp_training_returns_five_rows(
-        self, training_df: pd.DataFrame
-    ) -> None:
+    def test_sample_after_dp_training_returns_five_rows(self, training_df: pd.DataFrame) -> None:
         """sample(num_rows=5) must return a DataFrame with exactly 5 rows.
 
         Fits ``DPCompatibleCTGAN`` in DP mode, confirms epsilon > 0 (pre-
@@ -192,7 +190,7 @@ class TestDPTrainingSampling:
 
         try:
             result = model.sample(num_rows=5)
-        except Exception:  # noqa: BLE001  # soft assertion: sample() may fail at 2 epochs
+        except Exception:  # soft assertion: sample() may fail at 2 epochs
             pytest.skip(
                 "sample() raised an exception after 2-epoch DP training — "
                 "reverse_transform instability at low epoch count is expected. "
@@ -203,9 +201,7 @@ class TestDPTrainingSampling:
         assert isinstance(result, pd.DataFrame), (
             f"sample() must return pd.DataFrame, got {type(result)}"
         )
-        assert len(result) == 5, (
-            f"sample(num_rows=5) must return exactly 5 rows, got {len(result)}"
-        )
+        assert len(result) == 5, f"sample(num_rows=5) must return exactly 5 rows, got {len(result)}"
 
 
 # ---------------------------------------------------------------------------
@@ -223,9 +219,7 @@ class TestBudgetExhaustionRaisesError:
     immediately from ``fit()``.
     """
 
-    def test_tiny_budget_raises_budget_exhaustion_error(
-        self, training_df: pd.DataFrame
-    ) -> None:
+    def test_tiny_budget_raises_budget_exhaustion_error(self, training_df: pd.DataFrame) -> None:
         """fit() must raise BudgetExhaustionError when allocated_epsilon is tiny.
 
         Uses ``allocated_epsilon=0.0001`` — smaller than the epsilon produced
@@ -262,7 +256,7 @@ class TestBudgetExhaustionRaisesError:
             delta=1e-5,
         )
 
-        with pytest.raises(BudgetExhaustionError):
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore")
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            with pytest.raises(BudgetExhaustionError):
                 model.fit(training_df)
