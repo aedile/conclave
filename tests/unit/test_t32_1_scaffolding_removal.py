@@ -22,7 +22,6 @@ import sys
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -44,6 +43,31 @@ def _module_importable(dotted_name: str) -> bool:
     except ImportError:
         return False
     return True
+
+
+def _module_spec_found(dotted_name: str) -> bool:
+    """Return True if importlib.util.find_spec can resolve the module.
+
+    Unlike :func:`_module_importable`, this uses the lower-level spec
+    machinery.  When a parent package does not exist, ``find_spec`` raises
+    ``ModuleNotFoundError`` for a sub-module rather than returning ``None``
+    — both outcomes mean the module is absent, so both are treated as
+    ``False``.
+
+    Args:
+        dotted_name: Fully-qualified Python module path.
+
+    Returns:
+        True when find_spec returns a non-None spec; False otherwise.
+    """
+    sys.modules.pop(dotted_name, None)
+    try:
+        spec = importlib.util.find_spec(dotted_name)
+    except (ModuleNotFoundError, ValueError):
+        # ModuleNotFoundError: parent package absent — module definitely gone.
+        # ValueError: empty or None string (defensive guard).
+        return False
+    return spec is not None
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +127,7 @@ def test_bootstrapper_dependencies_auth_is_removed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Spec-level contract: importlib.util.find_spec returns None for removed paths
+# Spec-level contract: find_spec returns None or raises for removed paths
 # ---------------------------------------------------------------------------
 
 
@@ -119,19 +143,17 @@ def test_bootstrapper_dependencies_auth_is_removed() -> None:
         "synth_engine.bootstrapper.dependencies.auth",
     ],
 )
-def test_find_spec_returns_none_for_removed_module(dotted_name: str) -> None:
-    """importlib.util.find_spec must return None for all removed modules.
+def test_find_spec_cannot_resolve_removed_module(dotted_name: str) -> None:
+    """importlib.util.find_spec must not resolve any removed module.
 
-    This is a lower-level check that confirms the .py files themselves are
-    absent from the filesystem — not merely shadowed by a stub.
+    A ``None`` return value or a ``ModuleNotFoundError`` from find_spec
+    both confirm that the module is absent from the filesystem.  This is a
+    lower-level check complementing the import-level tests above.
 
     Args:
         dotted_name: Fully-qualified module path that must be absent.
     """
-    # Evict from cache so find_spec checks the filesystem.
-    sys.modules.pop(dotted_name, None)
-    spec = importlib.util.find_spec(dotted_name)
-    assert spec is None, (
-        f"{dotted_name!r} still resolvable on the filesystem — "
+    assert not _module_spec_found(dotted_name), (
+        f"{dotted_name!r} is still resolvable on the filesystem — "
         f"the corresponding .py file was not deleted (T32.1)"
     )
