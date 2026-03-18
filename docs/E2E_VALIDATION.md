@@ -333,5 +333,5 @@ Both findings fixed in the `Dockerfile` on branch `feat/P28-e2e-validation`.
 | `POST /jobs/{id}/start` enqueues task (202) | PASS | `{"status":"accepted","job_id":2}` |
 | Error paths return RFC 7807 responses | PASS | 404 for shred/unknown-id with `type`, `title`, `status`, `detail` |
 | Playwright spec captures 10 screenshots | PASS | All 10 `p28-*.png` files in `docs/screenshots/` |
-| WCAG 2.1 AA: 0 axe violations on 6 screened states | PASS | 0 violations on tests 01, 04, 06, 07, 08 (5 of 6 screened) |
+| WCAG 2.1 AA: 0 axe violations on 5 screened states | PASS | 0 violations on tests 01, 04, 06, 07, 08 (5 of 5 screened) |
 | All Python quality gates pass | PASS | ruff, mypy, bandit, pytest 97.03% coverage |

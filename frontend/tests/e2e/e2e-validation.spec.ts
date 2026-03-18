@@ -16,7 +16,14 @@
  *     Without this, Vite preview proxies GET /unseal to the FastAPI backend
  *     which returns 405 (no GET handler exists for /unseal).
  *   - Screenshots are captured at each stage and saved to docs/screenshots/p28-*.
- *   - The spec also verifies that the key WCAG invariants still hold at each stage.
+ *
+ * WCAG vs screenshot-only breakdown:
+ *   Tests with WCAG axe checks (behavior + accessibility validated):
+ *     01 — unseal sealed state, 04 — dashboard empty, 06 — job QUEUED,
+ *     07 — job TRAINING, 08 — job COMPLETE.
+ *   Screenshot-only tests (no axe check — pure visual evidence captures):
+ *     02 — unseal error feedback, 03 — dashboard sealed redirect,
+ *     05 — form partial fill, 09 — download flow, 10 — network failure.
  *
  * Screenshot naming convention: p28-NN-<slug>.png
  *   01  Unseal page — initial state (vault sealed)
