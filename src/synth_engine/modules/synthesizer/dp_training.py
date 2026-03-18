@@ -16,10 +16,12 @@ Architecture:
   and ``_data_processor``) for categorical encoding and mode-specific VGM
   normalization.  Also reuses SDV's ``detect_discrete_columns()`` helper.
 - **Reused from ctgan**: ``CTGAN`` internal model class (vanilla path only),
-  ``Generator`` (DP path), ``DataTransformer``, ``DataSampler``.
+  ``Generator`` (DP path).
 - **Custom (DP path)**: Constructs ``OpacusCompatibleDiscriminator`` and CTGAN
   ``Generator`` externally, wraps the Discriminator optimizer via
-  ``dp_wrapper.wrap()``, then runs a simplified WGAN-GP training loop.
+  ``dp_wrapper.wrap()``, then runs a simplified WGAN training loop.
+  Note: gradient penalty (WGAN-GP) is omitted in DP mode — ``torch.autograd.grad()``
+  conflicts with Opacus per-sample gradient hooks.
 
 Import boundary (ADR-0025 / ADR-0001):
   This module must NOT import from ``modules/privacy/``.  The ``dp_wrapper``
@@ -126,12 +128,8 @@ _OPACUS_BATCH_PATTERN = ".*Expected.*batch.*"
 #   patch('synth_engine.modules.synthesizer.dp_training.CTGAN')
 #   patch('synth_engine.modules.synthesizer.dp_training.detect_discrete_columns')
 #   patch('synth_engine.modules.synthesizer.dp_training.Generator')
-#   patch('synth_engine.modules.synthesizer.dp_training.DataTransformer')
-#   patch('synth_engine.modules.synthesizer.dp_training.DataSampler')
 # ---------------------------------------------------------------------------
 try:
-    from ctgan.data_sampler import DataSampler
-    from ctgan.data_transformer import DataTransformer
     from ctgan.synthesizers.ctgan import CTGAN, Generator
     from sdv.single_table import CTGANSynthesizer
     from sdv.single_table.ctgan import detect_discrete_columns
@@ -140,8 +138,6 @@ except ImportError:  # pragma: no cover — only triggered if synthesizer group 
     detect_discrete_columns = None  # SDV not installed; synthesis unavailable
     CTGAN = None  # ctgan not installed; synthesis unavailable
     Generator = None  # ctgan not installed; synthesis unavailable
-    DataTransformer = None  # ctgan not installed; synthesis unavailable
-    DataSampler = None  # ctgan not installed; synthesis unavailable
 
 # ---------------------------------------------------------------------------
 # PyTorch deferred import — required for real Opacus DP wrapping.
@@ -179,7 +175,7 @@ class DPCompatibleCTGAN:
         Constructs an :class:`OpacusCompatibleDiscriminator` and CTGAN
         ``Generator`` externally. Wraps the Discriminator's Adam optimizer
         via ``dp_wrapper.wrap()`` (the Opacus integration point).  Runs a
-        simplified WGAN-GP training loop: Discriminator steps use the DP
+        simplified WGAN training loop: Discriminator steps use the DP
         optimizer (Opacus applies per-sample gradient clipping and Gaussian
         noise), Generator steps use an unwrapped Adam optimizer.  After each
         epoch, ``dp_wrapper.check_budget()`` is called for early stopping.
@@ -416,12 +412,14 @@ class DPCompatibleCTGAN:
 
         Constructs an :class:`OpacusCompatibleDiscriminator` and CTGAN
         ``Generator`` from ``model_kwargs``.  Wraps the Discriminator's Adam
-        optimizer via ``dp_wrapper.wrap()``.  Runs a simplified WGAN-GP loop:
+        optimizer via ``dp_wrapper.wrap()``.  Runs a simplified WGAN loop:
 
         For each epoch:
             For each batch:
                 1. Discriminator step (DP): forward real + fake, compute
-                   WGAN-GP loss, backward, ``dp_optimizer.step()``.
+                   WGAN loss (-(real.mean() - fake.mean())), backward, ``dp_optimizer.step()``.
+                   Note: gradient penalty is omitted — torch.autograd.grad() conflicts
+                   with Opacus per-sample gradient hooks in DP mode.
                 2. Generator step (non-DP): forward fake, compute loss,
                    backward, ``optimizer_g.step()``.
             Call ``dp_wrapper.check_budget(allocated_epsilon, delta)`` for
@@ -483,6 +481,18 @@ class DPCompatibleCTGAN:
 
         dataloader = self._build_dp_dataloader(processed_df, batch_size)
 
+        # Guard: zero batches means no gradient steps will occur, producing a false
+        # DP guarantee (epsilon_spent() would return 0.0 with no actual accounting).
+        # This matches the guard in _activate_opacus_proxy() (Privacy Priority 0).
+        if len(dataloader) == 0:
+            raise RuntimeError(
+                "DPCompatibleCTGAN._train_dp_discriminator: DataLoader has zero batches. "
+                "The dataset is too small for the configured batch_size and pac factor. "
+                "No DP gradient steps would occur, producing a false DP guarantee "
+                "(epsilon_spent() returns 0.0 with no actual accounting). "
+                "Ensure the training DataFrame has enough rows for at least one batch."
+            )
+
         discriminator = OpacusCompatibleDiscriminator(
             input_dim=data_dim,
             discriminator_dim=discriminator_dim,
@@ -530,8 +540,7 @@ class DPCompatibleCTGAN:
             )
 
         _logger.info(
-            "DPCompatibleCTGAN: starting custom WGAN-GP training loop "
-            "(%d epochs, %d batches/epoch).",
+            "DPCompatibleCTGAN: starting custom WGAN training loop (%d epochs, %d batches/epoch).",
             self._epochs,
             len(dataloader),
         )
@@ -774,7 +783,7 @@ class DPCompatibleCTGAN:
                 Calls ``_train_dp_discriminator()`` which constructs an
                 ``OpacusCompatibleDiscriminator`` and CTGAN ``Generator``,
                 wraps the Discriminator optimizer via ``dp_wrapper.wrap()``,
-                and runs the custom WGAN-GP training loop.  On failure,
+                and runs the custom WGAN training loop.  On failure,
                 falls back to ``_activate_opacus_proxy()`` + ``CTGAN.fit()``.
                 ``BudgetExhaustionError`` is re-raised immediately (not caught).
             **Vanilla path** (``dp_wrapper=None``):

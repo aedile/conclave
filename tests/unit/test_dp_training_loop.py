@@ -122,13 +122,39 @@ def _make_mock_dp_wrapper() -> MagicMock:
     return mock_wrapper
 
 
+def _make_mock_dataloader(n_batches: int = 2, batch_size: int = 10) -> MagicMock:
+    """Return a mock DataLoader with a known length and iterable batch sequence.
+
+    Used by tests that mock ``torch`` at module scope.  When torch is fully
+    mocked, ``_build_dp_dataloader`` cannot build a real DataLoader (torch.tensor
+    returns a MagicMock).  These tests patch ``_build_dp_dataloader`` directly
+    with this helper so the empty-DataLoader guard is bypassed and the training
+    loop body can be tested.
+
+    Args:
+        n_batches: Number of batches to yield (must be >= 1 to pass the guard).
+        batch_size: Size of each fake batch tensor.
+
+    Returns:
+        MagicMock configured to behave like a DataLoader with ``n_batches`` batches.
+    """
+    import torch as _torch
+
+    mock_dl = MagicMock()
+    mock_dl.__len__ = MagicMock(return_value=n_batches)
+    # Each batch is a 1-tuple of a real small tensor so the training loop can iterate
+    fake_batch = (_torch.zeros(batch_size, 2),)
+    mock_dl.__iter__ = MagicMock(return_value=iter([fake_batch] * n_batches))
+    return mock_dl
+
+
 def _fit_with_mocked_train_dp(
     epochs: int = 1,
     dp_wrapper: Any = None,
 ) -> Any:
     """Helper: fit a DPCompatibleCTGAN with _train_dp_discriminator mocked out.
 
-    This approach avoids needing to set up the full ctgan DataTransformer/DataSampler
+    This approach avoids needing to set up the full ctgan Generator
     mock chain while still testing fit() control flow.
 
     Args:
@@ -254,31 +280,14 @@ class TestDPTrainingLoopInvoked:
             "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator",
         ) as mock_disc_cls:
             mock_disc_cls.return_value = MagicMock()
-            # Mock DataTransformer.fit() and other ctgan internals
+            # Configure ctgan internals
             with (
-                patch("synth_engine.modules.synthesizer.dp_training.DataTransformer") as mock_dt,
-                patch("synth_engine.modules.synthesizer.dp_training.DataSampler") as mock_ds,
                 patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen,
                 patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+                patch.object(
+                    instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()
+                ),
             ):
-                # Configure DataTransformer mock
-                mock_transformer = MagicMock()
-                mock_transformer.output_info_list = []  # no columns → skip activate
-                mock_transformer.output_dimensions = 4
-                mock_dt.return_value = mock_transformer
-
-                # Configure DataSampler mock
-                mock_sampler = MagicMock()
-                mock_sampler.dim_cond_vec.return_value = 0
-                mock_sampler.sample_condvec.return_value = None  # no conditional vector
-                mock_sampler.sample_data.return_value = pd.DataFrame(
-                    {"a": range(10), "b": range(10)}
-                ).values
-                import numpy as _np
-
-                mock_sampler.sample_data.return_value = _np.zeros((10, 4), dtype="float32")
-                mock_ds.return_value = mock_sampler
-
                 # Configure Generator mock
                 mock_gen_instance = MagicMock()
                 mock_gen.return_value = mock_gen_instance
@@ -335,23 +344,11 @@ class TestDPTrainingLoopInvoked:
             patch(
                 "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.DataTransformer") as mock_dt,
-            patch("synth_engine.modules.synthesizer.dp_training.DataSampler") as mock_ds,
             patch("synth_engine.modules.synthesizer.dp_training.Generator"),
             patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch.object(instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()),
         ):
             mock_disc_cls.return_value = MagicMock()
-            mock_transformer = MagicMock()
-            mock_transformer.output_info_list = []
-            mock_transformer.output_dimensions = 4
-            mock_dt.return_value = mock_transformer
-            mock_sampler = MagicMock()
-            mock_sampler.dim_cond_vec.return_value = 0
-            mock_sampler.sample_condvec.return_value = None
-            import numpy as _np
-
-            mock_sampler.sample_data.return_value = _np.zeros((10, 4), dtype="float32")
-            mock_ds.return_value = mock_sampler
             mock_torch.device.return_value = "cpu"
             mock_torch.zeros.return_value = MagicMock()
             mock_torch.normal.return_value = MagicMock()
@@ -406,23 +403,11 @@ class TestDPTrainingLoopInvoked:
             patch(
                 "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.DataTransformer") as mock_dt,
-            patch("synth_engine.modules.synthesizer.dp_training.DataSampler") as mock_ds,
             patch("synth_engine.modules.synthesizer.dp_training.Generator"),
             patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch.object(instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()),
         ):
             mock_disc_cls.return_value = MagicMock()
-            mock_transformer = MagicMock()
-            mock_transformer.output_info_list = []
-            mock_transformer.output_dimensions = 4
-            mock_dt.return_value = mock_transformer
-            mock_sampler = MagicMock()
-            mock_sampler.dim_cond_vec.return_value = 0
-            mock_sampler.sample_condvec.return_value = None
-            import numpy as _np
-
-            mock_sampler.sample_data.return_value = _np.zeros((10, 4), dtype="float32")
-            mock_ds.return_value = mock_sampler
             mock_torch.device.return_value = "cpu"
             mock_torch.zeros.return_value = MagicMock()
             mock_torch.normal.return_value = MagicMock()
@@ -520,23 +505,11 @@ class TestBudgetExhaustion:
             patch(
                 "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.DataTransformer") as mock_dt,
-            patch("synth_engine.modules.synthesizer.dp_training.DataSampler") as mock_ds,
             patch("synth_engine.modules.synthesizer.dp_training.Generator"),
             patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch.object(instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()),
         ):
             mock_disc_cls.return_value = MagicMock()
-            mock_transformer = MagicMock()
-            mock_transformer.output_info_list = []
-            mock_transformer.output_dimensions = 4
-            mock_dt.return_value = mock_transformer
-            mock_sampler = MagicMock()
-            mock_sampler.dim_cond_vec.return_value = 0
-            mock_sampler.sample_condvec.return_value = None
-            import numpy as _np
-
-            mock_sampler.sample_data.return_value = _np.zeros((10, 4), dtype="float32")
-            mock_ds.return_value = mock_sampler
             mock_torch.device.return_value = "cpu"
             mock_torch.zeros.return_value = MagicMock()
             mock_torch.normal.return_value = MagicMock()
@@ -789,8 +762,7 @@ class TestFallbackToProxyModel:
 
 
 # ---------------------------------------------------------------------------
-# Import boundary — new imports (Generator, DataTransformer, DataSampler) must
-# not violate the modules/privacy boundary
+# Import boundary — Generator import must not violate the modules/privacy boundary
 # ---------------------------------------------------------------------------
 
 
@@ -828,8 +800,7 @@ class TestNewImportBoundaryT303:
         )
 
     def test_dp_training_new_imports_not_from_privacy(self) -> None:
-        """T30.3 new imports (Generator, DataTransformer, DataSampler) must not
-        import from privacy/."""
+        """T30.3 new import (Generator) must not import from privacy/."""
         import ast
         from pathlib import Path
 
@@ -853,7 +824,7 @@ class TestNewImportBoundaryT303:
                 )
 
     def test_ctgan_internals_imported_at_module_scope(self) -> None:
-        """dp_training.py must import Generator, DataTransformer, DataSampler from ctgan."""
+        """dp_training.py must import Generator from ctgan for the custom DP training loop."""
         from pathlib import Path
 
         dp_training_path = (
@@ -866,10 +837,9 @@ class TestNewImportBoundaryT303:
         )
         source = dp_training_path.read_text()
 
-        for name in ("Generator", "DataTransformer", "DataSampler"):
-            assert name in source, (
-                f"dp_training.py must reference {name} for the custom training loop (T30.3)."
-            )
+        assert "Generator" in source, (
+            "dp_training.py must reference Generator for the custom DP training loop (T30.3)."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -917,23 +887,11 @@ class TestCheckBudgetKwargs:
             patch(
                 "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.DataTransformer") as mock_dt,
-            patch("synth_engine.modules.synthesizer.dp_training.DataSampler") as mock_ds,
             patch("synth_engine.modules.synthesizer.dp_training.Generator"),
             patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch.object(instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()),
         ):
             mock_disc_cls.return_value = MagicMock()
-            mock_transformer = MagicMock()
-            mock_transformer.output_info_list = []
-            mock_transformer.output_dimensions = 4
-            mock_dt.return_value = mock_transformer
-            mock_sampler = MagicMock()
-            mock_sampler.dim_cond_vec.return_value = 0
-            mock_sampler.sample_condvec.return_value = None
-            import numpy as _np
-
-            mock_sampler.sample_data.return_value = _np.zeros((10, 4), dtype="float32")
-            mock_ds.return_value = mock_sampler
             mock_torch.device.return_value = "cpu"
             mock_torch.zeros.return_value = MagicMock()
             mock_torch.normal.return_value = MagicMock()
