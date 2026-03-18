@@ -6,6 +6,14 @@
 
 This report documents the quality degradation curves for the Air-Gapped Synthetic Data Engine's Differential Privacy CTGAN implementation at varying epsilon levels. Vanilla (non-DP) CTGAN is used as the baseline. DP-CTGAN is trained at three epsilon configurations using Opacus DP-SGD with the proxy linear model approach (ADR-0025).
 
+> **Measurement methodology note**: All `actual_epsilon` values in this report are
+> **proxy-model measurements**. Opacus DP-SGD accounting is applied to a proxy linear
+> model trained on the same preprocessed data as the CTGAN — not to the CTGAN
+> Discriminator directly. The epsilon values reflect real Opacus gradient-step accounting
+> proportional to the dataset size, batch size, and number of training steps, but do not
+> account for the CTGAN Discriminator's gradient updates. Phase 30 will extend accounting
+> to the Discriminator for end-to-end differential privacy. See ADR-0025 for full rationale.
+
 ## Benchmark Configuration
 
 - **Source rows**: 500
@@ -27,8 +35,8 @@ This report documents the quality degradation curves for the Air-Gapped Syntheti
 
 ### Summary Table
 
-| Mode | noise_multiplier | actual_epsilon | age mean_drift | age stddev_drift | salary mean_drift | salary stddev_drift | dept cardinality_drift | Passes AC? |
-|------|-----------------|---------------|---------------|---------------|------------------|-------------------|----------------------|------------|
+| Mode | noise_multiplier | actual_epsilon (proxy-model measurement) | age mean_drift | age stddev_drift | salary mean_drift | salary stddev_drift | dept cardinality_drift | Passes AC? |
+|------|-----------------|----------------------------------------|---------------|---------------|------------------|-------------------|----------------------|------------|
 | Vanilla | 0.00 | 0.0000 | -5.20 | +1.28 | +2359.88 | -591.55 | +0 | **YES** |
 | DP (epsilon~1) | 2.00 | 1.0044 | -8.09 | +0.62 | +2665.34 | +1158.96 | +0 | **YES** |
 | DP (epsilon~5) | 0.75 | 5.9177 | +3.32 | +0.35 | +24844.61 | -4170.93 | +0 | **YES** |
@@ -56,7 +64,7 @@ The following observations describe the expected quality degradation curve as ep
 ## Recommended Epsilon Ranges by Use Case
 
 | Use Case | Recommended Epsilon | Rationale |
-|----------|--------------------|-----------| 
+|----------|--------------------|-----------|
 | External publication / regulatory compliance | 1-2 | Strong privacy guarantee required; quality loss is acceptable. |
 | Internal analytics on sensitive PII | 5-8 | Balanced trade-off; distributions are broadly preserved. |
 | Non-sensitive internal testing / ML training | 10-20 | Utility is primary concern; privacy is best-effort. |
@@ -69,8 +77,10 @@ The benchmark acceptance criterion requires that synthetic data at epsilon=10 pa
 - Column means within 2 standard deviations of source stddev (numeric columns)
 - Categorical distributions within 10% KL divergence (approximated via cardinality ratio)
 
-**Result: epsilon~10 acceptance check — PASSED** (actual_epsilon=10.9160)
+**Result: epsilon~10 acceptance check — PASSED** (actual_epsilon=10.9160, proxy-model measurement)
 
 ---
 
 *Note: All results are produced with intentionally low epoch counts (10 epochs). Production fidelity with 300+ epochs will be substantially higher across all epsilon levels.*
+
+*All epsilon values in this report are proxy-model measurements as described in the Overview section above. See ADR-0025 for methodology details.*
