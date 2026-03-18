@@ -41,15 +41,24 @@ RUN apt-get update \
 # README.md is required by pyproject.toml (readme = "README.md") for package metadata
 COPY pyproject.toml poetry.lock README.md ./
 
-# Export production deps to requirements.txt (no hashes for air-gap compat)
+# Export production deps to requirements.txt (no hashes for air-gap compat).
+# P28-F3: --with synthesizer includes sdv/torch/opacus in the production image.
+# Without this flag these packages are absent from requirements.txt, causing
+# ImportError when synthesis jobs execute inside the container.
 RUN poetry export \
         --without dev \
+        --with synthesizer \
         --without-hashes \
         -f requirements.txt \
         -o requirements.txt
 
-# Install dependencies into an isolated prefix
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# Install dependencies into an isolated prefix.
+# --ignore-installed ensures packages that happen to be pre-installed in the
+# python:3.14-slim base image (e.g. anyio, sniffio) are copied into /install
+# rather than being silently skipped by pip's "Requirement already satisfied"
+# shortcut.  Without this flag, those packages would be absent from the final
+# stage (P28 finding F6 — anyio/sniffio missing from image).
+RUN pip install --no-cache-dir --prefix=/install --ignore-installed -r requirements.txt
 
 # Copy application source
 COPY src/ ./src/
@@ -119,5 +128,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 
 # tini as PID-1; entrypoint drops to appuser via gosu before executing CMD
 # Poetry is not present in the final image — invoke uvicorn directly.
-ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
 CMD ["uvicorn", "synth_engine.bootstrapper.main:app", "--host", "0.0.0.0", "--port", "8000"]

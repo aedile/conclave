@@ -11,6 +11,12 @@ ADV-015 (resolved P18-T18.2):
     The phantom tag ``pgbouncer/pgbouncer:1.23.1`` was replaced with
     ``edoburu/pgbouncer:v1.23.1-p3`` and SHA-256 pinned. See ADR-0031.
     All 9 external service images in docker-compose.yml are now pinned.
+
+P28-F3 (resolved P28):
+    The ``poetry export`` command in the python-builder stage was missing
+    ``--with synthesizer``, which caused sdv/torch/opacus to be absent from
+    the production image.  The fix adds ``--with synthesizer`` to include the
+    synthesizer optional dependency group.
 """
 
 import re
@@ -188,6 +194,55 @@ class TestDockerfileSHA256Pinning:
         )
         for line in python_lines:
             assert _SHA256_PATTERN.search(line), f"python FROM line not SHA-256 pinned: {line!r}"
+
+
+# ---------------------------------------------------------------------------
+# Dockerfile poetry export tests (P28-F3)
+# ---------------------------------------------------------------------------
+
+
+class TestDockerfilePoetryExport:
+    """Verify the poetry export command in the Dockerfile includes required groups.
+
+    P28-F3: The production image was missing sdv/torch/opacus because the
+    ``synthesizer`` optional dependency group was not included in the
+    ``poetry export`` invocation in the python-builder stage.
+    """
+
+    def test_poetry_export_includes_synthesizer_group(self) -> None:
+        """The poetry export command must include ``--with synthesizer``.
+
+        The ``synthesizer`` optional dependency group contains sdv, torch, and
+        opacus.  Without ``--with synthesizer``, these packages are absent from
+        the requirements.txt exported to the production image, causing an
+        ImportError when synthesis jobs execute.
+
+        Fix: add ``--with synthesizer`` to the poetry export RUN command in the
+        python-builder stage of the Dockerfile.
+        """
+        content = DOCKERFILE.read_text()
+        assert "--with synthesizer" in content, (
+            "Dockerfile poetry export command is missing '--with synthesizer'.\n"
+            "The synthesizer optional group (sdv, torch, opacus) must be included "
+            "in the production image.  Add '--with synthesizer' to the RUN poetry "
+            "export command in the python-builder stage.\n"
+            "Expected form:\n"
+            "  RUN poetry export --without dev --with synthesizer --without-hashes "
+            "-f requirements.txt -o requirements.txt"
+        )
+
+    def test_poetry_export_still_excludes_dev_group(self) -> None:
+        """The poetry export command must still include ``--without dev``.
+
+        Dev dependencies (pytest, ruff, mypy, etc.) must be excluded from the
+        production image.  Adding ``--with synthesizer`` must not remove the
+        existing ``--without dev`` flag.
+        """
+        content = DOCKERFILE.read_text()
+        assert "--without dev" in content, (
+            "Dockerfile poetry export command is missing '--without dev'.\n"
+            "Dev dependencies must be excluded from the production image."
+        )
 
 
 # ---------------------------------------------------------------------------

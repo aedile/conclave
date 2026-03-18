@@ -749,32 +749,50 @@ class TestE2eValidationDoc:
         assert doc_path.is_file(), "docs/E2E_VALIDATION.md not found"
 
     def test_e2e_doc_contains_docker_compose_step(self) -> None:
-        """docs/E2E_VALIDATION.md must document the docker-compose step."""
-        doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
-        if not doc_path.is_file():
-            pytest.skip("docs/E2E_VALIDATION.md not found")
-        content = doc_path.read_text(encoding="utf-8").lower()
-        assert "docker-compose" in content or "docker compose" in content, (
-            "E2E_VALIDATION.md must document docker-compose startup step"
-        )
+        """docs/E2E_VALIDATION.md must document the Docker infrastructure step.
 
-    def test_e2e_doc_contains_seed_data_step(self) -> None:
-        """docs/E2E_VALIDATION.md must document the seed data step."""
-        doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
-        if not doc_path.is_file():
-            pytest.skip("docs/E2E_VALIDATION.md not found")
-        content = doc_path.read_text(encoding="utf-8").lower()
-        assert "seed" in content, "E2E_VALIDATION.md must document the seeding step"
-
-    def test_e2e_doc_contains_conclave_subset_step(self) -> None:
-        """docs/E2E_VALIDATION.md must document the conclave-subset CLI step."""
+        Updated for P28: the document was rewritten to reflect the new container-based
+        validation approach (conclave-app-e2e). The old docker-compose CLI workflow
+        was superseded; the test now checks for Docker infrastructure evidence that
+        IS present in the P28 document.
+        """
         doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
         if not doc_path.is_file():
             pytest.skip("docs/E2E_VALIDATION.md not found")
         content = doc_path.read_text(encoding="utf-8")
-        assert "conclave-subset" in content, (
-            "E2E_VALIDATION.md must document the conclave-subset CLI"
+        assert "docker" in content.lower(), "E2E_VALIDATION.md must document Docker infrastructure"
+        assert "conclave-app-e2e" in content, (
+            "E2E_VALIDATION.md must reference the conclave-app-e2e container"
         )
+
+    def test_e2e_doc_contains_seed_data_step(self) -> None:
+        """docs/E2E_VALIDATION.md must document the infrastructure health step.
+
+        Updated for P28: the old seed-data CLI step was superseded by a live
+        container health validation step. The test now checks for Infrastructure
+        Health evidence that IS present in the P28 document.
+        """
+        doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
+        if not doc_path.is_file():
+            pytest.skip("docs/E2E_VALIDATION.md not found")
+        content = doc_path.read_text(encoding="utf-8")
+        assert "Infrastructure Health" in content, (
+            "E2E_VALIDATION.md must document the infrastructure health step"
+        )
+
+    def test_e2e_doc_contains_conclave_subset_step(self) -> None:
+        """docs/E2E_VALIDATION.md must document the API pipeline step.
+
+        Updated for P28: the old conclave-subset CLI step was superseded by a live
+        API pipeline validation step with HTTP evidence. The test now checks for
+        API Pipeline content that IS present in the P28 document.
+        """
+        doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
+        if not doc_path.is_file():
+            pytest.skip("docs/E2E_VALIDATION.md not found")
+        content = doc_path.read_text(encoding="utf-8")
+        assert "API Pipeline" in content, "E2E_VALIDATION.md must document the API pipeline step"
+        assert "HTTP/1.1" in content, "E2E_VALIDATION.md must contain live HTTP response evidence"
 
     def test_e2e_doc_contains_synthesis_step(self) -> None:
         """docs/E2E_VALIDATION.md must document the synthesis API step."""
@@ -785,21 +803,23 @@ class TestE2eValidationDoc:
         assert "synth" in content, "E2E_VALIDATION.md must document the synthesis step"
 
     def test_e2e_doc_contains_live_validation_evidence(self) -> None:
-        """docs/E2E_VALIDATION.md must contain live validation evidence (P19-T19.4).
+        """docs/E2E_VALIDATION.md must contain live validation evidence (P28).
 
-        T18.3 required TODO markers as placeholders. T19.4 replaces those markers
-        with actual terminal output. This test verifies the live run evidence is
-        present and the document has been updated from its placeholder state.
+        P28 rewrote the E2E document with fresh live evidence: HTTP API responses,
+        Playwright screenshot run output, Dockerfile findings, and quality gate
+        results. This test verifies the P28 live run evidence is present.
         """
         doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
         if not doc_path.is_file():
             pytest.skip("docs/E2E_VALIDATION.md not found")
         content = doc_path.read_text(encoding="utf-8")
-        # T19.4 replaced TODO markers with live evidence — validate key evidence strings
-        assert "LIVE VALIDATION EVIDENCE" in content, (
-            "E2E_VALIDATION.md must contain live validation evidence from P19-T19.4 run"
-        )
-        assert "FINDING" in content, (
+        # P28 documents blocking findings in the Findings Summary table
+        assert "BLOCKER" in content, (
             "E2E_VALIDATION.md must document findings from the live validation run"
         )
-        assert "Exit code: 0" in content, "E2E_VALIDATION.md must capture CLI exit code evidence"
+        # P28 Playwright evidence: 32 specs passing (4 pre-existing unseal.spec.ts failures)
+        assert "32 passed" in content, "E2E_VALIDATION.md must contain Playwright test run evidence"
+        # P28 live API evidence: HTTP responses captured
+        assert "HTTP/1.1 200" in content, (
+            "E2E_VALIDATION.md must contain live HTTP response evidence"
+        )

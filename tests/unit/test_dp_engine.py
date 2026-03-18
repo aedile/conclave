@@ -350,6 +350,48 @@ class TestDPTrainingWrapperEpsilonSpent:
         result = wrapper.epsilon_spent(delta=1e-5)
         assert isinstance(result, float)
 
+    def test_epsilon_spent_returns_strict_python_float_not_numpy_float64(self) -> None:
+        """epsilon_spent() must return a strict Python float, not np.float64.
+
+        Opacus PrivacyEngine.get_epsilon() returns np.float64.  psycopg2 cannot
+        serialize np.float64 as a PostgreSQL NUMERIC/FLOAT column — it emits
+        'schema "np" does not exist'.  This test guards against regression by
+        verifying type(result) is float, not just isinstance(result, float) which
+        np.float64 passes due to numpy's float subclassing.
+
+        F6 regression guard.
+        """
+        import numpy as np
+
+        from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
+
+        mock_engine_instance = MagicMock()
+        mock_engine_instance.make_private.return_value = (
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+        mock_engine_instance.get_epsilon.return_value = np.float64(3.14159)
+
+        wrapper = DPTrainingWrapper()
+        with patch(
+            "synth_engine.modules.privacy.dp_engine.PrivacyEngine",
+            return_value=mock_engine_instance,
+        ):
+            wrapper.wrap(
+                optimizer=MagicMock(),
+                model=MagicMock(),
+                dataloader=MagicMock(),
+                max_grad_norm=1.0,
+                noise_multiplier=1.1,
+            )
+
+        result = wrapper.epsilon_spent(delta=1e-5)
+        assert type(result) is float, (
+            f"epsilon_spent() must return strict Python float, got {type(result).__name__}. "
+            "np.float64 breaks psycopg2 serialization (F6)."
+        )
+
 
 class TestDPTrainingWrapperCheckBudget:
     """Unit tests for DPTrainingWrapper.check_budget().

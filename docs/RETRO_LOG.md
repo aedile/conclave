@@ -20,6 +20,42 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-18] Phase 28 — Full E2E Validation with Frontend Screenshots
+
+**Tasks**: E2E validation run against real Docker infrastructure, Playwright screenshot evidence, load testing with 11,000 synthetic rows across 4 tables.
+
+**Review agents**: QA (FINDING), DevOps (PASS), Architecture (FINDING)
+
+**Production bugs found and fixed (4)**:
+- F1: Dockerfile `pip install --ignore-installed` — multi-stage build skipped pre-installed packages (anyio/sniffio)
+- F2: Dockerfile tini path `/sbin/tini` → `/usr/bin/tini` — wrong path for python:3.14-slim
+- F3: Dockerfile `poetry export --with synthesizer` — synthesizer deps (torch/sdv/opacus) excluded from image
+- F4: `bootstrapper/factories.py` — replaced `asyncio.run()` with sync SQLAlchemy engine for Huey worker (MissingGreenlet fix)
+- F6: `modules/privacy/dp_engine.py` — cast `np.float64` → `float` for psycopg2 serialization
+
+**Review findings fixed (4)**:
+- R1 (Arch BLOCKER): ADR-0035 created for dual-driver DB access pattern (Rule 6 compliance)
+- R2 (Arch advisory): SpendBudgetProtocol docstring updated (stale asyncio.run reference)
+- R3 (Arch+DevOps advisory): Engine hoisted to factory scope with NullPool (connection pool hygiene)
+- R4 (QA BLOCKER): Test assertion "10 passed" → "32 passed" in TestE2eValidationDoc
+
+**What went well**:
+1. E2E validation found 5 real production bugs that static analysis and unit tests could not catch.
+2. Load test with 11,000 synthetic rows across 4 tables confirmed full pipeline works at scale.
+3. Privacy budget tracking works end-to-end: 28.33 epsilon spent from 100 allocated across 4 jobs.
+4. Shred lifecycle verified: jobs transitioned to SHREDDED status correctly.
+5. Playwright captured 10 frontend screenshots as evidence artifacts.
+
+**What to improve**:
+1. Dockerfile changes should include a container smoke test (`docker run --rm <image> python -c "import anyio"`) before branch push.
+2. `TestE2eValidationDoc` tests are fragile — asserting exact substrings of prose documents. Consider structural markers instead.
+3. Type boundaries between ML libraries (numpy) and DB drivers (psycopg2) need a typed value-object layer to prevent serialization mismatches.
+4. The sync DB path in factories.py was introduced without an ADR — Rule 6 must be enforced earlier in the development cycle.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-17] Phase 27 — Frontend Production Hardening
 
 **Tasks**: T27.1 (responsive breakpoints), T27.2 (Dashboard extraction), T27.3 (AsyncButton standardization), T27.4 (E2E accessibility tests), T27.5 (design tokens docs)
