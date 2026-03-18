@@ -37,7 +37,7 @@ def get_db_session() -> Generator[Session]:
     to inject a session backed by an in-memory SQLite database.
 
     Yields:
-        An open :class:`sqlmodel.Session`; closed automatically on exit.
+        Generator[Session]: An open :class:`sqlmodel.Session`; closed automatically on exit.
     """
     database_url = os.environ.get(_DATABASE_URL_ENV, _DEFAULT_DATABASE_URL)
     engine = get_engine(database_url)

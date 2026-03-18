@@ -190,7 +190,6 @@ def apply_fk_post_processing(
     Raises:
         ValueError: If ``valid_parent_pks`` is empty — there are no valid
             FK targets to resample from.
-        KeyError: If ``fk_column`` does not exist in ``child_df``.
     """
     if not valid_parent_pks:
         raise ValueError(
@@ -276,12 +275,6 @@ class SynthesisEngine:
     """
 
     def __init__(self, epochs: int = _DEFAULT_EPOCHS) -> None:
-        """Initialise the engine with a configurable epoch count.
-
-        Args:
-            epochs: Number of CTGAN training epochs.  Lower values speed up
-                tests; higher values improve synthetic data quality.
-        """
         self._epochs = epochs
 
     def train(

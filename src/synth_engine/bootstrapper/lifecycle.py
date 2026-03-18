@@ -61,7 +61,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
             protocol; unused here but part of the interface contract).
 
     Yields:
-        Control to the application for the duration of its lifetime.
+        None: Control to the application for the duration of its lifetime.
     """
     validate_config()
     yield

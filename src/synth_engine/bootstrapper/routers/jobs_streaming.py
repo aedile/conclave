@@ -67,10 +67,7 @@ def _iter_file_chunks(path: str, chunk_size: int = _DOWNLOAD_CHUNK_SIZE) -> Iter
         chunk_size: Number of bytes per chunk.  Defaults to 64 KiB.
 
     Yields:
-        Successive byte chunks of at most ``chunk_size`` bytes.
-
-    Raises:
-        OSError: If the file cannot be opened or read.
+        bytes: Successive byte chunks of at most ``chunk_size`` bytes.
     """
     with open(path, "rb") as fh:
         while True:

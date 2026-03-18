@@ -273,9 +273,6 @@ def operator_error_response(exc: Exception) -> JSONResponse:
     Returns:
         JSONResponse with the operator-friendly RFC 7807 body and the
         mapped HTTP status code.
-
-    Raises:
-        KeyError: If ``exc``'s class is not in :data:`OPERATOR_ERROR_MAP`.
     """
     entry = OPERATOR_ERROR_MAP[type(exc)]
     _logger.warning(
@@ -325,11 +322,6 @@ class RFC7807Middleware:
     """
 
     def __init__(self, app: ASGIApp) -> None:
-        """Initialise with the inner ASGI application.
-
-        Args:
-            app: The inner ASGI application to wrap.
-        """
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -345,6 +337,10 @@ class RFC7807Middleware:
             scope: The ASGI connection scope (type, path, headers, etc.).
             receive: The ASGI receive callable.
             send: The ASGI send callable.
+
+        Raises:
+            Exception: Any unhandled exception from the inner app is re-raised
+                when response headers have already been sent.
         """
         if scope["type"] != "http":
             await self.app(scope, receive, send)

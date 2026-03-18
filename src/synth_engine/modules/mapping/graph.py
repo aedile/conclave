@@ -23,19 +23,15 @@ from collections import deque
 class CycleDetectionError(Exception):
     """Raised when a circular dependency is detected in the schema graph.
 
-    Attributes:
-        cycle: The sequence of table names forming the detected cycle.
-            The sequence is ordered so that ``cycle[i]`` has an edge to
-            ``cycle[i+1]`` and the last node has an edge back to a node
-            earlier in the sequence.
+    The ``cycle`` attribute holds the sequence of table names forming the
+    detected cycle, ordered so that ``cycle[i]`` has an edge to ``cycle[i+1]``
+    and the last node has an edge back to a node earlier in the sequence.
+
+    Args:
+        cycle: Ordered list of table names that form the cycle.
     """
 
     def __init__(self, cycle: list[str]) -> None:
-        """Initialise with the identified cycle sequence.
-
-        Args:
-            cycle: Ordered list of table names that form the cycle.
-        """
         self.cycle: list[str] = cycle
         cycle_repr = " -> ".join(cycle)
         super().__init__(
@@ -60,13 +56,9 @@ class DirectedAcyclicGraph:
         order = dag.topological_sort()
         # -> ["organizations", "departments", "employees"]
 
-    Raises:
-        CycleDetectionError: :meth:`topological_sort` raises this if a cycle
-            is detected.  :meth:`has_cycle` returns a bool without raising.
     """
 
     def __init__(self) -> None:
-        """Initialise an empty graph."""
         self._nodes: set[str] = set()
         # Adjacency list: parent -> list[child]
         self._adjacency: dict[str, list[str]] = {}

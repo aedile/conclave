@@ -110,9 +110,6 @@ class PostgresIngestionAdapter:
     Args:
         connection_url: SQLAlchemy PostgreSQL connection URL. Must pass
             :func:`~synth_engine.modules.ingestion.validators.validate_connection_string`.
-
-    Raises:
-        ValueError: If the connection URL fails validation.
     """
 
     def __init__(self, connection_url: str) -> None:
@@ -136,7 +133,6 @@ class PostgresIngestionAdapter:
             PrivilegeEscalationError: If the user is a superuser or holds any
                 write privilege (INSERT, UPDATE, DELETE) on any table in the
                 target database.
-            sqlalchemy.exc.SQLAlchemyError: If the database connection fails.
         """
         with self._engine.connect() as conn:
             # Stage 0: connectivity check — raises if connection is broken.
@@ -212,11 +208,8 @@ class PostgresIngestionAdapter:
             batch_size: Number of rows to fetch per round-trip. Defaults to 1000.
 
         Yields:
-            Batches of rows; each batch is ``list[dict[str, Any]]``.
+            Generator[list[dict[str, Any]]]: Batches of rows as column-name-to-value dicts.
 
-        Raises:
-            ValueError: If ``table_name`` is not in the allowed table list.
-            sqlalchemy.exc.SQLAlchemyError: If a database error occurs.
         """
         self._validate_table_name(table_name, schema=schema)
 

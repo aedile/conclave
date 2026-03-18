@@ -75,7 +75,6 @@ class MaskingRegistry:
     """
 
     def __init__(self) -> None:
-        """Initialise the registry with an empty collision-prevention store."""
         self._seen: dict[str, set[str]] = {}
         # Tracks how many times each base masked value has been emitted per salt.
         self._suffix_counters: dict[str, dict[str, int]] = {}

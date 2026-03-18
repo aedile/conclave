@@ -212,11 +212,8 @@ def _handle_dp_accounting(
         job_id: Job primary key (used for log messages and audit details).
 
     Returns:
-        Nothing.  Raises if a non-budget exception escapes ``_spend_budget_fn``.
-
-    Raises:
-        Exception: Any non-``BudgetExhaustionError`` exception raised by
-            ``_spend_budget_fn`` propagates to the caller.
+        None.  Non-budget exceptions from ``_spend_budget_fn`` propagate to
+        the caller.
     """
     # ------------------------------------------------------------------
     # Step 5: Record actual epsilon

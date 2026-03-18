@@ -72,9 +72,6 @@ def shred_artifacts(job: SynthesisJob) -> None:
             whose artifacts should be erased.  Only ``output_path`` and
             ``artifact_path`` fields are accessed.
 
-    Raises:
-        OSError: If an I/O error (e.g. permission denied) prevents deletion
-            of a file that exists.  Missing files do NOT raise.
     """
     _delete_file_if_present(job.output_path)
     if job.output_path is not None:

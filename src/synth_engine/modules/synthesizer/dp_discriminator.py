@@ -82,11 +82,6 @@ class OpacusCompatibleDiscriminator(nn.Module):
         the input batch to pack ``pac`` adjacent rows before passing through
         ``self.seq``.
 
-    Attributes:
-        pac: Number of samples packed per discriminator input (PacGAN parameter).
-        pacdim: Effective input dimension after packing (``input_dim * pac``).
-        seq: The ``nn.Sequential`` container holding all layers.
-
     Args:
         input_dim: Raw feature dimension of a single training sample.
         discriminator_dim: Tuple of hidden layer widths, e.g. ``(256, 256)``.
@@ -109,15 +104,6 @@ class OpacusCompatibleDiscriminator(nn.Module):
         discriminator_dim: tuple[int, ...],
         pac: int = 10,
     ) -> None:
-        """Construct the Opacus-compatible CTGAN Discriminator.
-
-        Args:
-            input_dim: Feature dimension of a single (unpacked) training sample.
-            discriminator_dim: Sequence of hidden layer sizes. Each entry adds a
-                ``Linear → LeakyReLU → Dropout`` block.
-            pac: PacGAN packing factor (number of samples concatenated per
-                discriminator input). Defaults to 10.
-        """
         super().__init__()
 
         self.pac: int = pac
@@ -150,8 +136,6 @@ class OpacusCompatibleDiscriminator(nn.Module):
             Tensor of shape ``(batch_size // pac, 1)`` — the discriminator score
             for each packed group of samples.
 
-        Raises:
-            AssertionError: If ``batch_size % self.pac != 0``.
         """
         assert input_.size()[0] % self.pac == 0
         return self.seq(input_.view(-1, self.pacdim))

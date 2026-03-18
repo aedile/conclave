@@ -135,10 +135,6 @@ def re_encrypt_column_values(
 
     Raises:
         ValueError: If ``batch_size`` is not a positive integer.
-        cryptography.fernet.InvalidToken: If any ciphertext value cannot be
-            decrypted with ``old_fernet`` (indicates key mismatch or data
-            corruption).
-        sqlalchemy.exc.SQLAlchemyError: On database access failure.
     """
     if batch_size <= 0:
         raise ValueError(f"batch_size must be a positive integer, got {batch_size!r}")
@@ -205,6 +201,10 @@ def rotate_ale_keys(
     Returns:
         A dict mapping ``"<table_name>.<column_name>"`` to the number of rows
         re-encrypted for that column.  Empty dict if no encrypted columns exist.
+
+    Raises:
+        Exception: Any exception from :func:`re_encrypt_column_values` is
+            logged and re-raised after the failed column is identified.
     """
     columns = find_encrypted_columns(engine)
     _logger.info("rotate_ale_keys: found %d encrypted column(s) to rotate.", len(columns))
@@ -260,10 +260,6 @@ def rotate_ale_keys_task(
     Returns:
         Dict mapping ``"<table>.<column>"`` to rows rotated.
 
-    Raises:
-        VaultSealedError: If the vault is sealed in the worker process.
-        cryptography.fernet.InvalidToken: If ciphertext cannot be decrypted
-            (key mismatch — should not happen in normal operation).
     """
     engine = get_engine(database_url)
     old_fernet = get_fernet()  # derives from current vault KEK or ALE_KEY env

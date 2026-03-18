@@ -68,10 +68,6 @@ def _write_parquet_with_signing(
         that point and the job continues normally.  This is the function's
         primary defensive behavior.
 
-    Raises:
-        OSError: If the Parquet write or sidecar write fails due to a
-            filesystem error (e.g. disk full, permission denied).  Callers
-            should catch this and transition the job to FAILED.
     """
     # F5 fix: log basename only — full paths may expose internal filesystem layout.
     parquet_name = Path(parquet_path).name

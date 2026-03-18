@@ -107,6 +107,15 @@ class SynthesisJob(SQLModel, table=True):
         actual_epsilon: Actual epsilon privacy budget spent after training.
             Set by the training task (T22.2).  ``None`` until training
             completes with DP enabled.
+
+    Args:
+        **data: Keyword arguments forwarded to SQLModel base class.
+            See field definitions below for valid keys and their constraints.
+
+    Raises:
+        ValueError: If ``num_rows`` < 1, ``checkpoint_every_n`` < 1,
+            ``noise_multiplier`` not in (0, 100.0], or ``max_grad_norm``
+            not in (0, 100.0].
     """
 
     __tablename__ = "synthesis_job"
@@ -130,28 +139,6 @@ class SynthesisJob(SQLModel, table=True):
     # Defense-in-depth: these guards duplicate the Pydantic Field constraints in
     # bootstrapper/schemas/jobs.py.  Both must be updated together.
     def __init__(self, **data: Any) -> None:
-        """Initialise SynthesisJob, enforcing field constraints.
-
-        SQLModel ``table=True`` models bypass pydantic field validators in
-        ``__init__`` to allow ORM row construction.  This override adds
-        explicit guards before delegating to ``super().__init__``.
-
-        Args:
-            **data: Keyword arguments forwarded to the SQLModel base class.
-
-        Raises:
-            ValueError: If ``num_rows`` is less than 1.  Generation requires
-                at least one row; zero or negative values are rejected.
-            ValueError: If ``checkpoint_every_n`` is less than 1.  A value of
-                0 would cause ``min(0, total - 0) == 0`` in the training loop,
-                making ``completed_epochs`` never advance (infinite loop).
-            ValueError: If ``noise_multiplier`` is not strictly positive or
-                exceeds 100.0.  The Opacus API requires a positive noise
-                multiplier; values above 100.0 are almost certainly erroneous.
-            ValueError: If ``max_grad_norm`` is not strictly positive or
-                exceeds 100.0.  Gradient clipping requires a positive bound;
-                values above 100.0 are almost certainly erroneous.
-        """
         # F3 fix: enforce num_rows >= 1 (docstring mandates this, __init__ must guard it).
         num_rows = data.get("num_rows")
         if isinstance(num_rows, int) and num_rows < 1:

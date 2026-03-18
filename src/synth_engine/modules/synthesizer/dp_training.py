@@ -255,27 +255,6 @@ class DPCompatibleCTGAN:
         allocated_epsilon: float = 50.0,
         delta: float = 1e-5,
     ) -> None:
-        """Initialise the DPCompatibleCTGAN instance.
-
-        Args:
-            metadata: ``sdv.metadata.SingleTableMetadata`` instance with
-                column sdtypes detected from the training DataFrame.
-            epochs: Number of GAN training epochs.  Pass a low value (2-5)
-                for integration test speed; use 300+ for production quality.
-            dp_wrapper: Optional DP wrapper.  Must implement:
-                ``max_grad_norm: float`` and ``noise_multiplier: float``
-                attributes (read at wrap time);
-                ``wrap(optimizer, model, dataloader, *, max_grad_norm,
-                noise_multiplier)`` -> dp_optimizer;
-                ``epsilon_spent(*, delta)`` -> float;
-                ``check_budget(*, allocated_epsilon, delta)`` -> None.
-                When ``None``, training runs in vanilla (non-DP) mode.
-            allocated_epsilon: Privacy budget for ``check_budget()`` early-stopping
-                checks.  Defaults to ``50.0``.  This is intentionally generous:
-                discriminator-level DP-SGD typically spends 1-10 epsilon per epoch;
-                callers that need tighter budgets must pass an explicit value.
-            delta: Delta parameter for epsilon computation.  Defaults to ``1e-5``.
-        """
         self._metadata = metadata
         self._epochs = epochs
         self._dp_wrapper = dp_wrapper
@@ -728,10 +707,6 @@ class DPCompatibleCTGAN:
         Args:
             processed_df: Preprocessed DataFrame from SDV's ``DataProcessor``.
             model_kwargs: CTGAN hyperparameters from ``_get_model_kwargs()``.
-
-        Raises:
-            BudgetExhaustionError: Propagated immediately from ``check_budget()``.
-            RuntimeError: If processed_df is too small to form a valid DataLoader.
         """
         assert self._dp_wrapper is not None, (  # type guard for mypy
             "_train_dp_discriminator must only be called when dp_wrapper is not None"
@@ -856,6 +831,9 @@ class DPCompatibleCTGAN:
         Args:
             processed_df: Preprocessed (VGM-normalized) DataFrame from SDV's
                 ``DataProcessor``.  Used to build the TensorDataset.
+
+        Raises:
+            ImportError: If PyTorch is not installed (synthesizer group not installed).
 
         Note:
             This method must only be called when ``self._dp_wrapper is not None``
@@ -989,7 +967,6 @@ class DPCompatibleCTGAN:
             ``self`` — allows method chaining.
 
         Raises:
-            ImportError: If the synthesizer dependency group is not installed.
             ValueError: If ``df`` is empty.
             BudgetExhaustionError: If the DP budget is exhausted mid-training
                 (propagated from ``dp_wrapper.check_budget()``).

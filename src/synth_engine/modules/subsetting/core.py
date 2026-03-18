@@ -102,20 +102,6 @@ class SubsettingEngine:
         egress: EgressWriter,
         row_transformer: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
-        """Initialise with bootstrapper-injected dependencies.
-
-        Args:
-            source_engine: Source database engine (read-only).
-            topology: Schema topology value object from the bootstrapper.
-            egress: Egress writer for the target database.
-            row_transformer: Optional per-row transformation callback.  If
-                provided, it is called as ``row_transformer(table_name, row)``
-                for every row before the row is passed to the egress writer.
-                The callback MUST return a new dict (or the same dict) with the
-                same column keys; it MUST NOT return ``None`` or raise.
-                A ``None`` return raises ``TypeError`` immediately.  Any raise
-                triggers the Saga rollback.
-        """
         self._engine = source_engine
         self._topology = topology
         self._egress = egress

@@ -262,6 +262,9 @@ class ProfileDelta:
 
         Returns:
             A new :class:`ProfileDelta` instance.
+
+        Raises:
+            TypeError: If ``column_deltas`` is not a dict.
         """
         raw_deltas: dict[str, Any] = data.get("column_deltas", {})
         if not isinstance(raw_deltas, dict):

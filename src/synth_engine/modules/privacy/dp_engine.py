@@ -111,18 +111,6 @@ class DPTrainingWrapper:
         max_grad_norm: float = _DEFAULT_MAX_GRAD_NORM,
         noise_multiplier: float = _DEFAULT_NOISE_MULTIPLIER,
     ) -> None:
-        """Initialise a DPTrainingWrapper with configurable DP hyper-parameters.
-
-        Args:
-            max_grad_norm: Maximum L2 norm for per-sample gradient clipping.
-                Must be strictly positive.  Default: 1.0.
-            noise_multiplier: Ratio of Gaussian noise std to max_grad_norm.
-                Must be strictly positive.  Default: 1.1.
-
-        Raises:
-            ValueError: If ``max_grad_norm`` or ``noise_multiplier`` is not
-                strictly positive.
-        """
         if max_grad_norm <= 0:
             raise ValueError(
                 f"max_grad_norm must be positive, got {max_grad_norm!r}. "

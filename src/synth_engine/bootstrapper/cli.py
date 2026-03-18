@@ -176,10 +176,6 @@ def _load_topology(source_dsn: str) -> SchemaTopology:
         A :class:`~synth_engine.shared.schema_topology.SchemaTopology`
         instance describing the source schema.
 
-    Raises:
-        Exception: Any SQLAlchemy or reflection error propagates to the
-            caller (the ``subset`` command), which wraps it in a clean
-            error message.
     """
     engine = create_engine(source_dsn)
     reflector = SchemaReflector(engine=engine)
