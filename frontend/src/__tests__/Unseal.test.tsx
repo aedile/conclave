@@ -5,6 +5,13 @@
  * redirect-on-success behaviour.
  *
  * WCAG 2.1 AA: verifies that form elements have correct ARIA attributes.
+ *
+ * P27-T27.3 update: The submit button now uses AsyncButton, which renders
+ * the loading text in two places — inside the button and in the associated
+ * aria-live region (for screen reader announcement). The "disables the submit
+ * button while loading" test was updated to use toHaveTextContent on the
+ * button element directly, since getByText(/unsealing/i) would now match
+ * multiple elements.
  */
 
 import { act, render, screen, waitFor } from "@testing-library/react";
@@ -97,8 +104,11 @@ describe("Unseal component", () => {
     await user.type(input, "my-passphrase");
     await user.click(button);
 
+    // P27-T27.3: AsyncButton renders loadingText in both the button (visible)
+    // and the aria-live region (for AT). Use toHaveTextContent on the button
+    // element to assert the loading text without ambiguity.
     expect(button).toBeDisabled();
-    expect(screen.getByText(/unsealing/i)).toBeInTheDocument();
+    expect(button).toHaveTextContent(/unsealing/i);
   });
 
   it("shows a network error message on fetch failure", async () => {

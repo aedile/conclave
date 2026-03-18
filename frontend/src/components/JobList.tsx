@@ -14,10 +14,15 @@
  *   - WCAG fix note: "Load More" button uses --color-accent-text (#818cf8,
  *     ~6.3:1 on --color-bg) via dashboard-pagination__btn class — the WCAG
  *     colour token is in global.css, not here.
+ *
+ * P27-T27.3: "Load More" pagination button replaced with AsyncButton component
+ * for standardized loading/disabled pattern. Layout class
+ * (.dashboard-pagination__btn) passed via className to preserve existing styling.
  */
 
 import type { JobResponse } from "../api/client";
 import type { SSEState } from "../hooks/useSSE";
+import AsyncButton from "./AsyncButton";
 import JobCard from "./JobCard";
 
 // ---------------------------------------------------------------------------
@@ -111,17 +116,19 @@ export default function JobList({
       {/* Pagination — load more.
           WCAG fix: uses --color-accent-text (#818cf8, ~6.3:1 on --color-bg)
           instead of --color-accent (#4f46e5, ~3:1 on --color-bg which fails
-          WCAG 1.4.3 for text on a transparent/dark background). */}
+          WCAG 1.4.3 for text on a transparent/dark background).
+          P27-T27.3: "Load More" replaced with AsyncButton. */}
       {nextCursor !== null && (
         <div className="dashboard-pagination">
-          <button
+          <AsyncButton
             type="button"
-            disabled={isLoadingMore}
+            isLoading={isLoadingMore}
+            loadingText="Loading…"
             onClick={onLoadMore}
             className="dashboard-pagination__btn"
           >
-            {isLoadingMore ? "Loading…" : "Load More"}
-          </button>
+            Load More
+          </AsyncButton>
         </div>
       )}
     </section>

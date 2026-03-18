@@ -16,9 +16,14 @@
  *     mounted) so NVDA+Firefox does not swallow repeat announcements when
  *     the same validation error fires twice in a row.
  *   - No inline style= attributes — all layout via CSS classes (P20-T20.3 AC3).
+ *
+ * P27-T27.3: "Create Job" submit button replaced with AsyncButton component
+ * for standardized loading/disabled pattern. Layout class (.dashboard-form__submit)
+ * passed via className to preserve existing visual presentation.
  */
 
 import type React from "react";
+import AsyncButton from "./AsyncButton";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -203,14 +208,19 @@ export default function CreateJobForm({
           />
         </div>
 
+        {/*
+         * P27-T27.3: "Create Job" submit replaced with AsyncButton.
+         * className preserves layout styling; loading state standardized.
+         */}
         <div className="dashboard-form__actions">
-          <button
+          <AsyncButton
             type="submit"
-            disabled={isCreating}
+            isLoading={isCreating}
+            loadingText="Creating…"
             className="dashboard-form__submit"
           >
-            {isCreating ? "Creating…" : "Create Job"}
-          </button>
+            Create Job
+          </AsyncButton>
         </div>
       </form>
     </section>
