@@ -721,6 +721,51 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
+ * AsyncButton — shared async loading button component (P27-T27.3)
+ *
+ * BEM block: .async-button
+ * Consuming components apply their own layout classes (e.g. .unseal-form__submit)
+ * for positional styling. These shared classes handle the spinner and state.
+ *
+ * The .async-button__live-region is visually hidden but available to AT.
+ * Using .sr-only pattern so screen readers always receive announcements.
+ * ---------------------------------------------------------------------------*/
+
+/* Visually hidden live region — announced to screen readers, not visible */
+.async-button__live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Shared spinner — extracted from .unseal-form__spinner (P27-T27.3 AC3).
+ * Decorative only; aria-hidden="true" is set in AsyncButton markup. */
+.async-button__spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Reduced motion: stop spinner animation (reuses global @keyframes spin override) */
+@media (prefers-reduced-motion: reduce) {
+  .async-button__spinner {
+    animation: none;
+    /* Show a static indicator instead of a spinning one */
+    border-top-color: rgba(255, 255, 255, 0.6);
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * Responsive breakpoints — P27-T27.1
  *
  * Tablet breakpoint: max-width: 1024px (--breakpoint-tablet)
