@@ -3,7 +3,7 @@
 **Date:** 2026-03-18
 **Status:** Accepted
 **Deciders:** PM + Architecture Reviewer
-**Task:** P30-T30.1
+**Tasks:** P30-T30.1 (ADR), P30-T30.2 (OpacusCompatibleDiscriminator), P30-T30.3 (custom training loop — IMPLEMENTED)
 **Supersedes:** ADR-0025 §"Planned Resolution — Phase 30" (proxy model as primary path)
 **References:** ADR-0025 (Custom CTGAN Training Loop), ADR-0017 (Synthesizer & DP Library Selection)
 
