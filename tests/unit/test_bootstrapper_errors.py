@@ -494,9 +494,7 @@ class TestOperatorFriendlyErrorMessages:
         required_keys = {"title", "detail", "status_code", "type_uri"}
         for exc_class, entry in OPERATOR_ERROR_MAP.items():
             missing = required_keys - entry.keys()
-            assert not missing, (
-                f"{exc_class.__name__} entry missing keys: {missing}"
-            )
+            assert not missing, f"{exc_class.__name__} entry missing keys: {missing}"
 
     def test_privilege_escalation_error_not_in_operator_map(self) -> None:
         """PrivilegeEscalationError must NOT appear in the operator error map.
@@ -669,9 +667,7 @@ class TestUnsealRouteRFC7807Format:
 
         app = create_app()
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/unseal", json={"passphrase": ""})
 
         assert response.status_code == 400
@@ -712,7 +708,5 @@ class TestUnsealRouteRFC7807Format:
         assert "title" in body
         assert "status" in body
         assert "detail" in body
-        assert "error_code" not in body, (
-            "Response must not use legacy 'error_code' field"
-        )
+        assert "error_code" not in body, "Response must not use legacy 'error_code' field"
         assert body["title"] == "Vault Configuration Error"

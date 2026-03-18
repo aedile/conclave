@@ -5,6 +5,11 @@ Contains:
 - ``_lifespan()`` — async context manager wired as the FastAPI lifespan hook;
   runs startup validation via :func:`~synth_engine.bootstrapper.config_validation.validate_config`.
 - ``_register_routes()`` — attaches /health and /unseal to the application.
+
+Task: P29-T29.3 — Error Message Audience Differentiation
+    The /unseal route now returns RFC 7807 format for error responses, using
+    OPERATOR_ERROR_MAP for operator-friendly titles and actionable detail messages.
+    The legacy ``{"error_code": ..., "detail": ...}`` format has been removed.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from synth_engine.bootstrapper.config_validation import validate_config
+from synth_engine.bootstrapper.errors import operator_error_response
 from synth_engine.shared.security.vault import (
     VaultAlreadyUnsealedError,
     VaultConfigError,
@@ -46,7 +52,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     Runs :func:`~synth_engine.bootstrapper.config_validation.validate_config`
     at server startup to enforce fail-fast configuration validation before
     the application accepts any traffic.  This hook is executed by the ASGI
-    server (uvicorn) when the process starts — not at import time — so unit
+    server (uvicorn) when the process starts -- not at import time -- so unit
     tests that call :func:`create_app` without a live ASGI server are
     unaffected.
 
@@ -65,8 +71,8 @@ def _register_routes(app: FastAPI) -> None:
     """Attach all core ops routes to the application.
 
     Registers:
-    - ``GET /health`` — liveness probe for container orchestrators.
-    - ``POST /unseal`` — operator passphrase → vault KEK derivation.
+    - ``GET /health`` -- liveness probe for container orchestrators.
+    - ``POST /unseal`` -- operator passphrase -> vault KEK derivation.
 
     Args:
         app: The FastAPI instance to register routes on.
@@ -94,34 +100,47 @@ def _register_routes(app: FastAPI) -> None:
 
         Returns:
             ``{"status": "unsealed"}`` with HTTP 200 on success.
-            ``{"error_code": "<code>", "detail": "<reason>"}`` with HTTP 400
-            on failure.
+            RFC 7807 Problem Details with HTTP 400 on failure, using
+            operator-friendly titles and actionable detail messages.
         """
         try:
             await asyncio.to_thread(VaultState.unseal, body.passphrase)
         except VaultEmptyPassphraseError as exc:
-            return JSONResponse(
-                content={"error_code": "EMPTY_PASSPHRASE", "detail": str(exc)},
-                status_code=400,
-            )
+            return operator_error_response(exc)
         except VaultAlreadyUnsealedError as exc:
+            # Return a specific RFC 7807 response for this case -- the vault
+            # is already unsealed, which is not a hard failure for operators.
+            _logger.warning("Vault unseal attempted when already unsealed: %s", exc)
             return JSONResponse(
-                content={"error_code": "ALREADY_UNSEALED", "detail": str(exc)},
                 status_code=400,
+                content={
+                    "type": "about:blank",
+                    "title": "Vault Already Unsealed",
+                    "status": 400,
+                    "detail": "The vault is already unsealed. No action required.",
+                },
             )
         except VaultConfigError as exc:
-            return JSONResponse(
-                content={"error_code": "CONFIG_ERROR", "detail": str(exc)},
-                status_code=400,
-            )
+            return operator_error_response(exc)
         except ValueError as exc:
-            # Fallback for unexpected ValueError subclasses
+            # Fallback for unexpected ValueError subclasses -- use a generic
+            # RFC 7807 response rather than the legacy error_code format.
+            _logger.warning("Unexpected ValueError during vault unseal: %s", exc)
             return JSONResponse(
-                content={"error_code": "CONFIG_ERROR", "detail": str(exc)},
                 status_code=400,
+                content={
+                    "type": "about:blank",
+                    "title": "Vault Configuration Error",
+                    "status": 400,
+                    "detail": (
+                        "The vault cannot be unsealed due to a configuration error. "
+                        "Ensure the VAULT_SEAL_SALT environment variable is set and "
+                        "meets the 16-byte minimum length requirement."
+                    ),
+                },
             )
 
-        # Emit audit event — best-effort; failure must not prevent unsealing
+        # Emit audit event -- best-effort; failure must not prevent unsealing
         try:
             from synth_engine.shared.security.audit import get_audit_logger
 
@@ -134,7 +153,7 @@ def _register_routes(app: FastAPI) -> None:
                 details={},
             )
         except (ValueError, RuntimeError):
-            # AUDIT_KEY not configured in this environment — log but continue
+            # AUDIT_KEY not configured in this environment -- log but continue
             _logger.warning("AUDIT_KEY not configured; vault unseal event was not audited.")
 
         return JSONResponse(content={"status": "unsealed"})
