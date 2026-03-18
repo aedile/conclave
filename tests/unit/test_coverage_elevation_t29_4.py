@@ -115,7 +115,7 @@ class TestMinioStorageBackendCoverage:
             backend = MinioStorageBackend(
                 endpoint_url="http://minio:9000",
                 access_key="testkey",
-                secret_key="testsecret",
+                secret_key="testsecret",  # pragma: allowlist secret
             )
         backend._client = mock_boto3_client
         return backend
@@ -747,7 +747,9 @@ class TestDbNonSqlitePooling:
         """
         from synth_engine.shared import db as db_mod
 
-        test_url = "postgresql+psycopg2://user:pass@localhost:5432/testdb_t294"
+        test_url = (
+            "postgresql+psycopg2://user:pass@localhost:5432/testdb_t294"  # pragma: allowlist secret
+        )
 
         # Clear cache so the URL is not found as an existing cached entry
         db_mod._engine_cache.pop(test_url, None)  # type: ignore[attr-defined]
@@ -776,7 +778,7 @@ class TestDbNonSqlitePooling:
         """
         from synth_engine.shared import db as db_mod
 
-        test_url = "postgresql+asyncpg://user:pass@localhost:5432/testdb_async_t294"
+        test_url = "postgresql+asyncpg://user:pass@localhost/asyncdb"  # pragma: allowlist secret
 
         db_mod._async_engine_cache.pop(test_url, None)  # type: ignore[attr-defined]
 
