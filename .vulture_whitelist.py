@@ -66,7 +66,6 @@ dispatch  # unused method — Starlette middleware protocol (CSPMiddleware)
 get_current_user  # unused function — FastAPI Depends() (dependencies/auth.py)
 require_unsealed  # unused function — FastAPI Depends() (dependencies/vault.py)
 build_synthesis_engine  # unused function — DI factory (bootstrapper/factories.py)
-build_dp_wrapper  # unused function — DI factory (bootstrapper/factories.py)
 build_ephemeral_storage_client  # unused function — DI factory (bootstrapper/main.py)
 _cycle_detection_error_handler  # unused function — FastAPI exception handler (router_registry.py)
 _budget_exhaustion_error_handler  # unused function — FastAPI exception handler (router_registry.py)
@@ -75,7 +74,7 @@ _vault_sealed_error_handler  # unused function — FastAPI exception handler (ro
 get_async_engine  # unused function — FastAPI Depends() (shared/db.py)
 get_session  # unused function — FastAPI Depends() (shared/db.py)
 get_async_session  # unused function — FastAPI Depends() (shared/db.py)
-create_access_token  # unused function — JWT utility called by auth routes (shared/auth/jwt.py)
+create_access_token  # unused function — JWT utility exported for the auth login route (shared/auth/jwt.py); no /auth/token route is implemented yet — kept for future OAuth2 wiring
 
 # ---------------------------------------------------------------------------
 # Category D — Pydantic model fields and validators
@@ -89,8 +88,6 @@ app_version  # unused variable — Pydantic field (schemas/licensing.py)
 qr_code  # unused variable — Pydantic field (schemas/licensing.py)
 licensee  # unused variable — Pydantic field (schemas/licensing.py)
 tier  # unused variable — Pydantic field (schemas/licensing.py)
-artifact_path  # unused variable — Pydantic field (schemas/jobs.py, synthesizer/job_models.py)
-output_path  # unused variable — Pydantic/SQLModel field (schemas/jobs.py, synthesizer/job_models.py, tasks.py)
 validate_parquet_path  # unused method — Pydantic field_validator (schemas/jobs.py)
 remaining_epsilon  # unused variable — Pydantic field (schemas/privacy.py)
 is_exhausted  # unused variable — Pydantic field (schemas/privacy.py)
@@ -151,7 +148,6 @@ process_result_value  # unused method — SQLAlchemy TypeDecorator protocol (sha
 # or Huey task queue (runtime late-binding that vulture cannot trace).
 # ---------------------------------------------------------------------------
 
-PostgresIngestionAdapter  # unused class — used in integration tests and CLI ingestion path
 preflight_check  # unused method — PostgresIngestionAdapter.preflight_check (ingestion)
 stream_table  # unused method — PostgresIngestionAdapter.stream_table (ingestion)
 get_schema_inspector  # unused method — PostgresIngestionAdapter.get_schema_inspector (ingestion)
@@ -162,13 +158,11 @@ MaskingRegistry  # unused class — wired via bootstrapper DI (modules/masking/r
 profile  # unused method — StatisticalProfiler.profile called in synthesis pipeline
 compare  # unused method — StatisticalProfiler.compare called in synthesis pipeline
 written_tables  # unused property — EgressWriter.written_tables used in Saga rollback
-generate  # unused method — SynthesisEngine.generate called by Huey task queue
 upload_parquet  # unused method — EphemeralStorageClient.upload_parquet (synthesis pipeline)
 download_parquet  # unused method — EphemeralStorageClient.download_parquet (synthesis pipeline)
-load  # unused method — SynthesisModel.load called by SynthesisEngine (synthesizer/models.py)
-_log_device_selection  # unused function — device logging utility (synthesizer/storage.py)
-artifact_path  # unused attribute — Huey task result attribute (synthesizer/tasks.py)
-generate_ale_key  # unused function — ALE key factory called by vault rotation (shared/security/ale.py)
+load  # unused method — ModelArtifact.load @classmethod; not called from production src yet — entry point for inference pipeline (synthesizer/models.py)
+_log_device_selection  # unused function — device selection utility called by tests; not called from production src directly (synthesizer/storage.py)
+generate_ale_key  # unused function — ALE key provisioning utility exported for operator use (shared/security/ale.py); not called from src — intended for one-time key generation at host setup
 verify_event  # unused method — AuditLogger.verify_event used in audit chain verification
 deactivate  # unused method — LicenseManager.deactivate (shared/security/licensing.py)
 get_claims  # unused method — LicenseManager.get_claims (shared/security/licensing.py)
@@ -183,9 +177,8 @@ IdempotencyMiddleware  # unused class — registered in ASGI middleware stack (s
 # ---------------------------------------------------------------------------
 
 reset  # unused method — VaultState.reset() / MaskingRegistry.reset() test-isolation helpers
-check_budget  # unused method — DPTrainingWrapper.check_budget() exercised in unit + integration tests
 reset_audit_logger  # unused function — test-isolation helper (shared/security/audit.py)
-_reset_fernet_cache  # unused function — test-isolation helper (shared/security/ale.py)
+_reset_fernet_cache  # unused function — no-op retained for backward compat with pre-vault-wiring tests (shared/security/ale.py)
 dispose_engines  # unused function — engine cache teardown utility (shared/db.py); used in test teardown and app shutdown; T19.1
 
 # ---------------------------------------------------------------------------
