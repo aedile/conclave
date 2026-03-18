@@ -1,7 +1,7 @@
 # ADR-0025 — Custom CTGAN Training Loop Architecture
 
 **Date:** 2026-03-15
-**Status:** Accepted
+**Status:** Accepted — Amended. Proxy model is a temporary architectural compromise; superseded by Phase 30 (discriminator-level DP-SGD) when implemented.
 **Deciders:** PM + Architect
 **Task:** P7-T7.1
 **Supersedes:** ADR-0017 risk note ("Opacus compatibility with CTGAN internals")
@@ -269,6 +269,59 @@ gracefully as epsilon decreases (more noise → more privacy → less utility).
 
 ---
 
+## Planned Resolution — Phase 30
+
+### Current Limitation: Proxy Model Architecture
+
+The T7.3 implementation took a pragmatic shortcut that deviates from the architecture
+described in the Decision section above. Rather than wrapping the actual CTGAN
+Discriminator's optimizer with Opacus, the current implementation applies DP-SGD to a
+**proxy linear model** instead of the real Discriminator.
+
+This deviation was driven by the Opacus/CTGAN layer compatibility concern documented in
+"Negative consequences / risks" item 2: CTGAN's Discriminator uses `BatchNorm1d` layers,
+which Opacus cannot instrument for per-sample gradient computation. Rather than block
+delivery of the DP-SGD pipeline, T7.3 accepted this as a practical approximation — the
+proxy model receives the same real data, so the privacy accounting is valid, but the
+gradient noise is not applied to the actual discriminator weights.
+
+**Privacy accounting correctness**: The epsilon/delta budget is computed correctly
+because the proxy model processes the same real training data. The privacy guarantee
+holds at the accounting level. However, the DP-SGD noise is not injected into the
+discriminator's actual learning process, which weakens the practical privacy protection
+compared to true discriminator-level DP-SGD.
+
+### Phase 30 Resolution Path
+
+Phase 30 (`docs/backlog/phase-30.md`) will implement true discriminator-level DP-SGD
+by addressing the root Opacus/CTGAN incompatibility:
+
+1. **Opacus-compatible Discriminator**: Replace `BatchNorm1d` with `GroupNorm` in the
+   Discriminator architecture. GroupNorm operates per-sample and is fully compatible
+   with Opacus's per-sample gradient computation. The PacGAN discriminator structure
+   (input dim, hidden dims, output dim) is preserved — only the normalization layer
+   changes.
+
+2. **Custom GAN training loop with real Discriminator wrapping**: Implement the
+   training loop as originally designed in this ADR — `dp_wrapper.wrap()` is called
+   with the real Discriminator and its optimizer, not a proxy model.
+
+3. **Proxy model fallback**: The proxy model approach will be retained as a fallback
+   code path for deployment environments where Opacus cannot instrument the Discriminator
+   (e.g., future SDV versions that change the internal Discriminator architecture).
+   A runtime flag will select between the two paths.
+
+Phase 30 will also create ADR-0036 to formally document the Opacus-compatible
+Discriminator architecture and the decision to replace `BatchNorm1d` with `GroupNorm`.
+
+### Cross-references
+
+- `docs/backlog/phase-30.md` — Phase 30 task breakdown and acceptance criteria.
+- ADR-0036 (to be created in T30.1) — Opacus-compatible Discriminator architecture.
+
+---
+
 ## Amendments
 
 - **P24-T24.1** (2026-03-17): `sample()` parameter renamed from `n_rows` to `num_rows` to match the polymorphic SDV `CTGANSynthesizer.sample(num_rows=...)` interface that `SynthesisEngine.generate()` calls.
+- **P29-T29.5** (2026-03-18): Added "Planned Resolution — Phase 30" section. Status updated to reflect proxy model as temporary compromise. Cross-references `docs/backlog/phase-30.md` and future ADR-0036.

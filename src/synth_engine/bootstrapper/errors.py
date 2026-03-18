@@ -43,6 +43,22 @@ Implementation note — RequestValidationError with NaN/Infinity inputs:
     with the string ``"<non-finite float>"`` before serialization.  This
     ensures all validation errors produce a proper 400 or 422 response.
 
+Implementation note — Operator-friendly error messages (T29.3):
+    Domain exceptions carry technical messages intended for developer logs
+    (e.g. ``"DP budget exhausted: epsilon_spent=1.234 >= allocated_epsilon=1.0"``).
+    These must NOT be forwarded verbatim to HTTP clients — operators need
+    plain-language titles and actionable remediation instructions instead.
+
+    :data:`OPERATOR_ERROR_MAP` maps each HTTP-safe domain exception class to a
+    presentation-layer tuple of ``(title, detail, status_code, type_uri)``.
+    The mapping is consulted by the exception handlers registered in
+    :mod:`synth_engine.bootstrapper.router_registry`.
+
+    Security-sensitive exceptions (:exc:`PrivilegeEscalationError`,
+    :exc:`ArtifactTamperingError`) are intentionally absent from the map.
+    They must never receive operator-friendly HTTP responses — the catch-all
+    middleware returns a generic 500 for them.
+
 Reference: RFC 7807 — Problem Details for HTTP APIs
     https://datatracker.ietf.org/doc/html/rfc7807
 
@@ -51,6 +67,8 @@ Task: P6-T6.2 — NIST SP 800-88 Erasure, OWASP validation, LLM Fuzz Testing
     (Added RequestValidationError NaN/Infinity sanitization)
 Task: T19.1 — Middleware & Engine Singleton Fixes
     (Converted from BaseHTTPMiddleware to pure ASGI middleware)
+Task: P29-T29.3 — Error Message Audience Differentiation
+    (Added OPERATOR_ERROR_MAP for operator-friendly RFC 7807 responses)
 """
 
 from __future__ import annotations
@@ -58,7 +76,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from typing import Any
+from typing import Any, TypedDict
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -66,6 +84,12 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from synth_engine.shared.errors import safe_error_msg
+from synth_engine.shared.exceptions import (
+    BudgetExhaustionError,
+    OOMGuardrailError,
+    VaultSealedError,
+)
+from synth_engine.shared.security.vault import VaultConfigError, VaultEmptyPassphraseError
 
 _logger = logging.getLogger(__name__)
 
@@ -85,6 +109,90 @@ _STATUS_TITLES: dict[int, str] = {
 
 #: Sentinel string replacing non-finite float values in error responses.
 _NON_FINITE_SENTINEL: str = "<non-finite float>"
+
+
+class OperatorErrorEntry(TypedDict):
+    """Presentation-layer mapping for a domain exception.
+
+    Each entry in :data:`OPERATOR_ERROR_MAP` must supply all four fields so
+    that any exception handler can build a complete RFC 7807 response without
+    falling back to defaults.
+
+    Attributes:
+        title: Short, plain-language summary shown as the error heading
+            in the frontend ``RFC7807Toast`` component.
+        detail: Operator-facing explanation with a concrete remediation
+            action.  Must NOT contain raw exception messages, epsilon values,
+            internal paths, or any other developer-only technical details.
+        status_code: HTTP status code for this error class.
+        type_uri: RFC 7807 ``type`` field — either ``"about:blank"`` or a
+            URI identifying the specific problem type.
+    """
+
+    title: str
+    detail: str
+    status_code: int
+    type_uri: str
+
+
+#: Operator-friendly RFC 7807 presentation mapping for HTTP-safe domain exceptions.
+#:
+#: Keys are exception *classes* (not instances).  Values are
+#: :class:`OperatorErrorEntry` dicts consumed by exception handlers in
+#: :mod:`synth_engine.bootstrapper.router_registry` and the ``/unseal`` route
+#: in :mod:`synth_engine.bootstrapper.lifecycle`.
+#:
+#: Security rule: :exc:`PrivilegeEscalationError` and
+#: :exc:`ArtifactTamperingError` are intentionally absent.  Those exceptions
+#: carry security-sensitive context (credential hints, artifact paths) and must
+#: never receive an operator-friendly HTTP response — the catch-all middleware
+#: returns a generic 500 for them.
+OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
+    BudgetExhaustionError: OperatorErrorEntry(
+        title="Privacy Budget Exceeded",
+        detail=(
+            "The privacy budget for this dataset has been exhausted. "
+            "Reset the privacy budget via POST /privacy/budget/reset "
+            "or contact your administrator."
+        ),
+        status_code=409,
+        type_uri="about:blank",
+    ),
+    OOMGuardrailError: OperatorErrorEntry(
+        title="Memory Limit Exceeded",
+        detail=(
+            "The synthesis job was rejected because the estimated memory "
+            "requirement exceeds available system memory. "
+            "Reduce the dataset size or the number of rows and retry."
+        ),
+        status_code=422,
+        type_uri="about:blank",
+    ),
+    VaultSealedError: OperatorErrorEntry(
+        title="Vault Is Sealed",
+        detail=(
+            "Unseal the vault before performing data operations. POST /unseal with your passphrase."
+        ),
+        status_code=423,
+        type_uri="about:blank",
+    ),
+    VaultEmptyPassphraseError: OperatorErrorEntry(
+        title="Empty Passphrase",
+        detail="Enter a non-empty passphrase to unseal the vault.",
+        status_code=400,
+        type_uri="about:blank",
+    ),
+    VaultConfigError: OperatorErrorEntry(
+        title="Vault Configuration Error",
+        detail=(
+            "The vault cannot be unsealed due to a configuration error. "
+            "Ensure the VAULT_SEAL_SALT environment variable is set and "
+            "meets the 16-byte minimum length requirement."
+        ),
+        status_code=400,
+        type_uri="about:blank",
+    ),
+}
 
 
 def _sanitize_for_json(obj: Any) -> Any:
@@ -148,6 +256,42 @@ def problem_detail(
         "status": status,
         "detail": detail,
     }
+
+
+def operator_error_response(exc: Exception) -> JSONResponse:
+    """Build an RFC 7807 JSONResponse for a known domain exception.
+
+    Looks up the exception class in :data:`OPERATOR_ERROR_MAP` and returns
+    an appropriate operator-friendly response.  The internal exception message
+    is logged at WARNING level but never included in the HTTP response body.
+
+    Args:
+        exc: The domain exception to convert.  Must be present in
+            :data:`OPERATOR_ERROR_MAP`; callers are responsible for checking
+            membership before calling this function.
+
+    Returns:
+        JSONResponse with the operator-friendly RFC 7807 body and the
+        mapped HTTP status code.
+
+    Raises:
+        KeyError: If ``exc``'s class is not in :data:`OPERATOR_ERROR_MAP`.
+    """
+    entry = OPERATOR_ERROR_MAP[type(exc)]
+    _logger.warning(
+        "Domain exception %s: %s",
+        type(exc).__name__,
+        str(exc),
+    )
+    return JSONResponse(
+        status_code=entry["status_code"],
+        content=problem_detail(
+            status=entry["status_code"],
+            title=entry["title"],
+            detail=entry["detail"],
+            type_uri=entry["type_uri"],
+        ),
+    )
 
 
 class RFC7807Middleware:

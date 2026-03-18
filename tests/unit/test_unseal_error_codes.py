@@ -1,11 +1,18 @@
-"""Unit tests for structured error codes on the /unseal endpoint.
+"""Unit tests for structured error responses on the /unseal endpoint.
 
-ADV-018: The /unseal endpoint must return structured error_code values
+ADV-018: The /unseal endpoint must return structured error responses
 to allow the frontend to display context-specific error messages rather
 than the raw ValueError text.
 
+T29.3: Upgraded from legacy ``error_code``/``detail`` format to RFC 7807
+Problem Details format.  The frontend ``RFC7807Toast`` component reads
+``title`` (as heading) and ``detail`` (as body) — the same fields supplied
+by the new format.  The legacy ``error_code`` field has been replaced by the
+RFC 7807 ``title`` field which provides equivalent differentiation capability.
+
 CONSTITUTION Priority 0: Security
 Task: P5-T5.3 — Build Accessible React SPA & "Vault Unseal"
+Task: P29-T29.3 — Error Message Audience Differentiation
 """
 
 from __future__ import annotations
@@ -41,10 +48,11 @@ def sealed_app() -> Generator[Any]:
 async def test_unseal_empty_passphrase_returns_empty_passphrase_code(
     sealed_app: Any,
 ) -> None:
-    """POST /unseal with empty passphrase returns EMPTY_PASSPHRASE error code.
+    """POST /unseal with empty passphrase returns RFC 7807 with 'Empty Passphrase' title.
 
-    VaultState.unseal() raises ValueError('Passphrase must not be empty.')
-    The endpoint maps this to error_code='EMPTY_PASSPHRASE'.
+    T29.3: Upgraded from legacy error_code='EMPTY_PASSPHRASE' to RFC 7807 format.
+    VaultState.unseal() raises VaultEmptyPassphraseError.
+    The endpoint maps this to title='Empty Passphrase' per OPERATOR_ERROR_MAP.
     """
     async with AsyncClient(
         transport=ASGITransport(app=sealed_app), base_url="http://test"
@@ -53,18 +61,22 @@ async def test_unseal_empty_passphrase_returns_empty_passphrase_code(
 
     assert response.status_code == 400
     body = response.json()
-    assert body["error_code"] == "EMPTY_PASSPHRASE"
+    # RFC 7807 format
+    assert body["title"] == "Empty Passphrase"
     assert "detail" in body
+    assert "type" in body
+    assert "status" in body
 
 
 @pytest.mark.asyncio
 async def test_unseal_already_unsealed_returns_already_unsealed_code(
     sealed_app: Any,
 ) -> None:
-    """POST /unseal when vault already unsealed returns ALREADY_UNSEALED.
+    """POST /unseal when vault already unsealed returns RFC 7807 'Vault Already Unsealed'.
 
-    VaultState.unseal() raises ValueError('Vault is already unsealed...')
-    The endpoint maps this to error_code='ALREADY_UNSEALED'.
+    T29.3: Upgraded from legacy error_code='ALREADY_UNSEALED' to RFC 7807 format.
+    VaultState.unseal() raises VaultAlreadyUnsealedError.
+    The endpoint returns title='Vault Already Unsealed' per RFC 7807.
     """
     from synth_engine.shared.security.vault import VaultAlreadyUnsealedError, VaultState
 
@@ -82,19 +94,21 @@ async def test_unseal_already_unsealed_returns_already_unsealed_code(
 
     assert response.status_code == 400
     body = response.json()
-    assert body["error_code"] == "ALREADY_UNSEALED"
+    assert body["title"] == "Vault Already Unsealed"
     assert "detail" in body
+    assert "type" in body
+    assert "status" in body
 
 
 @pytest.mark.asyncio
 async def test_unseal_missing_salt_returns_config_error_code(
     sealed_app: Any,
 ) -> None:
-    """POST /unseal with no VAULT_SEAL_SALT set returns CONFIG_ERROR.
+    """POST /unseal with no VAULT_SEAL_SALT set returns RFC 7807 'Vault Configuration Error'.
 
-    VaultState.unseal() raises ValueError('VAULT_SEAL_SALT environment
-    variable is not set. ...') The endpoint maps this to
-    error_code='CONFIG_ERROR'.
+    T29.3: Upgraded from legacy error_code='CONFIG_ERROR' to RFC 7807 format.
+    VaultState.unseal() raises VaultConfigError.
+    The endpoint maps this to title='Vault Configuration Error' per OPERATOR_ERROR_MAP.
     """
     from synth_engine.shared.security.vault import VaultConfigError, VaultState
 
@@ -113,19 +127,21 @@ async def test_unseal_missing_salt_returns_config_error_code(
 
     assert response.status_code == 400
     body = response.json()
-    assert body["error_code"] == "CONFIG_ERROR"
+    assert body["title"] == "Vault Configuration Error"
     assert "detail" in body
+    assert "type" in body
+    assert "status" in body
 
 
 @pytest.mark.asyncio
 async def test_unseal_short_salt_returns_config_error_code(
     sealed_app: Any,
 ) -> None:
-    """POST /unseal with a salt that is too short returns CONFIG_ERROR.
+    """POST /unseal with a salt that is too short returns RFC 7807 'Vault Configuration Error'.
 
-    VaultState.unseal() raises ValueError('VAULT_SEAL_SALT must decode to
-    at least 16 bytes; got N bytes.') The endpoint maps this to
-    error_code='CONFIG_ERROR'.
+    T29.3: Upgraded from legacy error_code='CONFIG_ERROR' to RFC 7807 format.
+    VaultState.unseal() raises VaultConfigError.
+    The endpoint maps this to title='Vault Configuration Error' per OPERATOR_ERROR_MAP.
     """
     from synth_engine.shared.security.vault import VaultConfigError, VaultState
 
@@ -143,8 +159,10 @@ async def test_unseal_short_salt_returns_config_error_code(
 
     assert response.status_code == 400
     body = response.json()
-    assert body["error_code"] == "CONFIG_ERROR"
+    assert body["title"] == "Vault Configuration Error"
     assert "detail" in body
+    assert "type" in body
+    assert "status" in body
 
 
 @pytest.mark.asyncio
@@ -153,7 +171,7 @@ async def test_unseal_success_returns_200_with_status_unsealed(
 ) -> None:
     """POST /unseal with valid params returns 200 and status=unsealed.
 
-    The success path must not be broken by the error code changes.
+    The success path must not be broken by the error format changes.
     """
     from synth_engine.shared.security.vault import VaultState
 
@@ -173,10 +191,12 @@ async def test_unseal_success_returns_200_with_status_unsealed(
 async def test_unseal_error_response_contains_both_error_code_and_detail(
     sealed_app: Any,
 ) -> None:
-    """Error responses must contain BOTH error_code and detail fields.
+    """Error responses must contain RFC 7807 title and detail fields.
 
-    The frontend relies on error_code for error type differentiation
-    and detail for logging/display to admins.
+    T29.3: Replaces the old test that checked for 'error_code' + 'detail'.
+    The frontend RFC7807Toast component reads 'title' (heading) and 'detail'
+    (body) — the RFC 7807 format provides equivalent differentiation capability.
+    Both must be non-empty strings.
     """
     async with AsyncClient(
         transport=ASGITransport(app=sealed_app), base_url="http://test"
@@ -185,10 +205,13 @@ async def test_unseal_error_response_contains_both_error_code_and_detail(
 
     assert response.status_code == 400
     body = response.json()
-    assert "error_code" in body
+    # RFC 7807 format provides title + detail instead of error_code + detail
+    assert "title" in body
     assert "detail" in body
     # Both must be non-empty strings
-    assert isinstance(body["error_code"], str)
-    assert body["error_code"] != ""
+    assert isinstance(body["title"], str)
+    assert body["title"] != ""
     assert isinstance(body["detail"], str)
     assert body["detail"] != ""
+    # Must NOT use legacy error_code format
+    assert "error_code" not in body

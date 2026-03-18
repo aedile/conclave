@@ -26,6 +26,9 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Node.js
+# Audited P29-T29.2 (2026-03-18): frontend/node_modules/ is untracked (git ls-files returns 0).
+# Air-gap note: if offline vendoring is ever required, migrate to `npm pack` tarballs
+# rather than committing raw node_modules/. See ADR-0035 backlog item.
 node_modules/
 npm-debug.log
 yarn-error.log

@@ -246,7 +246,7 @@ asyncio_default_fixture_loop_scope = "function"
 addopts = [
     "--cov=src/synth_engine",
     "--cov-report=term-missing",
-    "--cov-fail-under=90",
+    "--cov-fail-under=95",
     "--tb=short",
 ]
 markers = [

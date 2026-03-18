@@ -63,9 +63,12 @@ join integrity is preserved. Output is not reversible.
 **Statistical Profiling** — Computes histograms, covariance matrices, and nullability rates
 per column. `ProfileDelta` measures drift between source and synthetic output.
 
-**DP-CTGAN Training** — Custom CTGAN training loop with Opacus DP-SGD integration. Real
-per-sample gradient clipping and Gaussian noise injection provide mathematically provable
-differential privacy guarantees.
+**DP-CTGAN Training** — Custom CTGAN training loop with Opacus DP-SGD integration. Opacus
+DP-SGD accounting is performed on a proxy linear model trained on the same preprocessed data
+as the CTGAN. The epsilon budget reflects real gradient-step accounting proportional to the
+dataset size, batch size, and number of training steps. Phase 30 will apply DP-SGD directly
+to the CTGAN Discriminator for end-to-end differential privacy. See ADR-0025 for the full
+rationale and documented limitations of the proxy-model approach.
 
 **Privacy Budget Accounting** — `EpsilonAccountant` tracks epsilon/delta consumption per
 table per run. Any job that would exceed the configured budget is blocked before training starts.
@@ -137,7 +140,7 @@ Security is Priority Zero — it overrides every other consideration. See
 | PII never in plaintext at rest | Application-Level Encryption (ALE) via Fernet + HKDF-SHA256 derived from Vault KEK |
 | Vault unseal pattern | Operator passphrase derives KEK at runtime; never persisted to disk or env |
 | Deterministic masking | HMAC-SHA256 seeded Faker; same input → same output; not reversible |
-| Differential Privacy | DP-SGD via Opacus `PrivacyEngine`; Epsilon/Delta budget enforced per training run |
+| Differential Privacy | DP-SGD via Opacus `PrivacyEngine`; Epsilon/Delta budget enforced per training run (proxy-model accounting — see DP Maturity below) |
 | WORM audit log | Cryptographically signed, append-only audit trail |
 | HMAC artifact signing | Model artifacts signed at save; tampering raises `SecurityError` at load time |
 | Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net deployment |
@@ -149,6 +152,18 @@ Security is Priority Zero — it overrides every other consideration. See
 | NIST SP 800-88 erasure | Cryptographic shredding validated against NIST SP 800-88 Rev 1 guidelines |
 | Offline license activation | RS256 JWT with hardware binding; no license server call-home required |
 | Startup config validation | `validate_config()` at boot; missing required env vars → immediate process exit |
+
+### DP Maturity
+
+| Aspect | Current State | Planned (Phase 30) |
+|--------|--------------|---------------------|
+| DP accounting scope | Proxy linear model trained on same preprocessed data as the CTGAN | Direct DP-SGD on CTGAN Discriminator |
+| Epsilon measurement | Real Opacus gradient-step accounting on proxy model; proportional to dataset size, batch size, and training steps | End-to-end epsilon accounting on the generative model itself |
+| Privacy guarantee | Practical approximation — the proxy model provides a meaningful epsilon bound, but it does not account for the CTGAN Discriminator's gradient updates directly | Mathematically rigorous end-to-end differential privacy |
+| Reference | ADR-0025 documents the rationale, limitations, and recalibration guidance | Phase 30 roadmap |
+
+The masking pipeline, `EpsilonAccountant`, HMAC-sealed model artifacts, and the WORM audit log
+are not affected by this distinction — they provide independent, fully realized security controls.
 
 ---
 
@@ -283,14 +298,14 @@ poetry run ruff format --check src/ tests/     # formatting
 poetry run mypy src/                           # strict type checking
 poetry run bandit -c pyproject.toml -r src/    # security scan
 poetry run pytest tests/unit/ \
-    --cov=src/synth_engine --cov-fail-under=90 \
-    -W error                                   # unit tests, 90% coverage gate
+    --cov=src/synth_engine --cov-fail-under=95 \
+    -W error                                   # unit tests, 95% coverage gate
 poetry run pytest tests/integration/ -v        # integration tests (separate gate)
 poetry run python -m importlinter              # module boundary enforcement
 pre-commit run --all-files                     # all hooks including gitleaks
 ```
 
-Coverage is enforced at 90% minimum. Integration tests are a separate gate — unit test
+Coverage is enforced at 95% minimum. Integration tests are a separate gate — unit test
 mocks do not substitute for tests against real infrastructure (pytest-postgresql).
 
 The development workflow is TDD (Red → Green → Refactor) enforced by convention and
