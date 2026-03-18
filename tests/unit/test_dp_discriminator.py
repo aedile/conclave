@@ -14,7 +14,6 @@ ADR: ADR-0036 (Discriminator-Level DP-SGD Architecture)
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -172,9 +171,7 @@ class TestOpacusModuleValidation:
         cls = _make_real_module()
         discriminator = cls(input_dim=10, discriminator_dim=(256, 256), pac=10)
         errors = ModuleValidator.validate(discriminator)
-        assert errors == [], (
-            f"OpacusCompatibleDiscriminator has Opacus incompatibilities: {errors}"
-        )
+        assert errors == [], f"OpacusCompatibleDiscriminator has Opacus incompatibilities: {errors}"
 
     def test_opacus_module_validator_passes_single_layer(self) -> None:
         """ModuleValidator.validate() returns zero errors for minimal architecture."""
@@ -219,16 +216,13 @@ class TestOpacusCompatibleDiscriminatorGradients:
 
         # Verify gradients were computed for at least some parameters
         grad_norms = [
-            p.grad.norm().item()
-            for p in discriminator.parameters()
-            if p.grad is not None
+            p.grad.norm().item() for p in discriminator.parameters() if p.grad is not None
         ]
         assert len(grad_norms) > 0, "No parameter received gradients"
         assert any(g > 0 for g in grad_norms), "All gradients are zero"
 
     def test_parameters_are_accessible(self) -> None:
         """parameters() returns a non-empty iterator (trainable model)."""
-        import torch
 
         cls = _make_real_module()
         discriminator = cls(input_dim=10, discriminator_dim=(128, 64), pac=10)
@@ -237,7 +231,6 @@ class TestOpacusCompatibleDiscriminatorGradients:
 
     def test_parameters_require_grad(self) -> None:
         """All parameters have requires_grad=True by default."""
-        import torch
 
         cls = _make_real_module()
         discriminator = cls(input_dim=10, discriminator_dim=(64,), pac=10)
@@ -272,9 +265,7 @@ class TestCalcGradientPenalty:
             device="cpu",
             pac=pac,
         )
-        assert penalty.shape == torch.Size([]), (
-            f"Expected scalar tensor, got shape {penalty.shape}"
-        )
+        assert penalty.shape == torch.Size([]), f"Expected scalar tensor, got shape {penalty.shape}"
 
     def test_gradient_penalty_is_non_negative(self) -> None:
         """Gradient penalty is always >= 0 (it's a squared norm)."""
@@ -349,9 +340,7 @@ class TestCalcGradientPenalty:
         )
         # penalty_2 should be ~2x penalty_1 (linear scaling)
         ratio = penalty_2.item() / (penalty_1.item() + 1e-8)
-        assert 1.5 < ratio < 2.5, (
-            f"Expected ~2x ratio for 2x lambda_, got {ratio:.3f}"
-        )
+        assert 1.5 < ratio < 2.5, f"Expected ~2x ratio for 2x lambda_, got {ratio:.3f}"
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +353,7 @@ class TestMockedTorchImport:
 
     def test_module_file_is_importable_without_side_effects(self) -> None:
         """The module can be imported (real torch present in test environment)."""
-        import synth_engine.modules.synthesizer.dp_discriminator as m  # noqa: F401
+        import synth_engine.modules.synthesizer.dp_discriminator as m
 
         assert m is not None
 
