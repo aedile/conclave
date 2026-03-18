@@ -26,10 +26,15 @@
  * P23-T23.3: Download button uses --color-success token so it remains visually
  * distinct from the Start button (--color-accent-text) and maintains 4.5:1
  * contrast ratio on --color-surface.
+ *
+ * P27-T27.3: Start and Download buttons replaced with AsyncButton component
+ * for standardized loading/disabled pattern. Layout classes (.job-card__start-btn,
+ * .job-card__download-btn) passed via className to preserve existing styling.
  */
 
 import type { JobResponse } from "../api/client";
 import type { SSEState } from "../hooks/useSSE";
+import AsyncButton from "./AsyncButton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -187,16 +192,18 @@ export default function JobCard({
         </p>
       )}
 
-      {/* Start button — only shown for QUEUED jobs */}
+      {/* Start button — only shown for QUEUED jobs.
+          P27-T27.3: replaced with AsyncButton; layout class passed via className. */}
       {job.status === "QUEUED" && (
-        <button
+        <AsyncButton
           type="button"
-          disabled={isStarting}
+          isLoading={isStarting}
+          loadingText="Starting…"
           onClick={() => onStart(job.id)}
           className="job-card__start-btn"
         >
-          {isStarting ? "Starting…" : "Start"}
-        </button>
+          Start
+        </AsyncButton>
       )}
 
       {/* Download button — only shown for COMPLETE jobs.
@@ -204,17 +211,19 @@ export default function JobCard({
           - aria-label encodes the table name for descriptive screen-reader text
           - type="button" prevents accidental form submission
           - disabled while download is in progress (AC3)
-          - fully keyboard accessible as a native <button> element */}
+          - fully keyboard accessible as a native <button> element
+          P27-T27.3: replaced with AsyncButton; layout class passed via className. */}
       {job.status === "COMPLETE" && (
-        <button
+        <AsyncButton
           type="button"
-          disabled={isDownloading}
+          isLoading={isDownloading}
+          loadingText="Downloading…"
           onClick={() => onDownload(job.id)}
           aria-label={`Download synthetic data for ${job.table_name}`}
           className="job-card__download-btn"
         >
-          {isDownloading ? "Downloading…" : "Download"}
-        </button>
+          Download
+        </AsyncButton>
       )}
     </article>
   );

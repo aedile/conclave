@@ -22,11 +22,17 @@
  * P20-T20.3 AC3: No inline style= attributes — all layout via CSS classes.
  * The input border state (error/normal) is handled by the
  * .unseal-form__input--error modifier class.
+ *
+ * P27-T27.3: Submit button replaced with AsyncButton component. The inline
+ * spinner pattern has been removed in favour of the shared AsyncButton
+ * which uses .async-button__spinner. Layout classes (.unseal-form__submit)
+ * are passed via className to preserve existing visual presentation.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { postUnseal } from "../api/client";
+import AsyncButton from "../components/AsyncButton";
 
 type ErrorState = {
   type: "network" | "invalid_passphrase" | "config_error" | "already_unsealed";
@@ -212,29 +218,20 @@ export default function Unseal() {
             />
           </div>
 
-          <button
+          {/*
+           * P27-T27.3: AsyncButton replaces the former inline spinner + text-swap.
+           * className passes .unseal-form__submit + .unseal-form__submit--loading
+           * for layout continuity. The shared .async-button__spinner replaces
+           * the previous .unseal-form__spinner.
+           */}
+          <AsyncButton
             type="submit"
-            disabled={isLoading}
-            aria-disabled={isLoading}
+            isLoading={isLoading}
+            loadingText="Unsealing…"
             className={`unseal-form__submit${isLoading ? " unseal-form__submit--loading" : ""}`}
           >
-            {isLoading ? (
-              <>
-                {/*
-                 * Spinner is decorative — aria-hidden so the adjacent
-                 * "Unsealing…" text communicates state to screen readers
-                 * (UI/UX finding — spinner double-announcement).
-                 */}
-                <span
-                  aria-hidden="true"
-                  className="unseal-form__spinner"
-                />
-                <span>Unsealing…</span>
-              </>
-            ) : (
-              "Unseal Vault"
-            )}
-          </button>
+            Unseal Vault
+          </AsyncButton>
         </form>
       </section>
     </main>

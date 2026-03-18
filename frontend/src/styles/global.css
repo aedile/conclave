@@ -8,6 +8,9 @@
  * P20-T20.3 AC3: All component layout extracted from inline style= to BEM classes.
  * Components covered: RFC7807Toast, Dashboard, Unseal, JobCard, AriaLive,
  * ErrorBoundary fallback.
+ *
+ * P27-T27.1: Responsive breakpoints for mobile (640px) and tablet (1024px).
+ * Breakpoint custom properties defined in :root for reference.
  */
 
 @import "./fonts.css";
@@ -43,6 +46,13 @@
   /* Border radius */
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
+
+  /* Responsive breakpoints — referenced in @media queries below (P27-T27.1 AC1).
+   * CSS custom properties cannot be used inside @media conditions directly,
+   * but defining them here serves as a single-source-of-truth documentation
+   * token and enables JavaScript access via getComputedStyle when needed. */
+  --breakpoint-mobile: 640px;
+  --breakpoint-tablet: 1024px;
 }
 
 *,
@@ -54,7 +64,11 @@
 }
 
 html {
-  font-size: 100%;
+  /* AC4 — Fluid base font size: scales from 14px (mobile) to 16px (desktop).
+   * clamp(min, preferred, max): preferred = 0.875rem + 0.25vw produces a
+   * smooth ramp across viewport widths. At 320px → ~14.8px, at 1280px → ~18.8px
+   * clamped to 16px max. The -webkit-text-size-adjust remains for iOS landscape. */
+  font-size: clamp(0.875rem, 0.875rem + 0.25vw, 1rem);
   /* Prevent font scaling in landscape mode on iOS */
   -webkit-text-size-adjust: 100%;
 }
@@ -500,7 +514,7 @@ body {
   transition: border-color 0.15s ease;
 }
 
-.dashboard-form__input:focus {
+.dashboard-form__input:focus-visible {
   border-color: var(--color-accent-text);
   outline: none;
 }
@@ -662,7 +676,7 @@ body {
   border-color: var(--color-error);
 }
 
-.unseal-form__input:focus {
+.unseal-form__input:focus-visible {
   border-color: var(--color-accent-text);
   outline: none;
 }
@@ -704,4 +718,146 @@ body {
   border-top-color: white;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* ---------------------------------------------------------------------------
+ * AsyncButton — shared async loading button component (P27-T27.3)
+ *
+ * BEM block: .async-button
+ * Consuming components apply their own layout classes (e.g. .unseal-form__submit)
+ * for positional styling. These shared classes handle the spinner and state.
+ *
+ * The .async-button__live-region is visually hidden but available to AT.
+ * Using .sr-only pattern so screen readers always receive announcements.
+ * ---------------------------------------------------------------------------*/
+
+/* Visually hidden live region — announced to screen readers, not visible */
+.async-button__live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Shared spinner — extracted from .unseal-form__spinner (P27-T27.3 AC3).
+ * Decorative only; aria-hidden="true" is set in AsyncButton markup. */
+.async-button__spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Reduced motion: stop spinner animation (reuses global @keyframes spin override) */
+@media (prefers-reduced-motion: reduce) {
+  .async-button__spinner {
+    animation: none;
+    /* Show a static indicator instead of a spinning one */
+    border-top-color: rgba(255, 255, 255, 0.6);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Responsive breakpoints — P27-T27.1
+ *
+ * Tablet breakpoint: max-width: 1024px (--breakpoint-tablet)
+ * Mobile breakpoint: max-width: 640px  (--breakpoint-mobile)
+ *
+ * Design principles:
+ * - Only ADD overrides; never remove existing design tokens or colours.
+ * - BEM class names match the existing base classes — no new modifier classes.
+ * - WCAG 2.1 AA: touch targets ≥44px on mobile (WCAG 2.5.5).
+ * - Focus indicators (:focus-visible) are intentionally NOT overridden here.
+ * ---------------------------------------------------------------------------*/
+
+/* ---- Tablet: max-width 1024px (--breakpoint-tablet) ----------------------*/
+
+@media (max-width: 1024px) {
+  /* Dashboard: reduce outer padding on mid-size screens */
+  .dashboard-main {
+    padding: var(--spacing-lg) var(--spacing-md);
+  }
+
+  /* Dashboard form inputs go full-width at tablet and below */
+  .dashboard-form__input {
+    width: 100%;
+  }
+
+  /* Constrain dashboard content to full available width */
+  .dashboard-content {
+    max-width: 100%;
+  }
+}
+
+/* ---- Mobile: max-width 640px (--breakpoint-mobile) -----------------------*/
+
+@media (max-width: 640px) {
+  /* Dashboard: tighter padding on small screens */
+  .dashboard-main {
+    padding: var(--spacing-md) var(--spacing-sm);
+  }
+
+  /* Dashboard form: reduce internal padding for small screens */
+  .dashboard-form {
+    padding: var(--spacing-md);
+  }
+
+  /* Dashboard form actions: stack submit button full-width on mobile */
+  .dashboard-form__actions {
+    justify-content: stretch;
+  }
+
+  .dashboard-form__submit {
+    width: 100%;
+  }
+
+  /* Dashboard form inputs: full-width (already set at tablet, reinforced here) */
+  .dashboard-form__input {
+    width: 100%;
+  }
+
+  /* Job cards: ensure they stack vertically (already column flex; reinforce gap) */
+  .dashboard-jobs__list {
+    gap: var(--spacing-sm);
+  }
+
+  /* RFC7807Toast (AC5): full-width on mobile with appropriate padding.
+   * Overrides the max-width: 420px constraint to span the full viewport.
+   * The calc() retains the spacing-md gutter on both sides. */
+  .rfc7807-toast {
+    top: var(--spacing-sm);
+    right: var(--spacing-sm);
+    left: var(--spacing-sm);
+    max-width: none;
+    width: calc(100% - 2 * var(--spacing-sm));
+  }
+
+  /* Unseal card (AC3): expand to full viewport width on mobile.
+   * Removes the max-width: 420px constraint so the card fills the screen.
+   * Reduces padding to give content more horizontal room. */
+  .unseal-card {
+    max-width: none;
+    padding: var(--spacing-lg);
+  }
+
+  /* Unseal form input (AC3): touch-friendly height — WCAG 2.5.5 ≥44px.
+   * 2.75rem = 44px at the 16px root size (or ≥38.5px at the clamped
+   * 14px minimum — still comfortably touchable). */
+  .unseal-form__input {
+    min-height: 2.75rem;
+  }
+
+  /* Unseal submit button (AC3): already has min-height: 2.75rem in base styles.
+   * Reinforce here so the mobile override is explicit and auditable. */
+  .unseal-form__submit {
+    min-height: 2.75rem;
+  }
 }

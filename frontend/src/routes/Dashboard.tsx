@@ -1,47 +1,19 @@
 /**
- * Dashboard — Job Synthesis monitoring interface.
+ * Dashboard — Job Synthesis monitoring interface (thin coordinator).
  *
- * Displays active synthesis jobs, supports job creation, and streams live
- * progress via SSE. Persists the active job ID in localStorage so a page
- * refresh reconnects to the running stream automatically.
+ * Manages state (jobs, SSE, errors, form) and passes props to:
+ *   - CreateJobForm — form rendering, accessibility, submit callback
+ *   - JobList       — job cards, empty state, pagination Load More
  *
- * CONSTITUTION:
- *   - WCAG 2.1 AA: aria-live regions, progressbar roles, labelled forms,
- *     required-field indicators (aria-required="true"), error identification
- *     (aria-invalid on failing inputs), assertive announcement for errors.
- *   - No inline style= attributes — all layout via CSS classes (P20-T20.3 AC3).
- *   - document.title set on mount.
- *   - prefers-reduced-motion respected via global.css @media rule.
+ * CONSTITUTION: WCAG 2.1 AA — aria-live regions stay here because they
+ * announce cross-cutting events (SSE progress, download lifecycle).
+ * localStorage key "conclave_active_job_id" owned here.
  *
- * localStorage key: "conclave_active_job_id"
- *   Set when a job is started. Cleared when the job reaches a terminal state
- *   (COMPLETE or FAILED) or when a rehydrated job cannot be found (404).
- *
- * WCAG fix: "Load More" button uses --color-accent-text (#818cf8, ~6.3:1 on
- * --color-bg) instead of --color-accent (#4f46e5, ~3:1 on --color-bg which
- * fails WCAG 1.4.3 for text on transparent/dark background).
- *
- * Accessibility fix: form validation error div carries id="form-error" and the
- * field that triggered the error receives aria-describedby="form-error" so
- * assistive technologies can programmatically associate the message with its
- * input.
- *
- * WCAG 1.3.1 / 3.3.1 parity with Unseal.tsx (T17.2):
- *   - All required inputs carry aria-required="true".
- *   - Integer fields (total_epochs, checkpoint_every_n) set aria-invalid="true"
- *     when client-side validation fails, matching the Unseal pattern.
- *   - Visible asterisks in labels are wrapped with aria-hidden="true" so screen
- *     readers rely on aria-required instead of reading the literal "*".
- *
- * P23-T23.3: Download button wired via handleDownload. A browser anchor trick
- * (create <a>, set href to an object URL, programmatically click, revoke) is
- * used so the file download works without navigating away from the page.
- *
- * Review fixes (T23.3 review commit):
- *   - FINDING 2: aria-live announcements on download start/complete/failure.
- *   - FINDING 3: focus restored to Download button after error toast dismiss.
- *   - FINDING 5: downloadingJobIds uses Set<number> to support concurrent
- *     downloads without state corruption.
+ * P27-T27.2: Extracted from 618-line monolith.
+ * Review fixes preserved:
+ *   FINDING 2 — aria-live announcements on download start/complete/failure.
+ *   FINDING 3 — focus restored to trigger element after error toast dismiss.
+ *   FINDING 5 — downloadingJobIds uses Set<number> for concurrent downloads.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -56,9 +28,12 @@ import {
   type ProblemDetail,
 } from "../api/client";
 import { RFC7807Toast } from "../components/RFC7807Toast";
-import JobCard from "../components/JobCard";
 import { useSSE } from "../hooks/useSSE";
 import { AssertiveAnnouncement, PoliteAnnouncement } from "../components/AriaLive";
+import CreateJobForm, {
+  type CreateJobFormState,
+} from "../components/CreateJobForm";
+import JobList from "../components/JobList";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -68,17 +43,6 @@ const LOCAL_STORAGE_KEY = "conclave_active_job_id";
 const TERMINAL_STATUSES = new Set(["COMPLETE", "FAILED"]);
 /** Auto-dismiss duration for the Dashboard's standalone error toast (ms). */
 const DASHBOARD_TOAST_DISMISS_MS = 8000;
-
-// ---------------------------------------------------------------------------
-// Create Job form state
-// ---------------------------------------------------------------------------
-
-interface CreateJobFormState {
-  table_name: string;
-  parquet_path: string;
-  total_epochs: string;
-  checkpoint_every_n: string;
-}
 
 const EMPTY_FORM: CreateJobFormState = {
   table_name: "",
@@ -112,33 +76,29 @@ export default function Dashboard(): JSX.Element {
   // Starting state per-job (only one can start at a time in practice)
   const [startingJobId, setStartingJobId] = useState<number | null>(null);
 
-  // Downloading state — Set<number> to support concurrent downloads without
-  // state corruption (FINDING 5 — QA review).
-  const [downloadingJobIds, setDownloadingJobIds] = useState<Set<number>>(new Set());
+  // Downloading state — Set<number> supports concurrent downloads (FINDING 5)
+  const [downloadingJobIds, setDownloadingJobIds] = useState<Set<number>>(
+    new Set(),
+  );
 
   // RFC 7807 toast for API errors
   const [apiError, setApiError] = useState<ProblemDetail | null>(null);
   const [errorVisible, setErrorVisible] = useState(false);
 
-  // Ref to the element that triggered the last error, so focus can be
-  // restored when the toast is dismissed (FINDING 3 — UI/UX review).
+  // Ref to trigger element for focus restoration after toast dismiss (FINDING 3)
   const errorTriggerRef = useRef<Element | null>(null);
 
-  // Create Job form
+  // Create Job form — controlled by Dashboard, rendered by CreateJobForm
   const [form, setForm] = useState<CreateJobFormState>(EMPTY_FORM);
   const [isCreating, setIsCreating] = useState(false);
-
-  // Form validation error (for NaN guards on integer fields).
-  // errorField tracks which input triggered the error so aria-describedby and
-  // aria-invalid can be applied to that specific input element (WCAG 3.3.1).
   const [formValidationError, setFormValidationError] = useState<string | null>(null);
-  const [formErrorField, setFormErrorField] = useState<keyof CreateJobFormState | null>(null);
+  const [formErrorField, setFormErrorField] =
+    useState<keyof CreateJobFormState | null>(null);
 
-  // Announcement text for screen readers (aria-live polite region)
+  // Announcement text for aria-live polite region
   const [announcement, setAnnouncement] = useState("");
   const announcementRef = useRef("");
 
-  // SSE streaming state
   const sseState = useSSE(activeJobId);
 
   // -------------------------------------------------------------------------
@@ -147,18 +107,12 @@ export default function Dashboard(): JSX.Element {
 
   useEffect(() => {
     if (!errorVisible) return;
-
-    const timer = setTimeout(() => {
-      setErrorVisible(false);
-    }, DASHBOARD_TOAST_DISMISS_MS);
-
-    return () => {
-      clearTimeout(timer);
-    };
+    const timer = setTimeout(() => setErrorVisible(false), DASHBOARD_TOAST_DISMISS_MS);
+    return () => clearTimeout(timer);
   }, [errorVisible]);
 
   // -------------------------------------------------------------------------
-  // Side effects from SSE state
+  // SSE side effects — progress announcements and terminal state cleanup
   // -------------------------------------------------------------------------
 
   const prevSsePercent = useRef<number | null>(null);
@@ -172,7 +126,6 @@ export default function Dashboard(): JSX.Element {
         setAnnouncement(text);
       }
     }
-
     if (sseState.status === "COMPLETE" || sseState.status === "FAILED") {
       localStorage.removeItem(LOCAL_STORAGE_KEY);
       setActiveJobId(null);
@@ -180,7 +133,7 @@ export default function Dashboard(): JSX.Element {
   }, [sseState]);
 
   // -------------------------------------------------------------------------
-  // Load jobs on mount
+  // Load jobs
   // -------------------------------------------------------------------------
 
   const loadJobs = useCallback(async (cursor?: number): Promise<void> => {
@@ -198,7 +151,7 @@ export default function Dashboard(): JSX.Element {
     }
   }, []);
 
-  // Rehydrate from localStorage on mount
+  // Rehydrate localStorage on mount, then load jobs
   useEffect(() => {
     void (async () => {
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -207,24 +160,20 @@ export default function Dashboard(): JSX.Element {
         if (!isNaN(jobId)) {
           const result = await getJob(jobId);
           if (result.ok) {
-            const job = result.data;
-            if (!TERMINAL_STATUSES.has(job.status)) {
+            if (!TERMINAL_STATUSES.has(result.data.status)) {
               setActiveJobId(jobId);
             } else {
               localStorage.removeItem(LOCAL_STORAGE_KEY);
             }
           } else {
-            // Job not found or errored — clear stale entry
             localStorage.removeItem(LOCAL_STORAGE_KEY);
           }
         }
       }
-
       await loadJobs();
     })();
   }, [loadJobs]);
 
-  // Set page title
   useEffect(() => {
     document.title = "Dashboard — Conclave Engine";
   }, []);
@@ -255,31 +204,18 @@ export default function Dashboard(): JSX.Element {
   };
 
   /**
-   * Trigger a browser file download for a COMPLETE job's synthesised artefact.
+   * Download a COMPLETE job's synthesised artefact via anchor-click pattern.
+   * Announces download lifecycle to screen readers (FINDING 2).
+   * Captures focus before call for restoration on toast dismiss (FINDING 3).
    *
-   * Uses the anchor-click pattern to initiate a file download without leaving
-   * the page:
-   *   1. Announce download start to screen readers (FINDING 2).
-   *   2. Fetch the blob from GET /jobs/{id}/download.
-   *   3. Create an object URL for the blob.
-   *   4. Create a temporary <a> element, set its href and download attributes,
-   *      click it programmatically, then revoke the object URL to release memory.
-   *
-   * On failure the RFC 7807 error toast is shown (AC4). Focus is captured
-   * before the call so it can be restored when the toast is dismissed
-   * (FINDING 3).
-   *
-   * @param jobId - The numeric ID of the COMPLETE job to download.
+   * @param jobId - The ID of the COMPLETE job to download.
    */
   const handleDownload = async (jobId: number): Promise<void> => {
-    // Capture focus target for restoration on error dismiss (FINDING 3)
     errorTriggerRef.current = document.activeElement;
 
-    // Look up table_name for the announcement (FINDING 2)
     const job = jobs.find((j) => j.id === jobId);
     const jobTableName = job?.table_name ?? String(jobId);
 
-    // Announce download start to screen readers (FINDING 2)
     const startText = `Downloading synthetic data for ${jobTableName}...`;
     announcementRef.current = startText;
     setAnnouncement(startText);
@@ -293,7 +229,6 @@ export default function Dashboard(): JSX.Element {
     });
 
     if (result.ok) {
-      // Announce success (FINDING 2)
       const completeText = `Download complete for ${result.filename}`;
       announcementRef.current = completeText;
       setAnnouncement(completeText);
@@ -307,28 +242,20 @@ export default function Dashboard(): JSX.Element {
       document.body.removeChild(anchor);
       URL.revokeObjectURL(objectUrl);
     } else {
-      // Announce failure (FINDING 2)
       const failText = "Download failed";
       announcementRef.current = failText;
       setAnnouncement(failText);
-
       setApiError(result.error);
       setErrorVisible(true);
     }
   };
 
-  /**
-   * Dismiss the error toast and restore focus to the element that triggered
-   * the error (FINDING 3 — UI/UX review).
-   */
+  /** Dismiss toast and restore focus to the element that triggered the error. */
   const handleErrorDismiss = (): void => {
     setErrorVisible(false);
     const target = errorTriggerRef.current;
     if (target instanceof HTMLElement) {
-      // Defer by a tick so the toast has hidden before focus moves
-      setTimeout(() => {
-        target.focus();
-      }, 0);
+      setTimeout(() => target.focus(), 0);
     }
     errorTriggerRef.current = null;
   };
@@ -362,7 +289,6 @@ export default function Dashboard(): JSX.Element {
     }
 
     setIsCreating(true);
-
     const params: CreateJobParams = {
       table_name: form.table_name,
       parquet_path: form.parquet_path,
@@ -388,230 +314,50 @@ export default function Dashboard(): JSX.Element {
   // -------------------------------------------------------------------------
 
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="dashboard-main"
-    >
-      {/* RFC 7807 error toast */}
+    <main id="main-content" tabIndex={-1} className="dashboard-main">
       <RFC7807Toast
         problem={apiError}
         visible={errorVisible}
         onDismiss={handleErrorDismiss}
       />
 
-      {/* Assertive announcement for API errors — interrupts screen readers for
-          critical failures. Separate container from role="alertdialog" toast. */}
+      {/* Assertive region: interrupts SR for critical API errors */}
       <AssertiveAnnouncement>
         {errorVisible && apiError !== null ? apiError.title : ""}
       </AssertiveAnnouncement>
 
-      {/* Hidden aria-live region for progress announcements.
-          IMPORTANT: This is a separate container from role="alertdialog" — no nesting. */}
-      <PoliteAnnouncement>
-        {announcement}
-      </PoliteAnnouncement>
+      {/* Polite region: SSE progress + download lifecycle announcements */}
+      <PoliteAnnouncement>{announcement}</PoliteAnnouncement>
 
       <div className="dashboard-content">
-        {/* Page heading */}
         <header>
-          <h1 className="dashboard-header__title">
-            Conclave Engine
-          </h1>
+          <h1 className="dashboard-header__title">Conclave Engine</h1>
           <p className="dashboard-header__subtitle">
             Monitor and manage data synthesis jobs.
           </p>
         </header>
 
-        {/* Create Job form */}
-        <section aria-labelledby="create-job-heading">
-          <h2
-            id="create-job-heading"
-            className="dashboard-section__heading"
-          >
-            Create Job
-          </h2>
+        <CreateJobForm
+          form={form}
+          isCreating={isCreating}
+          formValidationError={formValidationError}
+          formErrorField={formErrorField}
+          onFormChange={handleFormChange}
+          onSubmit={(e) => void handleCreateJob(e)}
+        />
 
-          <form
-            onSubmit={(e) => void handleCreateJob(e)}
-            className="dashboard-form"
-          >
-            {/* Form validation error — id="form-error" enables aria-describedby
-                association from the triggering input field (WCAG 1.3.1).
-                WCAG FIX: Container is always in the DOM so NVDA+Firefox does not
-                swallow repeat announcements when the same error fires twice.
-                Only the text content is conditional; padding collapses to 0 when
-                empty so the layout is unaffected. */}
-            <div
-              id="form-error"
-              role="alert"
-              className={`dashboard-form__error${formValidationError !== null ? " dashboard-form__error--active" : ""}`}
-            >
-              {formValidationError}
-            </div>
-
-            <div className="dashboard-form__field">
-              <label
-                htmlFor="table-name"
-                className="dashboard-form__label"
-              >
-                Table Name{" "}
-                {/* Visible required indicator — aria-hidden so SR reads aria-required */}
-                <span aria-hidden="true" className="dashboard-form__required-indicator">
-                  *
-                </span>
-              </label>
-              <input
-                id="table-name"
-                type="text"
-                required
-                aria-required="true"
-                value={form.table_name}
-                onChange={(e) => handleFormChange("table_name", e.target.value)}
-                placeholder="e.g. customers"
-                className="dashboard-form__input"
-              />
-            </div>
-
-            <div className="dashboard-form__field">
-              <label
-                htmlFor="parquet-path"
-                className="dashboard-form__label"
-              >
-                Parquet Path{" "}
-                {/* Visible required indicator — aria-hidden so SR reads aria-required */}
-                <span aria-hidden="true" className="dashboard-form__required-indicator">
-                  *
-                </span>
-              </label>
-              <input
-                id="parquet-path"
-                type="text"
-                required
-                aria-required="true"
-                value={form.parquet_path}
-                onChange={(e) =>
-                  handleFormChange("parquet_path", e.target.value)
-                }
-                placeholder="e.g. /data/customers.parquet"
-                className="dashboard-form__input"
-              />
-            </div>
-
-            <div className="dashboard-form__field">
-              <label
-                htmlFor="total-epochs"
-                className="dashboard-form__label"
-              >
-                Total Epochs{" "}
-                {/* Visible required indicator — aria-hidden so SR reads aria-required */}
-                <span aria-hidden="true" className="dashboard-form__required-indicator">
-                  *
-                </span>
-              </label>
-              <input
-                id="total-epochs"
-                type="number"
-                required
-                min={1}
-                aria-required="true"
-                aria-invalid={formErrorField === "total_epochs"}
-                value={form.total_epochs}
-                onChange={(e) =>
-                  handleFormChange("total_epochs", e.target.value)
-                }
-                placeholder="e.g. 100"
-                aria-describedby={formErrorField === "total_epochs" ? "form-error" : undefined}
-                className="dashboard-form__input"
-              />
-            </div>
-
-            <div className="dashboard-form__field">
-              <label
-                htmlFor="checkpoint-every"
-                className="dashboard-form__label"
-              >
-                Checkpoint Every (epochs){" "}
-                {/* Visible required indicator — aria-hidden so SR reads aria-required */}
-                <span aria-hidden="true" className="dashboard-form__required-indicator">
-                  *
-                </span>
-              </label>
-              <input
-                id="checkpoint-every"
-                type="number"
-                required
-                min={1}
-                aria-required="true"
-                aria-invalid={formErrorField === "checkpoint_every_n"}
-                value={form.checkpoint_every_n}
-                onChange={(e) =>
-                  handleFormChange("checkpoint_every_n", e.target.value)
-                }
-                placeholder="e.g. 10"
-                aria-describedby={formErrorField === "checkpoint_every_n" ? "form-error" : undefined}
-                className="dashboard-form__input"
-              />
-            </div>
-
-            <div className="dashboard-form__actions">
-              <button
-                type="submit"
-                disabled={isCreating}
-                className="dashboard-form__submit"
-              >
-                {isCreating ? "Creating…" : "Create Job"}
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {/* Job list */}
-        <section aria-labelledby="active-jobs-heading">
-          <h2
-            id="active-jobs-heading"
-            className="dashboard-section__heading"
-          >
-            Active Jobs
-          </h2>
-
-          {jobs.length === 0 ? (
-            <p className="dashboard-jobs__empty">
-              No jobs found. Create a job above to get started.
-            </p>
-          ) : (
-            <div className="dashboard-jobs__list">
-              {jobs.map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
-                  sseState={activeJobId === job.id ? sseState : null}
-                  onStart={(id) => void handleStart(id)}
-                  isStarting={startingJobId === job.id}
-                  onDownload={(id) => void handleDownload(id)}
-                  isDownloading={downloadingJobIds.has(job.id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Pagination — load more.
-              WCAG fix: uses --color-accent-text (#818cf8, ~6.3:1 on --color-bg)
-              instead of --color-accent (#4f46e5, ~3:1 on --color-bg which fails
-              WCAG 1.4.3 for text on a transparent/dark background). */}
-          {nextCursor !== null && (
-            <div className="dashboard-pagination">
-              <button
-                type="button"
-                disabled={isLoadingMore}
-                onClick={() => void handleLoadMore()}
-                className="dashboard-pagination__btn"
-              >
-                {isLoadingMore ? "Loading…" : "Load More"}
-              </button>
-            </div>
-          )}
-        </section>
+        <JobList
+          jobs={jobs}
+          activeJobId={activeJobId}
+          sseState={sseState}
+          startingJobId={startingJobId}
+          downloadingJobIds={downloadingJobIds}
+          nextCursor={nextCursor}
+          isLoadingMore={isLoadingMore}
+          onStart={(id) => void handleStart(id)}
+          onDownload={(id) => void handleDownload(id)}
+          onLoadMore={() => void handleLoadMore()}
+        />
       </div>
     </main>
   );
