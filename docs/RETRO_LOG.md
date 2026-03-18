@@ -20,6 +20,38 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-17] Phase 26 — Backend Production Hardening
+
+**Tasks**: T26.1 (file splitting), T26.2 (exception hierarchy), T26.3 (Protocol typing), T26.4 (HTTP round-trip tests), T26.5 (licensing/migration/FK tests), T26.6 (test infrastructure overhaul), T26.7 (docs overhaul)
+
+**Review agents**: QA (FINDING), DevOps (FINDING), Architecture (FINDING)
+
+**Findings fixed (5 FINDINGs, all inline)**:
+- F1 (Architecture): Removed non-patch-target private re-exports from `tasks.py` — 8 unnecessary re-exports culled
+- F2 (Architecture): ADR-0033 status updated to Superseded (duck-typing pattern retired by T26.2)
+- F3 (DevOps + QA): `job_orchestration.py` lines 483/546 — raw `str(exc)` sanitized via `safe_error_msg()` before writing to `job.error_msg`
+- F4 (QA): `_write_parquet_with_signing` docstring updated to document ValueError silent-skip on malformed signing key
+- F5 (DevOps advisory): Redis `requirepass` recommendation added to PRODUCTION_DEPLOYMENT.md
+
+**Process finding (PM-level)**:
+- Rule 12 and Rule 13 in CLAUDE.md specified `gh pr merge --squash`, which directly violated Constitution Priority 3 (TDD auditability via git log). Squash merges destroyed the RED→GREEN→REFACTOR commit trail for Phases 21-25. Fixed: both rules now use `--merge`. This was a Constitutional violation — rules added to CLAUDE.md must be audited against all Constitutional priorities before adoption.
+
+**What went well**:
+1. Seven tasks executed with high parallelism — 3 dependency waves, worktree isolation for independent tasks.
+2. All review findings resolved inline — zero deferrals, zero open advisories.
+3. Exception hierarchy (T26.2) cleanly resolved the ADR-0033 duck-typing problem.
+4. Protocol typing (T26.3) replaced `Any` with structural typing without violating import-linter boundaries.
+5. Test suite grew from ~1280 to ~1298 unit tests + 16 new integration tests + 5 Hypothesis property-based tests.
+
+**What to improve**:
+1. CLAUDE.md rules must be audited against ALL Constitutional priorities before adoption. The `--squash` directive was a direct Priority 3 violation that went undetected for 5+ phases.
+2. Feature branches should be pushed to GitHub promptly as tasks complete, not batched until phase end.
+3. Worktree agents sometimes commit to the feature branch directly instead of the worktree branch — requires manual verification of branch state after agent completion.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-17] Phase 25 — Observability: Custom Metrics + OTEL Trace Propagation
 
 **Tasks**: T25.1 (Custom Prometheus business metrics), T25.2 (OTEL trace context propagation into Huey workers)

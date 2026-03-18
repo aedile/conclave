@@ -75,12 +75,12 @@ new feature work and drain to ≤8 before resuming.
 **Rule 12 — Phase execution authority.** [sunset: Phase 25]
 Once user approves a phase plan, the PM has execution authority over all tasks. Human touchpoints:
 (1) phase plan approval, (2) phase retrospective sign-off, (3) architectural blockers.
-The PM merges with `gh pr merge --squash` after local CI verification.
+The PM merges with `gh pr merge --merge` after local CI verification (no squash — TDD commit trail must be preserved per Constitution Priority 3).
 (Until 2026-03-31: GitHub CI offline due to budget. Local execution is constitutional.)
 
 **Rule 13 — PR review automation.** [sunset: Phase 25]
 After review agents pass and local CI gates pass, spawn the `pr-reviewer` subagent. If all
-gates green, pr-reviewer posts `gh pr review --approve` and PM merges with `gh pr merge --squash`.
+gates green, pr-reviewer posts `gh pr review --approve` and PM merges with `gh pr merge --merge`.
 
 **Rule 15 — Rule sunset clause.** [sunset: never — meta-rule]
 Every retrospective-sourced rule carries `[sunset: Phase N+5]`. At the tagged phase, evaluate
