@@ -49,15 +49,16 @@ Implementation note — Operator-friendly error messages (T29.3):
     These must NOT be forwarded verbatim to HTTP clients — operators need
     plain-language titles and actionable remediation instructions instead.
 
-    :data:`OPERATOR_ERROR_MAP` maps each HTTP-safe domain exception class to a
+    :data:`OPERATOR_ERROR_MAP` maps each domain exception class to a
     presentation-layer tuple of ``(title, detail, status_code, type_uri)``.
     The mapping is consulted by the exception handlers registered in
     :mod:`synth_engine.bootstrapper.router_registry`.
 
     Security-sensitive exceptions (:exc:`PrivilegeEscalationError`,
-    :exc:`ArtifactTamperingError`) are intentionally absent from the map.
-    They must never receive operator-friendly HTTP responses — the catch-all
-    middleware returns a generic 500 for them.
+    :exc:`ArtifactTamperingError`) are included in the map but use fixed,
+    static detail strings that contain no security-sensitive context.
+    Their exception messages are logged at WARNING level but never forwarded
+    verbatim to HTTP clients (ADV-036+044).
 
 Reference: RFC 7807 — Problem Details for HTTP APIs
     https://datatracker.ietf.org/doc/html/rfc7807
@@ -69,6 +70,9 @@ Task: T19.1 — Middleware & Engine Singleton Fixes
     (Converted from BaseHTTPMiddleware to pure ASGI middleware)
 Task: P29-T29.3 — Error Message Audience Differentiation
     (Added OPERATOR_ERROR_MAP for operator-friendly RFC 7807 responses)
+Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
+    (Added mappings for VaultAlreadyUnsealedError, LicenseError, CollisionError,
+    CycleDetectionError, PrivilegeEscalationError, ArtifactTamperingError)
 """
 
 from __future__ import annotations
@@ -83,10 +87,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from synth_engine.modules.mapping.graph import CycleDetectionError
+from synth_engine.modules.masking.registry import CollisionError
 from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.exceptions import (
+    ArtifactTamperingError,
     BudgetExhaustionError,
+    LicenseError,
     OOMGuardrailError,
+    PrivilegeEscalationError,
+    VaultAlreadyUnsealedError,
     VaultSealedError,
 )
 from synth_engine.shared.security.vault import VaultConfigError, VaultEmptyPassphraseError
@@ -135,7 +145,7 @@ class OperatorErrorEntry(TypedDict):
     type_uri: str
 
 
-#: Operator-friendly RFC 7807 presentation mapping for HTTP-safe domain exceptions.
+#: Operator-friendly RFC 7807 presentation mapping for all domain exceptions.
 #:
 #: Keys are exception *classes* (not instances).  Values are
 #: :class:`OperatorErrorEntry` dicts consumed by exception handlers in
@@ -143,10 +153,12 @@ class OperatorErrorEntry(TypedDict):
 #: in :mod:`synth_engine.bootstrapper.lifecycle`.
 #:
 #: Security rule: :exc:`PrivilegeEscalationError` and
-#: :exc:`ArtifactTamperingError` are intentionally absent.  Those exceptions
-#: carry security-sensitive context (credential hints, artifact paths) and must
-#: never receive an operator-friendly HTTP response — the catch-all middleware
-#: returns a generic 500 for them.
+#: :exc:`ArtifactTamperingError` are mapped with FIXED, STATIC detail strings
+#: that contain no security-sensitive context (no role names, no artifact paths,
+#: no HMAC hints).  The raw exception message is logged at WARNING level but
+#: must never appear verbatim in the HTTP response body (ADV-036+044).
+#: The ``detail`` field in these entries is a safe, sanitized constant — not
+#: derived from ``str(exc)``.
 OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
     BudgetExhaustionError: OperatorErrorEntry(
         title="Privacy Budget Exceeded",
@@ -190,6 +202,66 @@ OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
             "meets the 16-byte minimum length requirement."
         ),
         status_code=400,
+        type_uri="about:blank",
+    ),
+    VaultAlreadyUnsealedError: OperatorErrorEntry(
+        title="Vault Already Unsealed",
+        detail=(
+            "The vault is already unsealed. No action is required. "
+            "To re-seal and rotate the key, call POST /seal first."
+        ),
+        status_code=409,
+        type_uri="about:blank",
+    ),
+    LicenseError: OperatorErrorEntry(
+        title="License Validation Failed",
+        detail=(
+            "The engine license could not be validated. "
+            "Ensure a valid license token is configured and has not expired. "
+            "Contact your administrator to renew or reconfigure the license."
+        ),
+        status_code=403,
+        type_uri="about:blank",
+    ),
+    CollisionError: OperatorErrorEntry(
+        title="Masking Collision Detected",
+        detail=(
+            "A collision was detected during deterministic masking. "
+            "This indicates an unexpected state in the masking registry. "
+            "Retry the operation or contact your administrator if the problem persists."
+        ),
+        status_code=409,
+        type_uri="about:blank",
+    ),
+    CycleDetectionError: OperatorErrorEntry(
+        title="Cycle Detected in Schema Graph",
+        detail=(
+            "A circular dependency was detected in the database schema foreign-key graph. "
+            "Provide explicit cycle-breaking rules before ingestion can proceed."
+        ),
+        status_code=422,
+        type_uri="about:blank",
+    ),
+    # Security-sensitive exceptions: detail is a fixed static string.
+    # The raw exception message (which may contain credential hints or internal
+    # paths) is logged at WARNING level but MUST NOT appear in HTTP responses.
+    PrivilegeEscalationError: OperatorErrorEntry(
+        title="Insufficient Database Privileges",
+        detail=(
+            "The ingestion database user has write privileges on the source database. "
+            "Configure a read-only database user for ingestion and retry."
+        ),
+        status_code=403,
+        type_uri="about:blank",
+    ),
+    ArtifactTamperingError: OperatorErrorEntry(
+        title="Model Artifact Integrity Failure",
+        detail=(
+            "A model artifact failed integrity verification. "
+            "The artifact may have been modified or corrupted. "
+            "Delete the affected artifact and re-run the synthesis job."
+        ),
+        status_code=422,
         type_uri="about:blank",
     ),
 }
@@ -272,7 +344,9 @@ def operator_error_response(exc: Exception) -> JSONResponse:
 
     Returns:
         JSONResponse with the operator-friendly RFC 7807 body and the
-        mapped HTTP status code.
+        mapped HTTP status code.  If the exception class is not present
+        in :data:`OPERATOR_ERROR_MAP`, a `KeyError` is raised by the dict
+        lookup — callers must ensure membership before calling this function.
     """
     entry = OPERATOR_ERROR_MAP[type(exc)]
     _logger.warning(

@@ -738,7 +738,7 @@ class TestUnsealRouteRFC7807Format:
         assert body["title"] == "Vault Configuration Error"
 
 
-class TestT34_3CompleteOperatorErrorMap:
+class TestT343CompleteOperatorErrorMap:
     """T34.3: Tests for the 6 newly-mapped domain exceptions in OPERATOR_ERROR_MAP.
 
     Verifies that all 11 SynthEngineError subclasses have RFC 7807 mappings
@@ -903,8 +903,7 @@ class TestT34_3CompleteOperatorErrorMap:
         }
         missing = expected - set(OPERATOR_ERROR_MAP.keys())
         assert not missing, (
-            f"OPERATOR_ERROR_MAP is missing entries for: "
-            f"{', '.join(c.__name__ for c in missing)}"
+            f"OPERATOR_ERROR_MAP is missing entries for: {', '.join(c.__name__ for c in missing)}"
         )
 
     @pytest.mark.asyncio

@@ -115,8 +115,9 @@ async def test_cycle_detection_error_returns_422_rfc7807() -> None:
     assert "title" in body
     assert "detail" in body
     assert "type" in body
-    # The detail must carry a meaningful cycle description
-    assert "table_a" in body["detail"]
+    # T34.3: detail is now a static operator-friendly string from OPERATOR_ERROR_MAP.
+    # Table names are logged but not forwarded to HTTP clients.
+    assert "circular dependency" in body["detail"].lower() or "cycle" in body["detail"].lower()
 
 
 @pytest.mark.asyncio
