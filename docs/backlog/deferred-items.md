@@ -108,11 +108,11 @@ to multi-host.
 
 ---
 
-## TBD-04 — Custom Prometheus Business Metrics
+## TBD-04 — Custom Prometheus Business Metrics ~~DELIVERED (Phase 25)~~
 
 **Source**: ADR-0029 Gap 8
 **Phase**: 25 — Observability
-**Priority**: TBD
+**Status**: DELIVERED — `SYNTHESIS_MS_PER_ROW` Histogram in `engine.py`, `EPSILON_SPENT_TOTAL` Counter in `accountant.py`, Grafana dashboard in `grafana/provisioning/dashboards/`. Confirmed in RETRO_LOG Phase 25 entry.
 
 ### Context
 
@@ -141,11 +141,11 @@ Privacy module's accounting ledger to avoid double-counting across requests
 
 ---
 
-## TBD-05 — OTEL Trace Context Propagation into Huey Workers
+## TBD-05 — OTEL Trace Context Propagation into Huey Workers ~~DELIVERED (Phase 25)~~
 
 **Source**: ADR-0029 Gap 9
 **Phase**: 25 — Observability (batched with TBD-04)
-**Priority**: TBD
+**Status**: DELIVERED — `inject_trace_context()` / `extract_trace_context()` in `telemetry.py`, wired at dispatch (`jobs.py`) and worker entry (`tasks.py`). Confirmed in RETRO_LOG Phase 25 entry.
 
 ### Context
 
@@ -175,9 +175,7 @@ observability improvements that share the same implementation phase.
 
 ## Triage Notes
 
-- Items TBD-04 and TBD-05 should be implemented in the same phase (they share
-  instrumentation entry points in `SynthesisEngine`, `EpsilonAccountant`, and
-  `shared/telemetry.py`).
+- ~~Items TBD-04 and TBD-05 should be implemented in the same phase~~ — DONE (Phase 25).
 - Items TBD-01 through TBD-03 each require a distinct deployment trigger
   (external integrations, multi-tenancy, multi-host Kubernetes) — they must
   NOT be batched together without verifying the triggering condition exists.
