@@ -524,6 +524,19 @@ class TestOperatorFriendlyErrorMessages:
             "it is a security event and must only appear in internal logs."
         )
 
+    def test_operator_error_response_raises_key_error_for_unknown_exception(self) -> None:
+        """operator_error_response() must raise KeyError for unmapped exception classes.
+
+        The docstring for operator_error_response() documents that it raises
+        KeyError when called with an exception whose class is not in
+        OPERATOR_ERROR_MAP.  This test exercises that contract directly so the
+        behaviour is verified by the test suite.
+        """
+        from synth_engine.bootstrapper.errors import operator_error_response
+
+        with pytest.raises(KeyError):
+            operator_error_response(RuntimeError("test"))
+
 
 class TestOperatorFriendlyExceptionHandlers:
     """T29.3: Integration tests for exception handlers registered in router_registry.

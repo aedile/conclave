@@ -108,8 +108,12 @@ def _register_routes(app: FastAPI) -> None:
         except VaultEmptyPassphraseError as exc:
             return operator_error_response(exc)
         except VaultAlreadyUnsealedError as exc:
-            # Return a specific RFC 7807 response for this case -- the vault
-            # is already unsealed, which is not a hard failure for operators.
+            # VaultAlreadyUnsealedError is handled inline rather than via
+            # OPERATOR_ERROR_MAP because it is an informational 400, not a
+            # hard failure -- the operator's desired state (vault unsealed)
+            # is already achieved.  A bespoke message makes this distinction
+            # clear without adding a map entry that implies a recoverable
+            # error requiring corrective action.
             _logger.warning("Vault unseal attempted when already unsealed: %s", exc)
             return JSONResponse(
                 status_code=400,
@@ -122,23 +126,6 @@ def _register_routes(app: FastAPI) -> None:
             )
         except VaultConfigError as exc:
             return operator_error_response(exc)
-        except ValueError as exc:
-            # Fallback for unexpected ValueError subclasses -- use a generic
-            # RFC 7807 response rather than the legacy error_code format.
-            _logger.warning("Unexpected ValueError during vault unseal: %s", exc)
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "type": "about:blank",
-                    "title": "Vault Configuration Error",
-                    "status": 400,
-                    "detail": (
-                        "The vault cannot be unsealed due to a configuration error. "
-                        "Ensure the VAULT_SEAL_SALT environment variable is set and "
-                        "meets the 16-byte minimum length requirement."
-                    ),
-                },
-            )
 
         # Emit audit event -- best-effort; failure must not prevent unsealing
         try:

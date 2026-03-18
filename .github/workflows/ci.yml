@@ -156,7 +156,7 @@ jobs:
           poetry run pytest tests/unit/
           --cov=src/synth_engine
           --cov-report=term-missing
-          --cov-fail-under=90
+          --cov-fail-under=95
 
   # ---------------------------------------------------------------------------
   # Integration tests — pytest-postgresql in pg_ctl process mode
@@ -165,7 +165,7 @@ jobs:
   # instance; a services: postgres: container conflicts with that pattern.
   # Instead we install PostgreSQL 16 via apt so pg_ctl is on PATH, then let
   # pytest-postgresql manage the lifecycle. We also pass --no-cov to avoid
-  # the --cov-fail-under=90 addopt (integration-only coverage is ~15%), and
+  # the --cov-fail-under=95 addopt (integration-only coverage is ~15%), and
   # -p pytest_postgresql to re-enable the plugin overridden by
   # -p no:pytest_postgresql in addopts (later CLI args win).
   #
