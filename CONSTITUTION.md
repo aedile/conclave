@@ -44,7 +44,7 @@ This section governs how you write and manage code.
      3. **Refactor:** Improve the code's quality, clarity, and performance while ensuring all tests continue to pass.
 3. **Comprehensive Testing (Priority 4):**
    - No change is complete until it is covered by robust, passing tests.
-   - You _WILL_ maintain a comprehensive test suite with **90%+ test coverage**.
+   - You _WILL_ maintain a comprehensive test suite with **95%+ test coverage**.
    - No regressions _WILL_ be introduced. All existing tests _MUST_ pass before your work on a task is considered finished.
 4. **Code Quality (Priority 5):**
    - You _WILL_ write clean, maintainable, efficient, and well-factored code.
@@ -91,10 +91,10 @@ This principle governs the Constitution itself and all future amendments.
 |----------|-----------|----------------------|
 | 0 | Security | `gitleaks`, `detect-secrets`, `bandit` in pre-commit + CI |
 | 0.5 | Programmatic Enforcement | This table — self-referential; PM verifies at phase kickoff |
-| 1 | Quality Gates unbreakable | `ruff`, `mypy`, `pytest --cov-fail-under=90`, `pre-commit` cannot be skipped |
+| 1 | Quality Gates unbreakable | `ruff`, `mypy`, `pytest --cov-fail-under=95`, `pre-commit` cannot be skipped |
 | 2 | Source control / PRs | Pre-commit `--no-verify` forbidden; branch protection on `main` |
 | 3 | TDD Red/Green/Refactor | `test:` commit before `feat:` commit — auditable in git log |
-| 4 | 90%+ test coverage | `pytest --cov-fail-under=90` in CI; build fails below threshold |
+| 4 | 95%+ test coverage | `pytest --cov-fail-under=95` in CI; build fails below threshold |
 | 5 | Code quality / typing | `ruff`, `mypy --strict` in pre-commit + CI |
 | 6 | Documentation currency | `docs-gate` CI job — every PR branch must contain a `docs:` commit |
 | 7 | Retrospectives | `docs: update RETRO_LOG` commit required per task — auditable in git log |

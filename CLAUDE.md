@@ -130,7 +130,7 @@ Clean workspace, clear organization, security by default, minimal footprint, zer
 poetry run ruff check src/ tests/                              # Linting
 poetry run ruff format --check src/ tests/                     # Formatting
 poetry run mypy src/                                           # Type checking
-poetry run pytest tests/unit/ --cov=src/synth_engine --cov-fail-under=90 -W error
+poetry run pytest tests/unit/ --cov=src/synth_engine --cov-fail-under=95 -W error
 poetry run pytest tests/integration/ -v                        # Separate gate
 poetry run bandit -c pyproject.toml -r src/                    # Security scan
 vulture src/ .vulture_whitelist.py --min-confidence 60         # Dead code
@@ -219,7 +219,7 @@ Before any git operation: `git status` → `git diff --cached` → `gitleaks det
 
 Before promoting code from `docs/retired/spikes/` into `src/synth_engine/`, verify:
 silent failure audit, PRNG seeding, edge case guards, type annotations, bandit scan,
-import boundary compliance, ≥90% test coverage, ADR alignment. Partial promotion forbidden.
+import boundary compliance, ≥95% test coverage, ADR alignment. Partial promotion forbidden.
 
 ---
 
@@ -262,5 +262,5 @@ AFTER CODE:      Spawn reviewers (qa+devops always; ui-ux/arch conditional) → 
 COMMIT TYPES:    test: feat: fix: refactor: review: docs: chore:
 REVIEWERS:       QA+DevOps always | UI/UX: frontend | Arch: src/synth_engine/
 NEVER:           --no-verify, skip hooks, commit PII, dead code, untyped code
-ALWAYS:          TDD, 90% coverage, type hints, clean workspace, review commit
+ALWAYS:          TDD, 95% coverage, type hints, clean workspace, review commit
 ```

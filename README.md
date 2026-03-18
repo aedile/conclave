@@ -298,14 +298,14 @@ poetry run ruff format --check src/ tests/     # formatting
 poetry run mypy src/                           # strict type checking
 poetry run bandit -c pyproject.toml -r src/    # security scan
 poetry run pytest tests/unit/ \
-    --cov=src/synth_engine --cov-fail-under=90 \
-    -W error                                   # unit tests, 90% coverage gate
+    --cov=src/synth_engine --cov-fail-under=95 \
+    -W error                                   # unit tests, 95% coverage gate
 poetry run pytest tests/integration/ -v        # integration tests (separate gate)
 poetry run python -m importlinter              # module boundary enforcement
 pre-commit run --all-files                     # all hooks including gitleaks
 ```
 
-Coverage is enforced at 90% minimum. Integration tests are a separate gate — unit test
+Coverage is enforced at 95% minimum. Integration tests are a separate gate — unit test
 mocks do not substitute for tests against real infrastructure (pytest-postgresql).
 
 The development workflow is TDD (Red → Green → Refactor) enforced by convention and

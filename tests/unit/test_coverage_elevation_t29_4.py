@@ -29,7 +29,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ===========================================================================
 # shared/task_queue.py — MemoryHuey backend branch (lines 97-100)
 # ===========================================================================
@@ -70,9 +69,9 @@ class TestTaskQueueMemoryBackend:
         with caplog.at_level(logging.INFO, logger="synth_engine.shared.task_queue"):
             task_queue._build_huey()  # type: ignore[attr-defined]
 
-        assert any(
-            "MemoryHuey" in record.message for record in caplog.records
-        ), "Expected INFO log mentioning MemoryHuey"
+        assert any("MemoryHuey" in record.message for record in caplog.records), (
+            "Expected INFO log mentioning MemoryHuey"
+        )
 
     def test_build_huey_memory_backend_immediate_mode(
         self, monkeypatch: pytest.MonkeyPatch
@@ -476,7 +475,8 @@ class TestTraversalEdgeCases:
         from synth_engine.modules.subsetting.traversal import DagTraversal
         from synth_engine.shared.schema_topology import SchemaTopology
 
-        # 'projects' has TWO FKs: one to 'employees' (fetched) and one to 'departments' (not fetched)
+        # 'projects' has TWO FKs: one to 'employees' (fetched) and one to 'departments' (not
+        # fetched)
         topology = SchemaTopology(
             table_order=("employees", "departments", "projects"),
             columns={
