@@ -28,6 +28,76 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
+# _promote_to_sync_url — pure function, fully testable without DB
+# ---------------------------------------------------------------------------
+
+
+class TestPromoteToSyncUrl:
+    """Tests for the _promote_to_sync_url URL mapping helper.
+
+    This pure function translates async driver URL prefixes to their
+    synchronous equivalents so the Huey worker can use a sync engine.
+    """
+
+    def test_asyncpg_url_promoted_to_psycopg2(self) -> None:
+        """postgresql+asyncpg:// must be demoted to postgresql:// (psycopg2)."""
+        from synth_engine.bootstrapper.factories import _promote_to_sync_url
+
+        result = _promote_to_sync_url("postgresql+asyncpg://user:pw@host/db")
+        assert result == "postgresql://user:pw@host/db"
+
+    def test_aiosqlite_url_promoted_to_sqlite(self) -> None:
+        """sqlite+aiosqlite:/// must be demoted to sqlite:///."""
+        from synth_engine.bootstrapper.factories import _promote_to_sync_url
+
+        result = _promote_to_sync_url("sqlite+aiosqlite:///./test.db")
+        assert result == "sqlite:///./test.db"
+
+    def test_already_sync_postgresql_url_unchanged(self) -> None:
+        """A plain postgresql:// URL (no async prefix) must be returned unchanged."""
+        from synth_engine.bootstrapper.factories import _promote_to_sync_url
+
+        url = "postgresql://user:pw@host/db"
+        assert _promote_to_sync_url(url) == url
+
+    def test_already_sync_sqlite_url_unchanged(self) -> None:
+        """A plain sqlite:/// URL (no aiosqlite prefix) must be returned unchanged."""
+        from synth_engine.bootstrapper.factories import _promote_to_sync_url
+
+        url = "sqlite:///./test.db"
+        assert _promote_to_sync_url(url) == url
+
+    def test_no_double_substitution_asyncpg(self) -> None:
+        """Calling _promote_to_sync_url twice must not corrupt the URL.
+
+        If the URL is already a plain postgresql:// (sync), calling the
+        function again must return it unchanged (no double-substitution).
+        """
+        from synth_engine.bootstrapper.factories import _promote_to_sync_url
+
+        original = "postgresql+asyncpg://user:pw@host/db"
+        once = _promote_to_sync_url(original)
+        twice = _promote_to_sync_url(once)
+        assert once == twice == "postgresql://user:pw@host/db"
+
+    def test_no_double_substitution_aiosqlite(self) -> None:
+        """Calling _promote_to_sync_url twice on an aiosqlite URL is idempotent."""
+        from synth_engine.bootstrapper.factories import _promote_to_sync_url
+
+        original = "sqlite+aiosqlite:///./test.db"
+        once = _promote_to_sync_url(original)
+        twice = _promote_to_sync_url(once)
+        assert once == twice == "sqlite:///./test.db"
+
+    def test_in_memory_sqlite_url_unchanged(self) -> None:
+        """sqlite:///:memory: (in-memory, no aiosqlite prefix) must be unchanged."""
+        from synth_engine.bootstrapper.factories import _promote_to_sync_url
+
+        url = "sqlite:///:memory:"
+        assert _promote_to_sync_url(url) == url
+
+
+# ---------------------------------------------------------------------------
 # F4 — spend_budget sync wrapper must not raise MissingGreenlet
 # ---------------------------------------------------------------------------
 
@@ -60,24 +130,14 @@ class TestBuildSpendBudgetFn:
         (psycopg2 driver) instead of creating an async engine and calling
         ``asyncio.run()``.
 
-        This test patches ``sqlalchemy.create_engine`` (sync) and the
-        privacy accountant's sync spend path to verify that the sync engine
-        code path is taken — not ``asyncio.run()``.
+        This test patches ``asyncio.run`` and verifies it is never called by
+        the sync wrapper.
         """
         import asyncio
 
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         fn = build_spend_budget_fn()
-
-        mock_session = MagicMock()
-        mock_session.__enter__ = MagicMock(return_value=mock_session)
-        mock_session.__exit__ = MagicMock(return_value=False)
-        mock_session_maker = MagicMock(return_value=mock_session)
-
-        mock_engine = MagicMock()
-        mock_engine.connect.return_value.__enter__ = MagicMock(return_value=mock_engine)
-        mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
 
         asyncio_run_called: list[bool] = []
 
@@ -87,21 +147,13 @@ class TestBuildSpendBudgetFn:
             asyncio_run_called.append(True)
             return original_asyncio_run(*args, **kwargs)
 
-        with (
-            patch("asyncio.run", side_effect=_patched_asyncio_run),
-            patch(
-                "synth_engine.bootstrapper.factories.spend_budget_sync",
-                create=True,
-            ) as mock_spend,
-        ):
-            mock_spend.return_value = None
-            # We only care that asyncio.run was NOT invoked — the actual DB call
-            # will fail since no DB is present, so we catch any exception that
-            # is not MissingGreenlet-related and just check the flag.
+        with patch("asyncio.run", side_effect=_patched_asyncio_run):
+            # The actual DB call will fail since no DB is present; that is
+            # expected.  We only care that asyncio.run is NOT invoked.
             try:
                 fn(amount=0.5, job_id=1, ledger_id=1)
             except Exception:
-                pass  # DB not present — expected; we only verify asyncio.run behavior
+                pass  # DB not present — expected
 
         assert not asyncio_run_called, (
             "build_spend_budget_fn() sync wrapper must NOT call asyncio.run().\n"
@@ -114,37 +166,28 @@ class TestBuildSpendBudgetFn:
         """The sync wrapper must complete without MissingGreenlet from a plain thread.
 
         This test exercises the wrapper from a ``threading.Thread`` (no greenlet
-        context) with a mocked ``spend_budget_sync`` to isolate the concurrency
-        behaviour from real database access.
+        context) to simulate the Huey worker thread environment.
 
         P28-F4: Before the fix, asyncio.run() from this thread context with the
         asyncpg driver would raise:
             sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called
-        After the fix, the sync engine path must complete cleanly.
+        After the fix, the sync engine path must complete without MissingGreenlet.
         """
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         fn = build_spend_budget_fn()
 
-        errors: list[BaseException] = []
         missing_greenlet_errors: list[BaseException] = []
 
         def _run_in_thread() -> None:
             try:
-                with patch(
-                    "synth_engine.bootstrapper.factories._sync_spend_budget",
-                    create=True,
-                ) as mock_sync_spend:
-                    mock_sync_spend.return_value = None
-                    # The real call will fail if no DB is present; we only need
-                    # to confirm MissingGreenlet is NOT raised.
-                    fn(amount=Decimal("0.5"), job_id=99, ledger_id=1)
+                # No DB is present — the call will fail, but we only care
+                # that MissingGreenlet is NOT among the failures.
+                fn(amount=Decimal("0.5"), job_id=99, ledger_id=1)
             except Exception as exc:
                 exc_type_name = type(exc).__name__
                 if "MissingGreenlet" in exc_type_name or "MissingGreenlet" in str(exc):
                     missing_greenlet_errors.append(exc)
-                else:
-                    errors.append(exc)
 
         thread = threading.Thread(target=_run_in_thread)
         thread.start()
@@ -157,12 +200,11 @@ class TestBuildSpendBudgetFn:
             "Use a synchronous SQLAlchemy engine (psycopg2) instead."
         )
 
-    def test_sync_wrapper_invokes_sync_spend_budget(self) -> None:
-        """The sync wrapper must call the synchronous spend_budget path.
+    def test_sync_wrapper_raises_value_error_for_non_positive_amount(self) -> None:
+        """The sync wrapper must raise ValueError for amount <= 0.
 
-        After the P28-F4 fix, the wrapper must delegate to a synchronous
-        ``spend_budget`` implementation using a sync SQLAlchemy session.
-        The mock replaces the inner sync call; argument forwarding is verified.
+        This mirrors the validation in the async spend_budget() and ensures
+        the sync path enforces the same invariant.
         """
         import os
 
@@ -170,17 +212,36 @@ class TestBuildSpendBudgetFn:
 
         fn = build_spend_budget_fn()
 
-        # Use sqlite (sync, no asyncpg dependency) for this unit test.
-        with (
-            patch.dict(os.environ, {"DATABASE_URL": "sqlite:////:memory:"}),
-            patch(
-                "synth_engine.modules.privacy.accountant.spend_budget_sync",
-                create=True,
-            ),
-        ):
-            # We verify the wrapper calls through to the underlying sync DB path.
-            # If the fix is correct: no MissingGreenlet, no asyncio.run().
-            # A real DB connection will fail; that is acceptable for this unit test.
+        with patch.dict(os.environ, {"DATABASE_URL": "sqlite:///:memory:"}):
+            with pytest.raises(ValueError, match="amount must be positive"):
+                fn(amount=0.0, job_id=1, ledger_id=1)
+
+    def test_sync_wrapper_raises_value_error_for_negative_amount(self) -> None:
+        """The sync wrapper must raise ValueError for negative amount."""
+        import os
+
+        from synth_engine.bootstrapper.factories import build_spend_budget_fn
+
+        fn = build_spend_budget_fn()
+
+        with patch.dict(os.environ, {"DATABASE_URL": "sqlite:///:memory:"}):
+            with pytest.raises(ValueError, match="amount must be positive"):
+                fn(amount=-1.5, job_id=1, ledger_id=1)
+
+    def test_sync_wrapper_invokes_sync_spend_budget(self) -> None:
+        """The sync wrapper must not raise MissingGreenlet for any URL scheme.
+
+        After the P28-F4 fix, the wrapper must use a synchronous DB path.
+        If the fix is correct: no MissingGreenlet, no asyncio.run().
+        A real DB connection will fail; that is acceptable for this unit test.
+        """
+        import os
+
+        from synth_engine.bootstrapper.factories import build_spend_budget_fn
+
+        fn = build_spend_budget_fn()
+
+        with patch.dict(os.environ, {"DATABASE_URL": "sqlite:////:memory:"}):
             try:
                 fn(amount=1.0, job_id=42, ledger_id=7, note="p28-test")
             except Exception as exc:

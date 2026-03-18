@@ -11,11 +11,30 @@ The Docker-secrets cluster (``_read_secret``, ``_SECRETS_DIR``,
 ``build_ephemeral_storage_client``) lives in ``main.py`` so that existing
 test patches against ``synth_engine.bootstrapper.main.*`` continue to work
 without modification (AC3 of the bootstrapper-decomposition task).
+
+P28-F4 — Sync spend_budget path
+---------------------------------
+The previous implementation called ``asyncio.run()`` inside the sync wrapper
+returned by ``build_spend_budget_fn()``.  When asyncpg is the database driver
+(``postgresql+asyncpg://``), ``asyncio.run()`` from a Huey worker thread that
+was not started in a greenlet context raises::
+
+    sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called
+
+The fix replaces the async DB path with a **synchronous** SQLAlchemy engine
+(psycopg2 driver, ``postgresql://``).  The sync path never calls
+``asyncio.run()`` and therefore never encounters the MissingGreenlet error.
+The existing async API routes (FastAPI handlers) are unaffected — they
+continue to use the async engine via ``get_async_session`` in ``shared/db.py``.
+
+URL mapping applied by ``build_spend_budget_fn()``:
+- ``postgresql+asyncpg://`` → ``postgresql://`` (psycopg2 sync driver)
+- ``sqlite+aiosqlite:///`` → ``sqlite:///`` (sync SQLite for unit tests)
+- Any other URL is used as-is (already a sync-compatible URL).
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from decimal import Decimal
@@ -105,34 +124,68 @@ def build_dp_wrapper(
     return _DPTrainingWrapper(max_grad_norm=max_grad_norm, noise_multiplier=noise_multiplier)
 
 
+def _promote_to_sync_url(database_url: str) -> str:
+    """Convert an async database URL to its synchronous driver equivalent.
+
+    Maps async driver prefixes used by the FastAPI/asyncpg stack to their
+    synchronous psycopg2/SQLite equivalents so the Huey worker can open a
+    synchronous connection without requiring a greenlet context.
+
+    Mapping table:
+    - ``postgresql+asyncpg://`` → ``postgresql://``  (psycopg2)
+    - ``sqlite+aiosqlite:///``  → ``sqlite:///``     (stdlib sqlite3)
+    - Anything else             → returned unchanged  (already sync)
+
+    Each branch guards against double-substitution: the check for the async
+    prefix ensures we never transform an already-sync URL.
+
+    Args:
+        database_url: The raw ``DATABASE_URL`` value from the environment.
+
+    Returns:
+        A synchronous-driver URL suitable for ``sqlalchemy.create_engine``.
+    """
+    if "postgresql+asyncpg://" in database_url:
+        return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    if "sqlite+aiosqlite:///" in database_url:
+        return database_url.replace("sqlite+aiosqlite:///", "sqlite:///", 1)
+    # Also handle bare postgresql:// with no async prefix (already sync)
+    # and any other sync-compatible URL — return as-is.
+    return database_url
+
+
 def build_spend_budget_fn() -> SpendBudgetProtocol:
-    """Build a sync callable wrapping async ``spend_budget()`` for Huey context.
+    """Build a sync callable wrapping ``spend_budget`` logic for Huey context.
 
-    The Huey task runner is synchronous.  ``spend_budget()`` in
-    ``modules/privacy/accountant`` is ``async def`` and requires an
-    ``AsyncSession``.  This factory returns a sync wrapper that:
+    The Huey task runner is synchronous.  The previous implementation called
+    ``asyncio.run()`` to execute the async ``spend_budget()`` from
+    ``modules/privacy/accountant``.  When asyncpg is the database driver,
+    ``asyncio.run()`` from a Huey worker thread (which is not spawned as a
+    greenlet) raises ``MissingGreenlet`` (P28-F4).
 
-    1. Creates a fresh ``AsyncSession`` for each call (required by
-       ``spend_budget``'s concurrency contract — sessions must not be shared).
-    2. Calls ``asyncio.run()`` to execute the async code from Huey's
-       synchronous context.  ``asyncio.run()`` creates a new event loop,
-       making this safe even if no event loop exists in the current thread.
+    This implementation uses a **synchronous** SQLAlchemy engine (psycopg2
+    for PostgreSQL, stdlib sqlite3 for SQLite) to avoid the greenlet
+    requirement entirely.  The async API routes are unaffected — they
+    continue to use the async engine via ``shared/db.py:get_async_session``.
 
-    The returned callable signature matches ``SpendBudgetProtocol`` from
-    ``shared/protocols`` and is registered via ``set_spend_budget_fn()`` at
-    bootstrapper startup (Rule 8).
+    The returned callable implements the same pessimistic-locking protocol
+    as the async ``spend_budget()``:
+
+    1. ``SELECT ... FOR UPDATE`` on the ``PrivacyLedger`` row.
+    2. Budget exhaustion check — raises ``BudgetExhaustionError`` if exceeded.
+    3. Deduct epsilon and write a ``PrivacyTransaction`` audit row.
+    4. Commit (or rollback on error).
 
     Import note:
-        This factory defers all privacy-module imports inside the closure so
-        that environments without a live database do not fail at import time.
-        The ``spend_budget`` function and ``BudgetExhaustionError`` are imported
-        lazily inside ``_async_spend``.
+        All privacy-module and SQLAlchemy imports are deferred inside the
+        closure so environments without a live database do not fail at
+        import time.
 
     URL promotion note:
-        The ``DATABASE_URL`` environment variable may already contain an async
-        driver prefix (e.g., ``sqlite+aiosqlite:///``) in some environments.
-        The URL promotion logic checks for the async driver prefix before
-        substituting to avoid double-substitution corruption (F3 review fix).
+        ``DATABASE_URL`` may contain an async driver prefix
+        (``postgresql+asyncpg://`` or ``sqlite+aiosqlite:///``).
+        :func:`_promote_to_sync_url` demotes these to their sync equivalents
+        before calling ``sqlalchemy.create_engine``.
 
     Returns:
         A sync callable ``(*, amount, job_id, ledger_id, note=None) -> None``
@@ -140,8 +193,8 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         The returned callable satisfies ``SpendBudgetProtocol``.
 
     Raises:
-        Any exception raised by ``spend_budget()`` propagates to the caller,
-        including ``BudgetExhaustionError`` when budget is exhausted.
+        Any exception raised by the underlying DB operation propagates to the
+        caller, including ``BudgetExhaustionError`` when budget is exhausted.
 
     Example::
 
@@ -151,49 +204,6 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         fn(amount=0.5, job_id=42, ledger_id=1)
     """
 
-    async def _async_spend(
-        amount: float | Decimal,
-        job_id: int,
-        ledger_id: int,
-        note: str | None,
-    ) -> None:
-        """Async inner function: opens a session and calls spend_budget().
-
-        Args:
-            amount: Epsilon to deduct.
-            job_id: Synthesis job identifier.
-            ledger_id: Primary key of the PrivacyLedger row.
-            note: Optional annotation.
-        """
-        # Deferred imports — keeps startup fast and avoids import errors
-        # in environments where aiosqlite/asyncpg is not installed.
-        from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
-        from sqlalchemy.ext.asyncio import create_async_engine
-
-        from synth_engine.modules.privacy.accountant import spend_budget
-
-        database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-
-        # Promote sync driver URLs to their async counterparts.
-        # Each branch guards against double-substitution by checking whether
-        # the async driver prefix is already present before replacing.
-        if "postgresql://" in database_url and "+asyncpg" not in database_url:
-            async_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        elif "sqlite:///" in database_url and "+aiosqlite" not in database_url:
-            async_url = database_url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
-        else:
-            async_url = database_url
-
-        async_engine = create_async_engine(async_url)
-        async with _AsyncSession(async_engine) as session:
-            await spend_budget(
-                amount=amount,
-                job_id=job_id,
-                ledger_id=ledger_id,
-                session=session,
-                note=note,
-            )
-
     def _sync_wrapper(
         *,
         amount: float,
@@ -201,7 +211,11 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         ledger_id: int,
         note: str | None = None,
     ) -> None:
-        """Sync wrapper: calls _async_spend via asyncio.run() for Huey compat.
+        """Sync wrapper: calls spend_budget logic via a synchronous DB session.
+
+        Uses a synchronous SQLAlchemy engine (psycopg2 for PostgreSQL,
+        stdlib sqlite3 for SQLite) to avoid ``MissingGreenlet`` errors when
+        called from a Huey worker thread (P28-F4).
 
         Args:
             amount: Epsilon to deduct.  Must be positive.
@@ -213,7 +227,66 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
             BudgetExhaustionError: If the privacy budget is exhausted.
             ValueError: If ``amount`` is not positive.
         """
-        asyncio.run(_async_spend(amount, job_id, ledger_id, note))
+        # Deferred imports — keeps startup fast and avoids import errors in
+        # environments where psycopg2 or the privacy module is not installed.
+        from sqlalchemy import create_engine, select
+        from sqlalchemy.orm import Session
 
-    _logger.info("spend_budget sync wrapper built.")
+        from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
+        from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
+
+        decimal_amount: Decimal = (
+            amount if isinstance(amount, Decimal) else Decimal(str(amount))
+        )
+        if decimal_amount <= 0:
+            raise ValueError(f"amount must be positive, got {amount!r}")
+
+        database_url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
+        sync_url = _promote_to_sync_url(database_url)
+
+        engine = create_engine(sync_url)
+        with Session(engine) as session:
+            with session.begin():
+                # Pessimistic lock — same protocol as the async spend_budget().
+                stmt = (
+                    select(PrivacyLedger)
+                    .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
+                    .with_for_update()
+                )
+                result = session.execute(stmt)
+                ledger = result.scalar_one()
+
+                if ledger.total_spent_epsilon + decimal_amount > ledger.total_allocated_epsilon:
+                    _logger.warning(
+                        "Budget exhausted: ledger_id=%d, requested=%s, spent=%s, allocated=%s",
+                        ledger_id,
+                        decimal_amount,
+                        ledger.total_spent_epsilon,
+                        ledger.total_allocated_epsilon,
+                    )
+                    raise BudgetExhaustionError(
+                        f"Global DP budget exhausted: requested epsilon={decimal_amount}, "
+                        f"total_spent={ledger.total_spent_epsilon}, "
+                        f"total_allocated={ledger.total_allocated_epsilon}. "
+                        "Synthesis job cannot proceed — budget exhausted."
+                    )
+
+                ledger.total_spent_epsilon += decimal_amount
+                transaction = PrivacyTransaction(
+                    ledger_id=ledger_id,
+                    job_id=job_id,
+                    epsilon_spent=decimal_amount,
+                    note=note,
+                )
+                session.add(transaction)
+                # session.begin() context manager commits on clean exit.
+
+        _logger.info(
+            "Epsilon allocated (sync): ledger_id=%d, job_id=%d, amount=%s",
+            ledger_id,
+            job_id,
+            decimal_amount,
+        )
+
+    _logger.info("spend_budget sync wrapper built (P28-F4: uses sync engine, no asyncio.run).")
     return _sync_wrapper

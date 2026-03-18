@@ -41,9 +41,13 @@ RUN apt-get update \
 # README.md is required by pyproject.toml (readme = "README.md") for package metadata
 COPY pyproject.toml poetry.lock README.md ./
 
-# Export production deps to requirements.txt (no hashes for air-gap compat)
+# Export production deps to requirements.txt (no hashes for air-gap compat).
+# P28-F3: --with synthesizer includes sdv/torch/opacus in the production image.
+# Without this flag these packages are absent from requirements.txt, causing
+# ImportError when synthesis jobs execute inside the container.
 RUN poetry export \
         --without dev \
+        --with synthesizer \
         --without-hashes \
         -f requirements.txt \
         -o requirements.txt
