@@ -633,15 +633,19 @@ class TestActivateOpacusProxyRenamed:
 # ---------------------------------------------------------------------------
 
 
-class TestSampleAfterDPTraining:
-    """AC4 — sample() must produce valid DataFrames after DP training."""
+class TestFittedStateAfterDPTraining:
+    """AC4 — _fitted flag must be True after DP training completes.
 
-    def test_sample_returns_dataframe_after_dp_fit(self) -> None:
-        """sample() must return a pd.DataFrame after DP training completes."""
+    Note: these tests verify the fitted state flag, not the full sample() output.
+    They confirm fit() reaches completion and marks the instance as ready to sample.
+    """
+
+    def test_fitted_flag_set_after_dp_fit(self) -> None:
+        """_fitted must be True after DP fit() completes — instance is ready to sample."""
         mock_dp_wrapper = _make_mock_dp_wrapper()
         instance = _fit_with_mocked_train_dp(epochs=1, dp_wrapper=mock_dp_wrapper)
 
-        # After DP training, instance must be fitted
+        # After DP training, instance must be marked as fitted
         assert instance._fitted, "instance must be marked as fitted after DP training"
 
     def test_sample_fitted_true_after_dp_training(self) -> None:

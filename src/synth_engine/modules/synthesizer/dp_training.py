@@ -110,6 +110,7 @@ import numpy as np
 import pandas as pd
 
 from synth_engine.shared.exceptions import BudgetExhaustionError
+from synth_engine.shared.protocols import DPWrapperProtocol
 
 _logger = logging.getLogger(__name__)
 
@@ -249,7 +250,7 @@ class DPCompatibleCTGAN:
         self,
         metadata: Any,
         epochs: int,
-        dp_wrapper: Any = None,
+        dp_wrapper: DPWrapperProtocol | None = None,
         allocated_epsilon: float = 50.0,
         delta: float = 1e-5,
     ) -> None:
@@ -445,6 +446,9 @@ class DPCompatibleCTGAN:
             data.  Only the Discriminator is wrapped with Opacus.
             This is the standard DP-GAN threat model per Xie et al. (2018).
         """
+        assert self._dp_wrapper is not None, (  # type guard for mypy
+            "_train_dp_discriminator must only be called when dp_wrapper is not None"
+        )
         embedding_dim: int = int(model_kwargs.get("embedding_dim", 128))
         self._dp_embedding_dim = embedding_dim
         self._dp_numeric_columns = list(processed_df.select_dtypes(include=[float, int]).columns)
@@ -643,6 +647,9 @@ class DPCompatibleCTGAN:
             This method must only be called when ``self._dp_wrapper is not None``
             and torch/nn/DataLoader are available.
         """
+        assert self._dp_wrapper is not None, (  # type guard for mypy
+            "_activate_opacus_proxy must only be called when dp_wrapper is not None"
+        )
         if torch is None or nn is None:  # pragma: no cover
             raise ImportError(
                 "PyTorch is required for DP wrapping. "

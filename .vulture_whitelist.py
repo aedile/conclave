@@ -193,4 +193,4 @@ dispose_engines  # unused function — engine cache teardown utility (shared/db.
 # ---------------------------------------------------------------------------
 
 forward  # unused method — OpacusCompatibleDiscriminator.forward() called by PyTorch nn.Module
-calc_gradient_penalty  # unused method — OpacusCompatibleDiscriminator.calc_gradient_penalty() called by DP discriminator tests
+calc_gradient_penalty  # unused method — OpacusCompatibleDiscriminator.calc_gradient_penalty() called by unit tests for WGAN gradient penalty validation
