@@ -254,7 +254,7 @@ class DPCompatibleCTGAN:
         metadata: Any,
         epochs: int,
         dp_wrapper: Any = None,
-        allocated_epsilon: float = 1.0,
+        allocated_epsilon: float = 50.0,
         delta: float = 1e-5,
     ) -> None:
         """Initialise the DPCompatibleCTGAN instance.
@@ -273,7 +273,9 @@ class DPCompatibleCTGAN:
                 ``check_budget(*, allocated_epsilon, delta)`` -> None.
                 When ``None``, training runs in vanilla (non-DP) mode.
             allocated_epsilon: Privacy budget for ``check_budget()`` early-stopping
-                checks.  Defaults to ``1.0``.
+                checks.  Defaults to ``50.0``.  This is intentionally generous:
+                discriminator-level DP-SGD typically spends 1-10 epsilon per epoch;
+                callers that need tighter budgets must pass an explicit value.
             delta: Delta parameter for epsilon computation.  Defaults to ``1e-5``.
         """
         self._metadata = metadata
@@ -287,6 +289,9 @@ class DPCompatibleCTGAN:
         # Stores the trained Generator when using the DP training path
         self._dp_generator: Any = None
         self._dp_trained: bool = False
+        self._dp_embedding_dim: int = 128  # updated by _train_dp_discriminator
+        self._dp_numeric_columns: list[str] = []  # numeric cols from processed_df
+        self._dp_processed_df_sample: pd.DataFrame | None = None  # for non-numeric defaults
 
     # ------------------------------------------------------------------
     # SDV compatibility helpers
@@ -443,6 +448,9 @@ class DPCompatibleCTGAN:
             This is the standard DP-GAN threat model per Xie et al. (2018).
         """
         embedding_dim: int = int(model_kwargs.get("embedding_dim", 128))
+        self._dp_embedding_dim = embedding_dim
+        self._dp_numeric_columns = list(processed_df.select_dtypes(include=[float, int]).columns)
+        self._dp_processed_df_sample = processed_df
         generator_dim: tuple[int, ...] = tuple(model_kwargs.get("generator_dim", (256, 256)))
         discriminator_dim: tuple[int, ...] = tuple(
             model_kwargs.get("discriminator_dim", (256, 256))
@@ -912,13 +920,46 @@ class DPCompatibleCTGAN:
         generator = self._dp_generator
         generator.eval()
 
-        # Infer embedding_dim from the Generator's first layer input dimension
-        embedding_dim = generator.seq[0].in_features
+        # Use embedding_dim stored during _train_dp_discriminator (avoids
+        # introspecting the Generator architecture which may use Residual blocks
+        # without a .in_features attribute).
+        embedding_dim = self._dp_embedding_dim
 
         with torch.no_grad():
             noise = torch.randn(num_rows, embedding_dim)
             fake_data = generator(noise)
 
         data_array = fake_data.detach().cpu().numpy()
-        columns = [str(i) for i in range(data_array.shape[1])]
-        return pd.DataFrame(data_array, columns=columns)
+
+        # Build output DataFrame with the correct numeric column names so that
+        # DataProcessor.reverse_transform() can map back to the original schema.
+        numeric_cols = self._dp_numeric_columns
+        if numeric_cols and len(numeric_cols) == data_array.shape[1]:
+            synthetic_numeric = pd.DataFrame(data_array, columns=numeric_cols)
+        else:
+            # Fallback: use integer indices if column count mismatches.
+            synthetic_numeric = pd.DataFrame(
+                data_array, columns=[str(i) for i in range(data_array.shape[1])]
+            )
+            return synthetic_numeric
+
+        # If the processed DataFrame had non-numeric columns (e.g. object-typed
+        # categorical columns that SDV has not yet one-hot-encoded), fill them
+        # by sampling from the original processed rows so that reverse_transform
+        # receives the correct column structure.
+        ref_df = self._dp_processed_df_sample
+        if ref_df is None:
+            return synthetic_numeric
+        non_numeric_cols = [c for c in ref_df.columns if c not in numeric_cols]
+        if not non_numeric_cols:
+            return synthetic_numeric
+
+        # Sample non-numeric column values from the original processed rows
+        # (with replacement) to fill the synthetic DataFrame.
+        rng = np.random.default_rng(seed=None)
+        idx = rng.integers(0, len(ref_df), size=num_rows)
+        non_numeric_df = ref_df[non_numeric_cols].iloc[idx].reset_index(drop=True)
+        full_df = pd.concat([synthetic_numeric, non_numeric_df], axis=1)
+        # Reorder columns to match the original processed_df column order.
+        ordered_cols = [c for c in ref_df.columns if c in full_df.columns]
+        return full_df[ordered_cols]
