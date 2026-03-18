@@ -326,7 +326,9 @@ class TestSynthesisJobTaskIntegration:
             tmp_path / "checkpoints" / f"job_{job_id}_epoch_3.pkl"
         )
         with Session(db_engine) as session:
-            with patch("synth_engine.modules.synthesizer.tasks.check_memory_feasibility"):
+            with patch(
+                "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+            ):
                 _run_synthesis_job_impl(
                     job_id=job_id,
                     session=session,

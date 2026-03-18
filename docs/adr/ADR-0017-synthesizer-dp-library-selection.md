@@ -1,9 +1,19 @@
 # ADR-0017 — Synthesizer & Differential Privacy Library Selection
 
 **Date:** 2026-03-14
-**Status:** Accepted
+**Status:** Accepted (v2 — see Version History)
 **Deciders:** PM + Architect
 **Task:** P4-T4.0
+
+---
+
+## Version History
+
+| Version | Date | Author | Changes |
+|---------|------|--------|---------|
+| v1 | 2026-03-14 | PM + Architect | Original — CTGAN + Opacus selection, FK strategy, epsilon accounting |
+| v1a | 2026-03-15 | PM + Architect | Amendment ADR-0017a — Opacus `secure_mode` decision (ADV-067) |
+| v2 | 2026-03-17 | PM | Consolidated — ADR-0017a content incorporated inline; ADR-0017a marked Superseded |
 
 ---
 
@@ -212,6 +222,51 @@ requirement.
 
 ---
 
+## Opacus `secure_mode` Decision (from ADR-0017a)
+
+*Incorporated from ADR-0017a (2026-03-15, ADV-067). ADR-0017a is now Superseded by this v2.*
+
+### What `secure_mode=True` provides
+
+`PrivacyEngine(secure_mode=True)` replaces PyTorch's standard Mersenne-Twister PRNG with
+the `torchcsprng` package, which provides a cryptographically-secure random number generator
+(CSPRNG) backed by AES-CTR. This eliminates the theoretical possibility that an adversary
+who can predict the PRNG state could bias the injected Gaussian noise, weakening the DP
+guarantee.
+
+In practice, this attack requires the adversary to:
+1. Know the PRNG seed (which is not exposed and is randomized at process startup).
+2. Observe enough PRNG outputs to reconstruct the state.
+3. Use that knowledge to infer information about training data from the noise pattern.
+
+For Opacus's use case — injecting noise into gradient aggregates during a training loop —
+this attack path is academic: the gradient outputs are not observable by the adversary in
+Conclave's air-gapped deployment model.
+
+### Why `secure_mode=True` is not enabled
+
+The Opacus `PrivacyEngine(secure_mode=True)` constructor raises `RuntimeError` at
+instantiation time if `torchcsprng` is not installed. `torchcsprng` is a separate PyTorch
+extension package that:
+1. Requires compilation against the installed PyTorch version's C++ ABI.
+2. Has not published pre-built wheels for Python 3.14 (the project's required runtime).
+3. Has not been updated since 2021 and is no longer actively maintained upstream.
+4. Is not available in the air-gapped deployment environment.
+
+Empirically verified: running `PrivacyEngine(secure_mode=True)` raises `RuntimeError`
+(tested against opacus 1.5.4, Python 3.14.1).
+
+### Decision
+
+`PrivacyEngine(secure_mode=True)` is **not enabled** in the production `DPTrainingWrapper`.
+
+The `filterwarnings` entry `"ignore:Secure RNG turned off:UserWarning:opacus"` in
+`pyproject.toml` is retained and explicitly justified by this section. If `torchcsprng`
+publishes Python 3.14–compatible wheels in a future Opacus release, a new advisory task
+should be filed to re-evaluate this decision.
+
+---
+
 ## Consequences
 
 ### For T4.1 (GPU Passthrough & Ephemeral Storage)
@@ -291,6 +346,10 @@ jobs. SQLite is not an acceptable substitute for the concurrency integration tes
   Defines the import-linter constraints that govern the `modules/privacy` ↔ `modules/synthesizer`
   boundary described in the T4.3b consequences section.
 
+- ADR-0017a: Opacus `secure_mode` Decision (now Superseded — content incorporated in v2)
+
+- ADR-0025: Custom CTGAN Training Loop Architecture
+
 - Opacus library (Meta AI / PyTorch ecosystem)
   Implements DP-SGD via per-sample gradient clipping and Gaussian noise injection. Ships the
   RDP accountant as its default accounting method since version 1.0. No external URL is
@@ -303,3 +362,5 @@ jobs. SQLite is not an acceptable substitute for the concurrency integration tes
 - Abadi, M. et al. (2016). "Deep Learning with Differential Privacy."
   ACM CCS. The original DP-SGD paper introducing the Moments Accountant (superseded by RDP
   for tighter bounds in Opacus's default configuration).
+
+- torchcsprng repository: https://github.com/pytorch/csprng (archived; last release 2021)

@@ -1,8 +1,11 @@
 """Differential Privacy training wrapper using Opacus PrivacyEngine.
 
 Provides :class:`DPTrainingWrapper`, a standalone class that wraps a PyTorch
-optimizer, model, and DataLoader with Opacus DP-SGD mechanisms.  Also defines
-:exc:`BudgetExhaustionError`, raised when per-run Epsilon budget is exhausted.
+optimizer, model, and DataLoader with Opacus DP-SGD mechanisms.
+
+:exc:`BudgetExhaustionError` is now defined in
+:mod:`synth_engine.shared.exceptions` and re-exported here for backward
+compatibility.  Existing callers that import from this module continue to work.
 
 Boundary constraints (import-linter enforced):
   - Must NOT import from ``modules/synthesizer/``.
@@ -12,6 +15,7 @@ Boundary constraints (import-linter enforced):
 
 Task: P4-T4.3b — DP Engine Wiring
 Task: P7-T7.3 — Opacus End-to-End Wiring (adds constructor params; drains ADV-048)
+Task: P26-T26.2 — Exception Hierarchy (BudgetExhaustionError moved to shared)
 ADR: ADR-0017 (CTGAN + Opacus; RDP accountant for Epsilon tracking)
 """
 
@@ -19,6 +23,10 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+
+from synth_engine.shared.exceptions import BudgetExhaustionError
+
+__all__ = ["BudgetExhaustionError", "DPTrainingWrapper"]
 
 _logger = logging.getLogger(__name__)
 
@@ -40,21 +48,6 @@ _DEFAULT_MAX_GRAD_NORM: float = 1.0
 
 #: Default ratio of Gaussian noise std to max_grad_norm.
 _DEFAULT_NOISE_MULTIPLIER: float = 1.1
-
-
-class BudgetExhaustionError(Exception):
-    """Raised when cumulative Epsilon spend reaches or exceeds the allocated budget.
-
-    Attributes:
-        message: Human-readable description including spent and allocated Epsilon.
-
-    Example::
-
-        raise BudgetExhaustionError(
-            f"DP budget exhausted: epsilon_spent={1.1:.4f} >= "
-            f"allocated_epsilon={1.0:.4f} (delta={1e-5:.0e})"
-        )
-    """
 
 
 class DPTrainingWrapper:
@@ -224,7 +217,7 @@ class DPTrainingWrapper:
                 "new instance for each training run."
             )
 
-        if PrivacyEngine is None:  # pragma: no cover
+        if PrivacyEngine is None:  # pragma: no cover — opacus absent; optional dep guard
             raise ImportError(
                 "The 'opacus' package is required for DP training. "
                 "Install it with: poetry install --with synthesizer"

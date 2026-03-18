@@ -6,7 +6,7 @@ would shadow that package and break all ``from synth_engine.bootstrapper.routers
 imports.
 
 Contains:
-- ``_include_routers()`` — wires the six domain routers into the application.
+- ``_include_routers()`` — wires the seven domain routers into the application.
 - ``_register_exception_handlers()`` — registers the CycleDetectionError handler
   and the RFC 7807 catch-all via :mod:`synth_engine.bootstrapper.errors`.
 """
@@ -30,12 +30,14 @@ def _include_routers(app: FastAPI) -> None:
     """
     from synth_engine.bootstrapper.routers.connections import router as connections_router
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
+    from synth_engine.bootstrapper.routers.jobs_streaming import router as jobs_streaming_router
     from synth_engine.bootstrapper.routers.licensing import router as licensing_router
     from synth_engine.bootstrapper.routers.privacy import router as privacy_router
     from synth_engine.bootstrapper.routers.security import router as security_router
     from synth_engine.bootstrapper.routers.settings import router as settings_router
 
     app.include_router(jobs_router)
+    app.include_router(jobs_streaming_router)
     app.include_router(connections_router)
     app.include_router(settings_router)
     app.include_router(licensing_router)

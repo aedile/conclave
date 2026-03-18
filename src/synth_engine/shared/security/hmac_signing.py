@@ -1,8 +1,10 @@
 """Generic HMAC-SHA256 signing primitives for the Synthetic Data Engine.
 
-Provides a :exc:`SecurityError` exception, a digest-size constant, and two
-functions — :func:`compute_hmac` and :func:`verify_hmac` — that are shared
-across modules requiring message-authentication-code operations.
+Provides a :exc:`SecurityError` exception (an alias for
+:exc:`~synth_engine.shared.exceptions.ArtifactTamperingError`),
+a digest-size constant, and two functions — :func:`compute_hmac` and
+:func:`verify_hmac` — that are shared across modules requiring
+message-authentication-code operations.
 
 These primitives were extracted from
 ``synth_engine.modules.synthesizer.models`` per ADR-0001 (shared/ is the
@@ -16,6 +18,7 @@ Design notes:
     any module without import-order concerns.
 
 Task: P8-T8.2 — Security Hardening (architecture review — extract HMAC primitives)
+Task: P26-T26.2 — Exception Hierarchy (SecurityError aliased to ArtifactTamperingError)
 ADR:  ADR-0001 (shared/ placement rules)
 """
 
@@ -24,26 +27,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 
+from synth_engine.shared.exceptions import ArtifactTamperingError
+
 #: Size of the HMAC-SHA256 digest in bytes (fixed: 256 bits / 8 = 32 bytes).
 HMAC_DIGEST_SIZE: int = 32
 
-
-class SecurityError(Exception):
-    """Raised when a security invariant is violated.
-
-    Used to signal HMAC signature verification failures so that callers can
-    distinguish a tampered or wrongly-keyed artifact from other I/O errors.
-    Inherits from :exc:`Exception` so callers can catch it broadly or
-    specifically.
-
-    Example::
-
-        try:
-            artifact = ModelArtifact.load(path, signing_key=key)
-        except SecurityError as exc:
-            logger.error("Artifact tampering detected: %s", exc)
-            raise
-    """
+#: Backward-compatible alias.  New code should use :exc:`ArtifactTamperingError`.
+SecurityError = ArtifactTamperingError
 
 
 def compute_hmac(key: bytes, data: bytes) -> bytes:

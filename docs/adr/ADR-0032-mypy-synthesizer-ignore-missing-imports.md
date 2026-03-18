@@ -1,7 +1,7 @@
 # ADR-0032 — Mypy Strategy for Optional Synthesizer Dependencies
 
 **Date:** 2026-03-16
-**Status:** Accepted
+**Status:** Retired (see retirement notice below)
 **Deciders:** PM + Architecture Reviewer
 **Task:** P20-T20.4 — Architecture Tightening (AC3)
 **Resolves:** T20.4 finding — `ignore_missing_imports = true` for sdv/opacus/ctgan
@@ -118,3 +118,23 @@ annotation failure for libraries without `py.typed`.
 - Task T20.2 — Integration Test Expansion (real SDV training test)
 - PEP 561 — Distributing and Packaging Type Information
 - https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+
+---
+
+## Retirement Notice
+
+**Date:** 2026-03-17
+**Retired by:** P26-T26.7 — Backend Documentation Overhaul
+**Reason:** The decision content (keep `ignore_missing_imports = true` for
+sdv/ctgan/opacus/huey) is operational configuration documented in `pyproject.toml`
+rather than a standalone architectural decision. The justification now lives as
+an inline comment in the `[[tool.mypy.overrides]]` block in `pyproject.toml`,
+which is the canonical reference for mypy configuration.
+
+This ADR is retained as an append-only record per project policy. The decision
+documented here remains valid and has not been reversed — it is "Retired" in the
+sense that ongoing maintenance of this document is no longer required. The
+`pyproject.toml` comment referencing this ADR provides sufficient traceability.
+
+If the `py.typed` status of sdv, ctgan, opacus, or huey changes in a future
+release, re-open this decision via a new ADR rather than amending this one.

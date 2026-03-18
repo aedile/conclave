@@ -17,8 +17,12 @@ Security properties
 - The sealed state gate is enforced by :class:`SealGateMiddleware`
   (``bootstrapper/dependencies/vault.py``).
 
+:exc:`VaultSealedError` is defined in :mod:`synth_engine.shared.exceptions`
+and re-exported here for backward compatibility.
+
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
+Task: P26-T26.2 — Exception Hierarchy (VaultSealedError moved to shared)
 """
 
 from __future__ import annotations
@@ -27,19 +31,16 @@ import base64
 import hashlib
 import os
 
+from synth_engine.shared.exceptions import VaultSealedError
 
-class VaultSealedError(Exception):
-    """Raised when a caller attempts a sensitive operation on a sealed vault.
-
-    Attributes:
-        detail: Human-readable explanation for API consumers.
-        status_code: HTTP status code to return (423 Locked).
-    """
-
-    def __init__(self, detail: str = "Vault is sealed") -> None:
-        super().__init__(detail)
-        self.detail = detail
-        self.status_code: int = 423
+__all__ = [
+    "VaultAlreadyUnsealedError",
+    "VaultConfigError",
+    "VaultEmptyPassphraseError",
+    "VaultSealedError",
+    "VaultState",
+    "derive_kek",
+]
 
 
 class VaultEmptyPassphraseError(ValueError):

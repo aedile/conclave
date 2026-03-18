@@ -125,6 +125,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         # can retry with the same idempotency key.
         try:
             response = await call_next(request)
+        # Broad catch intentional: trap any handler error to release idempotency key, then re-raise
         except Exception:
             try:
                 await self._redis.delete(redis_key)

@@ -313,7 +313,7 @@ def subset(
             row_transformer=row_transformer,
         )
         result = engine.run(seed_table=seed_table, seed_query=seed_query)
-    except Exception as exc:
+    except Exception as exc:  # Broad catch intentional: CLI converts all errors to SystemExit(1)
         _logger.exception("subset run failed")
         click.echo("Error: subset run failed — see logs for details.", err=True)
         raise SystemExit(1) from exc

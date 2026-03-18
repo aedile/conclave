@@ -2,12 +2,17 @@
 
 This module provides a single pure function, ``check_memory_feasibility``,
 that estimates the RAM required for a training job and raises
-``OOMGuardrailError`` before any training begins if the job would exhaust
+:exc:`OOMGuardrailError` before any training begins if the job would exhaust
 available memory.
+
+:exc:`OOMGuardrailError` is defined in :mod:`synth_engine.shared.exceptions`
+and re-exported here for backward compatibility.
 
 The guardrail is intentionally dependency-light: it only requires ``psutil``
 for RAM measurement and falls back gracefully when ``torch`` (VRAM) is absent.
 No synthesis library is imported here.
+
+Task: P26-T26.2 — Exception Hierarchy (OOMGuardrailError moved to shared)
 """
 
 from __future__ import annotations
@@ -16,6 +21,10 @@ import importlib.util
 
 import psutil
 
+from synth_engine.shared.exceptions import OOMGuardrailError
+
+__all__ = ["OOMGuardrailError", "check_memory_feasibility"]
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -23,21 +32,6 @@ import psutil
 #: Jobs that would consume more than this fraction of available memory are
 #: rejected.  0.85 means "15% headroom must remain."
 _SAFETY_THRESHOLD: float = 0.85
-
-
-# ---------------------------------------------------------------------------
-# Exceptions
-# ---------------------------------------------------------------------------
-
-
-class OOMGuardrailError(Exception):
-    """Raised when a training job's estimated memory exceeds available memory.
-
-    The error message always includes:
-    - Estimated bytes in human-readable form (e.g., "6.8 GiB estimated")
-    - Available bytes in human-readable form (e.g., "8.0 GiB available")
-    - The factor by which the dataset must be reduced to fit safely
-    """
 
 
 # ---------------------------------------------------------------------------

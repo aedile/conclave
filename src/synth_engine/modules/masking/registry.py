@@ -120,7 +120,7 @@ class MaskingRegistry:
         suffixed = f"{base_masked}_{occurrence}"
 
         # Defensive guard — should be unreachable given unique suffixes.
-        if suffixed in seen_for_salt:  # pragma: no cover
+        if suffixed in seen_for_salt:  # pragma: no cover — defensive guard
             # This branch is a defensive guard against implementation bugs in
             # the suffix-counter logic above. It cannot be triggered via the
             # public API because each suffixed value is unique by construction

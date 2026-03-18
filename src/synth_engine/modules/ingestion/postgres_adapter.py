@@ -21,8 +21,13 @@ This module may only import from ``synth_engine.shared`` and the Python
 standard library. Cross-module imports are forbidden by import-linter
 contracts defined in ``pyproject.toml``.
 
+:exc:`PrivilegeEscalationError` is defined in
+:mod:`synth_engine.shared.exceptions` and re-exported here for backward
+compatibility.
+
 CONSTITUTION Priority 0: Security — privilege check is the primary gate.
 Task: P3-T3.1 — Target Ingestion Engine
+Task: P26-T26.2 — Exception Hierarchy (PrivilegeEscalationError moved to shared)
 """
 
 from __future__ import annotations
@@ -33,15 +38,9 @@ from typing import Any, cast
 from sqlalchemy import Engine, MetaData, Table, create_engine, inspect, text
 
 from synth_engine.modules.ingestion.validators import validate_connection_string
+from synth_engine.shared.exceptions import PrivilegeEscalationError
 
-
-class PrivilegeEscalationError(Exception):
-    """Raised when the ingestion user has write privileges on the source database.
-
-    This exception is the hard stop for the pre-flight check: if the connected
-    user can INSERT, UPDATE, or DELETE — or if they are a superuser — ingestion
-    is refused entirely to protect source data integrity.
-    """
+__all__ = ["PostgresIngestionAdapter", "PrivilegeEscalationError", "SchemaInspector"]
 
 
 class SchemaInspector:

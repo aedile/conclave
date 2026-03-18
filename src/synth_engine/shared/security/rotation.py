@@ -221,7 +221,7 @@ def rotate_ale_keys(
                 new_fernet=new_fernet,
             )
             results[key] = count
-        except Exception as exc:
+        except Exception as exc:  # Broad catch intentional: log and re-raise per-column errors
             _logger.error("rotate_ale_keys: failed to re-encrypt %s: %s", key, exc)
             raise
 

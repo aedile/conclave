@@ -34,9 +34,27 @@ from typing import overload
 
 from faker import Faker
 
-# Module-level Faker instance.  seed_instance() fully resets internal state,
-# so reuse is safe and deterministic.  Not shared across threads — callers must
-# instantiate their own if concurrency is required.
+# ---------------------------------------------------------------------------
+# Thread-safety note — P26-T26.3 AC3
+# ---------------------------------------------------------------------------
+# _FAKER is a module-level singleton Faker instance reused across mask_value()
+# calls for performance (avoids Faker() construction overhead per call).
+#
+# SAFETY ASSUMPTION: This module is used in a single-threaded masking pipeline.
+# The bootstrapper wires the masking layer inside a single FastAPI request
+# worker; each Celery task runs in its own process, not a shared thread.
+#
+# RISK: If this module is ever called from concurrent threads sharing the same
+# interpreter process, _FAKER.seed_instance() + mask_fn(_FAKER) would be a
+# race condition — one thread's seed can be overwritten between the seed and
+# the Faker call of another thread, breaking determinism silently.
+#
+# MITIGATION: Do not call mask_value() from multiple threads.  If concurrent
+# masking is required, instantiate a thread-local Faker per caller rather than
+# relying on this module-level instance.  Thread-local storage example:
+#   import threading; _local = threading.local()
+#   def _get_faker(): return getattr(_local, 'faker', None) or Faker()
+# ---------------------------------------------------------------------------
 _FAKER: Faker = Faker()
 
 _HMAC_SHA256_DIGEST_BYTES: int = 32

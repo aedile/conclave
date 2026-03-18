@@ -1,9 +1,14 @@
 # ADR-0033: Cross-Module Exception Detection by Class Name
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-03-17
 **Deciders:** PM, Architecture Reviewer
 **Task:** P23-T23.1 — Generation Step in Huey Task (review finding F6)
+
+**Superseded by:** P26-T26.2, which moved `BudgetExhaustionError` to
+`shared/exceptions.py`, enabling direct class-based `except` clauses in
+`modules/synthesizer/job_orchestration.py`.  The duck-typing pattern
+documented here is no longer in use and must not be re-introduced.
 
 ---
 
