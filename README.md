@@ -63,12 +63,13 @@ join integrity is preserved. Output is not reversible.
 **Statistical Profiling** — Computes histograms, covariance matrices, and nullability rates
 per column. `ProfileDelta` measures drift between source and synthetic output.
 
-**DP-CTGAN Training** — Custom CTGAN training loop with Opacus DP-SGD integration. Opacus
-DP-SGD accounting is performed on a proxy linear model trained on the same preprocessed data
-as the CTGAN. The epsilon budget reflects real gradient-step accounting proportional to the
-dataset size, batch size, and number of training steps. Phase 30 will apply DP-SGD directly
-to the CTGAN Discriminator for end-to-end differential privacy. See ADR-0025 for the full
-rationale and documented limitations of the proxy-model approach.
+**DP-CTGAN Training** — Custom CTGAN training loop with Opacus DP-SGD integration. Phase 30
+applies DP-SGD directly to the `OpacusCompatibleDiscriminator` (ADR-0036), making epsilon
+accounting reflect actual Discriminator gradient steps — not a proxy model. The Generator is
+trained without DP (it never sees real data directly), following the standard DP-GAN threat
+model. Proxy-model fallback (`_activate_opacus_proxy`) is available for environments where
+Opacus cannot instrument the Discriminator. See ADR-0036 for discriminator-level DP rationale
+and ADR-0025 for the historical proxy-model approach.
 
 **Privacy Budget Accounting** — `EpsilonAccountant` tracks epsilon/delta consumption per
 table per run. Any job that would exceed the configured budget is blocked before training starts.
@@ -140,7 +141,7 @@ Security is Priority Zero — it overrides every other consideration. See
 | PII never in plaintext at rest | Application-Level Encryption (ALE) via Fernet + HKDF-SHA256 derived from Vault KEK |
 | Vault unseal pattern | Operator passphrase derives KEK at runtime; never persisted to disk or env |
 | Deterministic masking | HMAC-SHA256 seeded Faker; same input → same output; not reversible |
-| Differential Privacy | DP-SGD via Opacus `PrivacyEngine`; Epsilon/Delta budget enforced per training run (proxy-model accounting — see DP Maturity below) |
+| Differential Privacy | DP-SGD via Opacus `PrivacyEngine` on the CTGAN Discriminator (Phase 30); Epsilon/Delta budget enforced per training run; proxy-model fallback available — see DP Maturity below |
 | WORM audit log | Cryptographically signed, append-only audit trail |
 | HMAC artifact signing | Model artifacts signed at save; tampering raises `SecurityError` at load time |
 | Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net deployment |
@@ -155,12 +156,15 @@ Security is Priority Zero — it overrides every other consideration. See
 
 ### DP Maturity
 
-| Aspect | Current State | Planned (Phase 30) |
-|--------|--------------|---------------------|
-| DP accounting scope | Proxy linear model trained on same preprocessed data as the CTGAN | Direct DP-SGD on CTGAN Discriminator |
-| Epsilon measurement | Real Opacus gradient-step accounting on proxy model; proportional to dataset size, batch size, and training steps | End-to-end epsilon accounting on the generative model itself |
-| Privacy guarantee | Practical approximation — the proxy model provides a meaningful epsilon bound, but it does not account for the CTGAN Discriminator's gradient updates directly | Mathematically rigorous end-to-end differential privacy |
-| Reference | ADR-0025 documents the rationale, limitations, and recalibration guidance | Phase 30 roadmap |
+**Current**: Discriminator-level DP-SGD (Phase 30). Proxy-model fallback available for
+environments where Opacus cannot instrument the Discriminator.
+
+| Aspect | Phase 30 Implementation | Proxy-model Fallback |
+|--------|------------------------|---------------------|
+| DP accounting scope | Direct DP-SGD on `OpacusCompatibleDiscriminator` — real Discriminator gradient steps | Proxy linear model trained on the same preprocessed data as the CTGAN |
+| Epsilon measurement | End-to-end epsilon accounting on the generative model itself; reflects actual Discriminator updates on real training data | Opacus gradient-step accounting on proxy model; proportional to dataset size, batch size, and training steps |
+| Privacy guarantee | Mathematically rigorous end-to-end differential privacy (standard DP-GAN threat model; Generator does not directly see real data) | Practical approximation — meaningful epsilon bound, but does not account for Discriminator gradient updates |
+| Reference | ADR-0036 — Discriminator-Level DP-SGD Architecture | ADR-0025 — Custom CTGAN Training Loop (proxy-model rationale and limitations) |
 
 The masking pipeline, `EpsilonAccountant`, HMAC-sealed model artifacts, and the WORM audit log
 are not affected by this distinction — they provide independent, fully realized security controls.

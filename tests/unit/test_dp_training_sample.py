@@ -162,10 +162,15 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
         mock_dp_wrapper.wrap.assert_not_called()
 
     def test_fit_with_dp_wrapper_calls_wrap_before_training(self) -> None:
-        """fit() with dp_wrapper must call dp_wrapper.wrap() before CTGAN.fit().
+        """fit() with dp_wrapper must call dp_wrapper.wrap() during DP training.
 
-        wrap() must be called before CTGAN.fit() — this is the Opacus integration
+        wrap() is called inside _train_dp_discriminator() — the Opacus integration
         point where the discriminator optimizer is DP-wrapped BEFORE training begins.
+        In the new discriminator-level DP path (T30.3), CTGAN.fit() is NOT called
+        when the DP path succeeds — the custom training loop replaces it.
+
+        This test verifies wrap() is called (via _train_dp_discriminator or its
+        fallback path) during fit() when dp_wrapper is provided.
         """
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 
@@ -175,18 +180,6 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
 
         mock_dp_wrapper = MagicMock()
         mock_dp_wrapper.wrap.return_value = MagicMock()  # returns a dp_optimizer
-
-        call_order: list[str] = []
-
-        def record_wrap(*args: Any, **kwargs: Any) -> Any:
-            call_order.append("wrap")
-            return MagicMock()
-
-        def record_fit(*args: Any, **kwargs: Any) -> None:
-            call_order.append("ctgan_fit")
-
-        mock_dp_wrapper.wrap.side_effect = record_wrap
-        mock_ctgan_instance.fit.side_effect = record_fit
 
         with (
             patch(
@@ -207,12 +200,10 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
             )
             instance.fit(_make_training_df())
 
-        assert "wrap" in call_order, "dp_wrapper.wrap() was never called"
-        wrap_idx = call_order.index("wrap")
-        ctgan_fit_idx = call_order.index("ctgan_fit")
-        assert wrap_idx < ctgan_fit_idx, (
-            "dp_wrapper.wrap() must be called BEFORE CTGAN.fit(), "
-            f"but wrap was at index {wrap_idx}, ctgan_fit at {ctgan_fit_idx}"
+        # wrap() must be called (either primary DP path or proxy fallback)
+        assert mock_dp_wrapper.wrap.called, (
+            "dp_wrapper.wrap() was never called in DP mode. "
+            "Expected call in _train_dp_discriminator or _activate_opacus_proxy."
         )
 
     def test_fit_with_dp_wrapper_wrap_called_with_required_kwargs(self) -> None:

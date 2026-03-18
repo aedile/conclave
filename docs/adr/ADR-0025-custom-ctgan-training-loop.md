@@ -1,7 +1,7 @@
 # ADR-0025 — Custom CTGAN Training Loop Architecture
 
 **Date:** 2026-03-15
-**Status:** Accepted — Amended. Proxy model is a temporary architectural compromise; superseded by Phase 30 (discriminator-level DP-SGD) when implemented.
+**Status:** Accepted → Superseded by Phase 30 (discriminator-level DP-SGD is the primary path; proxy model retained as fallback).
 **Deciders:** PM + Architect
 **Task:** P7-T7.1
 **Supersedes:** ADR-0017 risk note ("Opacus compatibility with CTGAN internals")
@@ -325,3 +325,4 @@ Discriminator architecture and the decision to replace `BatchNorm1d` with `Group
 
 - **P24-T24.1** (2026-03-17): `sample()` parameter renamed from `n_rows` to `num_rows` to match the polymorphic SDV `CTGANSynthesizer.sample(num_rows=...)` interface that `SynthesisEngine.generate()` calls.
 - **P29-T29.5** (2026-03-18): Added "Planned Resolution — Phase 30" section. Status updated to reflect proxy model as temporary compromise. Cross-references `docs/backlog/phase-30.md` and future ADR-0036.
+- **P30-T30.6** (2026-03-18): Status updated to "Superseded by Phase 30". Discriminator-level DP-SGD (ADR-0036) is now the primary path. Proxy model approach from T7.3 retained as a runtime fallback when Opacus cannot instrument the Discriminator.

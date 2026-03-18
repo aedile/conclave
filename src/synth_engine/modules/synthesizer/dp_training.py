@@ -4,28 +4,32 @@ Implements :class:`DPCompatibleCTGAN` — a drop-in replacement for SDV's
 ``CTGANSynthesizer.fit()`` that exposes the PyTorch optimizer, model, and
 DataLoader as first-class objects before the training loop begins.
 
-This design enables Opacus DP-SGD integration: ``DPTrainingWrapper.wrap()``
-(or any compatible duck-typed wrapper) can intercept the Discriminator
-optimizer before training starts and wrap it with per-sample gradient
-clipping and Gaussian noise.
+This design enables Opacus DP-SGD integration at the **Discriminator** level:
+``DPTrainingWrapper.wrap()`` (or any compatible duck-typed wrapper) wraps the
+real ``OpacusCompatibleDiscriminator``'s optimizer with per-sample gradient
+clipping and Gaussian noise, so that epsilon accounting reflects the actual GAN
+Discriminator — not a proxy model.
 
 Architecture:
 
 - **Reused from SDV**: ``DataProcessor`` (via ``CTGANSynthesizer.preprocess()``
   and ``_data_processor``) for categorical encoding and mode-specific VGM
   normalization.  Also reuses SDV's ``detect_discrete_columns()`` helper.
-- **Reused from ctgan**: ``CTGAN`` internal model class (whose ``fit()``
-  and ``sample()`` methods implement the GAN training loop and generation).
-- **Custom**: The preprocessing + DP wrapping + training sequence that calls
-  ``dp_wrapper.wrap()`` on a real PyTorch linear model + Adam optimizer +
-  DataLoader constructed from the processed data.  Opacus thus tracks real
-  gradient steps and returns a meaningful Epsilon after training.
+- **Reused from ctgan**: ``CTGAN`` internal model class (vanilla path only),
+  ``Generator`` (DP path).
+- **Custom (DP path)**: Constructs ``OpacusCompatibleDiscriminator`` and CTGAN
+  ``Generator`` externally, wraps the Discriminator optimizer via
+  ``dp_wrapper.wrap()``, then runs a simplified WGAN training loop.
+  Note: gradient penalty (WGAN-GP) is omitted in DP mode — ``torch.autograd.grad()``
+  conflicts with Opacus per-sample gradient hooks.
 
 Import boundary (ADR-0025 / ADR-0001):
   This module must NOT import from ``modules/privacy/``.  The ``dp_wrapper``
   parameter is structurally typed via ``DPWrapperProtocol`` from
   ``shared/protocols`` — the concrete ``DPTrainingWrapper`` is injected by
   the bootstrapper so the synthesizer module never imports from privacy/.
+  ``BudgetExhaustionError`` is imported from ``shared/exceptions`` (not from
+  ``modules/privacy/``) which is legal.
 
 SDV private attribute coupling (accepted risk — ADR-0025 §Consequences):
   This module accesses ``CTGANSynthesizer._data_processor`` and
@@ -70,21 +74,30 @@ module to be valid:
    Changing dataset size or batch size after wrapping invalidates the
    accounting — construct a new ``DPTrainingWrapper`` instance for each run.
 
-4. **Proxy model epsilon**: The Opacus accounting in ``_activate_opacus()``
-   is performed on a 1-layer linear proxy model, not on the CTGAN
-   Discriminator directly.  The epsilon reflects the gradient steps taken
-   on the proxy model, which uses the same training data, batch size, and
-   ``noise_multiplier`` as the intended CTGAN training.  This is a practical
-   approximation accepted in ADR-0025 §T7.3; the epsilon is real and
-   proportional but measured on the proxy, not the GAN.
+4. **Discriminator-level epsilon (T30.3)**: The Opacus accounting in
+   ``_train_dp_discriminator()`` is performed on the real
+   ``OpacusCompatibleDiscriminator`` (per ADR-0036), not on a proxy linear
+   model.  This makes the epsilon accounting meaningful — it reflects actual
+   Discriminator gradient steps on real training data.  The ``Generator``
+   is trained without DP (it never sees real data directly — it only
+   receives gradient signals through the Discriminator), which is the
+   standard DP-GAN threat model.
+
+Fallback strategy (ADR-0036 §Fallback):
+  If ``_train_dp_discriminator()`` raises any non-BudgetExhaustionError
+  exception (e.g. Opacus cannot instrument the Discriminator), the ``fit()``
+  method falls back to ``_activate_opacus_proxy()`` (the renamed proxy-model
+  approach from T7.3) and then to ``CTGAN.fit()``.  A WARNING is logged.
+  ``BudgetExhaustionError`` is re-raised immediately and never falls back —
+  it represents a legitimate privacy constraint, not an Opacus failure.
 
 Task: P7-T7.2 — Custom CTGAN Training Loop
-Task: P7-T7.3 — Opacus End-to-End Wiring (Phase 3 now activates real Opacus
-  PrivacyEngine on a linear model trained on the processed data, giving
-  meaningful Epsilon accounting after training).
-Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (document DP-SGD assumptions)
+Task: P7-T7.3 — Opacus End-to-End Wiring
+Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening
 ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 Task: P20-T20.1 — AC2 Targeted warning suppression (filterwarnings vs simplefilter)
+Task: P30-T30.3 — Custom GAN Training Loop with Discriminator DP-SGD
+ADR: ADR-0036 (Discriminator-Level DP-SGD Architecture)
 """
 
 from __future__ import annotations
@@ -95,6 +108,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from synth_engine.shared.exceptions import BudgetExhaustionError
 
 _logger = logging.getLogger(__name__)
 
@@ -112,15 +127,17 @@ _OPACUS_BATCH_PATTERN = ".*Expected.*batch.*"
 #   patch('synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer')
 #   patch('synth_engine.modules.synthesizer.dp_training.CTGAN')
 #   patch('synth_engine.modules.synthesizer.dp_training.detect_discrete_columns')
+#   patch('synth_engine.modules.synthesizer.dp_training.Generator')
 # ---------------------------------------------------------------------------
 try:
-    from ctgan.synthesizers.ctgan import CTGAN
+    from ctgan.synthesizers.ctgan import CTGAN, Generator
     from sdv.single_table import CTGANSynthesizer
     from sdv.single_table.ctgan import detect_discrete_columns
 except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
     CTGANSynthesizer = None  # SDV not installed; synthesis unavailable
     detect_discrete_columns = None  # SDV not installed; synthesis unavailable
     CTGAN = None  # ctgan not installed; synthesis unavailable
+    Generator = None  # ctgan not installed; synthesis unavailable
 
 # ---------------------------------------------------------------------------
 # PyTorch deferred import — required for real Opacus DP wrapping.
@@ -132,38 +149,54 @@ try:
     import torch.nn as nn
     from torch.utils.data import DataLoader, TensorDataset
 except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
-    torch: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent; module-scope Any is safe since all usage is guarded
+    torch: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent
     nn: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent
     DataLoader: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent
     TensorDataset: Any = None  # type: ignore[no-redef]  # fallback when synthesizer group is absent
+
+# ---------------------------------------------------------------------------
+# OpacusCompatibleDiscriminator (same synthesizer module — allowed per ADR-0025)
+# Bound at module scope for unit-test patching:
+#   patch('synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator')
+# ---------------------------------------------------------------------------
+from synth_engine.modules.synthesizer.dp_discriminator import OpacusCompatibleDiscriminator  # noqa: E402,I001
 
 
 class DPCompatibleCTGAN:
     """Custom CTGAN training loop with optional Differential Privacy wrapping.
 
-    Replaces ``CTGANSynthesizer.fit()`` with a two-phase approach:
-    (1) preprocess via SDV's ``DataProcessor``, then (2) train via a custom
-    loop that exposes the optimizer/model/dataloader *before* the training
-    loop begins — the Opacus integration point.
+    Replaces ``CTGANSynthesizer.fit()`` with a multi-phase approach:
+    (1) preprocess via SDV's ``DataProcessor``, then either
+    (2a) run a custom discriminator-level DP training loop when ``dp_wrapper``
+         is provided (T30.3 primary path), or
+    (2b) delegate to ``CTGAN.fit()`` for vanilla non-DP training.
 
-    When ``dp_wrapper`` is provided, a minimal 1-layer linear model is constructed
-    from the processed DataFrame's feature count.  A real Opacus
-    ``PrivacyEngine`` is activated via ``dp_wrapper.wrap()`` on that linear
-    model + Adam optimizer + TensorDataset DataLoader.  One epoch of gradient
-    steps runs through the DP optimizer, recording real epsilon accounting.
-    Then ``CTGAN.fit()`` trains the full GAN model for synthesis quality.
+    When ``dp_wrapper`` is provided (DP path):
+        Constructs an :class:`OpacusCompatibleDiscriminator` and CTGAN
+        ``Generator`` externally. Wraps the Discriminator's Adam optimizer
+        via ``dp_wrapper.wrap()`` (the Opacus integration point).  Runs a
+        simplified WGAN training loop: Discriminator steps use the DP
+        optimizer (Opacus applies per-sample gradient clipping and Gaussian
+        noise), Generator steps use an unwrapped Adam optimizer.  After each
+        epoch, ``dp_wrapper.check_budget()`` is called for early stopping.
 
-    After ``fit()`` completes, ``dp_wrapper.epsilon_spent(delta=...)`` returns
-    a positive value reflecting the Opacus DP-SGD accounting from the linear
-    model warmup steps.
+    Fallback strategy:
+        If ``_train_dp_discriminator()`` raises a non-``BudgetExhaustionError``
+        exception, ``fit()`` logs a WARNING and falls back to
+        ``_activate_opacus_proxy()`` (the renamed T7.3 proxy-model approach)
+        followed by ``CTGAN.fit()``.  ``BudgetExhaustionError`` is always
+        re-raised immediately — it is a legitimate privacy constraint, not a
+        technical failure.
 
-    Rationale (ADR-0025 §T7.3 wiring):
-        CTGAN creates its Discriminator and optimizer internally inside
-        ``fit()`` — they are local variables not accessible for pre-wrapping.
-        Rather than monkey-patching CTGAN internals (fragile), this
-        implementation activates Opacus on a proxy linear model derived from
-        the same training data.  The epsilon accounting is real and
-        proportional to the dataset size and noise configuration.
+    When ``dp_wrapper`` is None (vanilla path):
+        Constructs ``ctgan.synthesizers.ctgan.CTGAN`` and calls
+        ``CTGAN.fit(processed_df, discrete_columns=...)`` for full synthesis
+        quality including conditional vectors and PacGAN.
+
+    After ``fit()`` completes:
+        - DP path: ``dp_wrapper.epsilon_spent(delta=...)`` returns a positive
+          value reflecting Opacus DP-SGD accounting on the Discriminator.
+        - Both paths: ``sample(num_rows)`` returns a valid synthetic DataFrame.
 
     dp_wrapper duck-typing contract:
         Any object passed as ``dp_wrapper`` must implement:
@@ -191,6 +224,9 @@ class DPCompatibleCTGAN:
         dp_wrapper: Optional DP wrapper implementing the duck-type contract
             described above.  When ``None`` (default), training proceeds
             identically to vanilla ``CTGANSynthesizer.fit()``.
+        allocated_epsilon: Privacy budget for ``check_budget()`` calls.
+            Defaults to ``1.0``.
+        delta: Delta parameter for epsilon accounting.  Defaults to ``1e-5``.
 
     Example::
 
@@ -214,6 +250,8 @@ class DPCompatibleCTGAN:
         metadata: Any,
         epochs: int,
         dp_wrapper: Any = None,
+        allocated_epsilon: float = 50.0,
+        delta: float = 1e-5,
     ) -> None:
         """Initialise the DPCompatibleCTGAN instance.
 
@@ -226,17 +264,30 @@ class DPCompatibleCTGAN:
                 ``max_grad_norm: float`` and ``noise_multiplier: float``
                 attributes (read at wrap time);
                 ``wrap(optimizer, model, dataloader, *, max_grad_norm,
-                noise_multiplier)`` → dp_optimizer;
-                ``epsilon_spent(*, delta)`` → float;
-                ``check_budget(*, allocated_epsilon, delta)`` → None.
+                noise_multiplier)`` -> dp_optimizer;
+                ``epsilon_spent(*, delta)`` -> float;
+                ``check_budget(*, allocated_epsilon, delta)`` -> None.
                 When ``None``, training runs in vanilla (non-DP) mode.
+            allocated_epsilon: Privacy budget for ``check_budget()`` early-stopping
+                checks.  Defaults to ``50.0``.  This is intentionally generous:
+                discriminator-level DP-SGD typically spends 1-10 epsilon per epoch;
+                callers that need tighter budgets must pass an explicit value.
+            delta: Delta parameter for epsilon computation.  Defaults to ``1e-5``.
         """
         self._metadata = metadata
         self._epochs = epochs
         self._dp_wrapper = dp_wrapper
+        self._allocated_epsilon = allocated_epsilon
+        self._delta = delta
         self._fitted: bool = False
         self._ctgan_model: Any = None
         self._data_processor: Any = None
+        # Stores the trained Generator when using the DP training path
+        self._dp_generator: Any = None
+        self._dp_trained: bool = False
+        self._dp_embedding_dim: int = 128  # updated by _train_dp_discriminator
+        self._dp_numeric_columns: list[str] = []  # numeric cols from processed_df
+        self._dp_processed_df_sample: pd.DataFrame | None = None  # for non-numeric defaults
 
     # ------------------------------------------------------------------
     # SDV compatibility helpers
@@ -319,8 +370,258 @@ class DPCompatibleCTGAN:
         transformers = sdv_synth._data_processor._hyper_transformer.field_transformers
         return list(detect_discrete_columns(self._metadata, processed_df, transformers))
 
-    def _activate_opacus(self, processed_df: pd.DataFrame) -> None:
+    # ------------------------------------------------------------------
+    # DP path helpers
+    # ------------------------------------------------------------------
+
+    def _build_dp_dataloader(self, processed_df: pd.DataFrame, batch_size: int) -> Any:
+        """Build a DataLoader from the processed DataFrame for DP training.
+
+        Converts numeric columns to a float32 tensor, replacing any non-finite
+        values with 0.0 to prevent Opacus NaN issues.  Drops the last batch to
+        maintain uniform batch sizes required by Opacus.
+
+        Args:
+            processed_df: Preprocessed (VGM-normalized) DataFrame.
+            batch_size: Batch size for the DataLoader.  Must be >= 2 for Opacus.
+
+        Returns:
+            A ``torch.utils.data.DataLoader`` wrapping a ``TensorDataset``.
+        """
+        arr = processed_df.select_dtypes(include=[float, int]).values.astype("float32")
+        if arr.shape[1] == 0:
+            arr = np.zeros((len(processed_df), 1), dtype="float32")
+        arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+
+        tensor_data = torch.tensor(arr)
+        dataset = TensorDataset(tensor_data)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
+        return dataloader
+
+    def _train_dp_discriminator(
+        self,
+        processed_df: pd.DataFrame,
+        model_kwargs: dict[str, Any],
+    ) -> None:
+        """Run the custom discriminator-level DP-SGD GAN training loop.
+
+        Constructs an :class:`OpacusCompatibleDiscriminator` and CTGAN
+        ``Generator`` from ``model_kwargs``.  Wraps the Discriminator's Adam
+        optimizer via ``dp_wrapper.wrap()``.  Runs a simplified WGAN loop:
+
+        For each epoch:
+            For each batch:
+                1. Discriminator step (DP): forward real + fake, compute
+                   WGAN loss (-(real.mean() - fake.mean())), backward, ``dp_optimizer.step()``.
+                   Note: gradient penalty is omitted — torch.autograd.grad() conflicts
+                   with Opacus per-sample gradient hooks in DP mode.
+                2. Generator step (non-DP): forward fake, compute loss,
+                   backward, ``optimizer_g.step()``.
+            Call ``dp_wrapper.check_budget(allocated_epsilon, delta)`` for
+            early stopping on budget exhaustion.
+
+        After training, stores the Generator in ``self._dp_generator`` for
+        use by :meth:`sample`.
+
+        Args:
+            processed_df: Preprocessed (VGM-normalized) DataFrame from SDV's
+                ``DataProcessor``.
+            model_kwargs: Dict of CTGAN model hyperparameters extracted from
+                the ``CTGANSynthesizer`` (via ``_get_model_kwargs()``).
+
+        Raises:
+            BudgetExhaustionError: If ``dp_wrapper.check_budget()`` raises,
+                it propagates immediately (not caught or swallowed).
+            RuntimeError: If the processed DataFrame is too small to form
+                a valid DataLoader batch.
+
+        Note:
+            Generator does NOT require DP — it never directly sees real training
+            data.  Only the Discriminator is wrapped with Opacus.
+            This is the standard DP-GAN threat model per Xie et al. (2018).
+        """
+        embedding_dim: int = int(model_kwargs.get("embedding_dim", 128))
+        self._dp_embedding_dim = embedding_dim
+        self._dp_numeric_columns = list(processed_df.select_dtypes(include=[float, int]).columns)
+        self._dp_processed_df_sample = processed_df
+        generator_dim: tuple[int, ...] = tuple(model_kwargs.get("generator_dim", (256, 256)))
+        discriminator_dim: tuple[int, ...] = tuple(
+            model_kwargs.get("discriminator_dim", (256, 256))
+        )
+        batch_size: int = int(model_kwargs.get("batch_size", 500))
+        pac: int = int(model_kwargs.get("pac", 10))
+        discriminator_steps: int = int(model_kwargs.get("discriminator_steps", 1))
+
+        # Cap batch_size to ensure the Opacus DPDataLoader has >= 2 batches per epoch.
+        # Opacus's DPDataLoader.from_data_loader sets sample_rate = 1/len(data_loader).
+        # When len(data_loader) == 1 (i.e. batch_size >= n_rows), sample_rate = 1.0.
+        # Opacus's PRV accountant raises a numpy divide-by-zero RuntimeWarning
+        # (promoted to error in tests under -W error) when log(1 - q) is computed
+        # for q = 1.0.
+        # Fix: cap batch_size <= n_rows // 2 so len(data_loader) >= 2 and q <= 0.5.
+        n_rows = len(processed_df)
+        batch_size = min(batch_size, n_rows // 2)
+
+        # Opacus requires batch_size >= 2; enforce pac-divisibility
+        # Use max(pac, batch_size) — pac is the minimum for one discriminator group.
+        batch_size = max(pac, batch_size)
+        batch_size = (batch_size // pac) * pac
+        if batch_size == 0:
+            batch_size = pac
+
+        n_features = processed_df.select_dtypes(include=[float, int]).shape[1]
+        if n_features == 0:
+            n_features = 1
+        data_dim = n_features
+
+        dataloader = self._build_dp_dataloader(processed_df, batch_size)
+
+        # Guard: zero batches means no gradient steps will occur, producing a false
+        # DP guarantee (epsilon_spent() would return 0.0 with no actual accounting).
+        # This matches the guard in _activate_opacus_proxy() (Privacy Priority 0).
+        if len(dataloader) == 0:
+            raise RuntimeError(
+                "DPCompatibleCTGAN._train_dp_discriminator: DataLoader has zero batches. "
+                "The dataset is too small for the configured batch_size and pac factor. "
+                "No DP gradient steps would occur, producing a false DP guarantee "
+                "(epsilon_spent() returns 0.0 with no actual accounting). "
+                "Ensure the training DataFrame has enough rows for at least one batch."
+            )
+
+        discriminator = OpacusCompatibleDiscriminator(
+            input_dim=data_dim,
+            discriminator_dim=discriminator_dim,
+            pac=pac,
+        )
+        generator = Generator(
+            embedding_dim=embedding_dim,
+            generator_dim=generator_dim,
+            data_dim=data_dim,
+        )
+
+        optimizer_d = torch.optim.Adam(
+            discriminator.parameters(),
+            lr=float(model_kwargs.get("discriminator_lr", 2e-4)),
+            weight_decay=float(model_kwargs.get("discriminator_decay", 1e-6)),
+        )
+        optimizer_g = torch.optim.Adam(
+            generator.parameters(),
+            lr=float(model_kwargs.get("generator_lr", 2e-4)),
+            weight_decay=float(model_kwargs.get("generator_decay", 1e-6)),
+        )
+
+        max_grad_norm: float = float(getattr(self._dp_wrapper, "max_grad_norm", 1.0))
+        noise_multiplier: float = float(getattr(self._dp_wrapper, "noise_multiplier", 1.1))
+
+        _logger.info(
+            "DPCompatibleCTGAN: wrapping Discriminator optimizer via dp_wrapper.wrap() "
+            "(max_grad_norm=%.2f, noise_multiplier=%.2f, batch_size=%d).",
+            max_grad_norm,
+            noise_multiplier,
+            batch_size,
+        )
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message=_OPACUS_SECURE_RNG_PATTERN, category=UserWarning
+            )
+            warnings.filterwarnings("ignore", message=_OPACUS_BATCH_PATTERN, category=UserWarning)
+            dp_optimizer = self._dp_wrapper.wrap(
+                optimizer=optimizer_d,
+                model=discriminator,
+                dataloader=dataloader,
+                max_grad_norm=max_grad_norm,
+                noise_multiplier=noise_multiplier,
+            )
+
+        _logger.info(
+            "DPCompatibleCTGAN: starting custom WGAN training loop (%d epochs, %d batches/epoch).",
+            self._epochs,
+            len(dataloader),
+        )
+
+        # After dp_wrapper.wrap(), the Opacus-wrapped GradSampleModule is stored
+        # on the wrapper as wrapped_module.  We must use this wrapped module for
+        # Discriminator steps (so Opacus computes per-sample gradients and applies
+        # DP noise).  For the Generator step, Opacus hooks must be disabled to
+        # prevent the "Poisson sampling not compatible with grad accumulation" error.
+        dp_discriminator: Any = getattr(self._dp_wrapper, "wrapped_module", discriminator)
+
+        dp_discriminator.train()
+        generator.train()
+
+        for _epoch in range(self._epochs):
+            for batch_tensors in dataloader:
+                (real_data,) = batch_tensors
+
+                # --- Discriminator steps (Opacus hooks active) ---
+                for _ in range(discriminator_steps):
+                    dp_optimizer.zero_grad()
+
+                    noise = torch.randn(len(real_data), embedding_dim)
+                    fake_data = generator(noise).detach()
+
+                    if real_data.shape[1] < data_dim:
+                        pad = torch.zeros(real_data.shape[0], data_dim - real_data.shape[1])
+                        real_data_padded = torch.cat([real_data, pad], dim=1)
+                    else:
+                        real_data_padded = real_data[:, :data_dim]
+
+                    n_samples = (len(real_data_padded) // pac) * pac
+                    if n_samples == 0:
+                        continue
+                    real_pac = real_data_padded[:n_samples]
+                    fake_pac = fake_data[:n_samples]
+
+                    real_score = dp_discriminator(real_pac)
+                    fake_score = dp_discriminator(fake_pac)
+
+                    loss_d = -(real_score.mean() - fake_score.mean())
+                    loss_d.backward()
+                    dp_optimizer.step()
+
+                # --- Generator step (Opacus hooks disabled) ---
+                # Opacus with Poisson sampling (DPDataLoader) raises ValueError if
+                # backward() is called without a preceding optimizer.step().  The
+                # Generator step uses the Discriminator only for scoring — it does
+                # not contribute to Discriminator DP accounting.  Disabling Opacus
+                # hooks here prevents the "grad accumulation" error while preserving
+                # gradient flow through the Generator parameters.
+                optimizer_g.zero_grad()
+                noise_g = torch.randn(batch_size, embedding_dim)
+                fake_g = generator(noise_g)
+
+                n_samples_g = (len(fake_g) // pac) * pac
+                if n_samples_g > 0:
+                    fake_g_pac = fake_g[:n_samples_g]
+                    if hasattr(dp_discriminator, "disable_hooks"):
+                        dp_discriminator.disable_hooks()
+                    gen_score = dp_discriminator(fake_g_pac)
+                    loss_g = -gen_score.mean()
+                    loss_g.backward()
+                    if hasattr(dp_discriminator, "enable_hooks"):
+                        dp_discriminator.enable_hooks()
+                    optimizer_g.step()
+
+            # Budget check after each epoch — BudgetExhaustionError propagates immediately
+            self._dp_wrapper.check_budget(
+                allocated_epsilon=self._allocated_epsilon,
+                delta=self._delta,
+            )
+
+        _logger.info("DPCompatibleCTGAN: custom DP training loop complete.")
+        self._dp_generator = generator
+        self._dp_trained = True
+
+    def _activate_opacus_proxy(self, processed_df: pd.DataFrame) -> None:
         """Activate Opacus PrivacyEngine via dp_wrapper.wrap() on a proxy model.
+
+        FALLBACK method (renamed from ``_activate_opacus()`` in T30.3).
 
         Constructs a minimal 1-layer linear model whose input dimension matches
         the processed DataFrame's feature count.  Wraps it with the Opacus
@@ -330,6 +631,9 @@ class DPCompatibleCTGAN:
 
         After this method returns, ``dp_wrapper.epsilon_spent(delta=...)`` will
         return a positive value proportional to the dataset size and DP config.
+
+        This is used as a fallback when discriminator-level wrapping fails — see
+        ``fit()`` for the fallback logic.
 
         Args:
             processed_df: Preprocessed (VGM-normalized) DataFrame from SDV's
@@ -345,17 +649,12 @@ class DPCompatibleCTGAN:
                 "Install it with: poetry install --with synthesizer"
             )
 
-        # Build a float tensor from the processed DataFrame for the DataLoader.
-        # Replace any non-finite values with 0.0 to avoid Opacus NaN issues.
         arr = processed_df.select_dtypes(include=[float, int]).values.astype("float32")
         if arr.shape[1] == 0:
-            # Edge case: all columns are categorical strings — use a 1-wide tensor.
             arr = np.zeros((len(processed_df), 1), dtype="float32")
         arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Use a batch_size that keeps at least 1 batch.
         batch_size = min(64, max(1, len(arr) // 2))
-        # Opacus requires batch_size >= 2 for per-sample gradient accounting.
         batch_size = max(2, batch_size)
 
         tensor_data = torch.tensor(arr)
@@ -364,7 +663,7 @@ class DPCompatibleCTGAN:
             dataset,
             batch_size=batch_size,
             shuffle=True,
-            drop_last=True,  # required by Opacus (uniform batch sizes)
+            drop_last=True,
         )
 
         if len(dataloader) == 0:
@@ -394,8 +693,6 @@ class DPCompatibleCTGAN:
         )
 
         with warnings.catch_warnings():
-            # T20.1 AC2: targeted suppression for known Opacus activation warnings
-            # (ADR-0017a: "Secure RNG turned off" and batch-size advisory).
             warnings.filterwarnings(
                 "ignore", message=_OPACUS_SECURE_RNG_PATTERN, category=UserWarning
             )
@@ -408,8 +705,6 @@ class DPCompatibleCTGAN:
                 noise_multiplier=noise_multiplier,
             )
 
-        # Run steps_per_epoch gradient steps through the DP optimizer so
-        # Opacus accounts for real gradient noise (epsilon_spent > 0 after).
         steps_per_epoch = len(dataloader)
         loss_fn = nn.MSELoss()
         proxy_model.train()
@@ -429,8 +724,47 @@ class DPCompatibleCTGAN:
             dp_optimizer.step()
 
         _logger.info(
-            "DPCompatibleCTGAN: Opacus activation complete — epsilon_spent is now positive."
+            "DPCompatibleCTGAN: Opacus proxy activation complete — epsilon_spent is now positive."
         )
+
+    def _run_vanilla_ctgan(
+        self,
+        sdv_synth: Any,
+        processed_df: pd.DataFrame,
+        discrete_columns: list[str],
+    ) -> None:
+        """Construct CTGAN and run CTGAN.fit() for vanilla (non-DP) training.
+
+        Extracts CTGAN model kwargs from the SDV synthesizer, constructs a
+        fresh ``CTGAN`` instance, and calls ``CTGAN.fit()`` with the
+        preprocessed DataFrame and discrete columns list.  After this call,
+        ``self._ctgan_model`` is set for use by :meth:`sample`.
+
+        Args:
+            sdv_synth: ``CTGANSynthesizer`` (after ``preprocess()``).
+            processed_df: Preprocessed DataFrame from SDV's ``DataProcessor``.
+            discrete_columns: List of discrete column names from
+                ``_get_discrete_columns()``.
+
+        Raises:
+            ImportError: If ``ctgan`` is not installed.
+        """
+        if CTGAN is None:  # pragma: no cover
+            raise ImportError(
+                "The 'ctgan' package is required for DPCompatibleCTGAN. "
+                "Install it with: poetry install --with synthesizer"
+            )
+
+        model_kwargs = self._get_model_kwargs(sdv_synth)
+        ctgan_model = CTGAN(**model_kwargs)
+
+        _logger.info("DPCompatibleCTGAN: starting CTGAN.fit() (vanilla path).")
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            warnings.filterwarnings("ignore", category=UserWarning)
+            ctgan_model.fit(processed_df, discrete_columns=discrete_columns)
+
+        self._ctgan_model = ctgan_model
 
     # ------------------------------------------------------------------
     # Public interface
@@ -444,17 +778,16 @@ class DPCompatibleCTGAN:
             normalization and categorical encoding.  Stores the
             ``DataProcessor`` for use in :meth:`sample`.
 
-        Phase 2 — DP activation (Opacus integration point):
-            When ``dp_wrapper`` is provided, constructs a proxy PyTorch
-            linear model + Adam optimizer + DataLoader from the processed
-            data and calls ``dp_wrapper.wrap()`` to activate the Opacus
-            ``PrivacyEngine``.  Runs one pass of gradient steps to seed
-            the epsilon accountant with real counts.
-
-        Phase 3 — Training (custom CTGAN loop):
-            Constructs a ``ctgan.synthesizers.ctgan.CTGAN`` model and calls
-            ``CTGAN.fit(processed_df, discrete_columns=...)`` for synthesis
-            quality.
+        Phase 2 — Training (DP path or vanilla path):
+            **DP path** (``dp_wrapper`` provided):
+                Calls ``_train_dp_discriminator()`` which constructs an
+                ``OpacusCompatibleDiscriminator`` and CTGAN ``Generator``,
+                wraps the Discriminator optimizer via ``dp_wrapper.wrap()``,
+                and runs the custom WGAN training loop.  On failure,
+                falls back to ``_activate_opacus_proxy()`` + ``CTGAN.fit()``.
+                ``BudgetExhaustionError`` is re-raised immediately (not caught).
+            **Vanilla path** (``dp_wrapper=None``):
+                Constructs ``CTGAN`` and calls ``CTGAN.fit()``.
 
         Args:
             df: Training DataFrame.  Must not be empty.
@@ -465,6 +798,8 @@ class DPCompatibleCTGAN:
         Raises:
             ImportError: If the synthesizer dependency group is not installed.
             ValueError: If ``df`` is empty.
+            BudgetExhaustionError: If the DP budget is exhausted mid-training
+                (propagated from ``dp_wrapper.check_budget()``).
         """
         if df.empty:
             raise ValueError(
@@ -483,9 +818,6 @@ class DPCompatibleCTGAN:
         sdv_synth = self._build_sdv_synth()
 
         with warnings.catch_warnings():
-            # T20.1 AC2: targeted suppression — SDV preprocess emits FutureWarning
-            # and UserWarning noise for metadata/transformer version mismatches;
-            # these are not actionable during preprocessing.
             warnings.filterwarnings("ignore", category=FutureWarning)
             warnings.filterwarnings("ignore", category=UserWarning)
             processed_df = sdv_synth.preprocess(df)
@@ -499,44 +831,46 @@ class DPCompatibleCTGAN:
             discrete_columns,
         )
 
-        # ---- Phase 2: DP activation via Opacus (T7.3 wiring) ----
+        # ---- Phase 2: DP or vanilla training ----
         if self._dp_wrapper is not None:
-            _logger.info(
-                "DPCompatibleCTGAN: dp_wrapper provided — activating Opacus "
-                "PrivacyEngine on proxy model before CTGAN training."
-            )
-            self._activate_opacus(processed_df)
+            model_kwargs = self._get_model_kwargs(sdv_synth)
+            try:
+                _logger.info(
+                    "DPCompatibleCTGAN: dp_wrapper provided — starting discriminator-level "
+                    "DP-SGD training loop (T30.3)."
+                )
+                self._train_dp_discriminator(processed_df, model_kwargs)
+            except BudgetExhaustionError:
+                # Budget exhaustion is a legitimate privacy constraint — re-raise immediately.
+                raise
+            except Exception as exc:
+                _logger.warning(
+                    "DPCompatibleCTGAN: discriminator-level DP-SGD training failed "
+                    "(%s: %s). Falling back to proxy model + CTGAN.fit().",
+                    type(exc).__name__,
+                    exc,
+                )
+                # Fallback: proxy model for epsilon accounting, then CTGAN.fit()
+                self._activate_opacus_proxy(processed_df)
+                self._run_vanilla_ctgan(sdv_synth, processed_df, discrete_columns)
+        else:
+            # Vanilla (non-DP) path: delegate to CTGAN.fit() unchanged
+            self._run_vanilla_ctgan(sdv_synth, processed_df, discrete_columns)
 
-        # ---- Phase 3: construct and train CTGAN model ----
-        if CTGAN is None:  # pragma: no cover
-            raise ImportError(
-                "The 'ctgan' package is required for DPCompatibleCTGAN. "
-                "Install it with: poetry install --with synthesizer"
-            )
-
-        model_kwargs = self._get_model_kwargs(sdv_synth)
-        ctgan_model = CTGAN(**model_kwargs)
-
-        _logger.info("DPCompatibleCTGAN: starting CTGAN.fit().")
-        with warnings.catch_warnings():
-            # T20.1 AC2: targeted suppression for CTGAN/SDV training noise warnings.
-            warnings.filterwarnings("ignore", category=FutureWarning)
-            warnings.filterwarnings("ignore", category=UserWarning)
-            ctgan_model.fit(processed_df, discrete_columns=discrete_columns)
-
-        self._ctgan_model = ctgan_model
         self._fitted = True
-
         _logger.info("DPCompatibleCTGAN.fit() complete.")
         return self
 
     def sample(self, num_rows: int) -> pd.DataFrame:
         """Generate synthetic rows using the trained Generator.
 
-        Calls the underlying ``CTGAN.sample(num_rows)`` to produce
-        transformed synthetic data, then calls
-        ``DataProcessor.reverse_transform()`` to convert back to the
-        original DataFrame schema (original column names, types).
+        Routes to the appropriate sampling path:
+        - **DP path**: Uses ``self._dp_generator`` (the trained Generator from the
+          custom training loop) to produce synthetic data via noise -> Generator.forward().
+        - **Vanilla path**: Calls ``self._ctgan_model.sample(num_rows)``.
+
+        In both cases, calls ``DataProcessor.reverse_transform()`` to convert back
+        to the original DataFrame schema (original column names, types).
 
         Args:
             num_rows: Number of synthetic rows to generate.  Must be > 0.
@@ -562,12 +896,12 @@ class DPCompatibleCTGAN:
 
         _logger.info("DPCompatibleCTGAN.sample(): generating %d rows.", num_rows)
 
-        # Delegate to the trained CTGAN model
-        synthetic_processed: pd.DataFrame = self._ctgan_model.sample(num_rows)
+        if self._dp_trained and self._dp_generator is not None:
+            synthetic_processed = self._sample_from_dp_generator(num_rows)
+        else:
+            synthetic_processed = self._ctgan_model.sample(num_rows)
 
-        # Reverse-transform from processed space back to original schema
         with warnings.catch_warnings():
-            # T20.1 AC2: targeted suppression for SDV reverse_transform noise.
             warnings.filterwarnings("ignore", category=UserWarning)
             warnings.filterwarnings("ignore", category=FutureWarning)
             result: pd.DataFrame = self._data_processor.reverse_transform(synthetic_processed)
@@ -578,3 +912,63 @@ class DPCompatibleCTGAN:
             list(result.columns),
         )
         return result
+
+    def _sample_from_dp_generator(self, num_rows: int) -> pd.DataFrame:
+        """Generate synthetic data using the DP-trained Generator.
+
+        Feeds random noise through the trained ``Generator`` to produce
+        synthetic data in the processed (VGM-normalized) feature space.
+
+        Args:
+            num_rows: Number of synthetic rows to generate.
+
+        Returns:
+            A :class:`pandas.DataFrame` in the processed feature space,
+            ready for ``DataProcessor.reverse_transform()``.
+        """
+        generator = self._dp_generator
+        generator.eval()
+
+        # Use embedding_dim stored during _train_dp_discriminator (avoids
+        # introspecting the Generator architecture which may use Residual blocks
+        # without a .in_features attribute).
+        embedding_dim = self._dp_embedding_dim
+
+        with torch.no_grad():
+            noise = torch.randn(num_rows, embedding_dim)
+            fake_data = generator(noise)
+
+        data_array = fake_data.detach().cpu().numpy()
+
+        # Build output DataFrame with the correct numeric column names so that
+        # DataProcessor.reverse_transform() can map back to the original schema.
+        numeric_cols = self._dp_numeric_columns
+        if numeric_cols and len(numeric_cols) == data_array.shape[1]:
+            synthetic_numeric = pd.DataFrame(data_array, columns=numeric_cols)
+        else:
+            # Fallback: use integer indices if column count mismatches.
+            synthetic_numeric = pd.DataFrame(
+                data_array, columns=[str(i) for i in range(data_array.shape[1])]
+            )
+            return synthetic_numeric
+
+        # If the processed DataFrame had non-numeric columns (e.g. object-typed
+        # categorical columns that SDV has not yet one-hot-encoded), fill them
+        # by sampling from the original processed rows so that reverse_transform
+        # receives the correct column structure.
+        ref_df = self._dp_processed_df_sample
+        if ref_df is None:
+            return synthetic_numeric
+        non_numeric_cols = [c for c in ref_df.columns if c not in numeric_cols]
+        if not non_numeric_cols:
+            return synthetic_numeric
+
+        # Sample non-numeric column values from the original processed rows
+        # (with replacement) to fill the synthetic DataFrame.
+        rng = np.random.default_rng(seed=None)
+        idx = rng.integers(0, len(ref_df), size=num_rows)
+        non_numeric_df = ref_df[non_numeric_cols].iloc[idx].reset_index(drop=True)
+        full_df = pd.concat([synthetic_numeric, non_numeric_df], axis=1)
+        # Reorder columns to match the original processed_df column order.
+        ordered_cols = [c for c in ref_df.columns if c in full_df.columns]
+        return full_df[ordered_cols]

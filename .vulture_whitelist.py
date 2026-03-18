@@ -187,3 +187,10 @@ check_budget  # unused method — DPTrainingWrapper.check_budget() exercised in 
 reset_audit_logger  # unused function — test-isolation helper (shared/security/audit.py)
 _reset_fernet_cache  # unused function — test-isolation helper (shared/security/ale.py)
 dispose_engines  # unused function — engine cache teardown utility (shared/db.py); used in test teardown and app shutdown; T19.1
+
+# ---------------------------------------------------------------------------
+# Category H — T30.3 discriminator-level DP-SGD training loop entries
+# ---------------------------------------------------------------------------
+
+forward  # unused method — OpacusCompatibleDiscriminator.forward() called by PyTorch nn.Module
+calc_gradient_penalty  # unused method — OpacusCompatibleDiscriminator.calc_gradient_penalty() called by DP discriminator tests

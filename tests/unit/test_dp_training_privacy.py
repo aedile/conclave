@@ -7,8 +7,8 @@ Covers:
   - dp_wrapper typed as Any, not DPTrainingWrapper
   - DPCompatibleCTGAN has a class-level docstring
   - Docstring documents dp_wrapper.wrap() interface (duck-typing contract)
-  - _activate_opacus() raises RuntimeError for too-few rows (zero batches)
-  - _activate_opacus() fallback tensor shape for all-categorical columns
+  - _activate_opacus_proxy() raises RuntimeError for too-few rows (zero batches)
+  - _activate_opacus_proxy() fallback tensor shape for all-categorical columns
   - fit() with empty DataFrame raises ValueError
   - No blanket warnings.simplefilter() calls in dp_training.py
   - filterwarnings() used with message pattern for Opacus warnings
@@ -172,13 +172,13 @@ class TestDocstringDuckTypingContract:
 
 
 # ---------------------------------------------------------------------------
-# Tests for _activate_opacus() — privacy-critical edge cases
+# Tests for _activate_opacus_proxy() — privacy-critical edge cases
 # (Added to address QA/Architecture review findings for P7-T7.3)
 # ---------------------------------------------------------------------------
 
 
 class TestActivateOpacusEdgeCases:
-    """Unit tests for DPCompatibleCTGAN._activate_opacus() edge-case paths.
+    """Unit tests for DPCompatibleCTGAN._activate_opacus_proxy() edge-case paths.
 
     These tests guard the privacy-critical guarantees:
     - Zero DataLoader batches must raise RuntimeError (not silently return 0.0 epsilon).
@@ -186,7 +186,7 @@ class TestActivateOpacusEdgeCases:
     """
 
     def test_activate_opacus_too_few_rows_raises_runtime_error(self) -> None:
-        """_activate_opacus() must raise RuntimeError when DataLoader produces zero batches.
+        """_activate_opacus_proxy() must raise RuntimeError when DataLoader produces zero batches.
 
         Privacy rationale: a silent early-return would leave epsilon_spent() returning
         0.0, creating a false DP guarantee — callers relying on check_budget() would
@@ -213,10 +213,11 @@ class TestActivateOpacusEdgeCases:
         )
 
         with pytest.raises(RuntimeError, match="too few rows"):
-            instance._activate_opacus(tiny_df)
+            instance._activate_opacus_proxy(tiny_df)
 
     def test_activate_opacus_all_categorical_fallback_tensor_shape(self) -> None:
-        """_activate_opacus() fallback tensor must be (n_rows, 1) when all columns are categorical.
+        """_activate_opacus_proxy() fallback tensor must be (n_rows, 1) when all
+        columns are categorical.
 
         When processed_df has no numeric columns, select_dtypes returns an empty array
         (shape (n, 0)).  The code must fall back to a 1-wide zero tensor so the DataLoader
@@ -256,7 +257,7 @@ class TestActivateOpacusEdgeCases:
             "synth_engine.modules.synthesizer.dp_training.TensorDataset",
             side_effect=capturing_tensor_dataset,
         ):
-            instance._activate_opacus(all_cat_df)
+            instance._activate_opacus_proxy(all_cat_df)
 
         # The tensor must have shape (n_rows, 1) — the 1-wide fallback.
         assert "tensor" in captured, "TensorDataset was never called"

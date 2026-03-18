@@ -20,6 +20,33 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-18] Phase 30 — Discriminator-Level DP-SGD
+
+**Tasks**: T30.1 (ADR-0036), T30.2 (OpacusCompatibleDiscriminator), T30.3 (custom training loop), T30.4 (benchmark script + docs), T30.5 (integration tests + batch_size fix), T30.6 (ADR-0025 amendment)
+
+**Review agents**: QA (FINDING — 3 items fixed inline), DevOps (PASS), Architecture (PASS)
+
+**Findings fixed (all inline)**:
+- F1 (QA): Added empty-DataLoader guard in `_train_dp_discriminator` — prevents silent success with untrained model on tiny datasets. Mirrors existing guard in `_activate_opacus_proxy`.
+- F2 (QA): Corrected "WGAN-GP" references to "WGAN" in 6 locations — training loop uses plain WGAN loss (no gradient penalty) because `torch.autograd.grad()` conflicts with Opacus per-sample gradient hooks. Docstrings now match implementation.
+- F3 (QA): Added 15 unit tests for `_sample_from_dp_generator` branches, empty-DataLoader guard, WGAN accuracy assertions, and dead import removal verification. Removed dead `DataTransformer`/`DataSampler` imports and their vulture whitelist entries.
+
+**What went well**:
+1. Wave-based parallel execution: T30.1→T30.2→T30.3 sequential, T30.4+T30.5+T30.6 parallel. Efficient use of subagent parallelism.
+2. CTGAN Discriminator confirmed Opacus-compatible without modification — no BatchNorm1d present (only Linear, LeakyReLU, Dropout). Simplified implementation vs ADR-0036's initial GroupNorm substitution plan.
+3. Integration test regression caught and fixed before review: 3 bugs (default epsilon too low, Residual block attr error, column naming for reverse_transform).
+4. All review findings fixed inline — zero deferrals, zero open advisories.
+5. Coverage improved from 95.30% to 97.76% after QA review fixes.
+
+**What to improve**:
+1. Primary-path guard parity: `_train_dp_discriminator` was missing the empty-DataLoader guard that `_activate_opacus_proxy` already had. When a new primary path replaces a fallback, all defensive guards from the fallback should be audited for presence in the primary path.
+2. Docstring-implementation drift: 6 locations claimed "WGAN-GP" but the loop used plain WGAN. Aspirational documentation that outpaces implementation creates confusion for future engineers.
+3. Agent stalling: Multiple T30.3-T30.5 agents stalled due to context limits on large training loop implementations. Re-launching with focused, streamlined briefs resolved the issue.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-18] Phase 29 — Documentation Integrity & Review Debt
 
 **Tasks**: T29.1 (README DP claim correction), T29.2 (node_modules gitignore audit), T29.3 (error message audience differentiation), T29.4 (coverage threshold 90%→95%), T29.5 (ADR-0025 Phase 30 amendment)

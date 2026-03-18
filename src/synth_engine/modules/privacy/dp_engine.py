@@ -147,6 +147,11 @@ class DPTrainingWrapper:
 
         self._privacy_engine: Any = None  # set by wrap()
         self._wrapped: bool = False
+        #: The Opacus-wrapped ``GradSampleModule`` returned by ``make_private()``.
+        #: Set by :meth:`wrap`.  Callers that need to disable/enable Opacus grad-sample
+        #: hooks during Generator steps (to avoid Poisson sampling conflicts) may
+        #: access this attribute after :meth:`wrap` returns.
+        self.wrapped_module: Any = None  # set by wrap()
 
     def wrap(
         self,
@@ -240,6 +245,7 @@ class DPTrainingWrapper:
 
         self._privacy_engine = privacy_engine
         self._wrapped = True
+        self.wrapped_module = _dp_model
 
         _logger.info("Opacus PrivacyEngine active — DP-SGD optimizer installed.")
         return dp_optimizer
