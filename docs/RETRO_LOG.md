@@ -20,6 +20,34 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-18] Phase 29 — Documentation Integrity & Review Debt
+
+**Tasks**: T29.1 (README DP claim correction), T29.2 (node_modules gitignore audit), T29.3 (error message audience differentiation), T29.4 (coverage threshold 90%→95%), T29.5 (ADR-0025 Phase 30 amendment)
+
+**Review agents**: QA (FINDING), DevOps (FINDING), Architecture (PASS — 2 advisories)
+
+**Findings fixed (all inline)**:
+- F1 (DevOps): `.github/workflows/ci.yml` coverage threshold updated from 90% to 95% to match pyproject.toml
+- F2 (QA): Dead `except ValueError` fallback removed from lifecycle.py `/unseal` route — all ValueError subclasses caught by specific handlers above it
+- F3 (QA): Added KeyError test for `operator_error_response()` when called with unmapped exception class
+- F4 (Arch advisory): Resolved by F2 — dead code that duplicated VaultConfigError string removed
+- F5 (Arch advisory): Added explanatory comment for VaultAlreadyUnsealedError inline handling in lifecycle.py
+
+**What went well**:
+1. Wave-based parallel execution: 3 Wave 1 tasks (T29.1, T29.2, T29.5) ran simultaneously, followed by 2 Wave 2 tasks (T29.3, T29.4).
+2. All review findings fixed inline — zero deferrals, zero open advisories.
+3. Coverage elevated from 90% gate to 95% gate with 23 targeted tests bringing 7 modules above threshold. Actual coverage: 98.04%.
+4. OPERATOR_ERROR_MAP pattern cleanly separates operator-facing messages from internal technical details. Security-sensitive exceptions explicitly excluded.
+5. DP claims in README corrected without downplaying real capabilities — honest engineering documentation.
+
+**What to improve**:
+1. CI workflow threshold divergence: pyproject.toml and ci.yml both encode coverage thresholds. Consider reading from a single source of truth to prevent future drift.
+2. Vault exception hierarchy split: VaultConfigError/VaultEmptyPassphraseError inherit from ValueError, not SynthEngineError. As OPERATOR_ERROR_MAP grows, this split makes catch-all handling harder to reason about. Phase 30 may be a natural time to evaluate promotion into SynthEngineError hierarchy.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-18] Phase 28 — Full E2E Validation with Frontend Screenshots
 
 **Tasks**: E2E validation run against real Docker infrastructure, Playwright screenshot evidence, load testing with 11,000 synthetic rows across 4 tables.
