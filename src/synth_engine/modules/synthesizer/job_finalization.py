@@ -60,6 +60,14 @@ def _write_parquet_with_signing(
             caller (``_generate_and_finalize``) guarantees a real DataFrame.
         parquet_path: Destination filesystem path (must end with ``.parquet``).
 
+    Note:
+        If ARTIFACT_SIGNING_KEY is present but contains invalid hex
+        characters or has an odd length, the :exc: raised by
+        bytes.fromhex() is caught internally and signing is silently
+        skipped with a WARNING log.  The Parquet file is already written at
+        that point and the job continues normally.  This is the function's
+        primary defensive behavior.
+
     Raises:
         OSError: If the Parquet write or sidecar write fails due to a
             filesystem error (e.g. disk full, permission denied).  Callers

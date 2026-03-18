@@ -150,6 +150,26 @@ it holds only Huey task queue messages (no PII, no keys). TLS for Redis is
 optional within a single-host Docker deployment. If a multi-host deployment
 requires Redis-over-TLS, configure `stunnel` in front of the Redis container.
 
+**Redis authentication:** For any deployment where Redis is not strictly
+loopback-only (i.e. accessible to more than one host or container that should
+not have unrestricted queue access), enable Redis password authentication:
+
+```bash
+# In redis.conf or as a command-line argument to the Redis container
+requirepass <strong-random-password>
+```
+
+Set the matching password in the Huey configuration via the `REDIS_URL`
+environment variable:
+
+```
+REDIS_URL=redis://:strongpassword@redis:6379/0
+```
+
+A single-host Docker deployment where Redis is bound to the internal bridge
+network and the only clients are containers within that bridge may omit
+`requirepass`, but enabling it is recommended as a defence-in-depth measure.
+
 ### 2.4 TLS for MinIO
 
 MinIO (`minio-ephemeral`) stores synthesis artefacts in `tmpfs` (discarded on

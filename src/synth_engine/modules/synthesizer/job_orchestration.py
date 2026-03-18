@@ -57,6 +57,7 @@ from synth_engine.modules.synthesizer.job_finalization import (
     _write_parquet_with_signing,
 )
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.exceptions import BudgetExhaustionError
 from synth_engine.shared.protocols import DPWrapperProtocol, SpendBudgetProtocol
 from synth_engine.shared.security.audit import get_audit_logger
@@ -480,7 +481,7 @@ def _run_synthesis_job_impl(
     except OOMGuardrailError as exc:
         _logger.error("OOM guardrail rejected job %d: %s", job_id, exc)
         job.status = "FAILED"
-        job.error_msg = str(exc)
+        job.error_msg = safe_error_msg(str(exc))
         session.add(job)
         session.commit()
         return
@@ -543,7 +544,7 @@ def _run_synthesis_job_impl(
                     exc,
                 )
                 job.status = "FAILED"
-                job.error_msg = str(exc)
+                job.error_msg = safe_error_msg(str(exc))
                 session.add(job)
                 session.commit()
                 return
