@@ -19,6 +19,10 @@ Exception taxonomy
   - :exc:`PrivilegeEscalationError` — ingestion user has write privileges
   - :exc:`ArtifactTamperingError` — HMAC verification failure on a model artifact
   - :exc:`VaultSealedError` — sensitive operation attempted on a sealed vault
+  - :exc:`VaultEmptyPassphraseError` — unseal passphrase is empty
+  - :exc:`VaultAlreadyUnsealedError` — unseal attempted on an already-unsealed vault
+  - :exc:`VaultConfigError` — VAULT_SEAL_SALT missing or too short
+  - :exc:`LicenseError` — license validation failed
 
 HTTP-safety classification
 --------------------------
@@ -26,7 +30,9 @@ Exceptions are classified as HTTP-safe or logged-only:
 
 - **HTTP-safe** (safe to include sanitized message in 4xx/5xx response body):
   :exc:`BudgetExhaustionError`, :exc:`OOMGuardrailError`,
-  :exc:`VaultSealedError`
+  :exc:`VaultSealedError`, :exc:`VaultEmptyPassphraseError`,
+  :exc:`VaultConfigError`, :exc:`VaultAlreadyUnsealedError`,
+  :exc:`LicenseError`
 
 - **Logged-only** (must NOT appear in HTTP response body — log only):
   :exc:`PrivilegeEscalationError`, :exc:`ArtifactTamperingError`
@@ -44,6 +50,7 @@ Boundary constraints (import-linter enforced)
   rather than defining their own root exception classes.
 
 Task: P26-T26.2 — Exception Hierarchy + Error Sanitization + Type Tightening
+Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 """
 
 from __future__ import annotations
@@ -51,9 +58,13 @@ from __future__ import annotations
 __all__ = [
     "ArtifactTamperingError",
     "BudgetExhaustionError",
+    "LicenseError",
     "OOMGuardrailError",
     "PrivilegeEscalationError",
     "SynthEngineError",
+    "VaultAlreadyUnsealedError",
+    "VaultConfigError",
+    "VaultEmptyPassphraseError",
     "VaultSealedError",
 ]
 
@@ -171,3 +182,79 @@ class VaultSealedError(SynthEngineError):
         super().__init__(detail)
         self.detail = detail
         self.status_code: int = 423
+
+
+class VaultEmptyPassphraseError(SynthEngineError):
+    """Raised when the unseal passphrase is empty.
+
+    Allows the /unseal endpoint to catch this by type rather than by
+    string-matching on exception messages (Architecture finding P5-T5.3).
+
+    Previously inherited ``ValueError``; changed to ``SynthEngineError``
+    in T34.1 to unify all vault exceptions under the domain hierarchy and
+    ensure they are handled by the domain exception middleware.
+
+    HTTP-safe: yes — the message "Passphrase must not be empty" is safe for
+    HTTP 400 responses.
+    """
+
+
+class VaultAlreadyUnsealedError(SynthEngineError):
+    """Raised when VaultState.unseal() is called on an already-unsealed vault.
+
+    Allows the /unseal endpoint to catch this by type rather than by
+    string-matching on exception messages (Architecture finding P5-T5.3).
+
+    Previously inherited ``ValueError``; changed to ``SynthEngineError``
+    in T34.1 to unify all vault exceptions under the domain hierarchy and
+    ensure they are handled by the domain exception middleware.
+
+    HTTP-safe: yes — the message indicates the vault is already unsealed,
+    which is safe for HTTP 400 responses.
+    """
+
+
+class VaultConfigError(SynthEngineError):
+    """Raised when VAULT_SEAL_SALT is missing or does not meet the 16-byte minimum.
+
+    Allows the /unseal endpoint to catch this by type rather than by
+    string-matching on exception messages (Architecture finding P5-T5.3).
+
+    Previously inherited ``ValueError``; changed to ``SynthEngineError``
+    in T34.1 to unify all vault exceptions under the domain hierarchy and
+    ensure they are handled by the domain exception middleware.
+
+    HTTP-safe: yes — the message describes a configuration problem without
+    leaking internal paths or secrets, safe for HTTP 400 responses.
+    """
+
+
+class LicenseError(SynthEngineError):
+    """Raised when license validation fails.
+
+    This is a plain domain exception.  It does NOT carry HTTP status codes.
+    HTTP status mapping is the responsibility of the bootstrapper
+    middleware/exception handler layer, per ADR-0008.
+
+    Previously inherited bare ``Exception``; changed to ``SynthEngineError``
+    in T34.1 so that license failures are handled by the domain exception
+    middleware rather than falling through to the catch-all 500 handler.
+
+    HTTP-safe: yes — the ``detail`` message describes why license validation
+    failed without leaking internal secrets.  The bootstrapper maps this to
+    HTTP 403.
+
+    Attributes:
+        detail: Human-readable explanation for API consumers.
+
+    Args:
+        detail: Human-readable explanation for API consumers.
+
+    Example::
+
+        raise LicenseError("License token has expired.")
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail

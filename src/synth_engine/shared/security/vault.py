@@ -20,9 +20,15 @@ Security properties
 :exc:`VaultSealedError` is defined in :mod:`synth_engine.shared.exceptions`
 and re-exported here for backward compatibility.
 
+:exc:`VaultEmptyPassphraseError`, :exc:`VaultAlreadyUnsealedError`, and
+:exc:`VaultConfigError` are also defined in :mod:`synth_engine.shared.exceptions`
+and re-exported here for backward compatibility.  They previously inherited
+``ValueError``; they now inherit ``SynthEngineError`` (T34.1).
+
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
 Task: P26-T26.2 — Exception Hierarchy (VaultSealedError moved to shared)
+Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 """
 
 from __future__ import annotations
@@ -31,7 +37,12 @@ import base64
 import hashlib
 import os
 
-from synth_engine.shared.exceptions import VaultSealedError
+from synth_engine.shared.exceptions import (
+    VaultAlreadyUnsealedError,
+    VaultConfigError,
+    VaultEmptyPassphraseError,
+    VaultSealedError,
+)
 
 __all__ = [
     "VaultAlreadyUnsealedError",
@@ -41,30 +52,6 @@ __all__ = [
     "VaultState",
     "derive_kek",
 ]
-
-
-class VaultEmptyPassphraseError(ValueError):
-    """Raised when the unseal passphrase is empty.
-
-    Allows the /unseal endpoint to catch this by type rather than by
-    string-matching ValueError messages (Architecture finding P5-T5.3).
-    """
-
-
-class VaultAlreadyUnsealedError(ValueError):
-    """Raised when VaultState.unseal() is called on an already-unsealed vault.
-
-    Allows the /unseal endpoint to catch this by type rather than by
-    string-matching ValueError messages (Architecture finding P5-T5.3).
-    """
-
-
-class VaultConfigError(ValueError):
-    """Raised when VAULT_SEAL_SALT is missing or does not meet the 16-byte minimum.
-
-    Allows the /unseal endpoint to catch this by type rather than by
-    string-matching ValueError messages (Architecture finding P5-T5.3).
-    """
 
 
 def derive_kek(passphrase: str, salt: bytes) -> bytes:

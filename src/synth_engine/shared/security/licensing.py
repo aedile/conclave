@@ -37,9 +37,15 @@ Any pre-ADV-054 callers that read ``exc.status_code`` must be updated to
 hardcode the appropriate HTTP status (403 Forbidden for all ``LicenseError``
 cases).
 
+``LicenseError`` was previously defined locally in this module inheriting
+bare ``Exception``.  In T34.1 it was moved to
+:mod:`synth_engine.shared.exceptions` (inheriting ``SynthEngineError``) and
+is re-exported here for backward compatibility.
+
 CONSTITUTION Priority 0: Security
 Task: P5-T5.2 — Offline License Activation Protocol
 Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-054)
+Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 """
 
 from __future__ import annotations
@@ -54,6 +60,10 @@ from typing import Any, ClassVar
 
 import jwt as pyjwt
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
+
+from synth_engine.shared.exceptions import LicenseError
+
+__all__ = ["LicenseError"]
 
 _logger = logging.getLogger(__name__)
 
@@ -106,34 +116,6 @@ def get_active_public_key() -> str:
     if env_key:
         return env_key
     return _EMBEDDED_PUBLIC_KEY
-
-
-# ---------------------------------------------------------------------------
-# Custom exception
-# ---------------------------------------------------------------------------
-
-
-class LicenseError(Exception):
-    """Raised when license validation fails.
-
-    This is a plain domain exception.  It does NOT carry HTTP status codes.
-    HTTP status mapping is the responsibility of the bootstrapper
-    middleware/exception handler layer, per ADR-0008.
-
-    Attributes:
-        detail: Human-readable explanation for API consumers.
-
-    Args:
-        detail: Human-readable explanation for API consumers.
-
-    Example::
-
-        raise LicenseError("License token has expired.")
-    """
-
-    def __init__(self, detail: str) -> None:
-        super().__init__(detail)
-        self.detail = detail
 
 
 # ---------------------------------------------------------------------------
