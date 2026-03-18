@@ -345,6 +345,8 @@ The 4 failures are all in `unseal.spec.ts`. Root cause: the unseal page axe scan
 | 09 | `docs/screenshots/p28-09-dashboard-download-flow.png` | Dashboard — COMPLETE job with download action visible | — |
 | 10 | `docs/screenshots/p28-10-error-handling-network-failure.png` | Unseal page — 503 health response (network failure) | — |
 
+**e2e-validation.spec.ts screenshot evidence: 10 passed** — all 10 screenshot tests in the P28 validation spec passed against the live Vite preview server.
+
 ---
 
 ## Python Quality Gates (Step 5)

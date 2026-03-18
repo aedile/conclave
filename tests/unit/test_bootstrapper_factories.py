@@ -19,12 +19,17 @@ Task: P28 — E2E Blocker F4
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
 import threading
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+
+_test_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +138,6 @@ class TestBuildSpendBudgetFn:
         This test patches ``asyncio.run`` and verifies it is never called by
         the sync wrapper.
         """
-        import asyncio
-
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         fn = build_spend_budget_fn()
@@ -147,13 +150,15 @@ class TestBuildSpendBudgetFn:
             asyncio_run_called.append(True)
             return original_asyncio_run(*args, **kwargs)
 
+        exc_captured: list[Exception] = []
         with patch("asyncio.run", side_effect=_patched_asyncio_run):
             # The actual DB call will fail since no DB is present; that is
             # expected.  We only care that asyncio.run is NOT invoked.
             try:
                 fn(amount=0.5, job_id=1, ledger_id=1)
-            except Exception:
-                pass  # DB not present — expected
+            except Exception as exc:
+                _test_logger.debug("Expected DB failure in test: %s", exc)
+                exc_captured.append(exc)
 
         assert not asyncio_run_called, (
             "build_spend_budget_fn() sync wrapper must NOT call asyncio.run().\n"
@@ -177,7 +182,7 @@ class TestBuildSpendBudgetFn:
 
         fn = build_spend_budget_fn()
 
-        missing_greenlet_errors: list[BaseException] = []
+        missing_greenlet_errors: list[str] = []
 
         def _run_in_thread() -> None:
             try:
@@ -186,8 +191,11 @@ class TestBuildSpendBudgetFn:
                 fn(amount=Decimal("0.5"), job_id=99, ledger_id=1)
             except Exception as exc:
                 exc_type_name = type(exc).__name__
-                if "MissingGreenlet" in exc_type_name or "MissingGreenlet" in str(exc):
-                    missing_greenlet_errors.append(exc)
+                msg = str(exc)
+                if "MissingGreenlet" in exc_type_name or "MissingGreenlet" in msg:
+                    missing_greenlet_errors.append(f"{exc_type_name}: {msg}")
+                else:
+                    _test_logger.debug("Expected DB failure in thread test: %s", exc)
 
         thread = threading.Thread(target=_run_in_thread)
         thread.start()
@@ -206,8 +214,6 @@ class TestBuildSpendBudgetFn:
         This mirrors the validation in the async spend_budget() and ensures
         the sync path enforces the same invariant.
         """
-        import os
-
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         fn = build_spend_budget_fn()
@@ -218,8 +224,6 @@ class TestBuildSpendBudgetFn:
 
     def test_sync_wrapper_raises_value_error_for_negative_amount(self) -> None:
         """The sync wrapper must raise ValueError for negative amount."""
-        import os
-
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         fn = build_spend_budget_fn()
@@ -228,29 +232,33 @@ class TestBuildSpendBudgetFn:
             with pytest.raises(ValueError, match="amount must be positive"):
                 fn(amount=-1.5, job_id=1, ledger_id=1)
 
-    def test_sync_wrapper_invokes_sync_spend_budget(self) -> None:
+    def test_sync_wrapper_no_missing_greenlet_on_any_url_scheme(self) -> None:
         """The sync wrapper must not raise MissingGreenlet for any URL scheme.
 
         After the P28-F4 fix, the wrapper must use a synchronous DB path.
         If the fix is correct: no MissingGreenlet, no asyncio.run().
         A real DB connection will fail; that is acceptable for this unit test.
         """
-        import os
-
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         fn = build_spend_budget_fn()
+
+        # Collect any MissingGreenlet error; store it for assertion AFTER the
+        # try/except block to satisfy PT017 (no assert inside except).
+        missing_greenlet_msg: list[str] = []
 
         with patch.dict(os.environ, {"DATABASE_URL": "sqlite:////:memory:"}):
             try:
                 fn(amount=1.0, job_id=42, ledger_id=7, note="p28-test")
             except Exception as exc:
                 exc_type_name = type(exc).__name__
-                # MissingGreenlet is the specific failure we are guarding against.
-                assert "MissingGreenlet" not in exc_type_name, (
-                    f"P28-F4: MissingGreenlet raised — sync wrapper must not use "
-                    f"asyncio.run() with asyncpg driver: {exc}"
-                )
-                assert "MissingGreenlet" not in str(exc), (
-                    f"P28-F4: MissingGreenlet in exception message: {exc}"
-                )
+                msg = str(exc)
+                if "MissingGreenlet" in exc_type_name or "MissingGreenlet" in msg:
+                    missing_greenlet_msg.append(f"{exc_type_name}: {msg}")
+                else:
+                    _test_logger.debug("Expected DB failure in scheme test: %s", exc)
+
+        assert not missing_greenlet_msg, (
+            f"P28-F4: MissingGreenlet raised — sync wrapper must not use "
+            f"asyncio.run() with asyncpg driver: {missing_greenlet_msg}"
+        )
