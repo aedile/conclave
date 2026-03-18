@@ -843,7 +843,7 @@ class DPCompatibleCTGAN:
 
         Constructs a minimal 1-layer linear model whose input dimension matches
         the processed DataFrame's feature count.  Wraps it with the Opacus
-        PrivacyEngine via ``dp_wrapper.wrap()``, then runs ``steps_per_epoch``
+        PrivacyEngine via ``dp_wrapper.wrap()``, then runs ``len(dataloader)``
         gradient steps through the DP optimizer so that Opacus records real
         gradient accounting.
 

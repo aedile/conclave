@@ -20,6 +20,30 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-18] Phase 31 — Code Health & Bus Factor Elimination
+
+**Tasks**: T31.1 (Developer Guide), T31.2 (Vulture Whitelist Audit), T31.3 (dp_training Decomposition)
+
+**Review agents**: QA (FINDING — 1 item fixed inline), Architecture (PASS), DevOps (PASS)
+
+**Findings fixed (all inline)**:
+- F1 (QA): `_activate_opacus_proxy` docstring referenced removed variable `steps_per_epoch` — corrected to `len(dataloader)`.
+
+**What went well**:
+1. All three tasks executed in parallel with zero merge conflicts — independent work streams with no file overlap (docs, whitelist, dp_training.py).
+2. T31.3 decomposition reduced `_train_dp_discriminator` from 218→75 lines with zero test modifications required — every existing test passed unmodified, confirming the refactor preserved all behavior.
+3. T31.2 vulture audit removed 6 entries (91→85) and improved 5 comments — methodical investigation of each entry with full test suite validation.
+4. T31.1 Developer Guide (991 lines) verified every file path, command, and architectural claim against the actual codebase before writing.
+5. Coverage maintained at 97.95% — well above 95% constitutional floor.
+
+**What to improve**:
+1. Docstring-variable drift (recurring): `steps_per_epoch` was inlined during refactor but its docstring reference survived. This is the same class of error as Phase 30's "WGAN-GP" drift. Consider a grep-based pre-commit check for variable names in docstrings that don't exist in the function body.
+2. Vulture audit found only 6 removable entries out of 19 investigated — the remaining 13 were false positives requiring improved comments. The 71% irreducible rate confirms that vulture whitelist management is an ongoing maintenance cost for FastAPI/Pydantic/SQLAlchemy projects.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-18] Phase 30 — Discriminator-Level DP-SGD
 
 **Tasks**: T30.1 (ADR-0036), T30.2 (OpacusCompatibleDiscriminator), T30.3 (custom training loop), T30.4 (benchmark script + docs), T30.5 (integration tests + batch_size fix), T30.6 (ADR-0025 amendment)
