@@ -151,7 +151,9 @@ def _run_reset_budget(
         A 2-tuple ``(allocated, spent)`` reflecting the post-reset state,
         as returned by :func:`reset_budget`.
 
-    """
+    Raises:
+        sqlalchemy.exc.NoResultFound: If the ledger row does not exist.
+    """  # noqa: DOC502
 
     async def _async_reset() -> tuple[Decimal, Decimal]:
         from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession

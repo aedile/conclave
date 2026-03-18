@@ -260,7 +260,13 @@ def rotate_ale_keys_task(
     Returns:
         Dict mapping ``"<table>.<column>"`` to rows rotated.
 
-    """
+    Raises:
+        RuntimeError: If the vault is sealed and the ``ALE_KEY`` environment
+            variable is not set.
+        cryptography.fernet.InvalidToken: If ``wrapped_fernet_key`` cannot be
+            decrypted with the current vault Fernet (e.g. wrapped with a
+            different key or tampered).
+    """  # noqa: DOC502
     engine = get_engine(database_url)
     old_fernet = get_fernet()  # derives from current vault KEK or ALE_KEY env
 

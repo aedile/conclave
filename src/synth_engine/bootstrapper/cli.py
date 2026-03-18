@@ -176,7 +176,10 @@ def _load_topology(source_dsn: str) -> SchemaTopology:
         A :class:`~synth_engine.shared.schema_topology.SchemaTopology`
         instance describing the source schema.
 
-    """
+    Raises:
+        sqlalchemy.exc.SQLAlchemyError: If the database connection cannot be
+            established or schema reflection fails.
+    """  # noqa: DOC502
     engine = create_engine(source_dsn)
     reflector = SchemaReflector(engine=engine)
     dag = reflector.reflect()

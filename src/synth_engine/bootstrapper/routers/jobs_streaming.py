@@ -68,7 +68,10 @@ def _iter_file_chunks(path: str, chunk_size: int = _DOWNLOAD_CHUNK_SIZE) -> Iter
 
     Yields:
         bytes: Successive byte chunks of at most ``chunk_size`` bytes.
-    """
+
+    Raises:
+        OSError: If the file cannot be opened or read.
+    """  # noqa: DOC502
     with open(path, "rb") as fh:
         while True:
             chunk = fh.read(chunk_size)
