@@ -20,6 +20,34 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-18] Phase 33 — Governance Hygiene, Documentation Currency & Codebase Polish
+
+**Tasks**: T33.1 (CLAUDE.md rule sunset evaluation), T33.2 (pydoclint docstring gate), T33.3 (documentation currency & gaps), T33.4 (codebase cleanup)
+
+**Review agents**: QA (FINDING — 7 items fixed inline), DevOps (PASS), Architecture (FINDING — 2 items resolved as worktree visibility issues, 1 non-blocking advisory)
+
+**Findings fixed (all inline)**:
+- F1-F7 (QA): T33.2's pydoclint sweep incorrectly removed `Raises:` sections from 7 functions where exceptions still propagate (ale.py get_fernet/process_result_value, jobs_streaming.py _iter_file_chunks, job_finalization.py _write_parquet_with_signing, cli.py _load_topology, privacy.py _run_reset_budget, rotation.py rotate_ale_keys_task). All restored with `# noqa: DOC502` suppression for the false-positive pydoclint rule.
+- F8-F9 (Arch): ADR-0002 amendment and pydoclint config were correctly committed but not visible to architecture reviewer running in a worktree. Verified on branch: ADR-0002 shows "Status: Superseded" with full amendment section; pydoclint scoped to `^src/synth_engine/` with `arg-type-hints-in-docstring = false`.
+
+**Architecture advisory (non-blocking)**:
+- Consider ADR-0037 for pydoclint adoption decision (precedent: ADR-0016 Click, ADR-0028 pytest-asyncio). Deferred as cosmetic per Rule 16.
+
+**What went well**:
+1. All 4 tasks executed in parallel with zero merge conflicts — independent work streams.
+2. CLAUDE.md rule sunset evaluation (T33.1) reduced governance surface: Rule 13 deleted (never worked), Rule 11 threshold tightened, 8 rules renewed with Phase 40 sunset. CLAUDE.md dropped from 267 to 259 lines.
+3. pydoclint gate (T33.2) closes the recurring docstring-drift gap — the most frequent failure pattern in the RETRO_LOG (Phases 30, 31, 32). Now programmatically enforced per Constitution Priority 0.5.
+4. Documentation currency (T33.3) comprehensive: CHANGELOG.md, 8 backfilled phase summaries, static API reference, ADR-0002 amendment, pinned metrics.
+5. Dependency ranges tightened (T33.4) — 6 ranges narrowed to current minor versions.
+
+**What to improve**:
+1. Linter sweep over-removal (new pattern): When a linting tool like pydoclint triggers a broad sweep across 30+ files, the QA review must independently verify that "fixes" don't weaken API contracts. The T33.2 sweep correctly fixed formatting violations but also stripped `Raises:` sections for propagating exceptions that pydoclint's DOC502 rule flags as false positives. Future sweeps should be followed by a targeted `Raises:` audit.
+2. Worktree reviewer visibility: Architecture reviewer running in an isolated worktree couldn't see branch-committed changes, leading to false findings. Consider passing diff content directly to reviewers rather than relying on filesystem reads.
+
+**Open advisories**: 0
+
+---
+
 ### [2026-03-18] Phase 32 — Dead Module Cleanup & Development Process Documentation
 
 **Tasks**: T32.1 (Dead module removal), T32.2 (README dev process section), T32.3 (Development Story case study)
