@@ -247,8 +247,9 @@ def get_session(engine: Engine) -> Generator[Session]:
         engine: The SQLAlchemy engine to bind the session to.
 
     Yields:
-        An open :class:`sqlmodel.Session`; the session is closed in the
-        ``finally`` block so cleanup is guaranteed even on exception.
+        Generator[Session]: An open :class:`sqlmodel.Session`; the session
+            is closed in the ``finally`` block so cleanup is guaranteed even
+            on exception.
     """
     with Session(engine) as session:
         yield session
@@ -278,7 +279,7 @@ async def get_async_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]
             session to.  Obtain one via :func:`get_async_engine`.
 
     Yields:
-        An open :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
+        AsyncGenerator[AsyncSession]: An open :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
     """
     async with AsyncSession(engine, expire_on_commit=False) as session:
         yield session

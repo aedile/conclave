@@ -128,8 +128,6 @@ class StorageBackend(Protocol):
         Returns:
             Raw bytes previously stored at that key.
 
-        Raises:
-            KeyError: If the key does not exist.
         """
         ...  # pragma: no cover — abstract StorageBackend stub; body never executed
 
@@ -164,18 +162,6 @@ class MinioStorageBackend:
         access_key: str,
         secret_key: str,
     ) -> None:
-        """Initialise the MinIO boto3 client.
-
-        Args:
-            endpoint_url: S3-compatible endpoint URL.  Must start with
-                ``http://`` or ``https://``.
-            access_key: Access key ID for authentication.  Must be non-empty.
-            secret_key: Secret access key for authentication.  Must be non-empty.
-
-        Raises:
-            ValueError: If ``endpoint_url`` is not a valid http(s) URL, or if
-                ``access_key`` or ``secret_key`` are empty strings.
-        """
         if not endpoint_url or not endpoint_url.startswith(("http://", "https://")):
             raise ValueError(
                 f"endpoint_url must be an http:// or https:// URL; got: {endpoint_url!r}"
@@ -224,7 +210,8 @@ class MinioStorageBackend:
             Raw bytes retrieved from the MinIO object.
 
         Raises:
-            KeyError: If the object does not exist (wraps boto3 ClientError).
+            KeyError: If the object does not exist (NoSuchKey/404 response).
+            botocore.exceptions.ClientError: If a non-404 boto3 error occurs.
         """
         import botocore.exceptions  # deferred import
 
@@ -277,12 +264,6 @@ class EphemeralStorageClient:
     """
 
     def __init__(self, bucket: str, backend: StorageBackend) -> None:
-        """Initialise the client with a bucket name and backend.
-
-        Args:
-            bucket: Bucket name for all operations.
-            backend: Concrete storage backend (injectable for testability).
-        """
         self._bucket = bucket
         self._backend = backend
 
@@ -306,8 +287,6 @@ class EphemeralStorageClient:
         Returns:
             DataFrame deserialised from the stored Parquet bytes.
 
-        Raises:
-            KeyError: If the key does not exist in the backend.
         """
         data = self._backend.get(self._bucket, key)
         return pd.read_parquet(io.BytesIO(data), engine="pyarrow")

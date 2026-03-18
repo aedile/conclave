@@ -155,8 +155,6 @@ class ModelArtifact:
 
         Raises:
             ValueError: If ``signing_key`` is an empty bytes value.
-            OSError: If the parent directory does not exist or write
-                permission is denied.
         """
         if signing_key is not None and len(signing_key) == 0:
             raise ValueError(
@@ -219,8 +217,6 @@ class ModelArtifact:
             SecurityError: If HMAC verification fails for any reason:
                 wrong key, tampered payload, signed file loaded without a key,
                 or unsigned file loaded with a key.
-            pickle.UnpicklingError: If the file is not a valid pickle or was
-                produced by an incompatible version.
         """
         if signing_key is not None and len(signing_key) == 0:
             raise ValueError(

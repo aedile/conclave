@@ -1,3 +1,6 @@
+# SUNSET: Phase 38 — evaluate for removal. These tests permanently assert that
+# deleted scaffolding modules remain absent. They pass forever and add no ongoing
+# value once the deletion is sufficiently old. Reassess at Phase 38.
 """Removal guard tests for T32.1 — Dead Scaffolding Module Cleanup.
 
 These tests exist to verify that the scaffolding modules identified in
@@ -21,6 +24,8 @@ import importlib.util
 import sys
 
 import pytest
+
+pytestmark = pytest.mark.sunset_phase_38
 
 # ---------------------------------------------------------------------------
 # Helpers

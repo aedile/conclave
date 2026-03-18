@@ -243,10 +243,6 @@ def get_audit_logger() -> AuditLogger:
     Returns:
         The process-wide :class:`AuditLogger` instance.
 
-    Raises:
-        ValueError: If ``AUDIT_KEY`` is not set, is not valid hexadecimal,
-            or does not encode exactly 32 bytes.  Only raised on the first
-            call that initialises the singleton.
     """
     global _audit_logger_instance
     with _audit_logger_lock:

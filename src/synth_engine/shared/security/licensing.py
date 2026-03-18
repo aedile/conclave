@@ -123,6 +123,9 @@ class LicenseError(Exception):
     Attributes:
         detail: Human-readable explanation for API consumers.
 
+    Args:
+        detail: Human-readable explanation for API consumers.
+
     Example::
 
         raise LicenseError("License token has expired.")

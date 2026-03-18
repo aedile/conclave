@@ -94,17 +94,6 @@ class SchemaReflector:
         *,
         virtual_foreign_keys: list[_VfkDict] | None = None,
     ) -> None:
-        """Initialise with a SQLAlchemy engine and cache its inspector.
-
-        The inspector is created once here rather than per-method call
-        (ADV-023: caching reduces redundant round-trips on large schemas).
-
-        Args:
-            engine: A connected SQLAlchemy :class:`~sqlalchemy.Engine`.
-            virtual_foreign_keys: Optional list of VFK config dicts.  Each
-                dict must have keys ``"table"``, ``"column"``,
-                ``"references_table"``, and ``"references_column"``.
-        """
         self._inspector: Inspector = inspect(engine)
         self._virtual_foreign_keys: list[_VfkDict] = virtual_foreign_keys or []
 

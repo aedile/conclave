@@ -133,8 +133,8 @@ async def job_event_stream(
         max_cycles: Maximum number of poll cycles before timeout.  Default: 3600.
 
     Yields:
-        SSE event dicts compatible with ``sse-starlette``'s
-        ``EventSourceResponse``.
+        AsyncGenerator[dict[str, Any]]: SSE event dicts compatible with ``sse-starlette``'s
+            ``EventSourceResponse``.
     """
     for _ in range(max_cycles):
         job = await asyncio.to_thread(_poll_job, session_factory, job_id)

@@ -135,8 +135,6 @@ async def spend_budget(
         ValueError: If ``amount`` is not positive (zero or negative).
         BudgetExhaustionError: If ``total_spent + amount > total_allocated``.
             The ledger row is left unchanged; no transaction record is written.
-        sqlalchemy.exc.NoResultFound: If no ``PrivacyLedger`` row exists for
-            the given ``ledger_id``.
 
     Example::
 
@@ -246,8 +244,6 @@ async def reset_budget(
     Raises:
         ValueError: If ``new_allocated_epsilon`` is provided and is not
             strictly positive.
-        sqlalchemy.exc.NoResultFound: If no ``PrivacyLedger`` row exists for
-            the given ``ledger_id``.
 
     Example::
 

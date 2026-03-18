@@ -82,11 +82,6 @@ class EgressWriter:
     """
 
     def __init__(self, target_engine: Engine) -> None:
-        """Initialise with the target database engine.
-
-        Args:
-            target_engine: A connected SQLAlchemy :class:`~sqlalchemy.Engine`.
-        """
         self._engine = target_engine
         self._written_tables: dict[str, int] = {}
 
@@ -125,8 +120,6 @@ class EgressWriter:
                 are passed to SQLAlchemy as bind parameters — never
                 interpolated into SQL text.
 
-        Raises:
-            sqlalchemy.exc.SQLAlchemyError: If the INSERT fails.
         """
         if not rows:
             return

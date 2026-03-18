@@ -122,8 +122,6 @@ def _load_ale_key_from_env() -> bytes:
 
     Raises:
         RuntimeError: If the ``ALE_KEY`` environment variable is not set.
-        ValueError: If the ``ALE_KEY`` value is not a valid Fernet key
-            (e.g. incorrect length or encoding).
     """
     key = os.environ.get("ALE_KEY")
     if not key:
@@ -149,10 +147,12 @@ def get_fernet() -> Fernet:
         A :class:`cryptography.fernet.Fernet` instance ready for use.
 
     Raises:
-        RuntimeError: If the vault is sealed and ``ALE_KEY`` is not set.
-        ValueError: If the vault is sealed and ``ALE_KEY`` is not a valid
-            Fernet key.
-    """
+        RuntimeError: If the vault is sealed and the ``ALE_KEY`` environment
+            variable is not set.
+        ValueError: If the vault is sealed and the ``ALE_KEY`` value cannot
+            be used to construct a valid :class:`~cryptography.fernet.Fernet`
+            instance (e.g. invalid base64 or wrong key length).
+    """  # noqa: DOC502
     if not VaultState.is_sealed():
         kek = VaultState.get_kek()
         raw_key = _derive_ale_key_from_kek(kek)
@@ -234,8 +234,9 @@ class EncryptedString(TypeDecorator[str]):
 
         Raises:
             cryptography.fernet.InvalidToken: If *value* is not a valid
-                Fernet token (e.g. corrupted or tampered ciphertext).
-        """
+                Fernet token for the current key — indicating corrupted or
+                tampered ciphertext in the database.
+        """  # noqa: DOC502
         if value is None:
             return None
         fernet = get_fernet()

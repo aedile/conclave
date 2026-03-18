@@ -177,10 +177,9 @@ def _load_topology(source_dsn: str) -> SchemaTopology:
         instance describing the source schema.
 
     Raises:
-        Exception: Any SQLAlchemy or reflection error propagates to the
-            caller (the ``subset`` command), which wraps it in a clean
-            error message.
-    """
+        sqlalchemy.exc.SQLAlchemyError: If the database connection cannot be
+            established or schema reflection fails.
+    """  # noqa: DOC502
     engine = create_engine(source_dsn)
     reflector = SchemaReflector(engine=engine)
     dag = reflector.reflect()

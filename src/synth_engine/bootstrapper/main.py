@@ -104,10 +104,6 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
     Returns:
         A configured :class:`EphemeralStorageClient` ready to upload/download
         Parquet files.
-
-    Raises:
-        RuntimeError: If the Docker secrets are not mounted.
-        ValueError: If the secrets are empty or the endpoint URL is invalid.
     """
     from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
 

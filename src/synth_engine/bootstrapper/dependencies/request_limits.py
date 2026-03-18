@@ -191,14 +191,12 @@ class RequestBodyLimitMiddleware:
     Placement requirement: this middleware must be outermost.  In
     ``create_app()``, add it LAST (highest stack position) via
     ``app.add_middleware(RequestBodyLimitMiddleware)``.
+
+    Args:
+        app: The inner ASGI application to wrap.
     """
 
     def __init__(self, app: ASGIApp) -> None:
-        """Initialise the middleware with the inner ASGI app.
-
-        Args:
-            app: The inner ASGI application to wrap.
-        """
         self._app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

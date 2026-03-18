@@ -134,3 +134,21 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+  # ---------------------------------------------------------------------------
+  # Docstring validation — pydoclint (T33.2)
+  #
+  # Validates Google-style docstring parameter names, return types, and raises
+  # sections against actual function signatures, preventing the docstring-
+  # implementation drift failures observed in Phases 30, 31, and 32.
+  #
+  # Configuration is in [tool.pydoclint] in pyproject.toml.
+  # pass_filenames=true: pydoclint can validate individual files efficiently.
+  # ---------------------------------------------------------------------------
+      - id: pydoclint
+        name: pydoclint
+        entry: poetry run pydoclint
+        language: system
+        types: [python]
+        files: ^src/synth_engine/
+        pass_filenames: true

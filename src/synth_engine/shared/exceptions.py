@@ -158,6 +158,9 @@ class VaultSealedError(SynthEngineError):
         detail: Human-readable explanation for API consumers.
         status_code: HTTP status code to return (423 Locked).
 
+    Args:
+        detail: Human-readable explanation.  Defaults to ``"Vault is sealed"``.
+
     Example::
 
         raise VaultSealedError()   # → "Vault is sealed"
@@ -165,11 +168,6 @@ class VaultSealedError(SynthEngineError):
     """
 
     def __init__(self, detail: str = "Vault is sealed") -> None:
-        """Initialise VaultSealedError with an optional detail message.
-
-        Args:
-            detail: Human-readable explanation.  Defaults to ``"Vault is sealed"``.
-        """
         super().__init__(detail)
         self.detail = detail
         self.status_code: int = 423

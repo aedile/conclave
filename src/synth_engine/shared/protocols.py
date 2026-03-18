@@ -81,8 +81,6 @@ class DPWrapperProtocol(Protocol):
             delta: The delta value used to compute the current Epsilon spend.
                 Must be strictly positive.
 
-        Raises:
-            BudgetExhaustionError: If ``epsilon_spent(delta) >= allocated_epsilon``.
         """
         ...  # pragma: no cover — abstract Protocol stub; body is never executed
 
@@ -122,7 +120,5 @@ class SpendBudgetProtocol(Protocol):
             ledger_id: Primary key of the PrivacyLedger row to debit.
             note: Optional human-readable annotation for the transaction.
 
-        Raises:
-            BudgetExhaustionError: (from modules/privacy) if exhausted.
         """
         ...  # pragma: no cover — abstract Protocol stub; body is never executed

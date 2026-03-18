@@ -105,10 +105,6 @@ def build_dp_wrapper(
         A configured :class:`DPTrainingWrapper` instance ready to be passed
         to :meth:`SynthesisEngine.train`.
 
-    Raises:
-        ValueError: If ``max_grad_norm`` or ``noise_multiplier`` is not
-            strictly positive.
-
     Example::
 
         wrapper = build_dp_wrapper(max_grad_norm=1.0, noise_multiplier=1.1)
@@ -202,10 +198,6 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         A sync callable ``(*, amount, job_id, ledger_id, note=None) -> None``
         that deducts epsilon from the global ``PrivacyLedger`` atomically.
         The returned callable satisfies ``SpendBudgetProtocol``.
-
-    Raises:
-        Any exception raised by the underlying DB operation propagates to the
-        caller, including ``BudgetExhaustionError`` when budget is exhausted.
 
     Example::
 

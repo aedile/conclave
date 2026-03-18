@@ -112,8 +112,6 @@ def _emit_refresh_audit(
         prev_spent: Pre-refresh ``total_spent_epsilon`` as string.
         new_allocated: Post-refresh ``total_allocated_epsilon`` as string.
 
-    Raises:
-        Any exception raised by the audit logger's ``log_event`` method.
     """
     audit_details: dict[str, str] = {
         "justification": justification,
@@ -154,9 +152,8 @@ def _run_reset_budget(
         as returned by :func:`reset_budget`.
 
     Raises:
-        Any exception raised by :func:`reset_budget`, including
-        ``sqlalchemy.exc.NoResultFound`` if the ledger row does not exist.
-    """
+        sqlalchemy.exc.NoResultFound: If the ledger row does not exist.
+    """  # noqa: DOC502
 
     async def _async_reset() -> tuple[Decimal, Decimal]:
         from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession

@@ -56,12 +56,6 @@ class DagTraversal:
     """
 
     def __init__(self, engine: Engine, topology: SchemaTopology) -> None:
-        """Initialise with source engine and bootstrapper-injected topology.
-
-        Args:
-            engine: Source database engine (read-only usage).
-            topology: Bootstrapper-injected SchemaTopology value object.
-        """
         self._engine = engine
         self._topology = topology
 
@@ -86,8 +80,9 @@ class DagTraversal:
             seed_query: A raw SQL SELECT that returns the seed rows.
 
         Yields:
-            ``(table_name, rows)`` pairs in topological order.  Each ``rows``
-            element is a plain ``dict[str, Any]`` mapping column name to value.
+            (str, list[dict[str, Any]]): ``(table_name, rows)`` pairs in
+                topological order.  Each ``rows`` element is a plain
+                ``dict[str, Any]`` mapping column name to value.
 
         Note:
             If the seed query returns 0 rows, nothing is yielded.
