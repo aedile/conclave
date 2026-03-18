@@ -262,7 +262,7 @@ class DPTrainingWrapper:
         if self._privacy_engine is None:
             return 0.0
 
-        epsilon: float = self._privacy_engine.get_epsilon(delta=delta)
+        epsilon: float = float(self._privacy_engine.get_epsilon(delta=delta))
         return epsilon
 
     def check_budget(self, *, allocated_epsilon: float, delta: float) -> None:
