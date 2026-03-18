@@ -451,11 +451,21 @@ class DPCompatibleCTGAN:
         pac: int = int(model_kwargs.get("pac", 10))
         discriminator_steps: int = int(model_kwargs.get("discriminator_steps", 1))
 
+        # Cap batch_size to ensure the Opacus DPDataLoader sampling rate q = batch/N
+        # is strictly less than 1.0.  Opacus's PRV accountant raises a divide-by-zero
+        # RuntimeWarning (promoted to error in tests) when q == 1.0.
+        # Strategy: cap to at most n_rows - pac (leaving at least one pac-group out
+        # per epoch), then pac-align downward.  This guarantees q < 1.0 for any N > pac.
+        # The minimum viable batch size for the WGAN-GP Discriminator is pac (one group).
+        n_rows = len(processed_df)
+        batch_size = min(batch_size, n_rows - pac)
+
         # Opacus requires batch_size >= 2; enforce pac-divisibility
-        batch_size = max(pac * 2, batch_size)
+        # Use max(pac, batch_size) — pac is the minimum for one discriminator group.
+        batch_size = max(pac, batch_size)
         batch_size = (batch_size // pac) * pac
         if batch_size == 0:
-            batch_size = pac * 2
+            batch_size = pac
 
         n_features = processed_df.select_dtypes(include=[float, int]).shape[1]
         if n_features == 0:
@@ -517,14 +527,21 @@ class DPCompatibleCTGAN:
             len(dataloader),
         )
 
-        discriminator.train()
+        # After dp_wrapper.wrap(), the Opacus-wrapped GradSampleModule is stored
+        # on the wrapper as wrapped_module.  We must use this wrapped module for
+        # Discriminator steps (so Opacus computes per-sample gradients and applies
+        # DP noise).  For the Generator step, Opacus hooks must be disabled to
+        # prevent the "Poisson sampling not compatible with grad accumulation" error.
+        dp_discriminator: Any = getattr(self._dp_wrapper, "wrapped_module", discriminator)
+
+        dp_discriminator.train()
         generator.train()
 
         for _epoch in range(self._epochs):
             for batch_tensors in dataloader:
                 (real_data,) = batch_tensors
 
-                # --- Discriminator steps ---
+                # --- Discriminator steps (Opacus hooks active) ---
                 for _ in range(discriminator_steps):
                     dp_optimizer.zero_grad()
 
@@ -543,14 +560,20 @@ class DPCompatibleCTGAN:
                     real_pac = real_data_padded[:n_samples]
                     fake_pac = fake_data[:n_samples]
 
-                    real_score = discriminator(real_pac)
-                    fake_score = discriminator(fake_pac)
+                    real_score = dp_discriminator(real_pac)
+                    fake_score = dp_discriminator(fake_pac)
 
                     loss_d = -(real_score.mean() - fake_score.mean())
                     loss_d.backward()
                     dp_optimizer.step()
 
-                # --- Generator step (no DP required) ---
+                # --- Generator step (Opacus hooks disabled) ---
+                # Opacus with Poisson sampling (DPDataLoader) raises ValueError if
+                # backward() is called without a preceding optimizer.step().  The
+                # Generator step uses the Discriminator only for scoring — it does
+                # not contribute to Discriminator DP accounting.  Disabling Opacus
+                # hooks here prevents the "grad accumulation" error while preserving
+                # gradient flow through the Generator parameters.
                 optimizer_g.zero_grad()
                 noise_g = torch.randn(batch_size, embedding_dim)
                 fake_g = generator(noise_g)
@@ -558,9 +581,13 @@ class DPCompatibleCTGAN:
                 n_samples_g = (len(fake_g) // pac) * pac
                 if n_samples_g > 0:
                     fake_g_pac = fake_g[:n_samples_g]
-                    gen_score = discriminator(fake_g_pac.detach())
+                    if hasattr(dp_discriminator, "disable_hooks"):
+                        dp_discriminator.disable_hooks()
+                    gen_score = dp_discriminator(fake_g_pac)
                     loss_g = -gen_score.mean()
                     loss_g.backward()
+                    if hasattr(dp_discriminator, "enable_hooks"):
+                        dp_discriminator.enable_hooks()
                     optimizer_g.step()
 
             # Budget check after each epoch — BudgetExhaustionError propagates immediately
