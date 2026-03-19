@@ -79,3 +79,10 @@ sbom.json
 
 # Agent worktree clones — transient, disk-heavy
 .clone/
+.claude/worktrees/
+
+# pytest-hypothesis cache — regenerated every test run
+.hypothesis/
+
+# pytest coverage temp files
+.coverage.*

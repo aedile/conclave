@@ -28,6 +28,30 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 18: Type Safety, Dependency Audit & E2E Validation](backlog/phase-18.md)
 *   [Phase 19: Production Hardening & Integration Integrity](backlog/phase-19.md)
 *   [Phase 20: Human-in-the-Loop Feedback](backlog/phase-20.md)
+*   [Phase 21: CLI Masking Fix & E2E Smoke Tests](backlog/phase-21.md) ✅
+*   [Phase 22: DP Pipeline End-to-End Integration](backlog/phase-22.md) ✅
+*   [Phase 23: Job Lifecycle Completion](backlog/phase-23.md) ✅
+*   [Phase 24: Integration Test Repair](backlog/phase-24.md) ✅
+*   [Phase 25: Observability](backlog/phase-25.md) ✅
+*   [Phase 26: Backend Production Hardening](backlog/phase-26.md) ✅
+*   [Phase 27: Frontend Production Hardening](backlog/phase-27.md) ✅
+*   [Phase 28: Full E2E Validation](backlog/phase-28.md) ✅
+*   [Phase 29: Documentation Integrity & Review Debt](backlog/phase-29.md) ✅
+*   [Phase 30: True Discriminator-Level DP-SGD](backlog/phase-30.md) ✅
+*   [Phase 31: Code Health & Bus Factor Elimination](backlog/phase-31.md) ✅
+*   [Phase 32: Dead Module Cleanup & Development Process Documentation](backlog/phase-32.md) ✅
+*   [Phase 33: Governance Hygiene, Documentation Currency & Codebase Polish](backlog/phase-33.md) ✅
+*   [Phase 34: Exception Hierarchy Unification & Operator Error Coverage](backlog/phase-34.md) ✅
+*   [Phase 35: Synthesis Layer Refactor & Test Replacement](backlog/phase-35.md) ✅
+*   [Phase 36: Configuration Centralization, Documentation Pruning & Hygiene](backlog/phase-36.md) ✅
+*   [Phase 37: Advisory Drain, CHANGELOG Currency & E2E Demo Capstone](backlog/phase-37.md) ✅
+*   [Phase 38: Audit Integrity, Timing Side-Channel Fix & Pre-Commit Hardening](backlog/phase-38.md) ✅
+*   [Phase 39: Authentication, Authorization & Rate Limiting](backlog/phase-39.md)
+*   [Phase 40: Test Suite Quality Overhaul](backlog/phase-40.md)
+*   [Phase 41: Data Compliance, Retention Policy & GDPR/CCPA Readiness](backlog/phase-41.md)
+*   [Phase 42: Security Hardening, Key Rotation & Deployment Safety](backlog/phase-42.md)
+*   [Phase 43: Architectural Polish, Code Hygiene & Rule Sunset Evaluation](backlog/phase-43.md)
+*   [Phase 44: Comprehensive Documentation Audit & Cleanup](backlog/phase-44.md)
 
 ---
 
@@ -167,3 +191,124 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 20.3:** Frontend Accessibility Production Readiness.
 *   **Task 20.4:** Architecture Tightening.
 *   **Task 20.5:** Polish Batch (Cosmetic & Documentation).
+
+### [Phase 21: CLI Masking Fix & E2E Smoke Tests](backlog/phase-21.md) ✅
+*   Per-column masking fix, automated E2E smoke test, README evidence.
+
+### [Phase 22: DP Pipeline End-to-End Integration](backlog/phase-22.md) ✅
+*   DP parameters on SynthesisJob, DP wrapper wiring, budget enforcement API, E2E integration test.
+
+### [Phase 23: Job Lifecycle Completion](backlog/phase-23.md) ✅
+*   Generation step, download endpoint, cryptographic erasure, frontend download button.
+
+### [Phase 24: Integration Test Repair](backlog/phase-24.md) ✅
+*   Parameter rename regression fix, CLI wiring fix, test isolation fixtures.
+
+### [Phase 25: Observability](backlog/phase-25.md) ✅
+*   Custom Prometheus metrics, OTEL trace propagation.
+
+### [Phase 26: Backend Production Hardening](backlog/phase-26.md) ✅
+*   Router decomposition, shared exception hierarchy, protocol typing for DI, HTTP round-trip tests.
+
+### [Phase 27: Frontend Production Hardening](backlog/phase-27.md) ✅
+*   Responsive breakpoints, AsyncButton standardization, Playwright E2E accessibility tests.
+
+### [Phase 28: Full E2E Validation](backlog/phase-28.md) ✅
+*   Full E2E validation run, load test (11,000 rows), 5 production bugs fixed, dual-driver DB ADR.
+
+### [Phase 29: Documentation Integrity & Review Debt](backlog/phase-29.md) ✅
+*   **Task 29.1:** README DP Claim Correction.
+*   **Task 29.2:** Frontend `node_modules` Gitignore Audit.
+*   **Task 29.3:** Error Message Audience Differentiation.
+*   **Task 29.4:** Coverage Threshold Elevation to 95%.
+*   **Task 29.5:** ADR-0025 Amendment: Proxy Model Limitation & Phase 30 Plan.
+
+### [Phase 30: True Discriminator-Level DP-SGD](backlog/phase-30.md) ✅
+*   **Task 30.1:** ADR-0036: Discriminator-Level DP-SGD Architecture.
+*   **Task 30.2:** Opacus-Compatible Discriminator Wrapper.
+*   **Task 30.3:** Custom GAN Training Loop with Discriminator DP-SGD.
+*   **Task 30.4:** DP Quality Benchmark: Proxy vs Discriminator.
+*   **Task 30.5:** Integration Test: Real Opacus on Real Discriminator.
+*   **Task 30.6:** ADR-0025 Final Amendment: Proxy Model Superseded.
+
+### [Phase 31: Code Health & Bus Factor Elimination](backlog/phase-31.md) ✅
+*   **Task 31.1:** Human Developer Guide.
+*   **Task 31.2:** Vulture Whitelist Audit & Reduction.
+*   **Task 31.3:** dp_training.py Decomposition.
+
+### [Phase 32: Dead Module Cleanup & Development Process Documentation](backlog/phase-32.md) ✅
+*   **Task 32.1:** Remove Unwired Scaffolding Modules.
+*   **Task 32.2:** README Development Process Section.
+*   **Task 32.3:** Development Story Case Study.
+
+### [Phase 33: Governance Hygiene, Documentation Currency & Codebase Polish](backlog/phase-33.md) ✅
+*   **Task 33.1:** CLAUDE.md Rule Sunset Evaluation.
+*   **Task 33.2:** Docstring Validation Gate.
+*   **Task 33.3:** Documentation Currency & Gaps.
+*   **Task 33.4:** Codebase Cleanup.
+
+### [Phase 34: Exception Hierarchy Unification & Operator Error Coverage](backlog/phase-34.md) ✅
+*   **Task 34.1:** Unify Vault Exceptions Under SynthEngineError.
+*   **Task 34.2:** Consolidate Module-Local Exceptions Into Shared Hierarchy.
+*   **Task 34.3:** Complete OPERATOR_ERROR_MAP for All Domain Exceptions.
+
+### [Phase 35: Synthesis Layer Refactor & Test Replacement](backlog/phase-35.md) ✅
+*   **Task 35.1:** Decompose `_run_synthesis_job_impl()` Into Discrete Job Steps.
+*   **Task 35.2:** Split `dp_training.py` Into Strategy Classes.
+*   **Task 35.3:** Replace Tautological DP Training Tests.
+*   **Task 35.4:** Add Full E2E Pipeline Integration Test.
+
+### [Phase 36: Configuration Centralization, Documentation Pruning & Hygiene](backlog/phase-36.md) ✅
+*   **Task 36.1:** Centralize Configuration Into Pydantic Settings Model.
+*   **Task 36.2:** Split `bootstrapper/errors.py` Into Focused Modules.
+*   **Task 36.3:** Documentation Pruning & Credibility Fixes.
+*   **Task 36.4:** Standardize Module Exports, Logging, and Missing Edge-Case Tests.
+*   **Task 36.5:** Full E2E Demo Run With Production-Worthy Dataset & Screenshots.
+
+### [Phase 37: Advisory Drain, CHANGELOG Currency & E2E Demo Capstone](backlog/phase-37.md) ✅
+*   **Task 37.1:** Fix Silent Privacy Budget Deduction Failure (ADV-P35-01).
+*   **Task 37.2:** Drain Remaining Advisories (ADV-P34-01, ADV-P34-02, ADV-P36-01).
+*   **Task 37.3:** Update CHANGELOG Through Phase 36.
+*   **Task 37.4:** Full E2E Demo Run With Production-Worthy Dataset & Screenshots.
+
+### [Phase 38: Audit Integrity, Timing Side-Channel Fix & Pre-Commit Hardening](backlog/phase-38.md) ✅
+*   **Task 38.1:** Fix Silent Audit Failure After Budget Deduction (CRITICAL).
+*   **Task 38.2:** Fix Vault Unseal Timing Side-Channel.
+*   **Task 38.3:** Add Import-Linter to Pre-Commit Hooks.
+*   **Task 38.4:** Documentation & Hygiene Polish Batch.
+
+### [Phase 39: Authentication, Authorization & Rate Limiting](backlog/phase-39.md)
+*   **Task 39.1:** Add Authentication Middleware (JWT Bearer Token).
+*   **Task 39.2:** Add Authorization & IDOR Protection on All Resource Endpoints.
+*   **Task 39.3:** Add Rate Limiting Middleware.
+*   **Task 39.4:** Encrypt Connection Metadata with ALE.
+
+### [Phase 40: Test Suite Quality Overhaul](backlog/phase-40.md)
+*   **Task 40.1:** Replace Shallow Assertions With Value-Checking Tests.
+*   **Task 40.2:** Replace Mock-Heavy Tests With Behavioral Tests.
+*   **Task 40.3:** Add Missing Test Categories: Concurrency, Boundary Values, Performance.
+
+### [Phase 41: Data Compliance, Retention Policy & GDPR/CCPA Readiness](backlog/phase-41.md)
+*   **Task 41.1:** Implement Data Retention Policy.
+*   **Task 41.2:** Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint.
+*   **Task 41.3:** Document Data Retention & Compliance Policies.
+
+### [Phase 42: Security Hardening, Key Rotation & Deployment Safety](backlog/phase-42.md)
+*   **Task 42.1:** Implement Artifact Signing Key Versioning.
+*   **Task 42.2:** Add HTTPS Enforcement & Deployment Safety Checks.
+*   **Task 42.3:** Run and Document DP Quality Benchmarks.
+*   **Task 42.4:** Document CORS Policy & Add DDoS Mitigation Notes.
+
+### [Phase 43: Architectural Polish, Code Hygiene & Rule Sunset Evaluation](backlog/phase-43.md)
+*   **Task 43.1:** Extract `dp_accounting.py` From `job_orchestration.py`.
+*   **Task 43.2:** Consolidate Optional Import Pattern.
+*   **Task 43.3:** Add Request Flow Documentation & Architecture Diagram.
+*   **Task 43.4:** Code Hygiene Polish Batch.
+*   **Task 43.5:** Evaluate CLAUDE.md Rule Sunset (Phase 40 Rules).
+
+### [Phase 44: Comprehensive Documentation Audit & Cleanup](backlog/phase-44.md)
+*   **Task 44.1:** Audit Root-Level Documents.
+*   **Task 44.2:** Audit Architecture Decision Records (ADRs).
+*   **Task 44.3:** Audit Operational & Developer Documentation.
+*   **Task 44.4:** Audit Backlog, Retrospective & Archive Documents.
+*   **Task 44.5:** Create Document Lifecycle Index.
