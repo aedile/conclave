@@ -18,9 +18,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -171,9 +168,7 @@ class TestSynthesisJobStepProtocol:
         )
 
         for step_cls in (OomCheckStep, TrainingStep, DpAccountingStep, GenerationStep):
-            assert hasattr(step_cls(), "execute"), (
-                f"{step_cls.__name__} missing execute() method"
-            )
+            assert hasattr(step_cls(), "execute"), f"{step_cls.__name__} missing execute() method"
 
 
 # ---------------------------------------------------------------------------
@@ -191,9 +186,7 @@ class TestOomCheckStepIsolation:
         ctx = _make_job_context()
         step = OomCheckStep()
 
-        with patch(
-            "synth_engine.modules.synthesizer.job_steps.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             result = step.execute(ctx)
 
         assert isinstance(result, StepResult)
@@ -208,7 +201,7 @@ class TestOomCheckStepIsolation:
         step = OomCheckStep()
 
         with patch(
-            "synth_engine.modules.synthesizer.job_steps.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("6.8 GiB estimated, 4.0 GiB available"),
         ):
             result = step.execute(ctx)
@@ -230,7 +223,7 @@ class TestOomCheckStepIsolation:
         step = OomCheckStep()
 
         with patch(
-            "synth_engine.modules.synthesizer.job_steps.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("too big"),
         ):
             step.execute(ctx)
@@ -352,9 +345,9 @@ class TestDpAccountingStepIsolation:
         step = DpAccountingStep()
 
         with (
-            patch("synth_engine.modules.synthesizer.job_steps._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_steps.get_audit_logger",
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -391,11 +384,11 @@ class TestDpAccountingStepIsolation:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_steps._spend_budget_fn",
+                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_steps.get_audit_logger",
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -422,11 +415,11 @@ class TestDpAccountingStepIsolation:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_steps._spend_budget_fn",
+                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_steps.get_audit_logger",
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -472,7 +465,7 @@ class TestGenerationStepIsolation:
             step = GenerationStep()
 
             with patch(
-                "synth_engine.modules.synthesizer.job_steps._write_parquet_with_signing"
+                "synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing"
             ):
                 result = step.execute(ctx)
 
@@ -543,15 +536,11 @@ class TestStepOrdering:
         original_training_execute = TrainingStep.execute
         original_dp_execute = DpAccountingStep.execute
 
-        def _recording_training_execute(
-            self: TrainingStep, ctx: Any
-        ) -> Any:
+        def _recording_training_execute(self: TrainingStep, ctx: Any) -> Any:
             call_order.append("training")
             return original_training_execute(self, ctx)
 
-        def _recording_dp_execute(
-            self: DpAccountingStep, ctx: Any
-        ) -> Any:
+        def _recording_dp_execute(self: DpAccountingStep, ctx: Any) -> Any:
             call_order.append("dp_accounting")
             return original_dp_execute(self, ctx)
 
@@ -574,11 +563,12 @@ class TestStepOrdering:
         with (
             patch.object(TrainingStep, "execute", _recording_training_execute),
             patch.object(DpAccountingStep, "execute", _recording_dp_execute),
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                "synth_engine.modules.synthesizer.job_orchestration._get_parquet_dimensions",
+                return_value=(100, 10),
             ),
-            patch("synth_engine.modules.synthesizer.job_orchestration._get_parquet_dimensions",
-                  return_value=(100, 10)),
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn"),
         ):
             from synth_engine.modules.synthesizer.job_orchestration import (
                 _run_synthesis_job_impl,
@@ -597,8 +587,7 @@ class TestStepOrdering:
         if "dp_accounting" in call_order:
             dp_idx = call_order.index("dp_accounting")
             assert training_idx < dp_idx, (
-                f"TrainingStep (pos {training_idx}) must precede "
-                f"DpAccountingStep (pos {dp_idx})"
+                f"TrainingStep (pos {training_idx}) must precede DpAccountingStep (pos {dp_idx})"
             )
 
     def test_dp_accounting_not_called_when_training_fails(self) -> None:
@@ -616,9 +605,7 @@ class TestStepOrdering:
         mock_session = MagicMock()
         mock_session.get.return_value = job
 
-        with patch(
-            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
-        ):
+        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -668,8 +655,7 @@ class TestOrchestratorSize:
         func_lines = lines[func_node.lineno - 1 : func_node.end_lineno]
         # Exclude blank lines and comment-only lines for a fair count
         non_blank = [
-            line for line in func_lines
-            if line.strip() and not line.strip().startswith("#")
+            line for line in func_lines if line.strip() and not line.strip().startswith("#")
         ]
         actual_count = len(non_blank)
 
