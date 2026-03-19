@@ -440,9 +440,12 @@ class TestDpAccountingStepEpsilonFailure:
     """DpAccountingStep must treat epsilon_spent() failures as fatal (T37.1, ADV-P35-01).
 
     AC1: If dp_wrapper.epsilon_spent() raises, job is marked FAILED.
-    AC2: WORM audit trail records the failure event.
     AC3: WARNING-level log distinguishes epsilon read failure from no-DP case.
     AC4: New test — job status is FAILED when epsilon_spent() raises RuntimeError.
+
+    Note: There is no AC2 audit event on the epsilon-failure path.
+    The audit trail records the *successful* budget spend (PRIVACY_BUDGET_SPEND),
+    not the failure.  The failure is surfaced via the step result and job.error_msg.
     """
 
     def test_dp_accounting_step_returns_failure_when_epsilon_spent_raises(self) -> None:

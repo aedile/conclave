@@ -827,6 +827,26 @@ class TestT343CompleteOperatorErrorMap:
         assert len(entry["title"]) > 0
         assert len(entry["detail"]) > 0
 
+    def test_epsilon_measurement_error_maps_to_500_with_problem_type(self) -> None:
+        """EpsilonMeasurementError must map to HTTP 500 with the epsilon-measurement problem type.
+
+        When the DP engine cannot measure the privacy cost of a training run, the job
+        is marked FAILED.  The operator-facing response must clearly identify the
+        problem type so operators know to retry or investigate DP accounting.
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.shared.exceptions import EpsilonMeasurementError
+
+        assert EpsilonMeasurementError in OPERATOR_ERROR_MAP, (
+            "EpsilonMeasurementError must be in OPERATOR_ERROR_MAP (T37.1). "
+            "Import from shared/exceptions.py."
+        )
+        entry = OPERATOR_ERROR_MAP[EpsilonMeasurementError]
+        assert entry["status_code"] == 500
+        assert entry["type_uri"] == "/problems/epsilon-measurement-failure"
+        assert len(entry["title"]) > 0
+        assert len(entry["detail"]) > 0
+
     def test_privilege_escalation_error_maps_to_403_with_sanitized_detail(self) -> None:
         """PrivilegeEscalationError must map to HTTP 403 with a fixed sanitized detail.
 
@@ -884,6 +904,7 @@ class TestT343CompleteOperatorErrorMap:
         from synth_engine.shared.exceptions import (
             ArtifactTamperingError,
             BudgetExhaustionError,
+            EpsilonMeasurementError,
             LicenseError,
             OOMGuardrailError,
             PrivilegeEscalationError,
@@ -895,6 +916,7 @@ class TestT343CompleteOperatorErrorMap:
 
         expected = {
             BudgetExhaustionError,
+            EpsilonMeasurementError,
             OOMGuardrailError,
             PrivilegeEscalationError,
             ArtifactTamperingError,

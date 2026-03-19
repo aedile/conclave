@@ -20,6 +20,7 @@ causing them to bypass the domain exception middleware entirely.
 | `VaultAlreadyUnsealedError` | `ValueError` | `shared/security/vault.py` | Same |
 | `VaultConfigError` | `ValueError` | `shared/security/vault.py` | Same |
 | `LicenseError` | `Exception` | `shared/security/licensing.py` | Bypassed domain middleware; fell through to catch-all 500 handler |
+| `EpsilonMeasurementError` | *(new in T37.1)* | `shared/exceptions.py` | Added to shared hierarchy so `OPERATOR_ERROR_MAP` can reference it without crossing module boundaries. HTTP-safe. |
 
 The domain exception middleware in `bootstrapper/errors.py` uses
 `OPERATOR_ERROR_MAP`, a `dict[type[Exception], OperatorErrorEntry]`, to map
@@ -89,11 +90,17 @@ The `LicenseError` was previously caught by:
 **Positive:**
 - All vault and license exceptions are now members of the `SynthEngineError`
   hierarchy, ensuring they are handled by the domain exception middleware.
+- `EpsilonMeasurementError` (T37.1) — added to `shared/exceptions.py` so that
+  `bootstrapper/errors/mapping.py` can map it to an RFC 7807 response without
+  importing from `modules/synthesizer/`.  HTTP-safe: maps to HTTP 500 with
+  `type_uri="/problems/epsilon-measurement-failure"`.
 - `OPERATOR_ERROR_MAP` can be extended to include `LicenseError` if needed
   without workarounds.
 - `isinstance(exc, SynthEngineError)` now correctly identifies vault and
   license failures as intentional domain errors.
 - The hierarchy is documented comprehensively in `shared/exceptions.py`.
+- `EpsilonMeasurementError` is classified HTTP-safe and maps to HTTP 500
+  (type: `/problems/epsilon-measurement-failure`) in `OPERATOR_ERROR_MAP`.
 - Backward compatibility preserved: `vault.py` and `licensing.py` re-export
   all exception classes; all existing catch-by-type sites continue to work.
 

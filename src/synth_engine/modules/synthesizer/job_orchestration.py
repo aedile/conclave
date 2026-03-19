@@ -13,7 +13,8 @@ paths (``job_steps.xxx``) work transparently.
 Status lifecycle::
 
     QUEUED → TRAINING → GENERATING → COMPLETE   (success)
-                                   ↘ FAILED     (OOM, RuntimeError, BudgetExhaustion)
+                                   ↘ FAILED     (OOM, RuntimeError, BudgetExhaustion,
+                                                 EpsilonMeasurement)
 
 Step sequence (loop): OomCheckStep → TrainingStep → DpAccountingStep → GenerationStep.
 OomCheckStep is the first step in the pipeline (AC4 — orchestrator is sole status owner).
