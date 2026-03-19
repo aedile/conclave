@@ -65,6 +65,7 @@ __all__ = [
     "BudgetExhaustionError",
     "CollisionError",
     "CycleDetectionError",
+    "EpsilonMeasurementError",
     "LicenseError",
     "OOMGuardrailError",
     "PrivilegeEscalationError",
@@ -112,6 +113,23 @@ class BudgetExhaustionError(SynthEngineError):
             f"DP budget exhausted: epsilon_spent={1.1:.4f} >= "
             f"allocated_epsilon={1.0:.4f} (delta={1e-5:.0e})"
         )
+    """
+
+
+class EpsilonMeasurementError(SynthEngineError):
+    """Raised when dp_wrapper.epsilon_spent() cannot produce a value.
+
+    If the DP engine cannot measure the privacy cost of a training run,
+    the synthesis job must be marked FAILED — delivering output without a
+    verified epsilon bound would violate Constitution Priority 0 (security).
+
+    HTTP-safe: yes — the message is safe for HTTP 500/422 response bodies.
+
+    Example::
+
+        raise EpsilonMeasurementError(
+            "DP epsilon measurement failed — privacy budget cannot be verified"
+        ) from original_exc
     """
 
 

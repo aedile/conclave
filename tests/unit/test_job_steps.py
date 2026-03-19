@@ -446,7 +446,8 @@ class TestDpAccountingStepEpsilonFailure:
     """
 
     def test_dp_accounting_step_returns_failure_when_epsilon_spent_raises(self) -> None:
-        """DpAccountingStep.execute() must return StepResult(success=False) when epsilon_spent raises.
+        """DpAccountingStep.execute() must return StepResult(success=False) when epsilon_spent
+        raises.
 
         AC4 (T37.1): When dp_wrapper.epsilon_spent() raises RuntimeError, the step
         must return a failure result — not silently continue with actual_epsilon=None.
@@ -493,7 +494,9 @@ class TestDpAccountingStepEpsilonFailure:
         ):
             result = DpAccountingStep().execute(ctx)
 
-        assert result.error_msg == "DP epsilon measurement failed — privacy budget cannot be verified"
+        assert (
+            result.error_msg == "DP epsilon measurement failed — privacy budget cannot be verified"
+        )
 
     def test_job_actual_epsilon_remains_none_when_epsilon_spent_raises(self) -> None:
         """job.actual_epsilon must remain None when epsilon_spent() raises (not silently COMPLETE).
@@ -593,7 +596,6 @@ class TestDpAccountingStepEpsilonFailure:
         assert job.status == "TRAINING", (
             f"DpAccountingStep must not set job.status; expected TRAINING, got {job.status!r}"
         )
-
 
 
 # ---------------------------------------------------------------------------
