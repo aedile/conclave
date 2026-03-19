@@ -12,10 +12,39 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-P34-01 | DevOps P34 | TBD | ADVISORY | `operator_error_response()` logs `str(exc)` at WARNING for security-event exceptions (PrivilegeEscalationError, ArtifactTamperingError) without `safe_error_msg()` wrapping. Pre-existing pattern expanded by T34.3. |
-| ADV-P34-02 | DevOps P34 | TBD | ADVISORY | PIIFilter referenced in CLAUDE.md does not exist in `src/`. Log-layer PII guard is documentation-only, not implemented. |
-| ADV-P35-01 | QA P35 | TBD | ADVISORY | `_handle_dp_accounting()` silently skips budget deduction when `epsilon_spent()` raises — the `except Exception` handler logs ERROR but the downstream guard `if job.actual_epsilon is None: return` silently exits without budget deduction. A DP training run can complete with zero epsilon recorded. |
-| ADV-P36-01 | DevOps P36 | TBD | ADVISORY | `config_validation.py` `_ALWAYS_REQUIRED` and `_PRODUCTION_REQUIRED` lists still read env vars directly via `os.environ.get()` for var-existence checks. `_is_production()` was fixed to delegate, but the variable-presence validation loop was not centralized. |
+| *(none)* | — | — | — | All advisories drained in Phase 37. |
+
+---
+
+### [2026-03-19] Phase 37 — Advisory Drain, CHANGELOG Currency & E2E Demo Capstone
+
+**Tasks**: T37.1 (fix silent budget failure), T37.2 (drain ADV-P34-01/02, ADV-P35-01, ADV-P36-01), T37.3 (CHANGELOG update)
+
+**Review agents**: QA (FINDING — 2 items fixed), DevOps (PASS), Architecture (FINDING — 2 items fixed)
+
+**Findings fixed (all in review commit f442781)**:
+- QA-F1: Removed inaccurate AC2 "WORM audit trail records failure event" claim from `TestDpAccountingStepEpsilonFailure` docstring — the failure path is surfaced via `StepResult`, not an audit event.
+- QA-F2: Added `EpsilonMeasurementError` to `shared/exceptions.py` module-level taxonomy and HTTP-safety classification lists.
+- ARCH-F1: Added `EpsilonMeasurementError` to `OPERATOR_ERROR_MAP` with status 500 and problem type URI. Added test verifying the mapping.
+- ARCH-F2: Amended ADR-0037 (exception taxonomy) and ADR-0038 (step orchestration) to include `EpsilonMeasurementError`. Updated status lifecycle comment in `job_orchestration.py`.
+
+**Advisories drained (4 → 0)**:
+- ADV-P34-01: `operator_error_response()` now wraps `str(exc)` with `safe_error_msg()` before WARNING log.
+- ADV-P34-02: Stale PIIFilter reference removed from `devops-reviewer.md`; replaced with accurate `safe_error_msg()` documentation.
+- ADV-P35-01: `_handle_dp_accounting()` now raises `EpsilonMeasurementError` when `epsilon_spent()` fails; job is marked FAILED instead of silently completing.
+- ADV-P36-01: `config_validation.py` replaced `os.environ.get()` calls with `get_settings()` singleton access.
+
+**What went well**:
+1. All 4 advisories drained in a single phase — zero open items remaining.
+2. T37.1 security fix aligns with Constitution Priority 0: if privacy cost can't be measured, job output is not delivered.
+3. New `EpsilonMeasurementError` properly integrated into the full exception hierarchy: class, `__all__`, taxonomy docstring, HTTP-safety classification, `OPERATOR_ERROR_MAP`, ADR-0037, ADR-0038.
+4. 1575 unit tests passing, 97.93% coverage.
+
+**What to improve**:
+1. When adding a new exception class, ensure it is added to ALL touchpoints in a single pass: `__all__`, module docstring taxonomy, HTTP-safety list, `OPERATOR_ERROR_MAP`, and relevant ADRs. A checklist would prevent the 4-finding review result.
+2. Test class docstrings should only claim ACs that have corresponding test methods — don't copy-paste the full AC list without implementing each one.
+
+**Open advisories**: 0
 
 ---
 
