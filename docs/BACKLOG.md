@@ -52,6 +52,8 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 42: Security Hardening, Key Rotation & Deployment Safety](backlog/phase-42.md)
 *   [Phase 43: Architectural Polish, Code Hygiene & Rule Sunset Evaluation](backlog/phase-43.md)
 *   [Phase 44: Comprehensive Documentation Audit & Cleanup](backlog/phase-44.md)
+*   [Phase 45: Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper](backlog/phase-45.md)
+*   [Phase 46: mTLS Inter-Container Communication](backlog/phase-46.md)
 
 ---
 
@@ -312,3 +314,15 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 44.3:** Audit Operational & Developer Documentation.
 *   **Task 44.4:** Audit Backlog, Retrospective & Archive Documents.
 *   **Task 44.5:** Create Document Lifecycle Index.
+
+### [Phase 45: Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper](backlog/phase-45.md)
+*   **Task 45.1:** Reintroduce Idempotency Middleware (TBD-07).
+*   **Task 45.2:** Reintroduce Orphan Task Reaper (TBD-08).
+*   **Task 45.3:** Implement Webhook Callbacks for Task Completion (TBD-01).
+*   **Task 45.4:** Update Deferred Items & ADR-0029.
+
+### [Phase 46: mTLS Inter-Container Communication](backlog/phase-46.md)
+*   **Task 46.1:** Internal Certificate Authority & Certificate Issuance.
+*   **Task 46.2:** Wire mTLS on All Container-to-Container Connections.
+*   **Task 46.3:** Certificate Rotation Without Downtime.
+*   **Task 46.4:** Network Policy Enforcement & Documentation.

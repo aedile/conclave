@@ -89,6 +89,8 @@ The backlog is split into per-phase files for navigability:
 | [backlog/phase-18.md](backlog/phase-18.md) | Phase 18 |
 | [backlog/phase-19.md](backlog/phase-19.md) | Phase 19 |
 | [backlog/phase-20.md](backlog/phase-20.md) | Phase 20 |
+| [backlog/phase-45.md](backlog/phase-45.md) | Phase 45 — Webhook Callbacks, Idempotency & Reaper |
+| [backlog/phase-46.md](backlog/phase-46.md) | Phase 46 — mTLS Inter-Container Communication |
 | [backlog/deferred-items.md](backlog/deferred-items.md) | Deferred and parked items |
 | [BACKLOG.md](BACKLOG.md) | Backlog summary and current phase status |
 

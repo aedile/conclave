@@ -12,8 +12,8 @@ triggers the deferred requirement.
 ## TBD-01 — Webhook Callbacks for Task Completion
 
 **Source**: ADR-0029 Gap 2
-**Phase**: TBD — Future integration phase
-**Priority**: TBD
+**Phase**: 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper
+**Priority**: P1
 
 ### Context
 
@@ -48,8 +48,8 @@ delivery budget and adds operational surface area.
 ## TBD-02 — Rate Limiting and Circuit Breakers
 
 **Source**: ADR-0029 Gap 6
-**Phase**: TBD — Future multi-tenant phase
-**Priority**: TBD
+**Phase**: 39 — Authentication, Authorization & Rate Limiting (T39.3)
+**Priority**: P0
 
 ### Context
 
@@ -80,8 +80,8 @@ high frequency.
 ## TBD-03 — mTLS Inter-Container Communication
 
 **Source**: ADR-0029 Gap 7
-**Phase**: TBD — Future multi-host / Kubernetes phase
-**Priority**: TBD
+**Phase**: 46 — mTLS Inter-Container Communication
+**Priority**: P1
 
 ### Context
 
@@ -176,8 +176,8 @@ observability improvements that share the same implementation phase.
 ## TBD-06 — JWT Authentication & Route-Level Authorization
 
 **Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
-**Phase**: TBD — When the system is exposed to multiple users/tenants
-**Priority**: TBD
+**Phase**: 39 — Authentication, Authorization & Rate Limiting (T39.1, T39.2)
+**Priority**: P0
 
 ### Context
 
@@ -214,8 +214,8 @@ air-gapped deployments without a concrete user-story trigger.
 ## TBD-07 — Idempotency Middleware
 
 **Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
-**Phase**: TBD — When clients need exactly-once semantics for job creation
-**Priority**: TBD
+**Phase**: 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper (T45.1)
+**Priority**: P1
 
 ### Context
 
@@ -252,9 +252,8 @@ Must not be scheduled without a concrete client use-case.
 ## TBD-08 — Orphan Task Reaper
 
 **Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
-**Phase**: TBD — When Huey workers run in multi-node deployment where worker
-crashes leave stale jobs
-**Priority**: TBD
+**Phase**: 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper (T45.2)
+**Priority**: P1
 
 ### Context
 
@@ -296,12 +295,12 @@ in a way that requires periodic sweeping.
 ## Triage Notes
 
 - ~~Items TBD-04 and TBD-05 should be implemented in the same phase~~ — DONE (Phase 25).
-- Items TBD-01 through TBD-03 each require a distinct deployment trigger
-  (external integrations, multi-tenancy, multi-host Kubernetes) — they must
-  NOT be batched together without verifying the triggering condition exists.
-- Items TBD-06 through TBD-08 were removed as unwired scaffolding in Phase 32
-  (T32.1) and must be re-implemented from scratch (or restored from git history)
-  when their respective triggering conditions arise.
+- ~~Items TBD-01 through TBD-03 each require a distinct deployment trigger~~ —
+  SCHEDULED: TBD-01 → Phase 45 (T45.3), TBD-02 → Phase 39 (T39.3),
+  TBD-03 → Phase 46.
+- ~~Items TBD-06 through TBD-08 were removed as unwired scaffolding in Phase 32~~ —
+  SCHEDULED: TBD-06 → Phase 39 (T39.1/T39.2), TBD-07 → Phase 45 (T45.1),
+  TBD-08 → Phase 45 (T45.2).
 - A phase assignment for any of these items requires an ADR update to ADR-0029
   changing the `Target Phase` in the summary table from "TBD" to the assigned
   phase number.
