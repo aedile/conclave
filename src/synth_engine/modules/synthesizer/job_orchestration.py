@@ -230,7 +230,7 @@ def _handle_dp_accounting(
         job.actual_epsilon = actual_eps
         _logger.info("Job %d: DP complete, actual_epsilon=%.4f.", job_id, actual_eps)
     except Exception as exc:
-        _logger.warning(
+        _logger.error(
             "Job %d: epsilon_spent() raised — privacy budget cannot be verified.",
             job_id,
             exc_info=True,
@@ -272,7 +272,7 @@ def _handle_dp_accounting(
                 details={"job_id": str(job_id), "epsilon_spent": str(job.actual_epsilon)},
             )
         except Exception as exc:
-            _logger.warning(
+            _logger.error(
                 "Job %d: Audit log failed after budget deduction — reconciliation required.",
                 job_id,
                 exc_info=True,
@@ -474,7 +474,7 @@ class DpAccountingStep:
         except BudgetExhaustionError:
             return StepResult(success=False, error_msg="Privacy budget exhausted")
         except EpsilonMeasurementError:
-            _logger.warning(
+            _logger.error(
                 "Job %d: DpAccountingStep returning failure — epsilon measurement raised.",
                 ctx.job.id,
             )
@@ -483,7 +483,7 @@ class DpAccountingStep:
                 error_msg="DP epsilon measurement failed — privacy budget cannot be verified",
             )
         except AuditWriteError:
-            _logger.warning(
+            _logger.error(
                 "Job %d: DpAccountingStep returning failure — WORM audit write failed.",
                 ctx.job.id,
             )
