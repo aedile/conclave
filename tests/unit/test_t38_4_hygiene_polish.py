@@ -3,11 +3,12 @@
 Tests verifying:
 1. request_limits.py: The narrowed ValueError only catches Content-Length
    parse failures. A ValueError raised OUTSIDE the parsing line (e.g. from
-   the comparison) would propagate uncaught — tested by patching.
+   the comparison) would propagate uncaught — tested via Python reflected
+   operator override on the patched MAX_BODY_BYTES constant.
 2. job_finalization.py: The signing key parse failure logs at ERROR level,
    not WARNING.
 
-CONSTITUTION Priority 3: TDD (RED phase)
+CONSTITUTION Priority 3: TDD
 Task: T38.4 — Documentation & Hygiene Polish Batch
 """
 
@@ -97,16 +98,15 @@ def _make_send() -> tuple[Any, list[dict[str, Any]]]:
 class TestNarrowedValueErrorInRequestLimits:
     """Verify the ValueError try/except is narrowed to the parsing line only.
 
-    The narrowed structure must:
-    - Still catch ValueError from int(content_length_raw) when the header
-      is non-numeric (existing behavior preserved).
-    - NOT silently swallow a ValueError that originates from code OUTSIDE
-      the int() call (e.g., from a comparison or other logic).
+    The narrowed structure uses try/except/else:
+    - try: contains ONLY the int() parsing call.
+    - except ValueError: logs warning, returns (does not reject).
+    - else: contains the comparison against MAX_BODY_BYTES.
 
-    Since the comparison `int(...) > MAX_BODY_BYTES` cannot itself raise
-    ValueError, we test the narrow scope indirectly: we verify the try/except
-    is structured so that only the int() call is inside it by confirming the
-    int() ValueError is still caught and logged as a WARNING.
+    This means:
+    - ValueError from int() is still caught (existing behavior preserved).
+    - ValueError from outside the int() call (e.g. from a comparison bug)
+      propagates rather than being silently swallowed.
     """
 
     @pytest.mark.asyncio
@@ -169,45 +169,43 @@ class TestNarrowedValueErrorInRequestLimits:
     ) -> None:
         """ValueError from outside the int() parsing line must NOT be caught.
 
-        This test verifies the structural correctness of the narrowed try/except.
-        We inject a patched MAX_BODY_BYTES that raises a TypeError when compared,
-        but we cannot inject ValueError there easily — instead we verify the
-        narrow scope by confirming the int() parse is the only guarded call.
+        With the narrowed try/except/else structure, ONLY the int() call is
+        inside the try block.  The comparison (`content_length_int > MAX_BODY_BYTES`)
+        is in the else clause, completely outside the try.
 
-        Structural proof: with the narrow try/except, only the int() call is
-        inside the try block. We test this by providing a valid integer Content-
-        Length but patching MAX_BODY_BYTES to a value that would cause the
-        comparison to behave abnormally — if the except was broad, it would
-        catch; if narrow, it would not.
+        This test verifies that a ValueError originating in the comparison
+        propagates to the caller rather than being swallowed by the ValueError
+        except handler.
 
-        This test serves as a regression guard: after narrowing, a ValueError
-        raised by a hypothetical bug in the comparison would propagate to the
-        caller rather than being silently swallowed.
+        Injection technique: we subclass int and override ``__lt__``.  Python's
+        reflected comparison protocol means that for ``5 > _RaisesOnCompare(10)``,
+        Python first calls ``int.__gt__(5, _RaisesOnCompare(10))``.  Because
+        ``_RaisesOnCompare`` is an int subclass and provides a more specific
+        ``__lt__`` method, Python calls ``_RaisesOnCompare.__lt__(10, 5)`` as
+        the reflected operation, raising our injected ValueError.
         """
         from synth_engine.bootstrapper.dependencies import request_limits
 
-        # Patch MAX_BODY_BYTES to raise ValueError when compared via int.__gt__
-        # We do this by replacing the module-level constant with a mock that
-        # raises ValueError on comparison. This is intentionally adversarial.
-
         class _RaisesOnCompare(int):
-            def __gt__(self, other: object) -> bool:
+            def __lt__(self, other: object) -> bool:
                 raise ValueError("injected from comparison, not from int()")
 
         original = request_limits.MAX_BODY_BYTES
-        # Patch at the module level so the middleware uses our fake value
+        # Patch at module level so the else-clause comparison uses our fake value
         request_limits.MAX_BODY_BYTES = _RaisesOnCompare(10)  # type: ignore[assignment]
         try:
             inner = AsyncMock()
             middleware = request_limits.RequestBodyLimitMiddleware(inner)
 
+            # Content-Length is valid (int parse succeeds) — ValueError comes
+            # from the comparison in the else clause, not from int().
             scope = _make_http_scope(content_length_raw=b"5")
             receive = _make_receive()
             send, _ = _make_send()
 
-            # With narrow try/except, the ValueError from comparison propagates.
-            # With broad try/except, it would be silently swallowed (and logged
-            # as a warning about a "Non-integer Content-Length").
+            # With narrow try/except/else, the comparison is in the else block,
+            # so this ValueError must propagate uncaught.
+            # With the old broad try/except, it would be silently swallowed.
             with pytest.raises(ValueError, match="injected from comparison"):
                 await middleware(scope, receive, send)
         finally:
@@ -242,10 +240,9 @@ class TestJobFinalizationSigningKeyErrorLog:
         with tempfile.TemporaryDirectory() as tmpdir:
             parquet_path = str(Path(tmpdir) / "test.parquet")
 
-            # Patch settings to return a non-empty, invalid hex value
-            with patch(
-                "synth_engine.modules.synthesizer.job_finalization.get_settings"
-            ) as mock_get_settings:
+            # get_settings is imported locally inside _write_parquet_with_signing,
+            # so we patch at the shared.settings module level.
+            with patch("synth_engine.shared.settings.get_settings") as mock_get_settings:
                 mock_settings = mock_get_settings.return_value
                 # "GGGG" is not valid hex — bytes.fromhex() raises ValueError
                 mock_settings.artifact_signing_key = "GGGG"
@@ -262,7 +259,10 @@ class TestJobFinalizationSigningKeyErrorLog:
         assert any(
             "not valid hex" in r.message or "ARTIFACT_SIGNING_KEY" in r.message
             for r in error_records
-        ), f"Expected ERROR message about invalid hex signing key, got: {[r.message for r in error_records]}"
+        ), (
+            f"Expected ERROR message about invalid hex signing key, "
+            f"got: {[r.message for r in error_records]}"
+        )
 
     def test_malformed_signing_key_does_not_log_at_warning(
         self, caplog: pytest.LogCaptureFixture
@@ -283,9 +283,7 @@ class TestJobFinalizationSigningKeyErrorLog:
         with tempfile.TemporaryDirectory() as tmpdir:
             parquet_path = str(Path(tmpdir) / "test.parquet")
 
-            with patch(
-                "synth_engine.modules.synthesizer.job_finalization.get_settings"
-            ) as mock_get_settings:
+            with patch("synth_engine.shared.settings.get_settings") as mock_get_settings:
                 mock_settings = mock_get_settings.return_value
                 mock_settings.artifact_signing_key = "GGGG"
 
@@ -323,9 +321,7 @@ class TestJobFinalizationSigningKeyErrorLog:
         with tempfile.TemporaryDirectory() as tmpdir:
             parquet_path = str(Path(tmpdir) / "test.parquet")
 
-            with patch(
-                "synth_engine.modules.synthesizer.job_finalization.get_settings"
-            ) as mock_get_settings:
+            with patch("synth_engine.shared.settings.get_settings") as mock_get_settings:
                 mock_settings = mock_get_settings.return_value
                 mock_settings.artifact_signing_key = ""  # empty = absent
 

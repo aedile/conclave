@@ -322,9 +322,7 @@ def test_derive_kek_called_even_for_empty_passphrase(
 
     with patch(
         "synth_engine.shared.security.vault.derive_kek",
-        wraps=__import__(
-            "synth_engine.shared.security.vault", fromlist=["derive_kek"]
-        ).derive_kek,
+        wraps=__import__("synth_engine.shared.security.vault", fromlist=["derive_kek"]).derive_kek,
     ) as mock_derive_kek:
         with pytest.raises(VaultEmptyPassphraseError):
             VaultState.unseal("")  # nosec B105 # pragma: allowlist secret

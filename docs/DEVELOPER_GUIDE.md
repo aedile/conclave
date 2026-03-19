@@ -6,7 +6,7 @@
 (b) how does the AI orchestration pipeline that produced it work — and how do you run that
 pipeline manually without AI?
 
-This guide describes the system as it exists after Phase 30. Every file path, command, and
+This guide describes the system as it exists after Phase 37. Every file path, command, and
 module reference has been verified against the actual codebase.
 
 ---

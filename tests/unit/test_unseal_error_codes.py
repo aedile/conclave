@@ -13,10 +13,14 @@ RFC 7807 ``title`` field which provides equivalent differentiation capability.
 CONSTITUTION Priority 0: Security
 Task: P5-T5.3 — Build Accessible React SPA & "Vault Unseal"
 Task: P29-T29.3 — Error Message Audience Differentiation
+Task: T38.2 — Empty-passphrase tests must set VAULT_SEAL_SALT (timing fix moves
+    passphrase check after salt validation — tests need salt to reach that path)
 """
 
 from __future__ import annotations
 
+import base64
+import os
 from collections.abc import Generator
 from typing import Any
 from unittest.mock import patch
@@ -47,13 +51,20 @@ def sealed_app() -> Generator[Any]:
 @pytest.mark.asyncio
 async def test_unseal_empty_passphrase_returns_empty_passphrase_code(
     sealed_app: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /unseal with empty passphrase returns RFC 7807 with 'Empty Passphrase' title.
 
     T29.3: Upgraded from legacy error_code='EMPTY_PASSPHRASE' to RFC 7807 format.
     VaultState.unseal() raises VaultEmptyPassphraseError.
     The endpoint maps this to title='Empty Passphrase' per OPERATOR_ERROR_MAP.
+
+    T38.2 note: VAULT_SEAL_SALT must be set so the code can reach the empty-passphrase
+    check after the timing fix (passphrase check moved after derive_kek).
     """
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+
     async with AsyncClient(
         transport=ASGITransport(app=sealed_app), base_url="http://test"
     ) as client:
@@ -190,6 +201,7 @@ async def test_unseal_success_returns_200_with_status_unsealed(
 @pytest.mark.asyncio
 async def test_unseal_error_response_contains_both_error_code_and_detail(
     sealed_app: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Error responses must contain RFC 7807 title and detail fields.
 
@@ -197,7 +209,13 @@ async def test_unseal_error_response_contains_both_error_code_and_detail(
     The frontend RFC7807Toast component reads 'title' (heading) and 'detail'
     (body) — the RFC 7807 format provides equivalent differentiation capability.
     Both must be non-empty strings.
+
+    T38.2 note: VAULT_SEAL_SALT must be set so empty-passphrase path reaches
+    VaultEmptyPassphraseError rather than VaultConfigError.
     """
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+
     async with AsyncClient(
         transport=ASGITransport(app=sealed_app), base_url="http://test"
     ) as client:

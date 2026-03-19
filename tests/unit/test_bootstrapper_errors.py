@@ -683,13 +683,24 @@ class TestUnsealRouteRFC7807Format:
     """
 
     @pytest.mark.asyncio
-    async def test_empty_passphrase_returns_rfc7807_format(self) -> None:
+    async def test_empty_passphrase_returns_rfc7807_format(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """POST /unseal with empty passphrase must return RFC 7807 body.
 
         The response must have ``type``, ``title``, ``status``, and ``detail``
         keys per RFC 7807, not the legacy ``error_code``/``detail`` format.
+
+        T38.2 note: VAULT_SEAL_SALT must be set so the empty-passphrase check
+        is reached after the timing fix (check moved after derive_kek).
         """
+        import base64
+        import os
+
         from synth_engine.bootstrapper.main import create_app
+
+        salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+        monkeypatch.setenv("VAULT_SEAL_SALT", salt)
 
         app = create_app()
 
