@@ -24,16 +24,20 @@ from synth_engine.modules.masking.algorithms import (
     mask_phone,
     mask_ssn,
 )
+from synth_engine.shared.exceptions import SynthEngineError
 
 _MAX_RETRIES: int = 10
 
 
-class CollisionError(Exception):
+class CollisionError(SynthEngineError):
     """Raised when collision prevention logic encounters an unexpected state.
 
     Under the current two-phase strategy (retry then suffix) this should never
     be raised in production.  It is kept as a defensive guard against
     implementation bugs.
+
+    Inherits :exc:`synth_engine.shared.exceptions.SynthEngineError` so that
+    the middleware layer can catch all engine errors uniformly.
     """
 
 

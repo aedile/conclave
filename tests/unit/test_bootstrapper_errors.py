@@ -5,6 +5,7 @@ Tests follow TDD RED phase — all tests must fail before implementation.
 Task: P5-T5.1 — Task Orchestration API Core
 Task: T19.1 — Middleware & Engine Singleton Fixes
 Task: P29-T29.3 — Error Message Audience Differentiation
+Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
 CONSTITUTION Priority 3: TDD — RED phase
 """
 
@@ -496,33 +497,45 @@ class TestOperatorFriendlyErrorMessages:
             missing = required_keys - entry.keys()
             assert not missing, f"{exc_class.__name__} entry missing keys: {missing}"
 
-    def test_privilege_escalation_error_not_in_operator_map(self) -> None:
-        """PrivilegeEscalationError must NOT appear in the operator error map.
+    def test_privilege_escalation_error_in_operator_map_with_sanitized_detail(self) -> None:
+        """PrivilegeEscalationError must appear in OPERATOR_ERROR_MAP with a fixed safe detail.
 
-        This exception is security-sensitive and must only be logged — never
-        exposed via HTTP with a friendly message that could confirm internals.
+        T34.3: All 11 SynthEngineError subclasses must have RFC 7807 mappings.
+        The detail must NOT reference database roles, credential hints, or any
+        security-sensitive internals — it must use a fixed, sanitized string.
         """
         from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
         from synth_engine.shared.exceptions import PrivilegeEscalationError
 
-        assert PrivilegeEscalationError not in OPERATOR_ERROR_MAP, (
-            "PrivilegeEscalationError must not have an operator-friendly mapping — "
-            "it is security-sensitive and must only appear in internal logs."
+        assert PrivilegeEscalationError in OPERATOR_ERROR_MAP, (
+            "PrivilegeEscalationError must have an OPERATOR_ERROR_MAP entry (T34.3). "
+            "The detail must be a fixed, sanitized string — not str(exc)."
         )
+        entry = OPERATOR_ERROR_MAP[PrivilegeEscalationError]
+        assert entry["status_code"] == 403
+        # Detail must be a fixed static string — must not contain dynamic exception text
+        assert len(entry["detail"]) > 0
+        # Must NOT include the placeholder that would expose role/privilege internals
+        assert "str(exc)" not in entry["detail"]
 
-    def test_artifact_tampering_error_not_in_operator_map(self) -> None:
-        """ArtifactTamperingError must NOT appear in the operator error map.
+    def test_artifact_tampering_error_in_operator_map_with_sanitized_detail(self) -> None:
+        """ArtifactTamperingError must appear in OPERATOR_ERROR_MAP with a fixed safe detail.
 
-        This exception is a security event and must only be logged — never
-        exposed via HTTP with a friendly message that could confirm internals.
+        T34.3: All 11 SynthEngineError subclasses must have RFC 7807 mappings.
+        The detail must NOT reference artifact paths, HMAC keys, or signing details —
+        it must use a fixed, sanitized string.
         """
         from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
         from synth_engine.shared.exceptions import ArtifactTamperingError
 
-        assert ArtifactTamperingError not in OPERATOR_ERROR_MAP, (
-            "ArtifactTamperingError must not have an operator-friendly mapping — "
-            "it is a security event and must only appear in internal logs."
+        assert ArtifactTamperingError in OPERATOR_ERROR_MAP, (
+            "ArtifactTamperingError must have an OPERATOR_ERROR_MAP entry (T34.3). "
+            "The detail must be a fixed, sanitized string — not str(exc)."
         )
+        entry = OPERATOR_ERROR_MAP[ArtifactTamperingError]
+        assert entry["status_code"] == 422
+        # Detail must be a fixed static string — must not reference artifact paths or HMAC keys
+        assert len(entry["detail"]) > 0
 
     def test_operator_error_response_raises_key_error_for_unknown_exception(self) -> None:
         """operator_error_response() must raise KeyError for unmapped exception classes.
@@ -723,3 +736,435 @@ class TestUnsealRouteRFC7807Format:
         assert "detail" in body
         assert "error_code" not in body, "Response must not use legacy 'error_code' field"
         assert body["title"] == "Vault Configuration Error"
+
+
+class TestT343CompleteOperatorErrorMap:
+    """T34.3: Tests for the 6 newly-mapped domain exceptions in OPERATOR_ERROR_MAP.
+
+    Verifies that all 11 SynthEngineError subclasses have RFC 7807 mappings
+    with correct HTTP status codes and type URIs.
+
+    Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
+    CONSTITUTION Priority 0: Security — sanitized messages for security-sensitive exceptions.
+    """
+
+    def test_vault_already_unsealed_error_maps_to_400_bad_request(self) -> None:
+        """VaultAlreadyUnsealedError must map to HTTP 400 Bad Request.
+
+        Attempting to unseal an already-unsealed vault is a bad request — the
+        operator's desired state (vault unsealed) is already achieved. HTTP 400
+        Bad Request is more appropriate than 409 Conflict and is consistent with
+        the bespoke inline handler in bootstrapper/lifecycle.py.
+
+        Review finding P34: status code reconciliation between OPERATOR_ERROR_MAP
+        and the bespoke handler in lifecycle.py — both must agree on 400.
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.shared.exceptions import VaultAlreadyUnsealedError
+
+        assert VaultAlreadyUnsealedError in OPERATOR_ERROR_MAP, (
+            "VaultAlreadyUnsealedError must be in OPERATOR_ERROR_MAP (T34.3)"
+        )
+        entry = OPERATOR_ERROR_MAP[VaultAlreadyUnsealedError]
+        assert entry["status_code"] == 400
+        assert entry["type_uri"] == "about:blank"
+        assert len(entry["title"]) > 0
+        assert len(entry["detail"]) > 0
+
+    def test_license_error_maps_to_403_forbidden(self) -> None:
+        """LicenseError must map to HTTP 403 Forbidden.
+
+        A license validation failure means the operator is not authorized to use
+        the engine. HTTP 403 Forbidden communicates this clearly.
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.shared.exceptions import LicenseError
+
+        assert LicenseError in OPERATOR_ERROR_MAP, (
+            "LicenseError must be in OPERATOR_ERROR_MAP (T34.3)"
+        )
+        entry = OPERATOR_ERROR_MAP[LicenseError]
+        assert entry["status_code"] == 403
+        assert entry["type_uri"] == "about:blank"
+        assert len(entry["title"]) > 0
+        assert len(entry["detail"]) > 0
+
+    def test_collision_error_maps_to_409_conflict(self) -> None:
+        """CollisionError must map to HTTP 409 Conflict.
+
+        A masking collision is a data-state conflict — two distinct source values
+        would collide to the same masked output. HTTP 409 Conflict is correct.
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.modules.masking.registry import CollisionError
+
+        assert CollisionError in OPERATOR_ERROR_MAP, (
+            "CollisionError must be in OPERATOR_ERROR_MAP (T34.3). "
+            "Import from modules/masking/registry.py per task spec."
+        )
+        entry = OPERATOR_ERROR_MAP[CollisionError]
+        assert entry["status_code"] == 409
+        assert entry["type_uri"] == "about:blank"
+        assert len(entry["title"]) > 0
+        assert len(entry["detail"]) > 0
+
+    def test_cycle_detection_error_maps_to_422_unprocessable(self) -> None:
+        """CycleDetectionError must map to HTTP 422 Unprocessable Entity.
+
+        A cycle in the schema FK graph is a structural data problem — the input
+        schema is malformed. HTTP 422 Unprocessable Entity is correct.
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.modules.mapping.graph import CycleDetectionError
+
+        assert CycleDetectionError in OPERATOR_ERROR_MAP, (
+            "CycleDetectionError must be in OPERATOR_ERROR_MAP (T34.3). "
+            "Import from modules/mapping/graph.py per task spec."
+        )
+        entry = OPERATOR_ERROR_MAP[CycleDetectionError]
+        assert entry["status_code"] == 422
+        assert entry["type_uri"] == "about:blank"
+        assert len(entry["title"]) > 0
+        assert len(entry["detail"]) > 0
+
+    def test_privilege_escalation_error_maps_to_403_with_sanitized_detail(self) -> None:
+        """PrivilegeEscalationError must map to HTTP 403 with a fixed sanitized detail.
+
+        The detail must be a static string that does NOT contain database role names,
+        privilege descriptions, or any security-sensitive context from str(exc).
+        Security: detail text must not leak credential hints to the HTTP caller.
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.shared.exceptions import PrivilegeEscalationError
+
+        assert PrivilegeEscalationError in OPERATOR_ERROR_MAP, (
+            "PrivilegeEscalationError must be in OPERATOR_ERROR_MAP (T34.3)"
+        )
+        entry = OPERATOR_ERROR_MAP[PrivilegeEscalationError]
+        assert entry["status_code"] == 403
+        assert entry["type_uri"] == "about:blank"
+        # The detail must be a non-empty static safe string
+        assert len(entry["detail"]) > 0
+        # The detail must NOT be dynamic exception text — it must be a fixed string
+        # that does not reveal database role names or privilege details
+        assert "INSERT" not in entry["detail"]
+        assert "UPDATE" not in entry["detail"]
+        assert "DELETE" not in entry["detail"]
+        assert "superuser" not in entry["detail"].lower()
+
+    def test_artifact_tampering_error_maps_to_422_with_sanitized_detail(self) -> None:
+        """ArtifactTamperingError must map to HTTP 422 with a fixed sanitized detail.
+
+        The detail must be a static string that does NOT contain artifact paths,
+        HMAC signing key hints, or any security-sensitive context from str(exc).
+        Security: detail text must not confirm artifact locations to the HTTP caller.
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.shared.exceptions import ArtifactTamperingError
+
+        assert ArtifactTamperingError in OPERATOR_ERROR_MAP, (
+            "ArtifactTamperingError must be in OPERATOR_ERROR_MAP (T34.3)"
+        )
+        entry = OPERATOR_ERROR_MAP[ArtifactTamperingError]
+        assert entry["status_code"] == 422
+        assert entry["type_uri"] == "about:blank"
+        # The detail must be a non-empty static safe string
+        assert len(entry["detail"]) > 0
+
+    def test_all_11_synth_engine_error_subclasses_are_mapped(self) -> None:
+        """OPERATOR_ERROR_MAP must contain entries for all 11 SynthEngineError subclasses.
+
+        This is the primary acceptance criterion for T34.3: no domain exception
+        should fall through to the generic 500 handler. Every SynthEngineError
+        subclass must have an explicit RFC 7807 mapping.
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.modules.mapping.graph import CycleDetectionError
+        from synth_engine.modules.masking.registry import CollisionError
+        from synth_engine.shared.exceptions import (
+            ArtifactTamperingError,
+            BudgetExhaustionError,
+            LicenseError,
+            OOMGuardrailError,
+            PrivilegeEscalationError,
+            VaultAlreadyUnsealedError,
+            VaultConfigError,
+            VaultEmptyPassphraseError,
+            VaultSealedError,
+        )
+
+        expected = {
+            BudgetExhaustionError,
+            OOMGuardrailError,
+            PrivilegeEscalationError,
+            ArtifactTamperingError,
+            VaultSealedError,
+            VaultEmptyPassphraseError,
+            VaultAlreadyUnsealedError,
+            VaultConfigError,
+            LicenseError,
+            CollisionError,
+            CycleDetectionError,
+        }
+        missing = expected - set(OPERATOR_ERROR_MAP.keys())
+        assert not missing, (
+            f"OPERATOR_ERROR_MAP is missing entries for: {', '.join(c.__name__ for c in missing)}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_vault_already_unsealed_raises_400_through_middleware(self) -> None:
+        """VaultAlreadyUnsealedError raised in a route must produce RFC 7807 400 response.
+
+        Review finding P34: OPERATOR_ERROR_MAP maps VaultAlreadyUnsealedError to 400
+        (consistent with the bespoke inline handler in bootstrapper/lifecycle.py).
+        """
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.shared.exceptions import VaultAlreadyUnsealedError
+
+        app = create_app()
+
+        @app.get("/test-vault-already-unsealed")
+        async def _raise_already_unsealed() -> None:
+            raise VaultAlreadyUnsealedError("Vault is already unsealed")
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/test-vault-already-unsealed")
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["type"] == "about:blank"
+        assert body["status"] == 400
+        assert "title" in body
+        assert "detail" in body
+
+    @pytest.mark.asyncio
+    async def test_post_unseal_when_already_unsealed_returns_400(self) -> None:
+        """POST /unseal when vault is already unsealed must return HTTP 400.
+
+        Review finding P34: the lifecycle.py bespoke handler for VaultAlreadyUnsealedError
+        on POST /unseal returns 400. This test exercises that path directly to confirm
+        the concrete endpoint agrees with the OPERATOR_ERROR_MAP entry (both 400).
+        """
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.shared.security.vault import VaultAlreadyUnsealedError, VaultState
+
+        app = create_app()
+        with patch.object(
+            VaultState,
+            "unseal",
+            side_effect=VaultAlreadyUnsealedError(
+                "Vault is already unsealed. Call seal() before unsealing again."
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post("/unseal", json={"passphrase": "any-passphrase"})
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["type"] == "about:blank"
+        assert body["title"] == "Vault Already Unsealed"
+        assert body["status"] == 400
+        assert "detail" in body
+
+    @pytest.mark.asyncio
+    async def test_license_error_raises_403_through_middleware(self) -> None:
+        """LicenseError raised in a route must produce RFC 7807 403 response."""
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.shared.exceptions import LicenseError
+
+        app = create_app()
+
+        @app.get("/test-license-error")
+        async def _raise_license() -> None:
+            raise LicenseError("License token has expired.")
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/test-license-error")
+
+        assert response.status_code == 403
+        body = response.json()
+        assert body["type"] == "about:blank"
+        assert body["status"] == 403
+        assert "title" in body
+        assert "detail" in body
+
+    @pytest.mark.asyncio
+    async def test_collision_error_raises_409_through_middleware(self) -> None:
+        """CollisionError raised in a route must produce RFC 7807 409 response."""
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.modules.masking.registry import CollisionError
+
+        app = create_app()
+
+        @app.get("/test-collision-error")
+        async def _raise_collision() -> None:
+            raise CollisionError("Masking collision detected")
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/test-collision-error")
+
+        assert response.status_code == 409
+        body = response.json()
+        assert body["type"] == "about:blank"
+        assert body["status"] == 409
+        assert "title" in body
+        assert "detail" in body
+
+    @pytest.mark.asyncio
+    async def test_cycle_detection_error_raises_422_through_middleware(self) -> None:
+        """CycleDetectionError raised in a route must produce RFC 7807 422 response.
+
+        CycleDetectionError already had a bespoke handler in router_registry.
+        T34.3 migrates it to use OPERATOR_ERROR_MAP via operator_error_response()
+        for consistency with all other domain exceptions.
+        """
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.modules.mapping.graph import CycleDetectionError
+
+        app = create_app()
+
+        @app.get("/test-cycle-error")
+        async def _raise_cycle() -> None:
+            raise CycleDetectionError(["orders", "customers", "orders"])
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/test-cycle-error")
+
+        assert response.status_code == 422
+        body = response.json()
+        assert body["type"] == "about:blank"
+        assert body["status"] == 422
+        assert "title" in body
+        assert "detail" in body
+
+    @pytest.mark.asyncio
+    async def test_privilege_escalation_does_not_leak_internals_via_http(self) -> None:
+        """PrivilegeEscalationError HTTP response must not contain the raw exception message.
+
+        Security: the exception message may contain database role names or privilege
+        details. The HTTP response must use the static sanitized detail from
+        OPERATOR_ERROR_MAP — never str(exc).
+        """
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.shared.exceptions import PrivilegeEscalationError
+
+        app = create_app()
+
+        @app.get("/test-privilege-escalation")
+        async def _raise_priv() -> None:
+            raise PrivilegeEscalationError(
+                "User 'admin_role' has INSERT, UPDATE, DELETE on table 'users'"
+            )
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/test-privilege-escalation")
+
+        assert response.status_code == 403
+        body = response.json()
+        # Must not expose the raw exception message with role name and privilege details
+        assert "admin_role" not in str(body)
+        assert "INSERT" not in str(body)
+        assert body["type"] == "about:blank"
+
+    @pytest.mark.asyncio
+    async def test_artifact_tampering_does_not_leak_internals_via_http(self) -> None:
+        """ArtifactTamperingError HTTP response must not contain the raw exception message.
+
+        Security: the exception message may contain artifact paths or HMAC details.
+        The HTTP response must use the static sanitized detail from
+        OPERATOR_ERROR_MAP — never str(exc).
+        """
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.shared.exceptions import ArtifactTamperingError
+
+        app = create_app()
+
+        @app.get("/test-artifact-tampering")
+        async def _raise_tamper() -> None:
+            raise ArtifactTamperingError(
+                "HMAC mismatch on /data/models/secret_model.pkl key=0xdeadbeef"
+            )
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/test-artifact-tampering")
+
+        assert response.status_code == 422
+        body = response.json()
+        # Must not expose the raw exception message with artifact path or HMAC key hint
+        assert "secret_model.pkl" not in str(body)
+        assert "0xdeadbeef" not in str(body)
+        assert body["type"] == "about:blank"

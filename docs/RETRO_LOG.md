@@ -12,11 +12,40 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| *(none)* | | | | All advisories drained. |
+| ADV-P34-01 | DevOps P34 | TBD | ADVISORY | `operator_error_response()` logs `str(exc)` at WARNING for security-event exceptions (PrivilegeEscalationError, ArtifactTamperingError) without `safe_error_msg()` wrapping. Pre-existing pattern expanded by T34.3. |
+| ADV-P34-02 | DevOps P34 | TBD | ADVISORY | PIIFilter referenced in CLAUDE.md does not exist in `src/`. Log-layer PII guard is documentation-only, not implemented. |
 
 ---
 
 ## Phase Retrospectives
+
+---
+
+### [2026-03-18] Phase 34 — Exception Hierarchy Unification & Operator Error Coverage
+
+**Tasks**: T34.1 (Vault + License exception unification), T34.2 (CollisionError + CycleDetectionError unification), T34.3 (Complete OPERATOR_ERROR_MAP)
+
+**Review agents**: QA (FINDING — 1 item fixed inline), DevOps (PASS — 2 advisories), Architecture (FINDING — 1 item fixed inline)
+
+**Findings fixed (all inline)**:
+- F1 (QA): `VaultAlreadyUnsealedError` status code conflict — lifecycle.py returned 400, OPERATOR_ERROR_MAP said 409. Reconciled to 400 everywhere. Added test for POST /unseal when already unsealed.
+- F2 (Arch): `bootstrapper/errors.py` imported vault exceptions from re-export path (`shared/security/vault`) instead of canonical source (`shared/exceptions`). Consolidated to single canonical import block.
+
+**DevOps advisories (non-blocking)**:
+- ADV-P34-01: `str(exc)` in WARNING logs for security-event exceptions without sanitization.
+- ADV-P34-02: PIIFilter referenced in docs but not implemented.
+
+**What went well**:
+1. All 11 domain exceptions now under `SynthEngineError` — middleware catches everything with structured RFC 7807 responses.
+2. Security leak tests for PrivilegeEscalationError and ArtifactTamperingError confirm no internal details in HTTP responses.
+3. ADR-0037 catch-site audit found zero `except ValueError` handlers needed updating — all existing handlers catch by specific type.
+4. 38 new tests added (14 hierarchy + 11 module hierarchy + 13 error map).
+
+**What to improve**:
+1. Status code consistency: when adding exception handlers to OPERATOR_ERROR_MAP, check for pre-existing bespoke handlers in lifecycle.py or route-specific code that may return a different status code.
+2. Import path discipline: when consolidating definitions to a new canonical location, update ALL consumers in the same PR — don't leave some using the re-export path.
+
+**Open advisories**: 2 (ADV-P34-01, ADV-P34-02)
 
 ---
 

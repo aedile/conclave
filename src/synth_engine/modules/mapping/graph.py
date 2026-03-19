@@ -7,25 +7,32 @@ Provides:
 
 Architecture note
 -----------------
-This module may only import from the Python standard library.
-Cross-module imports are forbidden by import-linter contracts in pyproject.toml.
+This module imports only from the Python standard library and from
+``synth_engine.shared``.  Cross-module imports (between modules/) are
+forbidden by import-linter contracts in pyproject.toml.
 
 ADR-0013: Relational Mapping DAG and Topological Sort Design.
 CONSTITUTION Priority 0: Security -- no external calls, no PII exposure.
 Task: P3-T3.2 -- Relational Mapping & Topological Sort
+Task: P34-T34.2 -- Consolidate module-local exceptions into shared hierarchy
 """
 
 from __future__ import annotations
 
 from collections import deque
 
+from synth_engine.shared.exceptions import SynthEngineError
 
-class CycleDetectionError(Exception):
+
+class CycleDetectionError(SynthEngineError):
     """Raised when a circular dependency is detected in the schema graph.
 
     The ``cycle`` attribute holds the sequence of table names forming the
     detected cycle, ordered so that ``cycle[i]`` has an edge to ``cycle[i+1]``
     and the last node has an edge back to a node earlier in the sequence.
+
+    Inherits :exc:`synth_engine.shared.exceptions.SynthEngineError` so that
+    the middleware layer can catch all engine errors uniformly.
 
     Args:
         cycle: Ordered list of table names that form the cycle.
