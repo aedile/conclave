@@ -18,6 +18,7 @@ Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
     Added handlers for VaultAlreadyUnsealedError, LicenseError, CollisionError,
     CycleDetectionError, PrivilegeEscalationError, ArtifactTamperingError.
     Migrated CycleDetectionError from bespoke inline handler to operator_error_response().
+Task: P36 review — Import CycleDetectionError and CollisionError from shared.exceptions (ADR-0037)
 """
 
 from __future__ import annotations
@@ -25,11 +26,11 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from synth_engine.modules.mapping.graph import CycleDetectionError
-from synth_engine.modules.masking.registry import CollisionError
 from synth_engine.shared.exceptions import (
     ArtifactTamperingError,
     BudgetExhaustionError,
+    CollisionError,
+    CycleDetectionError,
     LicenseError,
     OOMGuardrailError,
     PrivilegeEscalationError,

@@ -31,7 +31,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
 from synth_engine.bootstrapper.errors.formatter import (
-    _validation_error_handler,
+    _validation_error_handler,  # Private — used by register_error_handlers() below
     operator_error_response,
     problem_detail,
 )

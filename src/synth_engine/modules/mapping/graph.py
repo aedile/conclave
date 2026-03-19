@@ -2,6 +2,8 @@
 
 Provides:
 - :class:`CycleDetectionError`: raised when a circular dependency is found.
+  Now defined in :mod:`synth_engine.shared.exceptions` and re-exported here
+  for backward compatibility (ADR-0037, P36 review).
 - :class:`DirectedAcyclicGraph`: FK-relationship graph with Kahn's Algorithm
   topological sort and DFS-based cycle reporting.
 
@@ -15,36 +17,20 @@ ADR-0013: Relational Mapping DAG and Topological Sort Design.
 CONSTITUTION Priority 0: Security -- no external calls, no PII exposure.
 Task: P3-T3.2 -- Relational Mapping & Topological Sort
 Task: P34-T34.2 -- Consolidate module-local exceptions into shared hierarchy
+Task: P36 review -- Move CycleDetectionError definition to shared/exceptions.py (ADR-0037)
 """
 
 from __future__ import annotations
 
 from collections import deque
 
-from synth_engine.shared.exceptions import SynthEngineError
+# CycleDetectionError is defined in shared/exceptions.py (ADR-0037).
+# Re-exported here so existing callers of
+# ``from synth_engine.modules.mapping.graph import CycleDetectionError``
+# continue to work without modification.
+from synth_engine.shared.exceptions import CycleDetectionError
 
-
-class CycleDetectionError(SynthEngineError):
-    """Raised when a circular dependency is detected in the schema graph.
-
-    The ``cycle`` attribute holds the sequence of table names forming the
-    detected cycle, ordered so that ``cycle[i]`` has an edge to ``cycle[i+1]``
-    and the last node has an edge back to a node earlier in the sequence.
-
-    Inherits :exc:`synth_engine.shared.exceptions.SynthEngineError` so that
-    the middleware layer can catch all engine errors uniformly.
-
-    Args:
-        cycle: Ordered list of table names that form the cycle.
-    """
-
-    def __init__(self, cycle: list[str]) -> None:
-        self.cycle: list[str] = cycle
-        cycle_repr = " -> ".join(cycle)
-        super().__init__(
-            f"Circular dependency detected in schema graph: {cycle_repr}. "
-            "Provide explicit cycle-breaking rules before ingestion can proceed."
-        )
+__all__ = ["CycleDetectionError", "DirectedAcyclicGraph"]
 
 
 class DirectedAcyclicGraph:

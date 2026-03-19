@@ -15,6 +15,8 @@ Exception taxonomy
 ------------------
 - :exc:`SynthEngineError` — base for all engine exceptions
   - :exc:`BudgetExhaustionError` — epsilon budget exceeded (DP accounting)
+  - :exc:`CollisionError` — masking registry collision guard
+  - :exc:`CycleDetectionError` — circular FK dependency in schema graph
   - :exc:`OOMGuardrailError` — training job rejected by memory pre-flight
   - :exc:`PrivilegeEscalationError` — ingestion user has write privileges
   - :exc:`ArtifactTamperingError` — HMAC verification failure on a model artifact
@@ -29,7 +31,8 @@ HTTP-safety classification
 Exceptions are classified as HTTP-safe or logged-only:
 
 - **HTTP-safe** (safe to include sanitized message in 4xx/5xx response body):
-  :exc:`BudgetExhaustionError`, :exc:`OOMGuardrailError`,
+  :exc:`BudgetExhaustionError`, :exc:`CollisionError`,
+  :exc:`CycleDetectionError`, :exc:`OOMGuardrailError`,
   :exc:`VaultSealedError`, :exc:`VaultEmptyPassphraseError`,
   :exc:`VaultConfigError`, :exc:`VaultAlreadyUnsealedError`,
   :exc:`LicenseError`
@@ -51,6 +54,8 @@ Boundary constraints (import-linter enforced)
 
 Task: P26-T26.2 — Exception Hierarchy + Error Sanitization + Type Tightening
 Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
+Task: T34.2 — Consolidate module-local exceptions into shared hierarchy
+Task: P36 review — Add CycleDetectionError and CollisionError to shared hierarchy (ADR-0037)
 """
 
 from __future__ import annotations
@@ -58,6 +63,8 @@ from __future__ import annotations
 __all__ = [
     "ArtifactTamperingError",
     "BudgetExhaustionError",
+    "CollisionError",
+    "CycleDetectionError",
     "LicenseError",
     "OOMGuardrailError",
     "PrivilegeEscalationError",
@@ -106,6 +113,51 @@ class BudgetExhaustionError(SynthEngineError):
             f"allocated_epsilon={1.0:.4f} (delta={1e-5:.0e})"
         )
     """
+
+
+class CollisionError(SynthEngineError):
+    """Raised when the masking registry collision prevention encounters an unexpected state.
+
+    Under the current two-phase masking strategy (retry then suffix) this
+    should never be raised in production.  It is kept as a defensive guard
+    against implementation bugs.
+
+    Moved from ``modules/masking/registry.py`` to ``shared/`` in P36 review
+    so that the bootstrapper error-mapping layer can import it via
+    ``synth_engine.shared.exceptions`` rather than crossing into a module
+    internal (ADR-0037).
+
+    HTTP-safe: yes — the message contains no security-sensitive context.
+    The bootstrapper maps this to HTTP 409 Conflict.
+    """
+
+
+class CycleDetectionError(SynthEngineError):
+    """Raised when a circular dependency is detected in the schema graph.
+
+    The ``cycle`` attribute holds the sequence of table names forming the
+    detected cycle, ordered so that ``cycle[i]`` has an edge to ``cycle[i+1]``
+    and the last node has an edge back to a node earlier in the sequence.
+
+    Moved from ``modules/mapping/graph.py`` to ``shared/`` in P36 review
+    so that the bootstrapper error-mapping layer can import it via
+    ``synth_engine.shared.exceptions`` rather than crossing into a module
+    internal (ADR-0037).
+
+    HTTP-safe: yes — the cycle path contains only table names, which are safe
+    for operator consumption.  The bootstrapper maps this to HTTP 422.
+
+    Args:
+        cycle: Ordered list of table names that form the cycle.
+    """
+
+    def __init__(self, cycle: list[str]) -> None:
+        self.cycle: list[str] = cycle
+        cycle_repr = " -> ".join(cycle)
+        super().__init__(
+            f"Circular dependency detected in schema graph: {cycle_repr}. "
+            "Provide explicit cycle-breaking rules before ingestion can proceed."
+        )
 
 
 class OOMGuardrailError(SynthEngineError):

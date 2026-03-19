@@ -363,6 +363,31 @@ def test_is_production_false_when_neither_set(monkeypatch: pytest.MonkeyPatch) -
     assert s.is_production() is False
 
 
+def test_is_production_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ConclaveSettings.is_production() returns True for mixed-case 'Production' and 'PRODUCTION'.
+
+    The ``.lower()`` comparison in is_production() must handle values like
+    ``ENV=Production`` and ``ENV=PRODUCTION`` — not only the canonical lowercase
+    ``production`` — so that deployment tooling using different casing conventions
+    still correctly triggers production-mode validation.
+    """
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    # Title-case variant
+    monkeypatch.setenv("ENV", "Production")
+    s1 = ConclaveSettings()
+    assert s1.is_production() is True, "ENV=Production must be recognised as production mode"
+
+    # All-caps variant
+    monkeypatch.setenv("ENV", "PRODUCTION")
+    s2 = ConclaveSettings()
+    assert s2.is_production() is True, "ENV=PRODUCTION must be recognised as production mode"
+
+
 # ---------------------------------------------------------------------------
 # Tests: conclave_ssl_required field
 # ---------------------------------------------------------------------------

@@ -14,17 +14,18 @@ must never appear verbatim in the HTTP response body (ADV-036+044).
 Task: P29-T29.3 — Error Message Audience Differentiation
 Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
 Task: T36.2 — Split bootstrapper/errors.py Into Focused Modules
+Task: P36 review — Import CycleDetectionError and CollisionError from shared.exceptions (ADR-0037)
 """
 
 from __future__ import annotations
 
 from typing import TypedDict
 
-from synth_engine.modules.mapping.graph import CycleDetectionError
-from synth_engine.modules.masking.registry import CollisionError
 from synth_engine.shared.exceptions import (
     ArtifactTamperingError,
     BudgetExhaustionError,
+    CollisionError,
+    CycleDetectionError,
     LicenseError,
     OOMGuardrailError,
     PrivilegeEscalationError,
