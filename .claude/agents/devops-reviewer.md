@@ -18,7 +18,7 @@ Key project facts:
 - Python 3.14, Poetry, async-first agents
 - Real LinkedIn data lives in `data/` (GITIGNORED — never committed)
 - `.env` and `config.local.json` are GITIGNORED
-- `utils/logging.py` has a `PIIFilter` that redacts emails/phones in logs
+- Exception messages are sanitized via `safe_error_msg()` in `shared/errors.py` before logging
 - All commands run via `poetry run python -m <tool>`
 - CI pipeline at `.github/workflows/ci.yml`
 
@@ -57,7 +57,7 @@ Any HIGH or MEDIUM severity finding is a FINDING unless already in the bandit sk
 
 **logging-level-appropriate**: Are new log calls at the right level? `DEBUG` for detailed trace info, `INFO` for business events, `WARNING` for recoverable issues, `ERROR` for failures requiring attention. `print()` in production code is always a finding.
 
-**pii-filter-used**: If any new code logs data that COULD contain PII (names, emails, synthetic data content), does it pass through the `PIIFilter` or use a safe subset of the data?
+**safe-error-msg-used**: If any new code logs exception messages or data that COULD contain sensitive paths, SQL identifiers, or PII (names, emails, synthetic data content), does it pass through `safe_error_msg()` from `shared/errors.py` before the log call? Direct `str(exc)` in log calls is a finding.
 
 **no-blocking-async**: In `async def` functions — is there any synchronous I/O that would block the event loop? Look for `time.sleep()`, `requests.get()`, synchronous file reads in tight loops.
 
@@ -92,7 +92,7 @@ input-validation:          PASS/FINDING/SKIP — <detail>
 exception-exposure:        PASS/FINDING — <detail>
 bandit:                    PASS/FINDING — <detail + output snippet>
 logging-level-appropriate: PASS/FINDING/SKIP — <detail>
-pii-filter-used:           PASS/FINDING/SKIP — <detail>
+safe-error-msg-used:       PASS/FINDING/SKIP — <detail>
 no-blocking-async:         PASS/FINDING/SKIP — <detail>
 structured-logging:        PASS/FINDING/SKIP — <detail>
 dependency-audit:          PASS/FINDING/SKIP — <detail>

@@ -106,12 +106,7 @@ class TestOperatorErrorResponseLogSanitization:
         operator_error_response and asserts the exc argument is wrapped.
         """
         formatter_path = (
-            _PROJECT_ROOT
-            / "src"
-            / "synth_engine"
-            / "bootstrapper"
-            / "errors"
-            / "formatter.py"
+            _PROJECT_ROOT / "src" / "synth_engine" / "bootstrapper" / "errors" / "formatter.py"
         )
         source = formatter_path.read_text()
         assert "safe_error_msg" in source, (
@@ -180,11 +175,7 @@ class TestConfigValidationNoDirectEnvAccess:
         any Call node whose function is the attribute chain os.environ.get.
         """
         config_validation_path = (
-            _PROJECT_ROOT
-            / "src"
-            / "synth_engine"
-            / "bootstrapper"
-            / "config_validation.py"
+            _PROJECT_ROOT / "src" / "synth_engine" / "bootstrapper" / "config_validation.py"
         )
         source = config_validation_path.read_text()
         tree = ast.parse(source)

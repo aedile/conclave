@@ -32,12 +32,12 @@ Task: P19-T19.2 — Security Hardening: MASKING_SALT production enforcement
 Task: P20-T20.4 — Architecture Tightening (ADV-020: SSL override warning)
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: P36 review — Delegate _is_production() to get_settings().is_production() (QA Finding 1)
+Task: T37.2 — Drain ADV-P36-01: replace remaining os.environ.get() with get_settings()
 """
 
 from __future__ import annotations
 
 import logging
-import os
 
 from synth_engine.shared.settings import get_settings
 
@@ -83,6 +83,10 @@ def validate_config() -> None:
     receives a complete list in a single error message — not just the first
     missing variable.
 
+    All environment variable access goes through the :func:`get_settings`
+    singleton rather than ``os.environ`` directly, ensuring a single source
+    of truth consistent with the T36.1 centralization goal (ADV-P36-01).
+
     Returns:
         ``None`` when all required variables are present.
 
@@ -96,11 +100,15 @@ def validate_config() -> None:
         from synth_engine.bootstrapper.config_validation import validate_config
         validate_config()
     """
+    settings = get_settings()
     required = list(_ALWAYS_REQUIRED)
     if _is_production():
         required.extend(_PRODUCTION_REQUIRED)
 
-    missing = [var for var in required if not os.environ.get(var)]
+    # Access each required variable via the settings model rather than os.environ.
+    # Settings field names are the lowercase equivalents of the env var names
+    # (e.g. DATABASE_URL -> settings.database_url).
+    missing = [var for var in required if not getattr(settings, var.lower(), None)]
 
     if missing:
         missing_list = ", ".join(missing)
@@ -110,7 +118,7 @@ def validate_config() -> None:
             f"Set them before starting the Conclave Engine."
         )
 
-    if _is_production() and os.environ.get("CONCLAVE_SSL_REQUIRED", "true").lower() == "false":
+    if _is_production() and not settings.conclave_ssl_required:
         _logger.warning(
             "CONCLAVE_SSL_REQUIRED=false in production mode — "
             "SSL enforcement for PostgreSQL connections is disabled. "
