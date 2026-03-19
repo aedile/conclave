@@ -88,9 +88,7 @@ def test_compute_hmac_empty_key_returns_32_bytes() -> None:
     data = b"some data to authenticate"
     digest = compute_hmac(key, data)
     assert isinstance(digest, bytes), "compute_hmac must return bytes"
-    assert len(digest) == HMAC_DIGEST_SIZE, (
-        f"Expected {HMAC_DIGEST_SIZE} bytes, got {len(digest)}"
-    )
+    assert len(digest) == HMAC_DIGEST_SIZE, f"Expected {HMAC_DIGEST_SIZE} bytes, got {len(digest)}"
 
 
 def test_compute_hmac_empty_data_returns_32_bytes() -> None:
@@ -103,9 +101,7 @@ def test_compute_hmac_empty_data_returns_32_bytes() -> None:
     data = b""
     digest = compute_hmac(key, data)
     assert isinstance(digest, bytes), "compute_hmac must return bytes"
-    assert len(digest) == HMAC_DIGEST_SIZE, (
-        f"Expected {HMAC_DIGEST_SIZE} bytes, got {len(digest)}"
-    )
+    assert len(digest) == HMAC_DIGEST_SIZE, f"Expected {HMAC_DIGEST_SIZE} bytes, got {len(digest)}"
 
 
 def test_compute_hmac_empty_key_and_data_is_deterministic() -> None:

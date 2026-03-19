@@ -61,9 +61,7 @@ class TestBootstrapperErrorsPublicAPI:
         required_keys = {"title", "detail", "status_code", "type_uri"}
         for exc_class, entry in OPERATOR_ERROR_MAP.items():
             missing = required_keys - set(entry.keys())
-            assert not missing, (
-                f"Entry for {exc_class.__name__} missing keys: {missing}"
-            )
+            assert not missing, f"Entry for {exc_class.__name__} missing keys: {missing}"
 
     def test_problem_detail_returns_rfc7807_dict(self) -> None:
         """problem_detail() must return a dict with all four RFC 7807 fields."""

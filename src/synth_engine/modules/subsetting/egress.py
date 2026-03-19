@@ -54,7 +54,7 @@ from typing import Any, Literal
 from sqlalchemy import Engine, text
 from sqlalchemy.sql.expression import quoted_name
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 class EgressWriter:
@@ -169,7 +169,7 @@ class EgressWriter:
         # Reverse order: children (written last) are truncated first so that
         # FK constraints referencing parent tables are already gone.
         tables_to_truncate = dict(reversed(list(self._written_tables.items())))
-        logger.warning(
+        _logger.warning(
             "Saga rollback: truncating %d tables: %s",
             len(tables_to_truncate),
             dict(tables_to_truncate),
