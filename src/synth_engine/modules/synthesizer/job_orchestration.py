@@ -13,7 +13,8 @@ paths (``job_steps.xxx``) work transparently.
 Status lifecycle::
 
     QUEUED → TRAINING → GENERATING → COMPLETE   (success)
-                                   ↘ FAILED     (OOM, RuntimeError, BudgetExhaustion)
+                                   ↘ FAILED     (OOM, RuntimeError, BudgetExhaustion,
+                                                 EpsilonMeasurement)
 
 Step sequence (loop): OomCheckStep → TrainingStep → DpAccountingStep → GenerationStep.
 OomCheckStep is the first step in the pipeline (AC4 — orchestrator is sole status owner).
@@ -49,7 +50,7 @@ from synth_engine.modules.synthesizer.job_finalization import (
 )
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 from synth_engine.shared.errors import safe_error_msg
-from synth_engine.shared.exceptions import BudgetExhaustionError
+from synth_engine.shared.exceptions import BudgetExhaustionError, EpsilonMeasurementError
 from synth_engine.shared.protocols import DPWrapperProtocol, SpendBudgetProtocol
 from synth_engine.shared.security.audit import get_audit_logger as get_audit_logger
 
@@ -205,13 +206,23 @@ def _handle_dp_accounting(
 
     Raises:
         BudgetExhaustionError: Re-raised when the privacy budget is exhausted.
+        EpsilonMeasurementError: Raised when dp_wrapper.epsilon_spent() fails —
+            if we cannot measure the privacy cost, the job must be marked FAILED
+            (Constitution Priority 0: security over availability).
     """
     try:
         actual_eps = dp_wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
         job.actual_epsilon = actual_eps
         _logger.info("Job %d: DP complete, actual_epsilon=%.4f.", job_id, actual_eps)
-    except Exception:
-        _logger.exception("Job %d: Failed to read epsilon_spent from DP wrapper.", job_id)
+    except Exception as exc:
+        _logger.warning(
+            "Job %d: epsilon_spent() raised — privacy budget cannot be verified.",
+            job_id,
+            exc_info=True,
+        )
+        raise EpsilonMeasurementError(
+            "DP epsilon measurement failed — privacy budget cannot be verified"
+        ) from exc
 
     if _spend_budget_fn is None or job.actual_epsilon is None:
         return
@@ -425,7 +436,9 @@ class DpAccountingStep:
             ctx: Shared job execution context.
 
         Returns:
-            Success, or failure with ``error_msg="Privacy budget exhausted"``.
+            Success, or failure with ``error_msg="Privacy budget exhausted"`` on
+            budget exhaustion, or ``error_msg="DP epsilon measurement failed — privacy
+            budget cannot be verified"`` when ``epsilon_spent()`` raises.
         """
         if ctx.dp_wrapper is None:
             return StepResult(success=True)
@@ -438,6 +451,15 @@ class DpAccountingStep:
             )
         except BudgetExhaustionError:
             return StepResult(success=False, error_msg="Privacy budget exhausted")
+        except EpsilonMeasurementError:
+            _logger.warning(
+                "Job %d: DpAccountingStep returning failure — epsilon measurement raised.",
+                ctx.job.id,
+            )
+            return StepResult(
+                success=False,
+                error_msg="DP epsilon measurement failed — privacy budget cannot be verified",
+            )
         return StepResult(success=True)
 
 

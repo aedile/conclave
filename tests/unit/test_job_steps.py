@@ -432,6 +432,176 @@ class TestDpAccountingStepIsolation:
 
 
 # ---------------------------------------------------------------------------
+# T37.1: DpAccountingStep epsilon measurement failure tests
+# ---------------------------------------------------------------------------
+
+
+class TestDpAccountingStepEpsilonFailure:
+    """DpAccountingStep must treat epsilon_spent() failures as fatal (T37.1, ADV-P35-01).
+
+    AC1: If dp_wrapper.epsilon_spent() raises, job is marked FAILED.
+    AC3: WARNING-level log distinguishes epsilon read failure from no-DP case.
+    AC4: New test — job status is FAILED when epsilon_spent() raises RuntimeError.
+
+    Note: There is no AC2 audit event on the epsilon-failure path.
+    The audit trail records the *successful* budget spend (PRIVACY_BUDGET_SPEND),
+    not the failure.  The failure is surfaced via the step result and job.error_msg.
+    """
+
+    def test_dp_accounting_step_returns_failure_when_epsilon_spent_raises(self) -> None:
+        """DpAccountingStep.execute() must return StepResult(success=False) when epsilon_spent
+        raises.
+
+        AC4 (T37.1): When dp_wrapper.epsilon_spent() raises RuntimeError, the step
+        must return a failure result — not silently continue with actual_epsilon=None.
+        """
+        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep, StepResult
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.side_effect = RuntimeError("DP engine crashed")
+
+        job = _make_synthesis_job(id=1)
+        ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
+        step = DpAccountingStep()
+
+        with (
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            result = step.execute(ctx)
+
+        assert isinstance(result, StepResult)
+        assert result.success is False
+        assert result.error_msg is not None
+        assert "privacy budget" in result.error_msg.lower() or "epsilon" in result.error_msg.lower()
+
+    def test_dp_accounting_step_error_msg_references_budget_verification(self) -> None:
+        """DpAccountingStep failure message must reference privacy budget verification (AC1)."""
+        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.side_effect = RuntimeError("internal DP failure")
+
+        job = _make_synthesis_job(id=1)
+        ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
+
+        with (
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            result = DpAccountingStep().execute(ctx)
+
+        assert (
+            result.error_msg == "DP epsilon measurement failed — privacy budget cannot be verified"
+        )
+
+    def test_job_actual_epsilon_remains_none_when_epsilon_spent_raises(self) -> None:
+        """job.actual_epsilon must remain None when epsilon_spent() raises (not silently COMPLETE).
+
+        This is a guard: the bug was that actual_epsilon stayed None and the job
+        silently completed. After the fix, the job must instead FAIL.
+        """
+        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.side_effect = RuntimeError("crash")
+
+        job = _make_synthesis_job(id=1)
+        assert job.actual_epsilon is None  # pre-condition
+
+        ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
+
+        with (
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            result = DpAccountingStep().execute(ctx)
+
+        # epsilon stays None AND the step reports failure (not silent success)
+        assert job.actual_epsilon is None
+        assert result.success is False
+
+    def test_orchestrator_marks_job_failed_when_epsilon_spent_raises(self) -> None:
+        """_run_synthesis_job_impl must set job.status=FAILED when epsilon_spent() raises.
+
+        AC1 (T37.1): End-to-end orchestrator test — job must not reach COMPLETE
+        if epsilon measurement fails.
+        """
+        from synth_engine.modules.synthesizer.job_orchestration import _run_synthesis_job_impl
+
+        mock_engine = MagicMock()
+        mock_artifact = MagicMock()
+        mock_engine.train.return_value = mock_artifact
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.side_effect = RuntimeError("DP accounting unavailable")
+
+        job = _make_synthesis_job(id=1, total_epochs=5, checkpoint_every_n=5)
+        mock_session = MagicMock()
+        mock_session.get.return_value = job
+
+        with (
+            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration._get_parquet_dimensions",
+                return_value=(100, 10),
+            ),
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            _run_synthesis_job_impl(
+                job_id=1,
+                session=mock_session,
+                engine=mock_engine,
+                dp_wrapper=mock_wrapper,
+            )
+
+        assert job.status == "FAILED", (
+            f"Job must be FAILED when epsilon_spent() raises; got {job.status!r}"
+        )
+        assert job.error_msg is not None
+        assert "epsilon" in job.error_msg.lower() or "privacy budget" in job.error_msg.lower()
+
+    def test_dp_accounting_step_does_not_set_job_status_on_epsilon_failure(self) -> None:
+        """DpAccountingStep must NOT set job.status on epsilon failure — orchestrator owns status.
+
+        AC4 (T35.1): status ownership remains with the orchestrator, even in the new failure path.
+        """
+        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.side_effect = RuntimeError("crash")
+
+        job = _make_synthesis_job(id=1, status="TRAINING")
+        ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
+
+        with (
+            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            DpAccountingStep().execute(ctx)
+
+        assert job.status == "TRAINING", (
+            f"DpAccountingStep must not set job.status; expected TRAINING, got {job.status!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # AC2: GenerationStep isolation tests
 # ---------------------------------------------------------------------------
 

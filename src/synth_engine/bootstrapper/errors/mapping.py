@@ -15,6 +15,7 @@ Task: P29-T29.3 — Error Message Audience Differentiation
 Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
 Task: T36.2 — Split bootstrapper/errors.py Into Focused Modules
 Task: P36 review — Import CycleDetectionError and CollisionError from shared.exceptions (ADR-0037)
+Task: T37.1 — Add EpsilonMeasurementError to OPERATOR_ERROR_MAP
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from synth_engine.shared.exceptions import (
     BudgetExhaustionError,
     CollisionError,
     CycleDetectionError,
+    EpsilonMeasurementError,
     LicenseError,
     OOMGuardrailError,
     PrivilegeEscalationError,
@@ -84,6 +86,16 @@ OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
         ),
         status_code=409,
         type_uri="about:blank",
+    ),
+    EpsilonMeasurementError: OperatorErrorEntry(
+        title="Privacy Measurement Failure",
+        detail=(
+            "The privacy cost of the training run could not be verified. "
+            "The job has been marked FAILED. "
+            "Retry the job or contact your administrator."
+        ),
+        status_code=500,
+        type_uri="/problems/epsilon-measurement-failure",
     ),
     OOMGuardrailError: OperatorErrorEntry(
         title="Memory Limit Exceeded",

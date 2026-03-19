@@ -1008,12 +1008,14 @@ class TestDPWiringInImpl:
             f"Expected actual_epsilon=None on non-DP job; got {job.actual_epsilon}"
         )
 
-    def test_epsilon_spent_exception_does_not_block_completion(self) -> None:
-        """RuntimeError from epsilon_spent() must not prevent job from reaching COMPLETE.
+    def test_epsilon_spent_exception_marks_job_failed(self) -> None:
+        """RuntimeError from epsilon_spent() must mark job FAILED (T37.1, ADV-P35-01).
 
-        Training succeeded; only the epsilon accounting step failed.  The job
-        artifact is valid, so the lifecycle must continue to COMPLETE with
-        actual_epsilon left as None.
+        Constitution Priority 0: if the privacy cost of a training run cannot be
+        measured, delivering the output would violate security guarantees.  The job
+        must be marked FAILED — not silently completed with actual_epsilon=None.
+
+        Updated from the pre-T37.1 behavior where this exception was swallowed.
         """
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
@@ -1043,12 +1045,14 @@ class TestDPWiringInImpl:
                 dp_wrapper=dp_wrapper,
             )
 
-        assert job.status == "COMPLETE", (
-            f"Expected status=COMPLETE after epsilon_spent() failure; got {job.status}"
+        assert job.status == "FAILED", (
+            f"Expected status=FAILED when epsilon_spent() raises; got {job.status}"
         )
         assert job.actual_epsilon is None, (
             f"Expected actual_epsilon=None when epsilon_spent() raises; got {job.actual_epsilon}"
         )
+        assert job.error_msg is not None
+        assert "epsilon" in job.error_msg.lower() or "privacy budget" in job.error_msg.lower()
 
 
 # ---------------------------------------------------------------------------

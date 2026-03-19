@@ -10,6 +10,57 @@ For a narrative account of the project, see [`docs/DEVELOPMENT_STORY.md`](docs/D
 
 ---
 
+## Phase 36 — Configuration Centralization, Documentation Pruning & Hygiene
+*2026-03-19 | T36.1–T36.4*
+
+- Consolidated 14 environment variables into a typed, validated `ConclaveSettings` Pydantic
+  model with `@lru_cache` singleton; eliminated scattered `os.environ` reads across the codebase.
+- Decomposed the 449-line `errors.py` into a 4-file package (max 197 lines per file) with all
+  import paths preserved via re-exports and `CycleDetectionError`/`CollisionError` relocated to
+  `shared/exceptions.py` per ADR-0037.
+- Pruned `BUSINESS_REQUIREMENTS.md` from 257 to 42 lines; aligned DP claims with implementation
+  reality; archived stale documentation to `docs/retired/`.
+- Added 22 edge-case tests closing audit gaps in masking salt, HMAC verification, vault, and
+  privacy budget precision; 1,561 unit tests at 97.93% coverage.
+
+## Phase 35 — Synthesis Layer Refactor & Test Replacement
+*2026-03-18 | T35.1–T35.4*
+
+- Decomposed `_run_synthesis_job_impl()` from 232 lines into a 47-line step pipeline with a
+  `SynthesisJobStep` Protocol; each step is independently testable and status transitions are
+  owned exclusively by the orchestrator (ADR-0038).
+- Reduced `dp_training.py` from 1,144 to 497 lines (57%) via strategy pattern — discriminator
+  training, proxy-model fallback, and DP accounting each extracted to focused strategy classes.
+- Replaced tautological tests (54:1 and 79:1 setup-to-assertion ratios) with behavioral and
+  contract tests; wired `OomCheckStep` into the step pipeline, removing the legacy bypass path.
+- Added full E2E pipeline integration test: 5-table FK chain, 105 rows, real PostgreSQL,
+  zero mocks below the API boundary; 1,514 unit tests at 98.04% coverage.
+
+## Phase 34 — Exception Hierarchy Unification & Operator Error Coverage
+*2026-03-18 | T34.1–T34.3*
+
+- Unified all 11 domain exceptions under `SynthEngineError`; middleware now catches every
+  domain error and returns structured RFC 7807 responses with no internal details leaked.
+- Completed `OPERATOR_ERROR_MAP` with RFC 7807 mappings for all exception types, including
+  security-event exceptions (`PrivilegeEscalationError`, `ArtifactTamperingError`) verified
+  by HTTP round-trip leak tests.
+- Reconciled `VaultAlreadyUnsealedError` status code conflict (400 vs. 409) across lifecycle
+  handler and error map; consolidated vault exception imports to canonical `shared/exceptions`.
+- Documented the exception hierarchy architecture in ADR-0037; 38 new tests added.
+
+## Phase 33 — Governance Hygiene, Documentation Currency & Codebase Polish
+*2026-03-18 | T33.1–T33.4*
+
+- Evaluated CLAUDE.md rule sunset: Rule 13 deleted (never prevented a failure); Rule 11
+  advisory threshold tightened; 8 rules renewed with Phase 40 sunset; CLAUDE.md reduced from
+  267 to 259 lines.
+- Added `pydoclint` as a mandatory pre-commit gate, closing the recurring docstring-drift gap
+  that caused findings in Phases 30, 31, and 32; scoped to `src/synth_engine/` with
+  `arg-type-hints-in-docstring = false`.
+- Backfilled `CHANGELOG.md` and 8 phase summaries (Phases 21-28); added static API reference;
+  amended ADR-0002 to reflect superseded status; pinned documentation metrics.
+- Tightened 6 dependency version ranges to current minor versions; removed stale `TODO` markers.
+
 ## Phase 32 — Dead Module Cleanup & Development Process Documentation
 *2026-03-18 | PR [#127](../../pull/127)*
 
@@ -263,5 +314,5 @@ For a narrative account of the project, see [`docs/DEVELOPMENT_STORY.md`](docs/D
 
 ---
 
-*This changelog covers Phase 1 through Phase 32 (at commit `3fa02cd`, 2026-03-18).*
+*This changelog covers Phase 0.8 through Phase 36 (at commit `9b51e14`, 2026-03-19).*
 *For the most current state, refer to `git log` and the merged PR list.*

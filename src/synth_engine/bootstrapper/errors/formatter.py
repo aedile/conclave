@@ -24,6 +24,14 @@ Implementation note — Operator-friendly error messages (T29.3):
     :func:`operator_error_response` consults ``OPERATOR_ERROR_MAP``
     and returns a plain-language operator-friendly response.
 
+Implementation note — Server-side log sanitization (ADV-P34-01):
+    Domain exception messages may contain filesystem paths, SQL identifiers,
+    or other internal details that must not appear in server logs.
+    :func:`operator_error_response` passes the exception message through
+    :func:`~synth_engine.shared.errors.safe_error_msg` before logging it
+    at WARNING level, ensuring the log entry cannot leak sensitive paths or
+    schema information to log aggregation systems.
+
 Reference: RFC 7807 — Problem Details for HTTP APIs
     https://datatracker.ietf.org/doc/html/rfc7807
 
@@ -31,6 +39,7 @@ Task: P5-T5.1 — Task Orchestration API Core
 Task: P6-T6.2 — NIST SP 800-88 Erasure, OWASP validation, LLM Fuzz Testing
 Task: P29-T29.3 — Error Message Audience Differentiation
 Task: T36.2 — Split bootstrapper/errors.py Into Focused Modules
+Task: T37.2 — Drain ADV-P34-01: sanitize exc message in server-side WARNING log
 """
 
 from __future__ import annotations
@@ -44,6 +53,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from synth_engine.bootstrapper.errors.mapping import OPERATOR_ERROR_MAP
+from synth_engine.shared.errors import safe_error_msg
 
 _logger = logging.getLogger(__name__)
 
@@ -133,7 +143,12 @@ def operator_error_response(exc: Exception) -> JSONResponse:
 
     Looks up the exception class in ``OPERATOR_ERROR_MAP`` and returns an
     appropriate operator-friendly response.  The internal exception message
-    is logged at WARNING level but never included in the HTTP response body.
+    is sanitized via :func:`~synth_engine.shared.errors.safe_error_msg` and
+    logged at WARNING level, but never included in the HTTP response body.
+
+    Sanitizing the server-side log entry prevents filesystem paths, SQL
+    identifiers, and internal Python module names in exception messages from
+    reaching log aggregation systems (ADV-P34-01).
 
     Args:
         exc: The domain exception to convert.  Must be present in
@@ -150,7 +165,7 @@ def operator_error_response(exc: Exception) -> JSONResponse:
     _logger.warning(
         "Domain exception %s: %s",
         type(exc).__name__,
-        str(exc),
+        safe_error_msg(str(exc)),
     )
     return JSONResponse(
         status_code=entry["status_code"],
