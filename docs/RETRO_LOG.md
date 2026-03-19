@@ -15,8 +15,38 @@ Drain (delete) rows when their target task is completed.
 | ADV-P34-01 | DevOps P34 | TBD | ADVISORY | `operator_error_response()` logs `str(exc)` at WARNING for security-event exceptions (PrivilegeEscalationError, ArtifactTamperingError) without `safe_error_msg()` wrapping. Pre-existing pattern expanded by T34.3. |
 | ADV-P34-02 | DevOps P34 | TBD | ADVISORY | PIIFilter referenced in CLAUDE.md does not exist in `src/`. Log-layer PII guard is documentation-only, not implemented. |
 | ADV-P35-01 | QA P35 | TBD | ADVISORY | `_handle_dp_accounting()` silently skips budget deduction when `epsilon_spent()` raises — the `except Exception` handler logs ERROR but the downstream guard `if job.actual_epsilon is None: return` silently exits without budget deduction. A DP training run can complete with zero epsilon recorded. |
+| ADV-P36-01 | DevOps P36 | TBD | ADVISORY | `config_validation.py` `_ALWAYS_REQUIRED` and `_PRODUCTION_REQUIRED` lists still read env vars directly via `os.environ.get()` for var-existence checks. `_is_production()` was fixed to delegate, but the variable-presence validation loop was not centralized. |
 
 ---
+
+### [2026-03-19] Phase 36 — Configuration Centralization, Documentation Pruning & Hygiene
+
+**Tasks**: T36.1 (Pydantic settings), T36.2 (errors.py split), T36.3 (documentation pruning), T36.4 (exports, logging, edge-case tests)
+
+**Review agents**: QA (FINDING — 2 items fixed), DevOps (PASS — 1 advisory), Architecture (FINDING — 2 items fixed)
+
+**Findings fixed (all in review commit 9b51e14)**:
+- ARCH-F1: `CycleDetectionError` and `CollisionError` moved to `shared/exceptions.py` per ADR-0037 pattern. Module files now re-export from shared. `mapping.py` imports consolidated.
+- ARCH-F2: Added inline comment for `_validation_error_handler` package-level import in `errors/__init__.py`.
+- QA-F1: `config_validation._is_production()` now delegates to `get_settings().is_production()` — eliminated duplicate env var reads.
+- QA-F2: Added `test_is_production_case_insensitive` covering `ENV=Production` and `ENV=PRODUCTION`.
+
+**New advisory (non-blocking)**:
+- ADV-P36-01: `config_validation.py` variable-presence checks still use direct `os.environ.get()`.
+
+**What went well**:
+1. Pydantic settings centralization: 14 env vars consolidated into typed, validated `ConclaveSettings` model with `@lru_cache` singleton.
+2. `errors.py` cleanly decomposed: 449 lines → 4-file package (max 197 lines), all import paths preserved via re-exports.
+3. Documentation pruning: `BUSINESS_REQUIREMENTS.md` 257→42 lines, DP claims aligned with reality, `docs/retired/` archived.
+4. 22 new edge-case tests closing audit gaps (masking salt, HMAC, vault, privacy precision).
+5. 1561 unit tests passing, 97.93% coverage.
+
+**What to improve**:
+1. When centralizing configuration, grep for ALL `os.environ` calls — including variable-existence checks, not just value reads.
+2. When splitting modules into packages, verify exception imports follow the shared hierarchy pattern (ADR-0037) — don't carry forward pre-existing debt.
+3. The `is_production()` case-insensitivity behavior should have been tested from the start — add tests for edge-case input normalization whenever creating comparison methods.
+
+**Open advisories**: 4 (ADV-P34-01, ADV-P34-02, ADV-P35-01, ADV-P36-01)
 
 ## Phase Retrospectives
 
