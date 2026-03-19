@@ -218,8 +218,20 @@ class RequestBodyLimitMiddleware:
         headers: dict[bytes, bytes] = {k.lower(): v for k, v in scope.get("headers", [])}
         content_length_raw = headers.get(b"content-length")
         if content_length_raw is not None:
+            # Narrow try/except: only guard the int() parsing call.
+            # A ValueError here means the header value is non-numeric.
+            # Any ValueError from outside this line (e.g. from comparison
+            # logic) must propagate rather than be silently swallowed.
             try:
-                if int(content_length_raw) > MAX_BODY_BYTES:
+                content_length_int = int(content_length_raw)
+            except ValueError:
+                _logger.warning(
+                    "Non-integer Content-Length header '%s' on %s.",
+                    content_length_raw.decode(errors="replace"),
+                    scope.get("path", ""),
+                )
+            else:
+                if content_length_int > MAX_BODY_BYTES:
                     _logger.warning(
                         "Request rejected: Content-Length %s exceeds limit %d bytes. Path: %s",
                         content_length_raw.decode(),
@@ -228,12 +240,6 @@ class RequestBodyLimitMiddleware:
                     )
                     await _send_response(send, 413, _413_BODY)
                     return
-            except ValueError:
-                _logger.warning(
-                    "Non-integer Content-Length header '%s' on %s.",
-                    content_length_raw.decode(errors="replace"),
-                    scope.get("path", ""),
-                )
 
         # Read the full body by consuming http.request ASGI messages
         body_chunks: list[bytes] = []

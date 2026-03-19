@@ -14,6 +14,7 @@ import-linter ``independence`` contract.  Now both modules import from
 Exception taxonomy
 ------------------
 - :exc:`SynthEngineError` — base for all engine exceptions
+  - :exc:`AuditWriteError` — WORM audit trail write failed after budget deduction
   - :exc:`BudgetExhaustionError` — epsilon budget exceeded (DP accounting)
   - :exc:`EpsilonMeasurementError` — privacy cost of a training run could not be measured
   - :exc:`CollisionError` — masking registry collision guard
@@ -32,8 +33,8 @@ HTTP-safety classification
 Exceptions are classified as HTTP-safe or logged-only:
 
 - **HTTP-safe** (safe to include sanitized message in 4xx/5xx response body):
-  :exc:`BudgetExhaustionError`, :exc:`EpsilonMeasurementError`, :exc:`CollisionError`,
-  :exc:`CycleDetectionError`, :exc:`OOMGuardrailError`,
+  :exc:`AuditWriteError`, :exc:`BudgetExhaustionError`, :exc:`EpsilonMeasurementError`,
+  :exc:`CollisionError`, :exc:`CycleDetectionError`, :exc:`OOMGuardrailError`,
   :exc:`VaultSealedError`, :exc:`VaultEmptyPassphraseError`,
   :exc:`VaultConfigError`, :exc:`VaultAlreadyUnsealedError`,
   :exc:`LicenseError`
@@ -58,12 +59,14 @@ Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 Task: T34.2 — Consolidate module-local exceptions into shared hierarchy
 Task: P36 review — Add CycleDetectionError and CollisionError to shared hierarchy (ADR-0037)
 Task: T37.1 — Add EpsilonMeasurementError; update OPERATOR_ERROR_MAP mapping
+Task: T38.1 — Add AuditWriteError; fail job on WORM audit write failure after budget deduction
 """
 
 from __future__ import annotations
 
 __all__ = [
     "ArtifactTamperingError",
+    "AuditWriteError",
     "BudgetExhaustionError",
     "CollisionError",
     "CycleDetectionError",
@@ -92,6 +95,27 @@ class SynthEngineError(Exception):
             run_synthesis_job(job_id)
         except SynthEngineError as exc:
             logger.error("Engine error: %s", exc)
+    """
+
+
+class AuditWriteError(SynthEngineError):
+    """Raised when the WORM audit trail write fails after a privacy budget deduction.
+
+    Constitution Priority 0 (Security): every privacy budget spend MUST have an
+    immutable WORM audit entry.  If the audit infrastructure is broken, the job
+    output must NOT be delivered — the operator must reconcile the spend manually.
+
+    The budget has already been deducted (irreversible) when this error is raised,
+    so the FAILED job status alerts operators that reconciliation is required.
+
+    HTTP-safe: yes — the message is safe for HTTP 500 response bodies.
+    The bootstrapper maps this to HTTP 500 Internal Server Error.
+
+    Example::
+
+        raise AuditWriteError(
+            "Budget deducted but audit trail write failed — manual reconciliation required"
+        ) from original_exc
     """
 
 

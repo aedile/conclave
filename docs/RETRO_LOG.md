@@ -12,7 +12,36 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| *(none)* | — | — | — | All advisories drained in Phase 37. |
+| ADV-P38-01 | P38 QA | TBD | ADVISORY | `DpAccountingStep.execute()` has no handler for non-`BudgetExhaustionError` exceptions from `_spend_budget_fn`. A `ConnectionError` from the budget-spend call propagates uncaught. |
+| ADV-P38-02 | P38 QA | TBD | ADVISORY | `test_seed_sample_data.py::test_e2e_doc_contains_live_validation_evidence` asserts stale P28 content against P37 E2E doc. Pre-existing failure, not introduced by P38. |
+
+---
+
+### [2026-03-19] Phase 38 — Audit Integrity, Timing Side-Channel Fix & Pre-Commit Hardening
+
+**Tasks**: T38.1 (fail job on audit write failure), T38.2 (vault timing side-channel), T38.3 (import-linter — already satisfied), T38.4 (documentation & hygiene polish)
+
+**Review agents**: QA (FINDING — 2 items), DevOps (FINDING — 1 item), Architecture (FINDING — 1 item)
+
+**Findings fixed (review commit d76462a)**:
+- QA-F1 + DevOps-F1: Audit write failure and epsilon measurement failure logged at WARNING instead of ERROR in `job_orchestration.py`. Pre-T38 code used `_logger.exception()` (ERROR level); T38.1 downgraded to WARNING, inconsistent with T38.4 which elevated signing key failure to ERROR. All four `_logger.warning` calls in audit/epsilon failure paths upgraded to `_logger.error`.
+- ARCH-F1: ADR-0009 "Unseal Guard Conditions" section described empty-passphrase check before KEK derivation. T38.2 reversed this ordering to eliminate timing side-channel. ADR amended with inline amendment marker and footer note.
+
+**Findings deferred (advisory)**:
+- QA-F2: `DpAccountingStep.execute()` has no handler for non-`BudgetExhaustionError` from `_spend_budget_fn`. Tracked as ADV-P38-01.
+
+**What went well**:
+1. T38.1 closes a Constitution Priority 0 gap: every privacy budget spend now MUST have a WORM audit entry, or the job fails.
+2. T38.2 timing fix is elegant — running `derive_kek()` unconditionally before the empty-passphrase check eliminates the oracle without artificial delays.
+3. T38.3 was already satisfied (import-linter in pre-commit since Phase 20 T20.4) — correctly identified and skipped.
+4. T38.4 batched 4 cosmetic items into a single commit per Rule 16.
+5. Three independent review agents (QA, DevOps, Architecture) converged on the same log-level finding — cross-validation working.
+
+**What to improve**:
+1. When changing log levels in new code, check the pre-existing log level for the same exception path. The T38.1 code introduced `_logger.warning` for audit failures while the pre-T38 code used `_logger.exception()` (ERROR level) — an unintentional downgrade.
+2. When restructuring vault flow (T38.2), immediately amend the relevant ADR in the same commit, not as a review finding.
+
+**Open advisories**: 2 (ADV-P38-01, ADV-P38-02)
 
 ---
 

@@ -16,6 +16,7 @@ Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
 Task: T36.2 — Split bootstrapper/errors.py Into Focused Modules
 Task: P36 review — Import CycleDetectionError and CollisionError from shared.exceptions (ADR-0037)
 Task: T37.1 — Add EpsilonMeasurementError to OPERATOR_ERROR_MAP
+Task: T38.1 — Add AuditWriteError to OPERATOR_ERROR_MAP (status 500)
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from typing import TypedDict
 
 from synth_engine.shared.exceptions import (
     ArtifactTamperingError,
+    AuditWriteError,
     BudgetExhaustionError,
     CollisionError,
     CycleDetectionError,
@@ -77,6 +79,16 @@ class OperatorErrorEntry(TypedDict):
 #: The ``detail`` field in these entries is a safe, sanitized constant — not
 #: derived from ``str(exc)``.
 OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
+    AuditWriteError: OperatorErrorEntry(
+        title="Audit Trail Write Failure",
+        detail=(
+            "The privacy budget was deducted but the audit trail could not be written. "
+            "Manual reconciliation of the privacy ledger is required. "
+            "Contact your administrator immediately."
+        ),
+        status_code=500,
+        type_uri="/problems/audit-write-failure",
+    ),
     BudgetExhaustionError: OperatorErrorEntry(
         title="Privacy Budget Exceeded",
         detail=(

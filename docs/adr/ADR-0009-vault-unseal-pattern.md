@@ -89,13 +89,18 @@ If `VAULT_SEAL_SALT` is missing at unseal time, `VaultState.unseal()` raises
 
 ### Unseal Guard Conditions
 
-`VaultState.unseal()` validates the following pre-conditions before deriving the
-KEK, raising `ValueError` for each:
+**Amended:** 2026-03-19 — T38.2: empty-passphrase check moved after derive_kek() to eliminate timing oracle
 
-1. **Empty passphrase** — an empty string is rejected immediately.
-2. **Re-unseal while unsealed** — calling `unseal()` when the vault is already
+`VaultState.unseal()` validates the following pre-conditions, raising `ValueError` for each:
+
+1. **Re-unseal while unsealed** — calling `unseal()` when the vault is already
    unsealed raises `ValueError`.  Callers must call `seal()` first if a
    deliberate key rotation is intended.  This prevents silent KEK rotation.
+   This check occurs **before** `derive_kek()`.
+2. **Empty passphrase** — an empty string is rejected **after** `derive_kek()`
+   completes (T38.2).  Running the full PBKDF2 derivation before rejecting an
+   empty passphrase eliminates the timing oracle: an attacker observing latency
+   can no longer distinguish an empty passphrase rejection from a valid one.
 
 ### HTTP Status: 423 Locked
 
@@ -133,3 +138,7 @@ The following paths bypass the seal gate and are accessible without unsealing:
   by a `pytest` autouse fixture.
 - Two intermediate `bytes` objects cannot be zeroed (CPython constraint).
   Risk is accepted; documented above and mitigated at the OS/container layer.
+
+---
+
+**Amended Phase 38 (T38.2):** Unseal flow reordered — KEK derivation now runs before empty-passphrase check to eliminate timing side-channel.

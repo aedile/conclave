@@ -2407,21 +2407,21 @@ class TestWriteParquetWithSigningEdgeCases:
 
 
 class TestAuditLoggerFailureAfterBudgetDeduction:
-    """Audit log failure after budget deduction must not block job completion (finding F9).
+    """Audit log failure after budget deduction MUST fail the job (T38.1, Constitution Priority 0).
 
-    The audit log call is intentionally outside the BudgetExhaustion try/except
-    so that audit logger failures are isolated.  The budget was already deducted;
-    the job must still proceed to COMPLETE.
+    T38.1 fixes finding F9: the old behavior silently completed the job when the WORM audit
+    write failed.  Under Constitution Priority 0 (Security), every privacy budget spend MUST
+    have an immutable WORM audit entry.  If the audit infrastructure is broken, the job output
+    must NOT be delivered — the operator must reconcile the spend manually.
     """
 
     def test_audit_logger_exception_does_not_block_complete(self) -> None:
-        """When audit log_event() raises after budget deduction, job still reaches COMPLETE.
+        """When audit log_event() raises after budget deduction, job must be FAILED.
 
-        The PrivacyTransaction table records the deduction; audit logger failure
-        must not prevent the COMPLETE status (tasks.py lines 583-584 guard).
+        T38.1: Budget has been spent but no audit record was written.  The job
+        must be marked FAILED so operators know manual reconciliation is required.
+        The error message must include the reconciliation notice.
         """
-        import pandas as pd
-
         import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
 
@@ -2440,12 +2440,11 @@ class TestAuditLoggerFailureAfterBudgetDeduction:
         mock_engine = MagicMock()
         mock_artifact = MagicMock()
         mock_engine.train.return_value = mock_artifact
-        mock_engine.generate.return_value = pd.DataFrame({"x": range(3)})
 
         dp_wrapper = _make_mock_dp_wrapper(epsilon=1.0)
         mock_budget_fn = MagicMock()  # budget spend succeeds
 
-        # Audit logger raises an exception.
+        # Audit logger raises an exception after budget is deducted.
         mock_audit_logger = MagicMock()
         mock_audit_logger.log_event.side_effect = RuntimeError("Audit DB unavailable")
 
@@ -2472,8 +2471,16 @@ class TestAuditLoggerFailureAfterBudgetDeduction:
         finally:
             orch_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
 
-        assert job.status == "COMPLETE", (
-            f"Audit logger failure must not prevent COMPLETE; got {job.status}"
+        # T38.1: job must be FAILED when audit write fails — not COMPLETE (old bug).
+        assert job.status == "FAILED", (
+            f"Audit logger failure must set job to FAILED (T38.1); got {job.status}"
+        )
+        assert job.error_msg is not None
+        assert "audit trail write failed" in job.error_msg.lower(), (
+            f"Error message must mention audit trail failure; got {job.error_msg!r}"
+        )
+        assert "manual reconciliation" in job.error_msg.lower(), (
+            f"Error message must mention manual reconciliation; got {job.error_msg!r}"
         )
 
 

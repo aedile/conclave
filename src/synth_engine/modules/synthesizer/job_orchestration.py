@@ -14,7 +14,7 @@ Status lifecycle::
 
     QUEUED → TRAINING → GENERATING → COMPLETE   (success)
                                    ↘ FAILED     (OOM, RuntimeError, BudgetExhaustion,
-                                                 EpsilonMeasurement)
+                                                 EpsilonMeasurement, AuditWrite)
 
 Step sequence (loop): OomCheckStep → TrainingStep → DpAccountingStep → GenerationStep.
 OomCheckStep is the first step in the pipeline (AC4 — orchestrator is sole status owner).
@@ -29,6 +29,7 @@ Boundary constraints (import-linter enforced):
     - Must NOT import from ``bootstrapper/``.
 
 Task: P26-T26.1, P26-T26.2, T35.1 — ADR-0038
+Task: T38.1 — Fail job when WORM audit write fails after budget deduction
 """
 
 from __future__ import annotations
@@ -50,7 +51,11 @@ from synth_engine.modules.synthesizer.job_finalization import (
 )
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 from synth_engine.shared.errors import safe_error_msg
-from synth_engine.shared.exceptions import BudgetExhaustionError, EpsilonMeasurementError
+from synth_engine.shared.exceptions import (
+    AuditWriteError,
+    BudgetExhaustionError,
+    EpsilonMeasurementError,
+)
 from synth_engine.shared.protocols import DPWrapperProtocol, SpendBudgetProtocol
 from synth_engine.shared.security.audit import get_audit_logger as get_audit_logger
 
@@ -72,6 +77,10 @@ _OOM_FALLBACK_ROWS: int = 100_000
 _OOM_FALLBACK_COLUMNS: int = 50
 _DP_EPSILON_DELTA: float = 1e-5
 _DEFAULT_LEDGER_ID: int = 1
+
+_AUDIT_RECONCILIATION_MSG: str = (
+    "Budget deducted but audit trail write failed — manual reconciliation required"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +208,10 @@ def _handle_dp_accounting(
     ``DpAccountingStep`` can return a failure ``StepResult`` without touching
     ``job.status`` (AC4: the orchestrator is the sole status owner).
 
+    On ``AuditWriteError``, this function re-raises so that
+    ``DpAccountingStep`` marks the job FAILED (T38.1: Constitution Priority 0 —
+    every privacy budget spend MUST have a WORM audit entry).
+
     Args:
         job: The ``SynthesisJob`` record being updated (mutated in place).
         dp_wrapper: The DP training wrapper.
@@ -209,13 +222,15 @@ def _handle_dp_accounting(
         EpsilonMeasurementError: Raised when dp_wrapper.epsilon_spent() fails —
             if we cannot measure the privacy cost, the job must be marked FAILED
             (Constitution Priority 0: security over availability).
+        AuditWriteError: Raised when the WORM audit write fails after a
+            successful budget deduction — the operator must reconcile manually.
     """
     try:
         actual_eps = dp_wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
         job.actual_epsilon = actual_eps
         _logger.info("Job %d: DP complete, actual_epsilon=%.4f.", job_id, actual_eps)
     except Exception as exc:
-        _logger.warning(
+        _logger.error(
             "Job %d: epsilon_spent() raised — privacy budget cannot be verified.",
             job_id,
             exc_info=True,
@@ -256,8 +271,13 @@ def _handle_dp_accounting(
                 action="spend_budget",
                 details={"job_id": str(job_id), "epsilon_spent": str(job.actual_epsilon)},
             )
-        except Exception:
-            _logger.exception("Job %d: Audit log failed after budget deduction.", job_id)
+        except Exception as exc:
+            _logger.error(
+                "Job %d: Audit log failed after budget deduction — reconciliation required.",
+                job_id,
+                exc_info=True,
+            )
+            raise AuditWriteError(_AUDIT_RECONCILIATION_MSG) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +458,9 @@ class DpAccountingStep:
         Returns:
             Success, or failure with ``error_msg="Privacy budget exhausted"`` on
             budget exhaustion, or ``error_msg="DP epsilon measurement failed — privacy
-            budget cannot be verified"`` when ``epsilon_spent()`` raises.
+            budget cannot be verified"`` when ``epsilon_spent()`` raises, or
+            ``error_msg="Budget deducted but audit trail write failed — manual
+            reconciliation required"`` when the WORM audit write fails (T38.1).
         """
         if ctx.dp_wrapper is None:
             return StepResult(success=True)
@@ -452,13 +474,22 @@ class DpAccountingStep:
         except BudgetExhaustionError:
             return StepResult(success=False, error_msg="Privacy budget exhausted")
         except EpsilonMeasurementError:
-            _logger.warning(
+            _logger.error(
                 "Job %d: DpAccountingStep returning failure — epsilon measurement raised.",
                 ctx.job.id,
             )
             return StepResult(
                 success=False,
                 error_msg="DP epsilon measurement failed — privacy budget cannot be verified",
+            )
+        except AuditWriteError:
+            _logger.error(
+                "Job %d: DpAccountingStep returning failure — WORM audit write failed.",
+                ctx.job.id,
+            )
+            return StepResult(
+                success=False,
+                error_msg=_AUDIT_RECONCILIATION_MSG,
             )
         return StepResult(success=True)
 

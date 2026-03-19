@@ -294,3 +294,53 @@ async def test_unseal_endpoint_returns_400_on_missing_salt(
 
     assert response.status_code == 400
     assert "VAULT_SEAL_SALT" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# T38.2: Vault unseal timing side-channel tests
+# ---------------------------------------------------------------------------
+
+
+def test_derive_kek_called_even_for_empty_passphrase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """derive_kek must be called even when passphrase is empty (T38.2).
+
+    Structural test: verifies constant-time behavior without relying on
+    wall-clock measurements. An empty passphrase must still incur the full
+    PBKDF2 cost — only the passphrase check happens AFTER key derivation.
+
+    AC1 (T38.2): Proves the empty-passphrase path is not a timing oracle.
+    AC3 (T38.2): Mock-based verification that derive_kek is called for empty input.
+    """
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+
+    from unittest.mock import patch
+
+    from synth_engine.shared.security.vault import VaultEmptyPassphraseError, VaultState
+
+    with patch(
+        "synth_engine.shared.security.vault.derive_kek",
+        wraps=__import__("synth_engine.shared.security.vault", fromlist=["derive_kek"]).derive_kek,
+    ) as mock_derive_kek:
+        with pytest.raises(VaultEmptyPassphraseError):
+            VaultState.unseal("")  # nosec B105 # pragma: allowlist secret
+
+    mock_derive_kek.assert_called_once()
+
+
+def test_vault_empty_passphrase_still_raises_vault_empty_passphrase_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """VaultEmptyPassphraseError is still raised for empty passphrases after timing fix.
+
+    AC2 (T38.2): The observable behaviour (exception type) must not change.
+    """
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+
+    from synth_engine.shared.security.vault import VaultEmptyPassphraseError, VaultState
+
+    with pytest.raises(VaultEmptyPassphraseError, match="[Pp]assphrase"):
+        VaultState.unseal("")  # nosec B105 # pragma: allowlist secret

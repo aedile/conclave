@@ -49,9 +49,10 @@ def _write_parquet_with_signing(
     T23.1 spec).
 
     If the key is present but malformed (non-hex characters or odd length),
-    the ``ValueError`` from ``bytes.fromhex`` is caught, a WARNING is logged,
-    and signing is skipped gracefully — the Parquet file has already been
-    written and the job continues normally.
+    the ``ValueError`` from ``bytes.fromhex`` is caught, an ERROR is logged
+    (T38.4: elevated from WARNING — malformed key is a security-relevant
+    misconfiguration), and signing is skipped — the Parquet file has already
+    been written and the job continues normally.
 
     Args:
         df: A :class:`pandas.DataFrame` to serialise as Parquet.  Typed as
@@ -65,10 +66,10 @@ def _write_parquet_with_signing(
     Note:
         If ARTIFACT_SIGNING_KEY is present but contains invalid hex
         characters or has an odd length, the :exc: raised by
-        bytes.fromhex() is caught internally and signing is silently
-        skipped with a WARNING log.  The Parquet file is already written at
-        that point and the job continues normally.  This is the function's
-        primary defensive behavior.
+        bytes.fromhex() is caught internally and signing is skipped with
+        an ERROR log.  The Parquet file is already written at that point
+        and the job continues normally.  This is the function's primary
+        defensive behavior.
 
     """  # noqa: DOC502
     # F5 fix: log basename only — full paths may expose internal filesystem layout.
@@ -91,10 +92,13 @@ def _write_parquet_with_signing(
         return
 
     # F2 fix: guard bytes.fromhex() against malformed hex input (ValueError).
+    # T38.4: elevated to ERROR — a malformed signing key means the operator
+    # configured signing but artifacts are written unsigned; this is a
+    # security-relevant misconfiguration that warrants ERROR, not WARNING.
     try:
         signing_key = bytes.fromhex(signing_key_hex)
     except ValueError:
-        _logger.warning(
+        _logger.error(
             "ARTIFACT_SIGNING_KEY is not valid hex; skipping Parquet signing: %s",
             parquet_name,
         )
