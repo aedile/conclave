@@ -97,9 +97,10 @@ from synth_engine.shared.exceptions import (
     OOMGuardrailError,
     PrivilegeEscalationError,
     VaultAlreadyUnsealedError,
+    VaultConfigError,
+    VaultEmptyPassphraseError,
     VaultSealedError,
 )
-from synth_engine.shared.security.vault import VaultConfigError, VaultEmptyPassphraseError
 
 _logger = logging.getLogger(__name__)
 
@@ -204,13 +205,17 @@ OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
         status_code=400,
         type_uri="about:blank",
     ),
+    # HTTP 400 (not 409) is intentional: "already unsealed" means the operator's
+    # desired state is already achieved — a bad request, not a resource conflict.
+    # This matches the bespoke inline handler in bootstrapper/lifecycle.py which
+    # also returns 400 for VaultAlreadyUnsealedError on POST /unseal.
     VaultAlreadyUnsealedError: OperatorErrorEntry(
         title="Vault Already Unsealed",
         detail=(
             "The vault is already unsealed. No action is required. "
             "To re-seal and rotate the key, call POST /seal first."
         ),
-        status_code=409,
+        status_code=400,
         type_uri="about:blank",
     ),
     LicenseError: OperatorErrorEntry(

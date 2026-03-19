@@ -748,11 +748,16 @@ class TestT343CompleteOperatorErrorMap:
     CONSTITUTION Priority 0: Security — sanitized messages for security-sensitive exceptions.
     """
 
-    def test_vault_already_unsealed_error_maps_to_409_conflict(self) -> None:
-        """VaultAlreadyUnsealedError must map to HTTP 409 Conflict.
+    def test_vault_already_unsealed_error_maps_to_400_bad_request(self) -> None:
+        """VaultAlreadyUnsealedError must map to HTTP 400 Bad Request.
 
-        Attempting to unseal an already-unsealed vault is a client-state conflict,
-        not a server error. HTTP 409 Conflict is the correct status code.
+        Attempting to unseal an already-unsealed vault is a bad request — the
+        operator's desired state (vault unsealed) is already achieved. HTTP 400
+        Bad Request is more appropriate than 409 Conflict and is consistent with
+        the bespoke inline handler in bootstrapper/lifecycle.py.
+
+        Review finding P34: status code reconciliation between OPERATOR_ERROR_MAP
+        and the bespoke handler in lifecycle.py — both must agree on 400.
         """
         from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
         from synth_engine.shared.exceptions import VaultAlreadyUnsealedError
@@ -761,7 +766,7 @@ class TestT343CompleteOperatorErrorMap:
             "VaultAlreadyUnsealedError must be in OPERATOR_ERROR_MAP (T34.3)"
         )
         entry = OPERATOR_ERROR_MAP[VaultAlreadyUnsealedError]
-        assert entry["status_code"] == 409
+        assert entry["status_code"] == 400
         assert entry["type_uri"] == "about:blank"
         assert len(entry["title"]) > 0
         assert len(entry["detail"]) > 0
@@ -907,8 +912,12 @@ class TestT343CompleteOperatorErrorMap:
         )
 
     @pytest.mark.asyncio
-    async def test_vault_already_unsealed_raises_409_through_middleware(self) -> None:
-        """VaultAlreadyUnsealedError raised in a route must produce RFC 7807 409 response."""
+    async def test_vault_already_unsealed_raises_400_through_middleware(self) -> None:
+        """VaultAlreadyUnsealedError raised in a route must produce RFC 7807 400 response.
+
+        Review finding P34: OPERATOR_ERROR_MAP maps VaultAlreadyUnsealedError to 400
+        (consistent with the bespoke inline handler in bootstrapper/lifecycle.py).
+        """
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.shared.exceptions import VaultAlreadyUnsealedError
 
@@ -933,11 +942,42 @@ class TestT343CompleteOperatorErrorMap:
             ) as client:
                 response = await client.get("/test-vault-already-unsealed")
 
-        assert response.status_code == 409
+        assert response.status_code == 400
         body = response.json()
         assert body["type"] == "about:blank"
-        assert body["status"] == 409
+        assert body["status"] == 400
         assert "title" in body
+        assert "detail" in body
+
+    @pytest.mark.asyncio
+    async def test_post_unseal_when_already_unsealed_returns_400(self) -> None:
+        """POST /unseal when vault is already unsealed must return HTTP 400.
+
+        Review finding P34: the lifecycle.py bespoke handler for VaultAlreadyUnsealedError
+        on POST /unseal returns 400. This test exercises that path directly to confirm
+        the concrete endpoint agrees with the OPERATOR_ERROR_MAP entry (both 400).
+        """
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.shared.security.vault import VaultAlreadyUnsealedError, VaultState
+
+        app = create_app()
+        with patch.object(
+            VaultState,
+            "unseal",
+            side_effect=VaultAlreadyUnsealedError(
+                "Vault is already unsealed. Call seal() before unsealing again."
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post("/unseal", json={"passphrase": "any-passphrase"})
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["type"] == "about:blank"
+        assert body["title"] == "Vault Already Unsealed"
+        assert body["status"] == 400
         assert "detail" in body
 
     @pytest.mark.asyncio
