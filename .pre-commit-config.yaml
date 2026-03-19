@@ -96,6 +96,8 @@ repos:
           - botocore-stubs
           # T5.1 SSE streaming dependency
           - sse-starlette>=2.1.0
+          # T36.1 centralized settings — pydantic-settings (BaseSettings)
+          - pydantic-settings>=2.0.0
         files: ^src/
 
   # ---------------------------------------------------------------------------

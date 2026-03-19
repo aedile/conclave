@@ -56,6 +56,7 @@ qrcode = {version = ">=8.0.0,<9.0.0", extras = ["pil"]}
 # pillow is a transitive dependency of qrcode[pil] but pinned here explicitly
 # to ensure version stability and allow security audits via pip-audit.
 pillow = ">=12.0.0,<13.0.0"
+pydantic-settings = ">=2.0.0,<3.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"
@@ -176,6 +177,8 @@ external = ["DOC"]
 #         suppression documentation; the file-level S311 ignore makes them technically unused.
 # These are exploratory spikes, not production code.
 "docs/retired/spikes/**" = ["S311", "S608", "RUF100"]
+# S608: same rationale as docs/retired/spikes — schema identifiers from sqlite_master only.
+"docs/archive/spikes/**" = ["S311", "S608", "RUF100"]
 # B008: FastAPI Depends() in argument defaults is the canonical FastAPI DI pattern.
 # The inner `dependency` function is only invoked by the FastAPI framework, never
 # called directly as plain Python, so this is intentional and safe.
@@ -232,6 +235,13 @@ packages = ["synth_engine"]
 
 [[tool.mypy.overrides]]
 module = ["sdv.*", "ctgan.*", "opacus.*", "huey", "huey.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# pydantic-settings ships py.typed in newer releases but some environments
+# (e.g. pre-commit mypy hook) may not have it installed alongside pydantic.
+# Consistent with the strategy in ADR-0032 — rely on runtime integration tests.
+module = ["pydantic_settings"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

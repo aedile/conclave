@@ -15,10 +15,11 @@ T25.2: ``inject_trace_context()`` and ``extract_trace_context()`` provide
 W3C Trace Context propagation for Huey async task boundaries.  Injecting
 at the dispatch site (FastAPI router) and extracting at the worker entry
 point (tasks.py) restores distributed trace continuity across processes.
+
+Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 """
 
 import logging
-import os
 from typing import cast
 from urllib.parse import urlparse
 
@@ -30,7 +31,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import Tracer
 
-_OTLP_ENDPOINT_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
+from synth_engine.shared.settings import get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ def _build_exporter() -> SpanExporter:
     Returns:
         A configured SpanExporter instance.
     """
-    endpoint = os.environ.get(_OTLP_ENDPOINT_ENV)
+    endpoint = get_settings().otel_exporter_otlp_endpoint
     if endpoint:
         # Import lazily so that opentelemetry-exporter-otlp is optional;
         # if it's absent the fallback path is taken automatically.
@@ -104,8 +105,7 @@ def _build_exporter() -> SpanExporter:
             )
 
     _logger.info(
-        "OTEL: %s not set — using InMemorySpanExporter (dev/test only)",
-        _OTLP_ENDPOINT_ENV,
+        "OTEL: OTEL_EXPORTER_OTLP_ENDPOINT not set — using InMemorySpanExporter (dev/test only)",
     )
     return InMemorySpanExporter()
 

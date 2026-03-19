@@ -20,7 +20,6 @@ import contextlib
 import hashlib
 import hmac
 import logging
-import os
 import re
 from collections.abc import AsyncGenerator, Generator, Iterator
 from pathlib import Path
@@ -107,7 +106,9 @@ def _verify_artifact_signature(output_path: str) -> bool | None:
         verification skipped) or if an ``OSError`` occurred reading the
         artifact or sidecar (also logged at WARNING; verification skipped).
     """
-    raw_key_env = os.environ.get(_ARTIFACT_SIGNING_KEY_ENV)
+    from synth_engine.shared.settings import get_settings
+
+    raw_key_env = get_settings().artifact_signing_key
     if not raw_key_env or not raw_key_env.strip():
         return None  # signing not enabled — skip verification
 

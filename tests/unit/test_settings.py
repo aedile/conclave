@@ -14,32 +14,9 @@ Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 
 from __future__ import annotations
 
-import importlib
-import os
-from functools import lru_cache
-from unittest.mock import patch
-
 import pytest
 
-
 pytestmark = pytest.mark.unit
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _reload_settings_module() -> object:
-    """Reload the settings module to bust the lru_cache singleton.
-
-    Returns:
-        The freshly-imported settings module object.
-    """
-    import synth_engine.shared.settings as settings_module
-
-    importlib.reload(settings_module)
-    return settings_module
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +26,10 @@ def _reload_settings_module() -> object:
 
 def test_settings_parses_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """ConclaveSettings.database_url is populated from DATABASE_URL env var."""
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
 
     from synth_engine.shared.settings import ConclaveSettings
@@ -195,40 +175,41 @@ def test_settings_parses_artifact_signing_key(monkeypatch: pytest.MonkeyPatch) -
 # ---------------------------------------------------------------------------
 
 
-def test_settings_missing_database_url_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings raises ValidationError when DATABASE_URL is missing.
+def test_settings_missing_database_url_defaults_to_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ConclaveSettings.database_url defaults to empty string when DATABASE_URL is absent.
 
-    DATABASE_URL is required for the engine to function in any mode.
+    The model itself does not raise on missing DATABASE_URL — runtime validation
+    is handled by config_validation.validate_config() at startup.  This keeps
+    the model lightweight and testable in environments where DATABASE_URL is
+    not set (e.g., unit tests for non-DB code).
     """
-    from pydantic import ValidationError
-
     from synth_engine.shared.settings import ConclaveSettings
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
 
-    with pytest.raises(ValidationError) as exc_info:
-        ConclaveSettings()
-
-    assert "database_url" in str(exc_info.value).lower()
+    s = ConclaveSettings()
+    assert s.database_url == ""
 
 
-def test_settings_missing_audit_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings raises ValidationError when AUDIT_KEY is missing.
+def test_settings_missing_audit_key_defaults_to_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ConclaveSettings.audit_key defaults to empty string when AUDIT_KEY is absent.
 
-    AUDIT_KEY is required in all deployment modes to protect the audit log.
+    The model itself does not raise on missing AUDIT_KEY — runtime validation
+    is handled by config_validation.validate_config() at startup (all modes)
+    and by _load_audit_key() when the audit logger is first created.
     """
-    from pydantic import ValidationError
-
     from synth_engine.shared.settings import ConclaveSettings
 
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.delenv("AUDIT_KEY", raising=False)
 
-    with pytest.raises(ValidationError) as exc_info:
-        ConclaveSettings()
-
-    assert "audit_key" in str(exc_info.value).lower()
+    s = ConclaveSettings()
+    assert s.audit_key == ""
 
 
 # ---------------------------------------------------------------------------

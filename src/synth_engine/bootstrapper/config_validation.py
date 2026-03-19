@@ -30,6 +30,7 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P9-T9.1 — Advisory Drain + Startup Validation (ADV-077)
 Task: P19-T19.2 — Security Hardening: MASKING_SALT production enforcement
 Task: P20-T20.4 — Architecture Tightening (ADV-020: SSL override warning)
+Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 """
 
 from __future__ import annotations

@@ -52,7 +52,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import threading
 import uuid
 from datetime import UTC, datetime
@@ -106,13 +105,15 @@ _EMBEDDED_PUBLIC_KEY: str = (
 def get_active_public_key() -> str:
     """Return the public key to use for JWT verification.
 
-    Checks ``LICENSE_PUBLIC_KEY`` environment variable first; falls back to
+    Checks ``LICENSE_PUBLIC_KEY`` via :func:`get_settings` first; falls back to
     the embedded placeholder key.
 
     Returns:
         PEM-encoded RSA public key string.
     """
-    env_key = os.environ.get("LICENSE_PUBLIC_KEY")
+    from synth_engine.shared.settings import get_settings
+
+    env_key = get_settings().license_public_key
     if env_key:
         return env_key
     return _EMBEDDED_PUBLIC_KEY

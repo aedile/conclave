@@ -16,7 +16,6 @@ Task: P26-T26.1 — Split Oversized Files (Refactor Only)
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 from synth_engine.shared.security.hmac_signing import HMAC_DIGEST_SIZE, compute_hmac
@@ -81,7 +80,9 @@ def _write_parquet_with_signing(
     df.to_parquet(parquet_path, index=False)  # type: ignore[attr-defined]  # duck-typed pandas DataFrame; guaranteed by caller
     _logger.debug("Parquet artifact written: %s", parquet_name)
 
-    signing_key_hex = os.environ.get(_ARTIFACT_SIGNING_KEY_ENV)
+    from synth_engine.shared.settings import get_settings
+
+    signing_key_hex = get_settings().artifact_signing_key
     if not signing_key_hex:
         _logger.warning(
             "ARTIFACT_SIGNING_KEY is not set; Parquet artifact written unsigned: %s",

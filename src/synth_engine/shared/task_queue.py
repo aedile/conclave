@@ -25,31 +25,21 @@ Boundary constraints (import-linter enforced):
 Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 T2.1 context: Huey was specified as the task queue in the Phase 2 bootstrapper
 spec.  This module provides the singleton Huey instance that T4.2c tasks use.
+Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from urllib.parse import urlparse, urlunparse
 
 from huey import (  # huey: import suppressed via pyproject.toml [[tool.mypy.overrides]]
     Huey,
 )
 
+from synth_engine.shared.settings import get_settings
+
 _logger = logging.getLogger(__name__)
-
-#: Environment variable that selects the Huey backend.
-_HUEY_BACKEND_ENV: str = "HUEY_BACKEND"
-
-#: Environment variable for the Redis connection URL.
-_REDIS_URL_ENV: str = "REDIS_URL"
-
-#: Default Redis URL used when REDIS_URL is not set.
-_DEFAULT_REDIS_URL: str = "redis://redis:6379/0"
-
-#: Environment variable to enable Huey immediate mode (synchronous execution).
-_HUEY_IMMEDIATE_ENV: str = "HUEY_IMMEDIATE"
 
 
 def _mask_redis_url(redis_url: str) -> str:
@@ -74,8 +64,8 @@ def _mask_redis_url(redis_url: str) -> str:
 def _build_huey() -> Huey:
     """Build and return the shared Huey instance.
 
-    Reads configuration from the environment at module import time.  The
-    resulting instance is bound to the module-level ``huey`` name.
+    Reads configuration from :func:`get_settings` at module import time.
+    The resulting instance is bound to the module-level ``huey`` name.
 
     Backend selection:
       - ``HUEY_BACKEND=redis`` (default): ``RedisHuey`` connected to
@@ -89,9 +79,9 @@ def _build_huey() -> Huey:
     Returns:
         A configured Huey instance (``RedisHuey`` or ``MemoryHuey``).
     """
-    backend = os.environ.get(_HUEY_BACKEND_ENV, "redis").lower().strip()
-    immediate_raw = os.environ.get(_HUEY_IMMEDIATE_ENV, "").strip().lower()
-    immediate = immediate_raw in {"1", "true", "yes"}
+    settings = get_settings()
+    backend = settings.huey_backend.lower().strip()
+    immediate = settings.huey_immediate
 
     if backend == "memory":
         from huey import MemoryHuey
@@ -102,7 +92,7 @@ def _build_huey() -> Huey:
     # Default: Redis backend
     from huey import RedisHuey
 
-    redis_url = os.environ.get(_REDIS_URL_ENV, _DEFAULT_REDIS_URL)
+    redis_url = settings.redis_url
     safe_url = _mask_redis_url(redis_url)
     _logger.info(
         "Huey: using RedisHuey (url=%s, immediate=%s).",

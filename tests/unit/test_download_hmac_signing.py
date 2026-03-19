@@ -25,6 +25,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlmodel import Session, SQLModel, create_engine
 
+from synth_engine.shared.settings import get_settings
+
 pytestmark = pytest.mark.unit
 
 
@@ -99,6 +101,7 @@ class TestDownloadEndpointHMACSigningActive:
         p1, p2 = _vault_license_patches()
 
         with p1, p2, patch.dict(os.environ, {"ARTIFACT_SIGNING_KEY": signing_key.hex()}):
+            get_settings.cache_clear()
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -160,6 +163,7 @@ class TestDownloadEndpointHMACSigningActive:
         # Use a valid key — but the stored signature is wrong
         signing_key = b"\xab" * 32
         with p1, p2, patch.dict(os.environ, {"ARTIFACT_SIGNING_KEY": signing_key.hex()}):
+            get_settings.cache_clear()
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -219,6 +223,7 @@ class TestDownloadEndpointHMACSigningActive:
 
         signing_key = b"\xcd" * 32
         with p1, p2, patch.dict(os.environ, {"ARTIFACT_SIGNING_KEY": signing_key.hex()}):
+            get_settings.cache_clear()
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -278,6 +283,7 @@ class TestDownloadEndpointHMACSigningActive:
 
         signing_key = b"\xef" * 32
         with p1, p2, patch.dict(os.environ, {"ARTIFACT_SIGNING_KEY": signing_key.hex()}):
+            get_settings.cache_clear()
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:

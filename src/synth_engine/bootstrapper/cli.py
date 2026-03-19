@@ -38,7 +38,6 @@ Task: P21-T21.2 — Masking algorithm split: first_name, last_name, address
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from collections.abc import Callable
 from typing import Any
@@ -67,20 +66,32 @@ _logger = logging.getLogger(__name__)
 # Masking transformer factory
 # ---------------------------------------------------------------------------
 
-# Salt used by the CLI masking transformer.
-# Per ADR note on ADV-027: deterministic-across-deployments without a secret
-# is the current design for the CLI.
-#
-# ADV-035: Read from MASKING_SALT env var when set; fall back to the hardcoded
-# development value with a warning so operators are directed to inject the
-# production salt from Vault or the environment.
-_CLI_MASKING_SALT = os.environ.get("MASKING_SALT", "")
-if not _CLI_MASKING_SALT:
-    _logger.warning(
-        "MASKING_SALT env var not set; using hardcoded CLI fallback. "
-        "Set MASKING_SALT for production use."
-    )
-    _CLI_MASKING_SALT = "conclave-cli-v1"
+#: Development fallback salt used when MASKING_SALT is not set.
+#: Per ADV-027: deterministic-across-deployments without a secret is the
+#: design for CLI development mode.
+_CLI_MASKING_SALT_FALLBACK: str = "conclave-cli-v1"
+
+
+def _get_cli_masking_salt() -> str:
+    """Return the CLI masking salt, reading from settings at call time.
+
+    ADV-035: Reads from :attr:`ConclaveSettings.masking_salt` when set;
+    falls back to the hardcoded development value with a warning.
+
+    Returns:
+        The masking salt string to use for deterministic HMAC masking.
+    """
+    from synth_engine.shared.settings import get_settings
+
+    salt = get_settings().masking_salt
+    if not salt:
+        _logger.warning(
+            "MASKING_SALT env var not set; using hardcoded CLI fallback. "
+            "Set MASKING_SALT for production use."
+        )
+        return _CLI_MASKING_SALT_FALLBACK
+    return salt
+
 
 # Column-level masking configuration: table → {column → masking function}.
 # Only PII columns are listed; all others pass through unchanged.
@@ -147,7 +158,7 @@ def _build_masking_transformer() -> Callable[[str, dict[str, Any]], dict[str, An
         result = dict(row)
         for col, fn in masks.items():
             if col in result and result[col] is not None:
-                result[col] = fn(str(result[col]), _CLI_MASKING_SALT)
+                result[col] = fn(str(result[col]), _get_cli_masking_salt())
         return result
 
     return _mask_row

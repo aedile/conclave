@@ -26,7 +26,6 @@ Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -194,7 +193,9 @@ async def rotate_keys(body: RotateRequest) -> JSONResponse:
     wrapped_key = get_fernet().encrypt(new_fernet_key).decode()
 
     # Read DATABASE_URL for the Huey task (task runs in a separate worker process)
-    database_url = os.environ.get("DATABASE_URL", "")
+    from synth_engine.shared.settings import get_settings
+
+    database_url = get_settings().database_url or ""
     if not database_url:
         _logger.warning(
             "DATABASE_URL not set; rotate_ale_keys_task will fail in the worker. "

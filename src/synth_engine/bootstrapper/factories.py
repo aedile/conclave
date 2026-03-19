@@ -42,7 +42,6 @@ connections between invocations provides no benefit and wastes server resources.
 from __future__ import annotations
 
 import logging
-import os
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -211,7 +210,9 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
     from sqlalchemy import create_engine
     from sqlalchemy.pool import NullPool
 
-    database_url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
+    from synth_engine.shared.settings import get_settings
+
+    database_url = get_settings().database_url or "sqlite:///:memory:"
     sync_url = _promote_to_sync_url(database_url)
 
     # Build the engine once at factory scope — reused for every invocation of

@@ -36,7 +36,6 @@ Task: P20-T20.4 -- Architecture Tightening (ADV-020: configurable sslmode)
 
 from __future__ import annotations
 
-import os
 from urllib.parse import parse_qs, urlparse
 
 _LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -64,8 +63,9 @@ def _ssl_enforcement_enabled() -> bool:
         ``True`` when SSL should be enforced (production default).
         ``False`` when ``CONCLAVE_SSL_REQUIRED=false`` is set in the environment.
     """
-    raw = os.environ.get("CONCLAVE_SSL_REQUIRED", "true")
-    return raw.lower() != "false"
+    from synth_engine.shared.settings import get_settings
+
+    return get_settings().conclave_ssl_required
 
 
 def _sanitize_url(url: str) -> str:
