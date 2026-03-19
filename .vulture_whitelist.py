@@ -180,3 +180,13 @@ dispose_engines  # unused function — engine cache teardown utility (shared/db.
 
 forward  # unused method — OpacusCompatibleDiscriminator.forward() called by PyTorch nn.Module
 calc_gradient_penalty  # unused method — OpacusCompatibleDiscriminator.calc_gradient_penalty() called by unit tests for WGAN gradient penalty validation
+
+# ---------------------------------------------------------------------------
+# Category I — ConclaveSettings public API
+# is_production() is a public method on ConclaveSettings consumed by
+# tests (test_settings.py) and available for production callers that want
+# to check deployment mode. Vulture cannot trace method calls on BaseSettings
+# instances that are accessed via get_settings() singleton.
+# ---------------------------------------------------------------------------
+
+is_production  # unused method — ConclaveSettings.is_production() (shared/settings.py)

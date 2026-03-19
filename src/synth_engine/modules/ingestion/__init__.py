@@ -21,4 +21,17 @@ in ``modules/mapping``.  The subsetting and egress logic lives in
 a single coherent responsibility.
 
 Task: P3.5-T3.5.2 — Module Cohesion Refactor
+Task: T36.4 — Add __all__ (standardise module exports)
 """
+
+from synth_engine.modules.ingestion.postgres_adapter import (
+    PostgresIngestionAdapter,
+    SchemaInspector,
+)
+from synth_engine.shared.exceptions import PrivilegeEscalationError
+
+__all__ = [
+    "PostgresIngestionAdapter",
+    "PrivilegeEscalationError",
+    "SchemaInspector",
+]

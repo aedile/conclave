@@ -159,6 +159,12 @@ Security is Priority Zero — it overrides every other consideration. See
 **Current**: Discriminator-level DP-SGD (Phase 30). Proxy-model fallback available for
 environments where Opacus cannot instrument the Discriminator.
 
+> **Benchmarks Pending** — The Phase 30 discriminator-level DP-SGD quality benchmark has not
+> yet been executed against the production training path. Historical proxy-model benchmark
+> results are available in [docs/DP_QUALITY_REPORT.md](docs/DP_QUALITY_REPORT.md). Run
+> `poetry run python3 scripts/benchmark_dp_quality.py` to generate live discriminator-level
+> results.
+
 | Aspect | Phase 30 Implementation | Proxy-model Fallback |
 |--------|------------------------|---------------------|
 | DP accounting scope | Direct DP-SGD on `OpacusCompatibleDiscriminator` — real Discriminator gradient steps | Proxy linear model trained on the same preprocessed data as the CTGAN |

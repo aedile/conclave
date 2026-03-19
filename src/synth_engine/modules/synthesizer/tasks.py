@@ -75,7 +75,6 @@ Task: P26-T26.1 — Split Oversized Files (Refactor Only)
 from __future__ import annotations
 
 import logging
-import os
 
 # ---------------------------------------------------------------------------
 # Re-exports from job_orchestration — backward compatibility for callers that
@@ -186,8 +185,9 @@ def run_synthesis_job(job_id: int, *, trace_carrier: dict[str, str] | None = Non
 
         from synth_engine.modules.synthesizer.engine import SynthesisEngine
         from synth_engine.shared.db import get_engine
+        from synth_engine.shared.settings import get_settings
 
-        database_url = os.environ.get("DATABASE_URL", "sqlite:///:memory:")
+        database_url = get_settings().database_url or "sqlite:///:memory:"
         db_engine = get_engine(database_url)
         synthesis_engine = SynthesisEngine()
 

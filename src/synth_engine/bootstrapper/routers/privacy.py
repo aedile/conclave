@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from decimal import Decimal
 from typing import Annotated
 
@@ -159,7 +158,9 @@ def _run_reset_budget(
         from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
         from sqlalchemy.ext.asyncio import create_async_engine
 
-        database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+        from synth_engine.shared.settings import get_settings
+
+        database_url = get_settings().database_url or "sqlite+aiosqlite:///:memory:"
 
         if "postgresql://" in database_url and "+asyncpg" not in database_url:
             async_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)

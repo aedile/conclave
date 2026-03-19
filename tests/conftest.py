@@ -3,15 +3,23 @@
 This module registers custom markers and scaffolds future DB fixtures.
 
 Task: P1-T1.2 — TDD Framework
+Task: T36.1 — Add settings cache-clear autouse fixture
 """
 
 from __future__ import annotations
 
 import gc
+import os
 import warnings
 from collections.abc import Generator
 
 import pytest
+
+#: Minimal test-safe defaults injected when not already set.
+#: These prevent ``ConclaveSettings`` construction failures in tests that
+#: exercise non-DB / non-audit code paths but still trigger ``get_settings()``.
+_TEST_DATABASE_URL: str = "sqlite:///:memory:"
+_TEST_AUDIT_KEY: str = "aa" * 32  # 64 hex chars = 32 bytes  # pragma: allowlist secret
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -28,6 +36,57 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "integration: Tests requiring live databases or external services (Task 2.2)",
     )
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Clear the get_settings() lru_cache and ensure minimal env vars are set.
+
+    Tests that manipulate environment variables via ``monkeypatch.setenv``
+    or ``monkeypatch.delenv`` must see their changes reflected when code
+    calls ``get_settings()``.  Without this fixture the lru_cache would
+    return a stale :class:`ConclaveSettings` instance from a previous test,
+    causing flaky failures.
+
+    This fixture also ensures that ``DATABASE_URL`` and ``AUDIT_KEY`` are
+    set to test-safe defaults when not already present.  Many tests exercise
+    code that incidentally calls ``get_settings()`` but does not care about
+    the DB or audit key values.  Without the defaults, ``ConclaveSettings``
+    raises ``ValidationError`` for required-but-absent fields.
+
+    Tests that explicitly need to control ``DATABASE_URL`` or ``AUDIT_KEY``
+    (e.g., ``test_settings.py``) use ``monkeypatch.setenv`` / ``delenv``
+    which override these defaults within the test scope.
+
+    Args:
+        monkeypatch: The pytest monkeypatch fixture for reversible env manipulation.
+
+    Yields:
+        None — setup/teardown only.
+    """
+    # Clear cache before the test so monkeypatched env vars take effect.
+    try:
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+    except ImportError:
+        pass  # Module not yet created during test discovery
+
+    # Inject test-safe defaults only if not already set.
+    if not os.environ.get("DATABASE_URL"):
+        monkeypatch.setenv("DATABASE_URL", _TEST_DATABASE_URL)
+    if not os.environ.get("AUDIT_KEY"):
+        monkeypatch.setenv("AUDIT_KEY", _TEST_AUDIT_KEY)
+
+    yield
+
+    # Clear cache after the test so the next test starts clean.
+    try:
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+    except ImportError:
+        pass
 
 
 @pytest.fixture(autouse=True)

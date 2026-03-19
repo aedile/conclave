@@ -26,6 +26,7 @@ Security properties
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
 Task: P2-D3  — AuditLogger singleton & cross-request chain integrity
+Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 """
 
 from __future__ import annotations
@@ -33,11 +34,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-import os
 import threading
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
+
+from synth_engine.shared.settings import get_settings
 
 _AUDIT_LOGGER_NAME = "synth_engine.security.audit"
 _GENESIS_HASH = "0" * 64
@@ -199,7 +201,7 @@ class AuditLogger:
 
 
 def _load_audit_key() -> bytes:
-    """Read and validate ``AUDIT_KEY`` from the environment.
+    """Read and validate ``AUDIT_KEY`` from :attr:`ConclaveSettings.audit_key`.
 
     Returns:
         Raw 32-byte HMAC signing key decoded from the hex env var.
@@ -208,7 +210,7 @@ def _load_audit_key() -> bytes:
         ValueError: If ``AUDIT_KEY`` is absent, wrong length, or not
             valid hexadecimal.
     """
-    raw = os.environ.get("AUDIT_KEY")
+    raw = get_settings().audit_key
     if not raw:
         raise ValueError(
             "AUDIT_KEY environment variable is not set. "

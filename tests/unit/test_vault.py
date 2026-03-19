@@ -4,6 +4,7 @@ RED Phase — all tests must fail before implementation exists.
 
 CONSTITUTION Priority 3: TDD
 Task: P2-T2.4 — Vault Observability
+Task: T36.4 — Edge-case: very long passphrase (>1 MB)
 """
 
 from __future__ import annotations
@@ -154,6 +155,36 @@ def test_re_unseal_while_unsealed_raises_vault_already_unsealed_error(vault_salt
 
     with pytest.raises(VaultAlreadyUnsealedError, match="already unsealed"):
         VaultState.unseal("second-passphrase")  # nosec B105 # pragma: allowlist secret
+
+
+# ---------------------------------------------------------------------------
+# Edge-case: very long passphrase (T36.4)
+# ---------------------------------------------------------------------------
+
+
+def test_unseal_with_very_long_passphrase_succeeds(vault_salt_env: str) -> None:
+    """unseal() with a passphrase exceeding 1 MB must not raise and must produce a 32-byte KEK.
+
+    PBKDF2-HMAC-SHA256 accepts passphrases of arbitrary length.  A pathological
+    1 MB passphrase must not cause a buffer overflow, silent truncation, or an
+    unexpected exception.  The function must complete and leave the vault unsealed
+    with a valid 32-byte KEK in memory.
+
+    Note: PBKDF2 with 600_000 iterations on a large passphrase is intentionally
+    slow — this is a correctness test, not a performance benchmark.  The passphrase
+    is ASCII-only to keep the encoding fast.
+    """
+    from synth_engine.shared.security.vault import VaultState
+
+    # 1 MB + 1 byte of ASCII 'a' — well beyond any internal buffer assumption
+    long_passphrase = "a" * (1024 * 1024 + 1)  # nosec B105 # pragma: allowlist secret
+
+    VaultState.unseal(long_passphrase)
+
+    assert VaultState.is_sealed() is False, "Vault must be unsealed after unseal() call"
+    kek = VaultState.get_kek()
+    assert isinstance(kek, bytes), "KEK must be bytes"
+    assert len(kek) == 32, f"KEK must be exactly 32 bytes, got {len(kek)}"
 
 
 # ---------------------------------------------------------------------------

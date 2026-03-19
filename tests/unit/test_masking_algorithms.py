@@ -370,3 +370,71 @@ def test_deterministic_hash_length_zero_raises_value_error() -> None:
     """
     with pytest.raises(ValueError, match="length"):
         deterministic_hash("x", "y", length=0)
+
+
+# ---------------------------------------------------------------------------
+# mask_value edge cases — salt boundary inputs (T36.4)
+# ---------------------------------------------------------------------------
+
+
+def test_mask_value_empty_salt_is_deterministic() -> None:
+    """mask_value with an empty salt string is deterministic across calls.
+
+    An empty salt is unusual but must not silently fail or raise.
+    The same (value, salt="") pair must always produce the same output.
+    """
+    from synth_engine.modules.masking.deterministic import mask_value
+
+    result_a = mask_value("Alice", "", lambda f: f.name())
+    result_b = mask_value("Alice", "", lambda f: f.name())
+    assert result_a == result_b, (
+        "mask_value with empty salt must be deterministic: "
+        f"first call returned {result_a!r}, second returned {result_b!r}"
+    )
+
+
+def test_mask_value_none_salt_raises_attribute_error() -> None:
+    """mask_value with None as salt raises AttributeError on .encode().
+
+    The salt parameter is typed as str.  Passing None is a caller error;
+    the function must not silently produce wrong output — it will raise
+    AttributeError when calling None.encode() inside deterministic_hash.
+    This test documents the failure mode explicitly.
+    """
+    from synth_engine.modules.masking.deterministic import mask_value
+
+    with pytest.raises((AttributeError, TypeError)):
+        mask_value("Alice", None, lambda f: f.name())  # type: ignore[arg-type]
+
+
+def test_mask_value_special_char_salt_is_deterministic() -> None:
+    """mask_value with a salt containing special characters is deterministic.
+
+    Special characters in the salt (e.g. unicode, punctuation, null-adjacent
+    chars) must not break HMAC computation or produce non-deterministic output.
+    """
+    from synth_engine.modules.masking.deterministic import mask_value
+
+    special_salt = "table\u2019s.col\u00fcmn!@#$%^&*()"
+    result_a = mask_value("Bob", special_salt, lambda f: f.name())
+    result_b = mask_value("Bob", special_salt, lambda f: f.name())
+    assert result_a == result_b, (
+        f"mask_value with special-char salt must be deterministic: {result_a!r} != {result_b!r}"
+    )
+
+
+def test_mask_value_null_bytes_in_salt_is_deterministic() -> None:
+    """mask_value with null bytes embedded in the salt string is deterministic.
+
+    Null bytes are valid Python string characters but may cause issues in
+    C-extension encoding paths.  HMAC-SHA256 handles arbitrary byte sequences;
+    this test verifies the Python .encode('utf-8') path handles null bytes too.
+    """
+    from synth_engine.modules.masking.deterministic import mask_value
+
+    null_salt = "col\x00umn"
+    result_a = mask_value("Charlie", null_salt, lambda f: f.name())
+    result_b = mask_value("Charlie", null_salt, lambda f: f.name())
+    assert result_a == result_b, (
+        f"mask_value with null-byte salt must be deterministic: {result_a!r} != {result_b!r}"
+    )

@@ -4,7 +4,7 @@ This is the central navigation page for all Conclave Engine documentation.
 Documents are organized by primary audience. Many documents are relevant to
 multiple audiences; cross-references are noted.
 
-**Total documents indexed: 92**
+**Total documents indexed: 89**
 
 ---
 
@@ -115,18 +115,11 @@ These prompts are used by AI reviewer agents:
 | [prompts/review/SECURITY.md](prompts/review/SECURITY.md) | Security reviewer |
 | [prompts/review/UI_UX.md](prompts/review/UI_UX.md) | UI/UX reviewer |
 
-### Retired Documents
+### Archived Documents
 
-Historical records kept for reference but no longer actively maintained:
-
-| Document | Notes |
-|----------|-------|
-| [retired/AUTONOMOUS_DEVELOPMENT_PROMPT.md](retired/AUTONOMOUS_DEVELOPMENT_PROMPT.md) | Early autonomous development prompt template |
-| [retired/EXECUTION_PLAN.md](retired/EXECUTION_PLAN.md) | Early execution plan superseded by the backlog |
-| [retired/REQUIREMENTS.md](retired/REQUIREMENTS.md) | Original requirements document superseded by BUSINESS_REQUIREMENTS.md |
-| [retired/spikes/findings_spike_a.md](retired/spikes/findings_spike_a.md) | Phase 0.8 Spike A findings (ML memory bounds) |
-| [retired/spikes/findings_spike_b.md](retired/spikes/findings_spike_b.md) | Phase 0.8 Spike B findings |
-| [retired/spikes/findings_spike_c.md](retired/spikes/findings_spike_c.md) | Phase 0.8 Spike C findings |
+Historical records no longer actively maintained. Not indexed — see `docs/archive/` for
+the full list. Archived documents include superseded requirement drafts, the original
+execution plan, and Phase 0.8 spike findings (ML memory, FPE, and topological subsetting).
 
 ---
 
@@ -216,10 +209,10 @@ evidence.
 | Backlog documents | 25 |
 | Retrospective archives | 3 |
 | Review prompt templates | 8 |
-| Retired documents | 6 |
+| Archived documents | 6 (not indexed — see `docs/archive/`) |
 | ADRs (including template) | 36 |
 | Security cross-references | (subset of above) |
-| **Total** | **95** |
+| **Total** | **89** |
 
 ---
 

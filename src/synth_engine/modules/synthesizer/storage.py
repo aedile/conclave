@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import io
 import logging
-import os
 from typing import Protocol, cast, runtime_checkable
 
 import pandas as pd
@@ -43,13 +42,6 @@ _logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
-
-#: Environment variable name for forcing CPU mode.
-#: Set to ``"true"`` (case-insensitive) to bypass GPU detection.
-FORCE_CPU_ENV_VAR: str = "FORCE_CPU"
-
-
 # ---------------------------------------------------------------------------
 # Device selection
 # ---------------------------------------------------------------------------
@@ -73,11 +65,9 @@ def _log_device_selection() -> str:
     """
     import torch  # deferred import: only needed when device selection is invoked
 
-    force_cpu = os.environ.get(FORCE_CPU_ENV_VAR, "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+    from synth_engine.shared.settings import get_settings
+
+    force_cpu = get_settings().force_cpu
 
     if force_cpu:
         _logger.info("FORCE_CPU=true — using CPU device (GPU passthrough disabled).")

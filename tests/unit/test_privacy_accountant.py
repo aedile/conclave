@@ -17,6 +17,7 @@ Tests verify:
 9. ``reset_budget()`` with ``new_allocated_epsilon`` updates the ceiling.
 10. ``reset_budget()`` raises ``NoResultFound`` for a missing ledger.
 11. ``reset_budget()`` raises ``ValueError`` for a non-positive new allocation.
+12. NUMERIC(20,10) precision: value at rounding boundary rounds to zero in SQLite.
 
 These tests use ``sqlite+aiosqlite:///:memory:`` so they require no external
 infrastructure.  Concurrency safety is covered by the integration tests which
@@ -27,6 +28,7 @@ CONSTITUTION Priority 4: 90%+ coverage
 Task: P4-T4.4 — Privacy Accountant
 Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050, arch finding)
 Task: P22-T22.4 — Budget Management API (reset_budget)
+Task: T36.4 — NUMERIC(20,10) precision loss at rounding boundary
 """
 
 from __future__ import annotations
@@ -872,4 +874,51 @@ async def test_spend_budget_does_not_increment_counter_on_exhaustion(
     after_val = after if after is not None else 0.0
     assert after_val == before_val, (
         f"Counter must NOT increment on exhaustion. Before={before_val}, After={after_val}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests: NUMERIC(20,10) precision loss at rounding boundary (T36.4)
+# ---------------------------------------------------------------------------
+
+
+def test_numeric_precision_boundary_rounds_to_zero() -> None:
+    """A value below NUMERIC(20,10) precision rounds to zero in Python Decimal context.
+
+    NUMERIC(20, 10) has scale=10, meaning the smallest representable non-zero
+    value is 1e-10 (one ten-billionth).  Values smaller than 5e-11 round to
+    zero when quantized to 10 decimal places.
+
+    This test documents the precision boundary so that callers are aware that
+    very small epsilon values (< 5e-11) will silently become zero in PostgreSQL
+    NUMERIC(20, 10) columns.  This is a data-model constraint, not a code bug.
+
+    The test verifies the Python-layer representation of this boundary using
+    Decimal.quantize() — the same rounding that PostgreSQL applies when
+    storing to NUMERIC(20, 10).
+    """
+    from decimal import ROUND_HALF_UP
+
+    # The scale-10 quantum: 0.0000000001
+    quantize_target = Decimal("0.0000000001")
+
+    # A value just below the rounding midpoint: 4.999...e-11 rounds to 0
+    below_boundary = Decimal("0.00000000004")  # 4e-11
+    rounded_below = below_boundary.quantize(quantize_target, rounding=ROUND_HALF_UP)
+    assert rounded_below == Decimal("0.0000000000"), (
+        f"Expected 4e-11 to round to zero at NUMERIC(20,10) scale, got {rounded_below!r}"
+    )
+
+    # A value exactly at the boundary: 5e-11 rounds up to 1e-10
+    at_boundary = Decimal("0.00000000005")  # 5e-11
+    rounded_at = at_boundary.quantize(quantize_target, rounding=ROUND_HALF_UP)
+    assert rounded_at == Decimal("0.0000000001"), (
+        f"Expected 5e-11 to round to 1e-10 at NUMERIC(20,10) scale, got {rounded_at!r}"
+    )
+
+    # A value above the boundary: 6e-11 also rounds up to 1e-10
+    above_boundary = Decimal("0.00000000006")  # 6e-11
+    rounded_above = above_boundary.quantize(quantize_target, rounding=ROUND_HALF_UP)
+    assert rounded_above == Decimal("0.0000000001"), (
+        f"Expected 6e-11 to round to 1e-10 at NUMERIC(20,10) scale, got {rounded_above!r}"
     )

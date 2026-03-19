@@ -1554,10 +1554,17 @@ class TestSpendBudgetFactoryBootstrapper:
             captured_urls.append(url)
             return MagicMock()
 
+        from unittest.mock import MagicMock as _MagicMock
+
+        from synth_engine.shared.settings import get_settings
+
+        mock_settings = _MagicMock()
+        mock_settings.database_url = "sqlite+aiosqlite:///:memory:"
+        get_settings.cache_clear()
         with (
             _patch(
-                "synth_engine.bootstrapper.factories.os.environ.get",
-                return_value="sqlite+aiosqlite:///:memory:",
+                "synth_engine.shared.settings.get_settings",
+                return_value=mock_settings,
             ),
             _patch(
                 "sqlalchemy.ext.asyncio.create_async_engine",

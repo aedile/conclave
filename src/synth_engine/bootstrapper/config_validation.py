@@ -30,12 +30,16 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P9-T9.1 — Advisory Drain + Startup Validation (ADV-077)
 Task: P19-T19.2 — Security Hardening: MASKING_SALT production enforcement
 Task: P20-T20.4 — Architecture Tightening (ADV-020: SSL override warning)
+Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
+Task: P36 review — Delegate _is_production() to get_settings().is_production() (QA Finding 1)
 """
 
 from __future__ import annotations
 
 import logging
 import os
+
+from synth_engine.shared.settings import get_settings
 
 _ALWAYS_REQUIRED: tuple[str, ...] = (
     "DATABASE_URL",
@@ -53,20 +57,15 @@ _logger = logging.getLogger(__name__)
 def _is_production() -> bool:
     """Return ``True`` if the current deployment mode is production.
 
-    Production mode is indicated by either of:
-      - ``ENV=production``
-      - ``CONCLAVE_ENV=production``
-
-    Both env var names are checked for maximum compatibility with deployment
-    tooling that may use either convention.
+    Delegates to :meth:`synth_engine.shared.settings.ConclaveSettings.is_production`
+    via the :func:`get_settings` singleton, ensuring a single source of truth for
+    production-mode detection and eliminating the duplicate ``os.environ.get()``
+    calls that contradicted T36.1's centralization goal (QA Finding 1, P36 review).
 
     Returns:
         ``True`` when the deployment mode is production, ``False`` otherwise.
     """
-    return (
-        os.environ.get("ENV", "").lower() == "production"
-        or os.environ.get("CONCLAVE_ENV", "").lower() == "production"
-    )
+    return get_settings().is_production()
 
 
 def validate_config() -> None:

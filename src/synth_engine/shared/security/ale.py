@@ -49,12 +49,12 @@ enable transparent field-level encryption::
 CONSTITUTION Priority 0: Security
 Task: P2-T2.2 — Secure Database Layer
 Fix:  P2-debt-D1 — ALE-Vault KEK wiring
+Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 """
 
 from __future__ import annotations
 
 import base64
-import os
 from typing import Any
 
 from cryptography.fernet import Fernet
@@ -65,6 +65,7 @@ from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.types import TypeDecorator
 
 from synth_engine.shared.security.vault import VaultState
+from synth_engine.shared.settings import get_settings
 
 # ---------------------------------------------------------------------------
 # HKDF parameters — fixed public labels (not secret)
@@ -112,7 +113,7 @@ def _derive_ale_key_from_kek(kek: bytes) -> bytes:
 
 
 def _load_ale_key_from_env() -> bytes:
-    """Load and validate the ALE key from the ``ALE_KEY`` environment variable.
+    """Load and validate the ALE key from :attr:`ConclaveSettings.ale_key`.
 
     This path is the sealed-vault / development fallback.  In production the
     vault-KEK path (see :func:`get_fernet`) should be used instead.
@@ -123,7 +124,7 @@ def _load_ale_key_from_env() -> bytes:
     Raises:
         RuntimeError: If the ``ALE_KEY`` environment variable is not set.
     """
-    key = os.environ.get("ALE_KEY")
+    key = get_settings().ale_key
     if not key:
         raise RuntimeError("ALE_KEY environment variable not set")
     return key.encode()

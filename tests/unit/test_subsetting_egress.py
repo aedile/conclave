@@ -294,7 +294,7 @@ class TestEgressWriterRollback:
         writer.write("departments", [{"id": 1}])
         writer.write("employees", [{"id": 10, "dept_id": 1}, {"id": 11, "dept_id": 1}])
 
-        with patch("synth_engine.modules.subsetting.egress.logger") as mock_logger:
+        with patch("synth_engine.modules.subsetting.egress._logger") as mock_logger:
             writer.rollback()
 
         mock_logger.warning.assert_called_once()
