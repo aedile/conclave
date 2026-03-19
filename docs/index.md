@@ -68,16 +68,16 @@ The backlog is split into per-phase files for navigability:
 |----------|--------|
 | [backlog/phase-0.6.md](backlog/phase-0.6.md) | Phase 0.6 tasks |
 | [backlog/phase-0.8.md](backlog/phase-0.8.md) | Phase 0.8 spike tasks |
-| [backlog/phase-1.md](backlog/phase-1.md) | Phase 1 — Bootstrap |
-| [backlog/phase-2.md](backlog/phase-2.md) | Phase 2 — Secure DB |
-| [backlog/phase-3.md](backlog/phase-3.md) | Phase 3 — Ingestion |
-| [backlog/phase-3.5.md](backlog/phase-3.5.md) | Phase 3.5 — Subsetting |
-| [backlog/phase-4.md](backlog/phase-4.md) | Phase 4 — Synthesis |
-| [backlog/phase-5.md](backlog/phase-5.md) | Phase 5 — Orchestration |
-| [backlog/phase-6.md](backlog/phase-6.md) | Phase 6 — Frontend |
-| [backlog/phase-7.md](backlog/phase-7.md) | Phase 7 — CTGAN Training |
-| [backlog/phase-8.md](backlog/phase-8.md) | Phase 8 — Security Hardening |
-| [backlog/phase-9.md](backlog/phase-9.md) | Phase 9 |
+| [backlog/phase-01.md](backlog/phase-01.md) | Phase 1 — Bootstrap |
+| [backlog/phase-02.md](backlog/phase-02.md) | Phase 2 — Secure DB |
+| [backlog/phase-03.md](backlog/phase-03.md) | Phase 3 — Ingestion |
+| [backlog/phase-03.5.md](backlog/phase-03.5.md) | Phase 3.5 — Subsetting |
+| [backlog/phase-04.md](backlog/phase-04.md) | Phase 4 — Synthesis |
+| [backlog/phase-05.md](backlog/phase-05.md) | Phase 5 — Orchestration |
+| [backlog/phase-06.md](backlog/phase-06.md) | Phase 6 — Frontend |
+| [backlog/phase-07.md](backlog/phase-07.md) | Phase 7 — CTGAN Training |
+| [backlog/phase-08.md](backlog/phase-08.md) | Phase 8 — Advisory Drain |
+| [backlog/phase-09.md](backlog/phase-09.md) | Phase 9 |
 | [backlog/phase-10.md](backlog/phase-10.md) | Phase 10 |
 | [backlog/phase-11.md](backlog/phase-11.md) | Phase 11 |
 | [backlog/phase-12.md](backlog/phase-12.md) | Phase 12 |
