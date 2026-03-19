@@ -14,10 +14,46 @@ Drain (delete) rows when their target task is completed.
 |----|--------|-------------|----------|----------|
 | ADV-P34-01 | DevOps P34 | TBD | ADVISORY | `operator_error_response()` logs `str(exc)` at WARNING for security-event exceptions (PrivilegeEscalationError, ArtifactTamperingError) without `safe_error_msg()` wrapping. Pre-existing pattern expanded by T34.3. |
 | ADV-P34-02 | DevOps P34 | TBD | ADVISORY | PIIFilter referenced in CLAUDE.md does not exist in `src/`. Log-layer PII guard is documentation-only, not implemented. |
+| ADV-P35-01 | QA P35 | TBD | ADVISORY | `_handle_dp_accounting()` silently skips budget deduction when `epsilon_spent()` raises — the `except Exception` handler logs ERROR but the downstream guard `if job.actual_epsilon is None: return` silently exits without budget deduction. A DP training run can complete with zero epsilon recorded. |
 
 ---
 
 ## Phase Retrospectives
+
+---
+
+### [2026-03-18] Phase 35 — Synthesis Layer Refactor & Test Replacement
+
+**Tasks**: T35.1 (step-based orchestration), T35.2 (dp_training strategy split), T35.3 (behavioral test replacement), T35.4 (full E2E pipeline integration test)
+
+**Review agents**: QA (FINDING — 5 items fixed), DevOps (PASS — 1 advisory), Architecture (FINDING — 2 items fixed)
+
+**Findings fixed (all in review commit 4a09286)**:
+- ARCH-F1: `training_strategies.py` mixed responsibilities — extracted `GanHyperparams`, `TrainingConfig`, `Optimizers`, `build_proxy_dataloader` to new `ctgan_types.py`. Re-exports preserved for backward compatibility.
+- ARCH-F2: `ctgan_utils.py` redundant dual-import of `GanHyperparams` — removed TYPE_CHECKING guard, kept single function-level import.
+- QA-F1: `OomCheckStep` was dead code (orchestrator called `_run_oom_preflight()` instead). Wired `OomCheckStep` into step pipeline, removed `_run_oom_preflight()`. AC4 (orchestrator sole status owner) now fully honored.
+- QA-F2: `ctgan_utils.py:47-48` unreachable branch removed.
+- QA-F3: Added unit test for zero-numeric-column DataFrame in `_build_dp_dataloader`.
+- QA-F4: Added justification comment to `# type: ignore[arg-type]` on `job_orchestration.py`.
+- QA-F5: Replaced hardcoded absolute path in `test_job_steps.py` with portable `Path(__file__)` construction.
+- DEVOPS-ADV1: Wrapped `str(exc)` with `safe_error_msg()` in dp_training.py DP fallback WARNING log.
+
+**New advisory (non-blocking)**:
+- ADV-P35-01: `_handle_dp_accounting()` silently skips budget deduction when `epsilon_spent()` raises.
+
+**What went well**:
+1. God-function decomposed: `_run_synthesis_job_impl()` from 232 lines to 47-line step pipeline with `SynthesisJobStep` Protocol.
+2. `dp_training.py` reduced from 1,144 to 497 lines (57% reduction) via strategy pattern.
+3. Tautological tests replaced: 54:1 and 79:1 setup-to-assertion ratios brought under 5:1 with behavioral and contract tests.
+4. Full E2E pipeline test: 5-table FK chain, 105 rows, real PostgreSQL, zero mocks below API boundary.
+5. Coverage maintained at 98.04% with 1514 unit tests passing.
+
+**What to improve**:
+1. When creating step classes (Protocol implementations), wire them into the actual orchestrator — don't leave a parallel legacy path that bypasses the abstraction.
+2. Avoid hardcoded developer-machine paths in test files — use `Path(__file__)` relative construction.
+3. When extracting code to new modules, clearly separate value objects from behavior classes by file naming convention.
+
+**Open advisories**: 3 (ADV-P34-01, ADV-P34-02, ADV-P35-01)
 
 ---
 
