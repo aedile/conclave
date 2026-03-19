@@ -74,6 +74,8 @@ Work through every applicable item. For each: PASS | FINDING | SKIP (with reason
 
 **adr-compliance**: Does this diff conflict with any existing ADR in `docs/adr/`? Does this diff introduce a new architectural decision that should be captured in an ADR? (New external dependency, new design pattern, departure from established conventions, technology substitution, or new cross-module wiring pattern all warrant an ADR.)
 
+**adr-amendment**: If this diff removes, replaces, or supersedes code or behaviour that is documented in an existing ADR, is the ADR amended or marked superseded? An ADR whose subject code has been deleted but whose status is still `Accepted` is misleading institutional memory. Check: scan the diff for deleted classes, removed integrations, and changed patterns — for each, check whether a corresponding ADR exists in `docs/adr/` and whether its status reflects the change. If the ADR has not been updated, this is a FINDING.
+
 ## Output Format
 
 **If out of scope:**
@@ -96,6 +98,7 @@ interface-contracts:       PASS/FINDING — <detail>
 bootstrapper-wiring:       PASS/FINDING/SKIP — <detail>
 model-integrity:           PASS/FINDING/SKIP — <detail>
 adr-compliance:            PASS/FINDING — <detail>
+adr-amendment:             PASS/FINDING/SKIP — <detail>
 
 Overall: PASS/FINDING — <brief summary>
 ```
