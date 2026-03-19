@@ -26,6 +26,15 @@ pytestmark = pytest.mark.unit
 
 _PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
 
+# ---------------------------------------------------------------------------
+# Test fixture constants — fictional values, not real credentials
+# ---------------------------------------------------------------------------
+
+_DB_URL = "postgresql+asyncpg://user:pass@localhost/db"  # pragma: allowlist secret
+_AUDIT_KEY = "deadbeefdeadbeefdeadbeefdeadbeef"  # pragma: allowlist secret
+_SIGNING_KEY = "cafecafecafecafecafecafecafecafe"  # pragma: allowlist secret
+_MASKING_SALT = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"  # pragma: allowlist secret
+
 
 # ---------------------------------------------------------------------------
 # ADV-P34-01: operator_error_response() must use safe_error_msg() for log output
@@ -215,7 +224,7 @@ class TestConfigValidationNoDirectEnvAccess:
 
         get_settings.cache_clear()
         monkeypatch.delenv("DATABASE_URL", raising=False)
-        monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+        monkeypatch.setenv("AUDIT_KEY", _AUDIT_KEY)
         monkeypatch.delenv("ENV", raising=False)
         monkeypatch.delenv("CONCLAVE_ENV", raising=False)
         get_settings.cache_clear()
@@ -241,11 +250,11 @@ class TestConfigValidationNoDirectEnvAccess:
         from synth_engine.shared.settings import get_settings
 
         get_settings.cache_clear()
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-        monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+        monkeypatch.setenv("DATABASE_URL", _DB_URL)
+        monkeypatch.setenv("AUDIT_KEY", _AUDIT_KEY)
         monkeypatch.setenv("ENV", "production")
-        monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
-        monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+        monkeypatch.setenv("ARTIFACT_SIGNING_KEY", _SIGNING_KEY)
+        monkeypatch.setenv("MASKING_SALT", _MASKING_SALT)
         monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
         monkeypatch.delenv("CONCLAVE_ENV", raising=False)
         get_settings.cache_clear()
