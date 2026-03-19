@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.exceptions import BudgetExhaustionError
 from synth_engine.shared.protocols import DPWrapperProtocol
 
@@ -422,7 +423,7 @@ class DPCompatibleCTGAN:
                     "DPCompatibleCTGAN: discriminator-level DP-SGD training failed "
                     "(%s: %s). Falling back to proxy model + CTGAN.fit().",
                     type(exc).__name__,
-                    exc,
+                    safe_error_msg(str(exc)),
                 )
                 self._activate_opacus_proxy(processed_df)
                 self._run_vanilla_ctgan(sdv_synth, processed_df, discrete_columns)

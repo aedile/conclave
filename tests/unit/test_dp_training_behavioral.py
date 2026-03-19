@@ -861,3 +861,63 @@ def test_vanilla_ctgan_strategy_trains_real_small_dataframe() -> None:
     assert sampled is not None, (
         "CTGAN.sample() must return data after VanillaCtganStrategy training."
     )
+
+
+# ---------------------------------------------------------------------------
+# QA-F3: Zero-numeric-column fallback path in _build_dp_dataloader
+# ---------------------------------------------------------------------------
+
+
+class TestBuildDpDataloaderZeroNumericColumns:
+    """Unit test for the np.zeros fallback path in _build_dp_dataloader.
+
+    QA-F3: Verify that a DataFrame with only string (non-numeric) columns
+    triggers the ``arr = np.zeros((n, 1), dtype="float32")`` fallback,
+    producing a valid DataLoader with shape (n, 1).
+
+    Setup-to-assertion ratio: 2:1.
+    """
+
+    def test_zero_numeric_columns_triggers_fallback(self) -> None:
+        """_build_dp_dataloader must use np.zeros fallback for all-string DataFrame.
+
+        When the DataFrame has no numeric columns, select_dtypes returns a
+        0-column array.  The fallback replaces it with np.zeros((n, 1)) so
+        the DataLoader has feature dimension 1 rather than 0.
+        """
+        torch = pytest.importorskip("torch")
+        from unittest.mock import MagicMock
+
+        from torch.utils.data import DataLoader, TensorDataset
+
+        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+
+        df_strings_only = pd.DataFrame(
+            {"name": ["alice", "bob", "carol"] * 8, "city": ["nyc", "la", "chi"] * 8}
+        )
+
+        instance = DPCompatibleCTGAN(metadata=MagicMock(), epochs=1)
+        # Inject real torch objects so the real DataLoader code executes.
+        # We need to monkeypatch the module-level names used by _build_dp_dataloader.
+        import synth_engine.modules.synthesizer.dp_training as dp_mod
+
+        original_torch = dp_mod.torch
+        original_tensor_dataset = dp_mod.TensorDataset
+        original_dataloader = dp_mod.DataLoader
+        dp_mod.torch = torch
+        dp_mod.TensorDataset = TensorDataset
+        dp_mod.DataLoader = DataLoader
+
+        try:
+            batch_size = 4
+            dataloader = instance._build_dp_dataloader(df_strings_only, batch_size)
+            (first_batch,) = next(iter(dataloader))
+            # Fallback fills shape (n, 1) — feature dimension must be 1
+            assert first_batch.shape[1] == 1, (
+                f"_build_dp_dataloader must produce feature dim=1 for all-string DataFrame, "
+                f"got shape {first_batch.shape}. The np.zeros fallback was not triggered."
+            )
+        finally:
+            dp_mod.torch = original_torch
+            dp_mod.TensorDataset = original_tensor_dataset
+            dp_mod.DataLoader = original_dataloader

@@ -634,9 +634,13 @@ class TestOrchestratorSize:
         import ast
         from pathlib import Path
 
-        src_path = Path(
-            "/Users/jessercastro/Projects/SYNTHETIC_DATA/"
-            "src/synth_engine/modules/synthesizer/job_orchestration.py"
+        src_path = (
+            Path(__file__).parent.parent.parent
+            / "src"
+            / "synth_engine"
+            / "modules"
+            / "synthesizer"
+            / "job_orchestration.py"
         )
         source = src_path.read_text()
         tree = ast.parse(source)

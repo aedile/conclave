@@ -1,9 +1,9 @@
 """Synthesis job orchestration: step-based lifecycle driver (T35.1, ADR-0038).
 
 The former 232-line god-function is replaced by a step-based orchestrator
-that delegates Training, DP Accounting, and Generation to discrete, independently-
-testable step classes.  The orchestrator is the sole owner of ``job.status``
-transitions (AC4).
+that delegates OOM checking, Training, DP Accounting, and Generation to
+discrete, independently-testable step classes.  The orchestrator is the
+sole owner of ``job.status`` transitions (AC4).
 
 Step classes (``OomCheckStep``, ``TrainingStep``, ``DpAccountingStep``,
 ``GenerationStep``) are defined in this module and re-exported from
@@ -15,8 +15,8 @@ Status lifecycle::
     QUEUED → TRAINING → GENERATING → COMPLETE   (success)
                                    ↘ FAILED     (OOM, RuntimeError, BudgetExhaustion)
 
-Step sequence (loop): TrainingStep → DpAccountingStep → GenerationStep.
-OOM pre-flight runs inline before the loop.
+Step sequence (loop): OomCheckStep → TrainingStep → DpAccountingStep → GenerationStep.
+OomCheckStep is the first step in the pipeline (AC4 — orchestrator is sole status owner).
 
 DP wiring (P22-T22.2): ``_dp_wrapper_factory`` injected by bootstrapper.
 Budget wiring (P22-T22.3): ``_spend_budget_fn`` injected by bootstrapper.
@@ -181,37 +181,6 @@ def _build_ctx(
         dp_wrapper=dp_wrapper,
         checkpoint_dir=checkpoint_dir,
     )
-
-
-def _run_oom_preflight(job: SynthesisJob, session: Session) -> bool:
-    """Run OOM pre-flight check; commit FAILED status if rejected.
-
-    The orchestrator delegates the OOM check here to stay under 50 lines
-    while retaining ``job_orchestration.check_memory_feasibility`` as the
-    patch path for existing tests.
-
-    Args:
-        job: The ``SynthesisJob`` record (mutated on failure).
-        session: Open SQLModel ``Session`` for committing the failure.
-
-    Returns:
-        ``True`` if the job may proceed; ``False`` if it was marked FAILED.
-    """
-    rows, columns = _get_parquet_dimensions(job.parquet_path)
-    try:
-        check_memory_feasibility(
-            rows=rows,
-            columns=columns,
-            dtype_bytes=_OOM_DTYPE_BYTES,
-            overhead_factor=_OOM_OVERHEAD_FACTOR,
-        )
-        return True
-    except OOMGuardrailError as exc:
-        _logger.error("OOM guardrail rejected job %d: %s", job.id, exc)
-        job.status = "FAILED"
-        job.error_msg = safe_error_msg(str(exc))
-        _commit_job(job, session)
-        return False
 
 
 def _handle_dp_accounting(
@@ -465,7 +434,7 @@ class DpAccountingStep:
             _handle_dp_accounting(
                 job=ctx.job,
                 dp_wrapper=ctx.dp_wrapper,
-                job_id=ctx.job.id,  # type: ignore[arg-type]
+                job_id=ctx.job.id,  # type: ignore[arg-type]  # job.id guaranteed non-None: session.get() returned a live record
             )
         except BudgetExhaustionError:
             return StepResult(success=False, error_msg="Privacy budget exhausted")
@@ -517,23 +486,21 @@ def _run_synthesis_job_impl(
     checkpoint_dir: str | None = None,
     dp_wrapper: DPWrapperProtocol | None = None,
 ) -> None:
-    """Step pipeline: OomPreflight → Training → DpAccounting → Generation (ADR-0038)."""
+    """Step pipeline: OomCheckStep → Training → DpAccounting → Generation (ADR-0038)."""
     job = session.get(SynthesisJob, job_id)
     if job is None:
         raise ValueError(f"SynthesisJob with id={job_id} not found in database.")
     _logger.info("Starting synthesis job %d (table=%s).", job_id, job.table_name)
-    if not _run_oom_preflight(job, session):
-        return
     tmp_dir_ctx = None
     if checkpoint_dir is None:
         tmp_dir_ctx = tempfile.TemporaryDirectory()
         checkpoint_dir = tmp_dir_ctx.name
     try:
         ctx = _build_ctx(job, session, engine, dp_wrapper, checkpoint_dir)
-        training = TrainingStep()
         dp_accounting = DpAccountingStep()
         steps: list[tuple[str | None, SynthesisJobStep]] = [
-            ("TRAINING", training),
+            (None, OomCheckStep()),
+            ("TRAINING", TrainingStep()),
             (None, dp_accounting),
             ("GENERATING", GenerationStep()),
         ]

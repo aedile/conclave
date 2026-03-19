@@ -13,10 +13,9 @@ Task: T35.2 — Split dp_training.py Into Strategy Classes
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from synth_engine.modules.synthesizer.training_strategies import GanHyperparams
+from synth_engine.modules.synthesizer.ctgan_types import GanHyperparams
 
 
 def cap_batch_size(n_samples: int, requested_batch_size: int, pac: int) -> int:
@@ -44,8 +43,6 @@ def cap_batch_size(n_samples: int, requested_batch_size: int, pac: int) -> int:
     batch_size = min(requested_batch_size, n_samples // 2)
     batch_size = max(pac, batch_size)
     batch_size = (batch_size // pac) * pac
-    if batch_size == 0:
-        batch_size = pac
     return batch_size
 
 
@@ -64,8 +61,6 @@ def parse_gan_hyperparams(model_kwargs: dict[str, Any]) -> GanHyperparams:
         generator_dim, discriminator_dim, pac, discriminator_steps,
         and batch_size.
     """
-    from synth_engine.modules.synthesizer.training_strategies import GanHyperparams
-
     return GanHyperparams(
         embedding_dim=int(model_kwargs.get("embedding_dim", 128)),
         generator_dim=tuple(model_kwargs.get("generator_dim", (256, 256))),
