@@ -834,9 +834,7 @@ def test_get_active_public_key_converts_literal_newlines(
 
     # Simulate a PEM key as delivered by Docker env_file: literal \n, not real newlines
     pem_with_literal_newlines = (
-        "-----BEGIN PUBLIC KEY-----\\n"
-        "FAKEKEYDATA\\n"
-        "-----END PUBLIC KEY-----\\n"
+        "-----BEGIN PUBLIC KEY-----\\nFAKEKEYDATA\\n-----END PUBLIC KEY-----\\n"
     )
     monkeypatch.setenv("LICENSE_PUBLIC_KEY", pem_with_literal_newlines)
 
