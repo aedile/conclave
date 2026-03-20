@@ -12,11 +12,22 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-P38-01 | P38 QA | TBD | ADVISORY | `DpAccountingStep.execute()` has no handler for non-`BudgetExhaustionError` exceptions from `_spend_budget_fn`. A `ConnectionError` from the budget-spend call propagates uncaught. |
-| ADV-P38-02 | P38 QA | TBD | ADVISORY | `test_seed_sample_data.py::test_e2e_doc_contains_live_validation_evidence` asserts stale P28 content against P37 E2E doc. Pre-existing failure, not introduced by P38. |
-| ADV-E2E-01 | E2E Load Test QA | TBD | ADVISORY | `step_poll_jobs` and `step_collect_metrics` artifact download have narrow exception handling on non-fatal paths — low probability but high cost during long training runs. |
-| ADV-E2E-02 | E2E Load Test DevOps | TBD | ADVISORY | DSN passed as subprocess argv to `conclave-subset` CLI is visible via `ps` on shared systems — acceptable for dev-only script. |
-| ADV-E2E-03 | E2E Load Test QA | TBD | ADVISORY | `calculate_rows_per_sec` has no guard for negative `duration_s` — monotonic clock guarantees non-decreasing so the risk is low. |
+| *(none — all drained)* | | | | |
+
+---
+
+### [2026-03-20] Advisory Drain — Pre-Phase 39 Gate
+
+**Branch**: `fix/advisory-drain-pre-p39`
+
+**Advisories drained (5/5)**:
+- ADV-P38-01: Added `except Exception` handler in `_handle_dp_accounting()` for non-`BudgetExhaustionError` exceptions. Now wraps as `AuditWriteError` → job marked FAILED. 3 tests added.
+- ADV-P38-02: Already resolved — E2E doc guard test assertions match current 1M-row content. No code change needed.
+- ADV-E2E-01: Broadened exception handling in `step_poll_jobs` and `step_collect_metrics` to `except Exception` on non-fatal paths.
+- ADV-E2E-02: Documented as acceptable for dev-only script. Comment added noting production should use env var.
+- ADV-E2E-03: Changed `if duration_s == 0.0` to `if duration_s <= 0` in `calculate_rows_per_sec`. 4 tests added.
+
+**Open advisories**: 0
 
 ---
 
