@@ -26,7 +26,7 @@
 
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -395,8 +395,7 @@ describe("AsyncButton — keyboard interaction", () => {
       </AsyncButton>,
     );
 
-    const button = screen.getByRole("button");
-    // Note: button is disabled during loading, so focus attempt still asserts the key does nothing
+    screen.getByRole("button"); // asserts button exists; disabled during loading, so key does nothing
     await user.keyboard("{Enter}");
 
     expect(onClick).not.toHaveBeenCalled();
