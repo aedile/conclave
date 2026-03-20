@@ -813,3 +813,35 @@ def test_verify_license_jwt_missing_hardware_id_claim(
 
     with pytest.raises(LicenseError):
         verify_license_jwt(token, public_pem)
+
+
+# ---------------------------------------------------------------------------
+# get_active_public_key() — literal \n conversion test
+# ---------------------------------------------------------------------------
+
+
+def test_get_active_public_key_converts_literal_newlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_active_public_key() converts literal \\n sequences to real newlines.
+
+    Docker ``env_file`` directives pass PEM keys as single-line strings with
+    literal ``\\n`` characters instead of real newlines.  This test asserts
+    that ``get_active_public_key()`` normalises the key so callers always
+    receive a properly formatted PEM string.
+    """
+    from synth_engine.shared.security.licensing import get_active_public_key
+
+    # Simulate a PEM key as delivered by Docker env_file: literal \n, not real newlines
+    pem_with_literal_newlines = (
+        "-----BEGIN PUBLIC KEY-----\\n"
+        "FAKEKEYDATA\\n"
+        "-----END PUBLIC KEY-----\\n"
+    )
+    monkeypatch.setenv("LICENSE_PUBLIC_KEY", pem_with_literal_newlines)
+
+    result = get_active_public_key()
+
+    assert "\\n" not in result
+    assert "\n" in result
+    assert result == pem_with_literal_newlines.replace("\\n", "\n")
