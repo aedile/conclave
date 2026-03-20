@@ -20,26 +20,42 @@ test.describe("Unseal screen", () => {
   test.beforeEach(async ({ page }) => {
     // Intercept the /health and /unseal calls to serve controlled responses
     // so the test works without a real backend.
-    await page.route("/health", (route) =>
-      route.fulfill({
+    //
+    // Guard: only intercept fetch/XHR requests for /health — the document
+    // navigation (GET /) must pass through so the SPA HTML loads correctly.
+    await page.route("/health", (route) => {
+      if (route.request().resourceType() === "document") {
+        return route.continue();
+      }
+      return route.fulfill({
         status: 423,
         contentType: "application/json",
         body: JSON.stringify({ detail: "Service sealed. POST /unseal to activate." }),
-      }),
-    );
+      });
+    });
 
-    await page.route("/unseal", (route) =>
-      route.fulfill({
+    // Guard: only intercept POST requests for /unseal so the SPA HTML
+    // navigation (GET /) is not swallowed by this handler.
+    await page.route("/unseal", (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      return route.fulfill({
         status: 400,
         contentType: "application/json",
         body: JSON.stringify({
           error_code: "EMPTY_PASSPHRASE",
           detail: "Passphrase must not be empty.",
         }),
-      }),
-    );
+      });
+    });
 
-    await page.goto("/unseal");
+    // Navigate to the root; React Router redirects to /unseal automatically.
+    // We avoid navigating directly to /unseal because that path is a POST-only
+    // API endpoint on the backend — a GET would receive a 405 response instead
+    // of the SPA HTML.
+    await page.goto("/");
+    await page.waitForURL("**/unseal");
   });
 
   test("accessibility: 0 axe violations on Unseal screen", async ({ page }) => {
@@ -85,8 +101,12 @@ test.describe("Unseal screen", () => {
   });
 
   test("submit button is disabled during form submission", async ({ page }) => {
-    // Override the unseal route to never resolve (simulates slow PBKDF2)
-    await page.route("/unseal", () => {
+    // Override the unseal route to never resolve (simulates slow PBKDF2).
+    // Guard: only intercept POST requests so non-POST requests pass through.
+    await page.route("/unseal", (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
       // Intentionally do not call route.fulfill — request hangs
     });
 
@@ -96,8 +116,12 @@ test.describe("Unseal screen", () => {
     await input.fill("my-test-passphrase");
     await button.click();
 
-    // Button should be disabled immediately after click
-    await expect(button).toBeDisabled();
-    await expect(page.getByText(/unsealing/i)).toBeVisible();
+    // After click, the button label changes from "Unseal Vault" to "Unsealing…"
+    // while the request is in flight. Verify the loading-state button is
+    // disabled and visible. The aria-live region also shows "Unsealing…" but
+    // we target the button role directly to avoid strict-mode ambiguity.
+    const loadingButton = page.getByRole("button", { name: /unsealing/i });
+    await expect(loadingButton).toBeDisabled();
+    await expect(loadingButton).toBeVisible();
   });
 });
