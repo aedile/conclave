@@ -1452,16 +1452,16 @@ class TestSpendBudgetWiring:
             f"Expected actor='system/huey-worker'; got {audit_call_kwargs.get('actor')!r}"
         )
 
-    def test_non_budget_exception_from_spend_budget_propagates(self) -> None:
-        """Non-BudgetExhaustion exceptions from _spend_budget_fn must propagate.
+    def test_non_budget_exception_from_spend_budget_marks_job_failed(self) -> None:
+        """Non-BudgetExhaustion exceptions from _spend_budget_fn must mark job FAILED.
 
-        When _spend_budget_fn raises an exception whose class name does NOT
-        contain 'BudgetExhaustion', the task must re-raise it.  The job must
-        NOT be marked FAILED by the budget-exhaustion handler — Huey handles
-        re-raised exceptions at the task framework level.
+        ADV-P38-01 fix: When _spend_budget_fn raises an unexpected exception (e.g.
+        ConnectionError), DpAccountingStep must catch it, log at ERROR level, wrap
+        it as AuditWriteError, and the orchestrator must mark the job FAILED.
+        The exception must NOT propagate uncaught out of _run_synthesis_job_impl.
 
-        This guards against silent swallowing of infrastructure errors such as
-        database connectivity failures (e.g., ConnectionError).
+        Previously this test asserted that ConnectionError propagated — that was the
+        buggy behavior identified by ADV-P38-01. The fix catches and handles it.
         """
         import synth_engine.modules.synthesizer.job_orchestration as orch_mod
         from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
@@ -1496,20 +1496,20 @@ class TestSpendBudgetWiring:
                     return_value=MagicMock(),
                 ),
             ):
-                with pytest.raises(ConnectionError, match="DB down"):
-                    _run_synthesis_job_impl(
-                        job_id=29,
-                        session=mock_session,
-                        engine=mock_engine,
-                        dp_wrapper=dp_wrapper,
-                    )
+                # ADV-P38-01: ConnectionError must NOT propagate — it is caught and handled.
+                _run_synthesis_job_impl(
+                    job_id=29,
+                    session=mock_session,
+                    engine=mock_engine,
+                    dp_wrapper=dp_wrapper,
+                )
         finally:
             orch_mod._spend_budget_fn = original_fn  # type: ignore[assignment]
 
-        # Job must NOT be marked FAILED by the BudgetExhaustion handler;
-        # the re-raise lets Huey handle the error at the framework level.
-        assert job.status != "FAILED", (
-            f"Non-BudgetExhaustion exception must not set job.status=FAILED; got {job.status!r}"
+        # Job must be marked FAILED — DpAccountingStep caught the ConnectionError
+        # and returned StepResult(success=False); the orchestrator set FAILED.
+        assert job.status == "FAILED", (
+            f"ConnectionError from _spend_budget_fn must mark job FAILED; got {job.status!r}"
         )
 
 

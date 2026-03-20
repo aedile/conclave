@@ -734,23 +734,17 @@ class TestCalculateRowsPerSecNegativeDuration:
         anomalies or test fixtures. The function must guard against it.
         """
         result = mod.calculate_rows_per_sec(num_rows=50_000, duration_s=-1.0)
-        assert result == 0.0, (
-            f"calculate_rows_per_sec(-1.0) must return 0.0, got {result}"
-        )
+        assert result == 0.0, f"calculate_rows_per_sec(-1.0) must return 0.0, got {result}"
 
     def test_large_negative_duration_returns_zero(self, mod: Any) -> None:
         """calculate_rows_per_sec returns 0.0 for large negative duration_s."""
         result = mod.calculate_rows_per_sec(num_rows=1_000_000, duration_s=-9999.0)
-        assert result == 0.0, (
-            f"calculate_rows_per_sec(-9999.0) must return 0.0, got {result}"
-        )
+        assert result == 0.0, f"calculate_rows_per_sec(-9999.0) must return 0.0, got {result}"
 
     def test_negative_duration_small_float_returns_zero(self, mod: Any) -> None:
         """calculate_rows_per_sec returns 0.0 for small negative floats like -0.001."""
         result = mod.calculate_rows_per_sec(num_rows=100, duration_s=-0.001)
-        assert result == 0.0, (
-            f"calculate_rows_per_sec(-0.001) must return 0.0, got {result}"
-        )
+        assert result == 0.0, f"calculate_rows_per_sec(-0.001) must return 0.0, got {result}"
 
     def test_zero_duration_still_returns_zero(self, mod: Any) -> None:
         """Existing zero-duration guard must remain unaffected by the negative guard."""
