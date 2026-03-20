@@ -358,3 +358,58 @@ def test_port_value_is_stored_and_read_as_plain_integer(db_engine: Any, ale_key:
         raw_port = result.scalar_one()
 
     assert raw_port == 5432, f"port must be plaintext integer 5432, got {raw_port!r}"
+
+
+# ---------------------------------------------------------------------------
+# ORM default — schema_name default "public" must encrypt transparently
+# ---------------------------------------------------------------------------
+
+
+def test_schema_name_default_encrypts_and_decrypts_transparently(
+    db_engine: Any, ale_key: str
+) -> None:
+    """Creating a Connection without schema_name must use "public" as default.
+
+    The ORM Field(default="public") must route through EncryptedString's
+    process_bind_param so the stored value is ciphertext, not the string
+    "public".  On read, the ORM must transparently return "public".
+
+    This guards against server_default bypassing the TypeDecorator — a
+    server_default would write the literal string "public" into the column,
+    skipping encryption entirely.
+    """
+    from synth_engine.bootstrapper.schemas.connections import Connection
+
+    with Session(db_engine) as session:
+        conn = Connection(
+            name="default-schema-test",
+            host="localhost",
+            port=5432,
+            database="mydb",
+            # schema_name intentionally omitted — must default to "public"
+        )
+        session.add(conn)
+        session.commit()
+        conn_id = conn.id
+
+    # Raw SQL must return ciphertext, not the literal string "public"
+    with db_engine.connect() as raw_conn:
+        result = raw_conn.execute(
+            text("SELECT schema_name FROM connection WHERE id = :id"),
+            {"id": conn_id},
+        )
+        raw_value: str = result.scalar_one()
+
+    assert raw_value != "public", (
+        f"schema_name default 'public' was stored as plaintext! "
+        f"server_default must be absent and Field(default='public') must "
+        f"route through EncryptedString. Got raw: {raw_value!r}"
+    )
+
+    # ORM read must decrypt back to "public"
+    with Session(db_engine) as session:
+        fetched = session.get(Connection, conn_id)
+        assert fetched is not None
+        assert fetched.schema_name == "public", (
+            f"ORM must decrypt schema_name default to 'public', got '{fetched.schema_name}'"
+        )

@@ -63,12 +63,21 @@ def _get_fernet() -> Any:
     implements the vault-first key selection strategy: vault KEK when
     unsealed, ``ALE_KEY`` env var as fallback.
 
+    # NOTE: This migration intentionally imports synth_engine to access the ALE
+    # encryption subsystem. Unlike DDL-only migrations (001-006), this data
+    # migration must encrypt existing plaintext values using the application's
+    # Fernet key. The vault or ALE_KEY env var must be available at migration time.
+
     Returns:
         A :class:`cryptography.fernet.Fernet` instance ready for use.
 
     Raises:
         RuntimeError: If the vault is sealed and ``ALE_KEY`` is not set.
     """
+    # NOTE: This migration intentionally imports synth_engine to access the ALE
+    # encryption subsystem. Unlike DDL-only migrations (001-006), this data
+    # migration must encrypt existing plaintext values using the application's
+    # Fernet key. The vault or ALE_KEY env var must be available at migration time.
     from synth_engine.shared.security.ale import get_fernet
 
     return get_fernet()
@@ -94,6 +103,11 @@ def upgrade() -> None:
 
     fernet = _get_fernet()
     for row in rows:
+        # Skip rows where any encrypted field is None (defensive guard —
+        # columns are NOT NULL since migration 002, but protects against
+        # manual inserts or future constraint changes).
+        if row.host is None or row.database is None or row.schema_name is None:
+            continue
         bind.execute(
             sa.update(_CONNECTION_TABLE)
             .where(_CONNECTION_TABLE.c.id == row.id)
@@ -123,6 +137,11 @@ def downgrade() -> None:
 
     fernet = _get_fernet()
     for row in rows:
+        # Skip rows where any encrypted field is None (defensive guard —
+        # columns are NOT NULL since migration 002, but protects against
+        # manual inserts or future constraint changes).
+        if row.host is None or row.database is None or row.schema_name is None:
+            continue
         bind.execute(
             sa.update(_CONNECTION_TABLE)
             .where(_CONNECTION_TABLE.c.id == row.id)

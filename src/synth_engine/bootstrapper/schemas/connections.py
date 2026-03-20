@@ -59,10 +59,10 @@ class Connection(SQLModel, table=True):
     Attributes:
         id: UUID v4 primary key (stored as VARCHAR string).
         name: Human-readable display name.
-        host: Database hostname or IP address (encrypted at rest).
+        host: Database hostname or IP address (ALE-encrypted at rest).
         port: Database port number (plain integer, not sensitive).
-        database: Database name to connect to (encrypted at rest).
-        schema_name: Schema within the database (encrypted at rest,
+        database: Database name to connect to (ALE-encrypted at rest).
+        schema_name: Schema within the database (ALE-encrypted at rest,
             default: ``"public"``).
     """
 
@@ -75,7 +75,7 @@ class Connection(SQLModel, table=True):
     database: str = Field(sa_column=Column(EncryptedString(), nullable=False))
     schema_name: str = Field(
         default="public",
-        sa_column=Column(EncryptedString(), nullable=False, server_default="public"),
+        sa_column=Column(EncryptedString(), nullable=False),
     )
 
 
