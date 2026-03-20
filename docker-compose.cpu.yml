@@ -1,16 +1,16 @@
-# CPU-only override — sets FORCE_CPU=true and adds capabilities needed
-# for gosu privilege-drop on Docker Desktop (macOS/Windows).
+# CPU-only override — injects .env and adds capabilities for gosu on macOS.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.override.yml \
 #       -f docker-compose.cpu.yml up -d
 #
-# On Linux with NVIDIA GPU, use docker-compose.gpu.yml instead.
+# Requires a .env file (gitignored) with DATABASE_URL, AUDIT_KEY, etc.
+# See .env.example for the full list of variables.
 services:
   app:
+    env_file:
+      - .env
     cap_add:
       - IPC_LOCK
       - SETUID
       - SETGID
-    environment:
-      FORCE_CPU: "true"
