@@ -109,12 +109,18 @@ def rsa_keypair() -> tuple[str, str]:
 
 @pytest.fixture(autouse=True)
 def reset_license_state() -> Generator[None]:
-    """Reset LicenseState class-level state after each test for isolation."""
+    """Reset LicenseState class-level state and settings cache after each test.
+
+    Clears the get_settings() lru_cache so that any monkeypatched environment
+    variables (e.g. LICENSE_PUBLIC_KEY) do not leak across tests.
+    """
     yield
     try:
         from synth_engine.shared.security.licensing import LicenseState
+        from synth_engine.shared.settings import get_settings
 
         LicenseState.deactivate()
+        get_settings.cache_clear()
     except ImportError:
         pass
 
@@ -487,26 +493,29 @@ async def test_challenge_endpoint_accessible_while_unlicensed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_activate_endpoint_accepts_valid_jwt(rsa_keypair: tuple[str, str]) -> None:
-    """POST /license/activate with a valid JWT → 200 and LicenseState is licensed."""
+async def test_activate_endpoint_accepts_valid_jwt(
+    rsa_keypair: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /license/activate with a valid JWT → 200 and LicenseState is licensed.
+
+    Uses monkeypatch.setenv to set LICENSE_PUBLIC_KEY so that get_active_public_key()
+    returns the test key regardless of any .env file present on the machine.
+    """
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.shared.security.licensing import LicenseState, get_hardware_id
+    from synth_engine.shared.settings import get_settings
 
     private_pem, public_pem = rsa_keypair
     hw_id = get_hardware_id()
     token = _make_license_jwt(private_pem, hw_id)
 
-    app = create_app()
-    # Patch the embedded public key used by verify_license_jwt inside the app
-    import synth_engine.shared.security.licensing as lic_mod
+    monkeypatch.setenv("LICENSE_PUBLIC_KEY", public_pem)
+    get_settings.cache_clear()
 
-    original_key = lic_mod._EMBEDDED_PUBLIC_KEY
-    lic_mod._EMBEDDED_PUBLIC_KEY = public_pem
-    try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post("/license/activate", json={"token": token})
-    finally:
-        lic_mod._EMBEDDED_PUBLIC_KEY = original_key
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/license/activate", json={"token": token})
 
     assert response.status_code == 200
     assert LicenseState.is_licensed() is True
@@ -603,25 +612,27 @@ async def test_activate_endpoint_accessible_while_sealed() -> None:
 @pytest.mark.asyncio
 async def test_activate_endpoint_response_body_on_success(
     rsa_keypair: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """POST /license/activate returns a JSON body with 'status' on success."""
+    """POST /license/activate returns a JSON body with 'status' on success.
+
+    Uses monkeypatch.setenv to set LICENSE_PUBLIC_KEY so that get_active_public_key()
+    returns the test key regardless of any .env file present on the machine.
+    """
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.shared.security.licensing import get_hardware_id
+    from synth_engine.shared.settings import get_settings
 
     private_pem, public_pem = rsa_keypair
     hw_id = get_hardware_id()
     token = _make_license_jwt(private_pem, hw_id)
 
-    app = create_app()
-    import synth_engine.shared.security.licensing as lic_mod
+    monkeypatch.setenv("LICENSE_PUBLIC_KEY", public_pem)
+    get_settings.cache_clear()
 
-    original_key = lic_mod._EMBEDDED_PUBLIC_KEY
-    lic_mod._EMBEDDED_PUBLIC_KEY = public_pem
-    try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post("/license/activate", json={"token": token})
-    finally:
-        lic_mod._EMBEDDED_PUBLIC_KEY = original_key
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/license/activate", json={"token": token})
 
     assert response.status_code == 200
     body = response.json()

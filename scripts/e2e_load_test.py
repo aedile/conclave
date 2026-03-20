@@ -362,7 +362,7 @@ def step_unseal_vault(api_base_url: str, passphrase: str) -> None:
         passphrase: Vault unseal passphrase.
 
     Raises:
-        SystemExit: On unexpected HTTP errors.
+        SystemExit: On HTTP or connection errors.
     """
     url = f"{api_base_url}/unseal"
     click.echo(f"[3/14] Unsealing vault at {url} ...")
@@ -374,7 +374,7 @@ def step_unseal_vault(api_base_url: str, passphrase: str) -> None:
         else:
             resp.raise_for_status()
             click.echo(f"       Vault unsealed -- status {resp.status_code}")
-    except httpx.HTTPStatusError as exc:
+    except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
         click.echo(f"ERROR: Vault unseal failed: {exc}", err=True)
         sys.exit(1)
 
@@ -397,7 +397,7 @@ def step_activate_license(
         license_key_path: Path to the PEM-encoded RSA private key file.
 
     Raises:
-        SystemExit: On unexpected HTTP errors or missing key file.
+        SystemExit: On HTTP or connection errors, or missing key file.
     """
     click.echo(f"[4/14] Activating license (key: {license_key_path}) ...")
 
@@ -416,7 +416,7 @@ def step_activate_license(
     try:
         challenge_resp = httpx.get(challenge_url, timeout=10.0)
         challenge_resp.raise_for_status()
-    except httpx.HTTPStatusError as exc:
+    except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
         click.echo(f"ERROR: License challenge failed: {exc}", err=True)
         sys.exit(1)
 
@@ -442,7 +442,7 @@ def step_activate_license(
             return
         activate_resp.raise_for_status()
         click.echo(f"       License activated -- status {activate_resp.status_code}")
-    except httpx.HTTPStatusError as exc:
+    except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
         click.echo(f"ERROR: License activation failed: {exc}", err=True)
         sys.exit(1)
 
@@ -518,7 +518,7 @@ def step_create_jobs(
         Mapping of table name to job ID returned by the API.
 
     Raises:
-        SystemExit: On HTTP errors.
+        SystemExit: On HTTP or connection errors.
     """
     click.echo("[6/14] Creating synthesis jobs ...")
     jobs_url = f"{api_base_url}/jobs"
@@ -532,7 +532,7 @@ def step_create_jobs(
         try:
             resp = httpx.post(jobs_url, json=params, timeout=30.0)
             resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
             click.echo(f"ERROR: Failed to create job for {table}: {exc}", err=True)
             sys.exit(1)
 
@@ -551,7 +551,7 @@ def step_start_jobs(api_base_url: str, table_to_job_id: dict[str, int]) -> None:
         table_to_job_id: Mapping of table name to job ID.
 
     Raises:
-        SystemExit: On HTTP errors.
+        SystemExit: On HTTP or connection errors.
     """
     click.echo("[7/14] Starting all synthesis jobs ...")
     for table, job_id in table_to_job_id.items():
@@ -559,7 +559,7 @@ def step_start_jobs(api_base_url: str, table_to_job_id: dict[str, int]) -> None:
         try:
             resp = httpx.post(url, timeout=30.0)
             resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
             click.echo(f"ERROR: Failed to start job {job_id} ({table}): {exc}", err=True)
             sys.exit(1)
         click.echo(f"       {table} (job_id={job_id}): started")
@@ -768,7 +768,7 @@ def step_shred_jobs(
             resp.raise_for_status()
             status = "success"
             click.echo(f"       {table} (job_id={job_id}): shredded")
-        except httpx.HTTPStatusError as exc:
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
             status = "failed"
             click.echo(f"       WARNING: shred failed for {table} job {job_id}: {exc}")
         shred_results.append({"job_id": job_id, "status": status})
