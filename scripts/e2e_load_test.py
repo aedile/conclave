@@ -107,8 +107,6 @@ JOB_PARAMS: dict[str, dict[str, Any]] = {
         "num_rows": N_PAYMENTS,
         "checkpoint_every_n": 3,
         "enable_dp": False,
-        "noise_multiplier": 0.0,
-        "max_grad_norm": 1.0,
     },
 }
 
@@ -662,7 +660,7 @@ def step_collect_metrics(
         rows_per_sec = calculate_rows_per_sec(num_rows=num_rows, duration_s=duration_s)
         epsilon_spent: float | None = body.get("actual_epsilon")
         dp_enabled: bool = JOB_PARAMS[table]["enable_dp"]
-        noise_multiplier: float = JOB_PARAMS[table]["noise_multiplier"]
+        noise_multiplier: float = JOB_PARAMS[table].get("noise_multiplier", 0.0)
 
         # Download artifact
         artifact_size_mb = 0.0

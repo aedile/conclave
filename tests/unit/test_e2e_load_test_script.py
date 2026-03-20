@@ -585,3 +585,130 @@ class TestStepActivateLicense:
         assert runner is not None  # CliRunner imported successfully
         combined = "\n".join(output_lines)
         assert "4/14" in combined, f"Expected '4/14' in output, got: {combined!r}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: step_collect_metrics — non-DP table handling
+# ---------------------------------------------------------------------------
+
+
+class TestStepCollectMetricsNonDp:
+    """Verify step_collect_metrics handles non-DP tables without KeyError.
+
+    The ``payments`` table in JOB_PARAMS has ``enable_dp: False`` and omits
+    ``noise_multiplier``.  A direct dict access raises ``KeyError``; the fix
+    uses ``.get("noise_multiplier", 0.0)`` so non-DP jobs default to 0.0.
+    """
+
+    def _make_job_responses(self) -> dict[str, dict[str, Any]]:
+        """Build minimal job_responses for all four tables."""
+        base_time = 1_000_000.0
+        return {
+            table: {
+                "status": "COMPLETE",
+                "_start_time": base_time,
+                "_end_time": base_time + 60.0,
+                "actual_epsilon": None,
+            }
+            for table in ("customers", "orders", "order_items", "payments")
+        }
+
+    def test_non_dp_payments_table_does_not_raise_key_error(self, mod: Any, tmp_path: Path) -> None:
+        """step_collect_metrics must not raise KeyError for the payments table.
+
+        ``payments`` has no ``noise_multiplier`` key in JOB_PARAMS because
+        DP is disabled.  Without the fix, line 663 raises KeyError.
+
+        Arrange: provide a minimal table_to_job_id mapping covering all four
+            tables and stub out httpx.get so no real HTTP calls are made.
+        Act: call step_collect_metrics.
+        Assert: the function returns a list with one entry per table, the
+            ``payments`` entry has ``noise_multiplier == 0.0``, and
+            ``dp_enabled`` is False.
+        """
+        table_to_job_id = {
+            "customers": 1,
+            "orders": 2,
+            "order_items": 3,
+            "payments": 4,
+        }
+        job_responses = self._make_job_responses()
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.content = b""
+
+        with patch("httpx.get", return_value=mock_resp):
+            results = mod.step_collect_metrics(
+                api_base_url="http://localhost:8000",
+                table_to_job_id=table_to_job_id,
+                job_responses=job_responses,
+                tmp_dir=tmp_path,
+            )
+
+        payments_result = next(r for r in results if r["table"] == "payments")
+        assert payments_result["dp_enabled"] is False
+        assert payments_result["noise_multiplier"] == pytest.approx(0.0)
+
+    def test_dp_table_retains_noise_multiplier(self, mod: Any, tmp_path: Path) -> None:
+        """step_collect_metrics preserves noise_multiplier for DP-enabled tables.
+
+        Arrange: same setup as the non-DP test.
+        Act: call step_collect_metrics.
+        Assert: the ``customers`` entry (DP enabled) has a non-zero
+            ``noise_multiplier`` matching what JOB_PARAMS specifies.
+        """
+        table_to_job_id = {
+            "customers": 1,
+            "orders": 2,
+            "order_items": 3,
+            "payments": 4,
+        }
+        job_responses = self._make_job_responses()
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.content = b""
+
+        with patch("httpx.get", return_value=mock_resp):
+            results = mod.step_collect_metrics(
+                api_base_url="http://localhost:8000",
+                table_to_job_id=table_to_job_id,
+                job_responses=job_responses,
+                tmp_dir=tmp_path,
+            )
+
+        customers_result = next(r for r in results if r["table"] == "customers")
+        assert customers_result["dp_enabled"] is True
+        assert customers_result["noise_multiplier"] > 0.0
+
+    def test_collect_metrics_returns_all_four_tables(self, mod: Any, tmp_path: Path) -> None:
+        """step_collect_metrics returns exactly one entry per configured table.
+
+        Arrange: provide all four table IDs.
+        Act: call step_collect_metrics.
+        Assert: the returned list has exactly four entries, one per table.
+        """
+        table_to_job_id = {
+            "customers": 1,
+            "orders": 2,
+            "order_items": 3,
+            "payments": 4,
+        }
+        job_responses = self._make_job_responses()
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.content = b""
+
+        with patch("httpx.get", return_value=mock_resp):
+            results = mod.step_collect_metrics(
+                api_base_url="http://localhost:8000",
+                table_to_job_id=table_to_job_id,
+                job_responses=job_responses,
+                tmp_dir=tmp_path,
+            )
+
+        assert len(results) == 4
+        table_names = {r["table"] for r in results}
+        assert table_names == {"customers", "orders", "order_items", "payments"}
