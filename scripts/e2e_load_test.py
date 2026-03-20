@@ -406,14 +406,31 @@ def step_export_parquet(
 
     engine = create_engine(source_dsn)
     parquet_paths: dict[str, Path] = {}
+    container_dir = "/tmp/e2e_parquet"  # noqa: S108  # nosec B108 — tmpfs inside container
+
+    # Create the directory inside the app container for Parquet files
+    subprocess.run(  # noqa: S603, S607  # nosec B603, B607 — trusted argv
+        ["docker", "exec", "synthetic_data-app-1", "mkdir", "-p", container_dir],
+        check=True,
+        capture_output=True,
+    )
 
     for table in TABLES_IN_ORDER:
         pq_path = tmp_dir / f"{table}.parquet"
         df: pd.DataFrame = pd.read_sql_table(table, con=engine)
         df.to_parquet(pq_path, index=False)
         row_count = table_row_counts.get(table, len(df))
-        click.echo(f"       {table}: {row_count:,} rows -> {pq_path.name}")
-        parquet_paths[table] = pq_path
+
+        # Copy Parquet file into the app container so the API can read it
+        container_path = f"{container_dir}/{table}.parquet"
+        subprocess.run(  # noqa: S603, S607  # nosec B603, B607 — trusted argv
+            ["docker", "cp", str(pq_path), f"synthetic_data-app-1:{container_path}"],
+            check=True,
+            capture_output=True,
+        )
+        click.echo(f"       {table}: {row_count:,} rows -> container:{container_path}")
+        # Store the container-internal path (what the API sees)
+        parquet_paths[table] = Path(container_path)
 
     return parquet_paths
 
@@ -494,7 +511,7 @@ def step_poll_jobs(
         ``_start_time`` and ``_end_time`` in epoch seconds).
     """
     click.echo("[7/13] Polling for job completion (30s interval, 4h timeout) ...")
-    terminal_statuses = {"COMPLETED", "FAILED"}
+    terminal_statuses = {"COMPLETE", "FAILED"}
     job_data: dict[str, dict[str, Any]] = {}
     job_start: dict[str, float] = {t: time.monotonic() for t in table_to_job_id}
     pending = set(table_to_job_id.keys())
@@ -572,13 +589,13 @@ def step_collect_metrics(
 
         num_rows: int = JOB_PARAMS[table]["num_rows"]
         rows_per_sec = calculate_rows_per_sec(num_rows=num_rows, duration_s=duration_s)
-        epsilon_spent: float | None = body.get("epsilon_spent")
+        epsilon_spent: float | None = body.get("actual_epsilon")
         dp_enabled: bool = JOB_PARAMS[table]["enable_dp"]
         noise_multiplier: float = JOB_PARAMS[table]["noise_multiplier"]
 
         # Download artifact
         artifact_size_mb = 0.0
-        if status == "COMPLETED":
+        if status == "COMPLETE":
             artifact_path = tmp_dir / f"{table}_synthetic.parquet"
             download_url = f"{api_base_url}/jobs/{job_id}/download"
             try:
