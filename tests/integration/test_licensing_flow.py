@@ -19,6 +19,7 @@ Task: P26-T26.5 — Licensing + Migration + FK Masking Integration Tests
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -255,8 +256,12 @@ def test_verify_license_jwt_rejects_tampered_signature(
 
     # Tamper with the signature (third JWT segment)
     header, payload, sig = valid_token.split(".")
-    # Flip the last character of the signature to corrupt it
-    corrupted_sig = sig[:-1] + ("A" if sig[-1] != "A" else "B")
+    # Replace signature with a known-bad value: valid base64url bytes but wrong key
+    corrupted_sig = (
+        base64.urlsafe_b64encode(b"definitely-not-a-valid-signature-bytes-here")
+        .rstrip(b"=")
+        .decode()
+    )
     tampered_token = f"{header}.{payload}.{corrupted_sig}"
 
     with pytest.raises(LicenseError) as exc_info:
