@@ -1,7 +1,8 @@
 """Unit tests for scripts/e2e_load_test.py.
 
 Tests validate metric calculations, result JSON structure, dry-run mode,
-and system info collection without requiring Docker or a running server.
+system info collection, and license activation — without requiring Docker
+or a running server.
 
 Task: E2E 1M-row load test script
 CONSTITUTION Priority 0: No real PII or live services required for these tests.
@@ -58,6 +59,24 @@ def _import_load_test_module() -> Any:
 def mod() -> Any:
     """Return the imported e2e_load_test module."""
     return _import_load_test_module()
+
+
+@pytest.fixture(scope="module")
+def rsa_private_key_pem() -> str:
+    """Generate a fresh ephemeral RSA private key for license activation tests.
+
+    Returns:
+        PEM-encoded RSA-2048 private key string (test-only, never production).
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
 
 
 # ---------------------------------------------------------------------------
@@ -327,3 +346,242 @@ class TestSystemInfoCollection:
         with patch("psutil.virtual_memory", return_value=mock_vm):
             info = mod.collect_system_info()
         assert info["ram_gb"] == pytest.approx(16.0, rel=1e-2)
+
+
+# ---------------------------------------------------------------------------
+# Tests: license activation step
+# ---------------------------------------------------------------------------
+
+
+class TestStepActivateLicense:
+    """Verify step_activate_license signs a JWT and activates the license via API.
+
+    All tests mock httpx — no network calls are made.
+    Test RSA keys are ephemeral (generated in fixture above).
+    """
+
+    def test_activate_license_success(
+        self,
+        mod: Any,
+        rsa_private_key_pem: str,
+        tmp_path: Path,
+    ) -> None:
+        """step_activate_license succeeds when the API returns HTTP 200.
+
+        Arrange: write a temp private key file; mock GET /license/challenge
+            returning a hardware_id, and POST /license/activate returning 200.
+        Act: call step_activate_license.
+        Assert: the function returns without raising; POST was called once.
+        """
+        key_file = tmp_path / "test_private.pem"
+        key_file.write_text(rsa_private_key_pem)
+
+        mock_challenge_resp = MagicMock()
+        mock_challenge_resp.status_code = 200
+        mock_challenge_resp.json.return_value = {"hardware_id": "test-hw-id-abc123"}
+        mock_challenge_resp.raise_for_status = MagicMock()
+
+        mock_activate_resp = MagicMock()
+        mock_activate_resp.status_code = 200
+        mock_activate_resp.raise_for_status = MagicMock()
+
+        with (
+            patch("httpx.get", return_value=mock_challenge_resp) as mock_get,
+            patch("httpx.post", return_value=mock_activate_resp) as mock_post,
+        ):
+            mod.step_activate_license(
+                api_base_url="http://localhost:8000",
+                license_key_path=key_file,
+            )
+
+        mock_get.assert_called_once()
+        assert "/license/challenge" in mock_get.call_args[0][0]
+        mock_post.assert_called_once()
+        assert "/license/activate" in mock_post.call_args[0][0]
+
+    def test_activate_license_already_active_is_not_an_error(
+        self,
+        mod: Any,
+        rsa_private_key_pem: str,
+        tmp_path: Path,
+    ) -> None:
+        """step_activate_license treats 409 (already activated) as a non-error.
+
+        Arrange: GET /license/challenge returns hardware_id; POST /license/activate
+            returns HTTP 409 (license already active on this hardware).
+        Act: call step_activate_license.
+        Assert: no SystemExit is raised; function completes normally.
+        """
+        key_file = tmp_path / "test_private_409.pem"
+        key_file.write_text(rsa_private_key_pem)
+
+        mock_challenge_resp = MagicMock()
+        mock_challenge_resp.status_code = 200
+        mock_challenge_resp.json.return_value = {"hardware_id": "test-hw-id-409"}
+        mock_challenge_resp.raise_for_status = MagicMock()
+
+        import httpx
+
+        mock_activate_resp = MagicMock()
+        mock_activate_resp.status_code = 409
+        mock_activate_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "409 Conflict",
+            request=MagicMock(),
+            response=mock_activate_resp,
+        )
+
+        with (
+            patch("httpx.get", return_value=mock_challenge_resp),
+            patch("httpx.post", return_value=mock_activate_resp),
+        ):
+            # Must NOT raise SystemExit for 409
+            mod.step_activate_license(
+                api_base_url="http://localhost:8000",
+                license_key_path=key_file,
+            )
+
+    def test_activate_license_jwt_contains_hardware_id_claim(
+        self,
+        mod: Any,
+        rsa_private_key_pem: str,
+        tmp_path: Path,
+    ) -> None:
+        """The JWT posted to /license/activate must contain the hardware_id claim.
+
+        Arrange: capture the JSON payload sent to POST /license/activate.
+        Act: call step_activate_license with a known hardware_id.
+        Assert: decoded JWT claims contain hardware_id matching the challenge value.
+        """
+        import jwt as pyjwt
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+        key_file = tmp_path / "test_private_claims.pem"
+        key_file.write_text(rsa_private_key_pem)
+
+        # Derive public key for verification
+        private_key = load_pem_private_key(rsa_private_key_pem.encode(), password=None)
+        from cryptography.hazmat.primitives import serialization
+
+        public_key_pem = (
+            private_key.public_key()
+            .public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            .decode()
+        )
+
+        expected_hw_id = "hw-id-claim-check-999"
+        captured_payload: list[dict[str, Any]] = []
+
+        mock_challenge_resp = MagicMock()
+        mock_challenge_resp.status_code = 200
+        mock_challenge_resp.json.return_value = {"hardware_id": expected_hw_id}
+        mock_challenge_resp.raise_for_status = MagicMock()
+
+        mock_activate_resp = MagicMock()
+        mock_activate_resp.status_code = 200
+        mock_activate_resp.raise_for_status = MagicMock()
+
+        def _capture_post(url: str, **kwargs: Any) -> MagicMock:
+            captured_payload.append(kwargs.get("json", {}))
+            return mock_activate_resp
+
+        with (
+            patch("httpx.get", return_value=mock_challenge_resp),
+            patch("httpx.post", side_effect=_capture_post),
+        ):
+            mod.step_activate_license(
+                api_base_url="http://localhost:8000",
+                license_key_path=key_file,
+            )
+
+        assert len(captured_payload) == 1
+        token = captured_payload[0]["token"]
+        claims = pyjwt.decode(token, public_key_pem, algorithms=["RS256"])
+        assert claims["hardware_id"] == expected_hw_id
+        assert claims["sub"] == "e2e-load-test"
+        assert "exp" in claims
+        assert "iat" in claims
+
+    def test_activate_license_exits_on_unexpected_http_error(
+        self,
+        mod: Any,
+        rsa_private_key_pem: str,
+        tmp_path: Path,
+    ) -> None:
+        """step_activate_license calls sys.exit on unexpected HTTP errors (e.g., 500).
+
+        Arrange: GET challenge succeeds; POST /license/activate returns HTTP 500.
+        Act: call step_activate_license.
+        Assert: SystemExit is raised.
+        """
+        import httpx
+
+        key_file = tmp_path / "test_private_500.pem"
+        key_file.write_text(rsa_private_key_pem)
+
+        mock_challenge_resp = MagicMock()
+        mock_challenge_resp.status_code = 200
+        mock_challenge_resp.json.return_value = {"hardware_id": "test-hw-id-500"}
+        mock_challenge_resp.raise_for_status = MagicMock()
+
+        mock_activate_resp = MagicMock()
+        mock_activate_resp.status_code = 500
+        mock_activate_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "500 Internal Server Error",
+            request=MagicMock(),
+            response=mock_activate_resp,
+        )
+
+        with (
+            patch("httpx.get", return_value=mock_challenge_resp),
+            patch("httpx.post", return_value=mock_activate_resp),
+        ):
+            with pytest.raises(SystemExit):
+                mod.step_activate_license(
+                    api_base_url="http://localhost:8000",
+                    license_key_path=key_file,
+                )
+
+    def test_activate_license_step_numbering_in_output(
+        self,
+        mod: Any,
+        rsa_private_key_pem: str,
+        tmp_path: Path,
+    ) -> None:
+        """step_activate_license prints a [4/14] step banner to stdout.
+
+        The total step count is 14 after adding this step.
+        """
+        key_file = tmp_path / "test_private_banner.pem"
+        key_file.write_text(rsa_private_key_pem)
+
+        mock_challenge_resp = MagicMock()
+        mock_challenge_resp.status_code = 200
+        mock_challenge_resp.json.return_value = {"hardware_id": "banner-hw-id"}
+        mock_challenge_resp.raise_for_status = MagicMock()
+
+        mock_activate_resp = MagicMock()
+        mock_activate_resp.status_code = 200
+        mock_activate_resp.raise_for_status = MagicMock()
+
+        with (
+            patch("httpx.get", return_value=mock_challenge_resp),
+            patch("httpx.post", return_value=mock_activate_resp),
+        ):
+            from click.testing import CliRunner
+
+            runner = CliRunner()
+            output_lines: list[str] = []
+
+            # Patch click.echo to capture output
+            with patch("click.echo", side_effect=lambda msg, **kw: output_lines.append(str(msg))):
+                mod.step_activate_license(
+                    api_base_url="http://localhost:8000",
+                    license_key_path=key_file,
+                )
+
+        assert runner is not None  # CliRunner imported successfully
+        combined = "\n".join(output_lines)
+        assert "4/14" in combined, f"Expected '4/14' in output, got: {combined!r}"

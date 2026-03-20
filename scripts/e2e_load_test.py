@@ -45,6 +45,7 @@ from typing import Any
 
 import click
 import httpx
+import jwt as pyjwt
 import psutil
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ DEFAULT_TARGET_DSN: str = (  # nosec B105 -- dev DSN, not a credential
 DEFAULT_API_BASE_URL: str = "http://localhost:8000"
 DEFAULT_RESULTS_PATH: str = "docs/e2e_load_test_results.json"
 DEFAULT_VAULT_PASSPHRASE: str = "test-passphrase"  # noqa: S105  # nosec B105 -- dev secret
+DEFAULT_LICENSE_KEY_PATH: str = "secrets/license_dev_private_key.pem"
 POLL_INTERVAL_S: int = 30
 POLL_TIMEOUT_S: int = 4 * 3600  # 4 hours
 
@@ -236,16 +238,17 @@ def build_dry_run_plan(
         "    1. Pre-flight health check",
         "    2. Generate & load data into PostgreSQL",
         "    3. Unseal vault",
-        "    4. Export tables to Parquet",
-        "    5. Create synthesis jobs (4 tables)",
-        "    6. Start all jobs",
-        "    7. Poll for completion (30s interval, 4h timeout)",
-        "    8. Collect metrics",
-        "    9. Download artifacts",
-        "   10. Run conclave-subset CLI subsetting test",
-        "   11. Shred all artifacts",
-        "   12. Write results JSON",
-        "   13. Print summary",
+        "    4. Activate license",
+        "    5. Export tables to Parquet",
+        "    6. Create synthesis jobs (4 tables)",
+        "    7. Start all jobs",
+        "    8. Poll for completion (30s interval, 4h timeout)",
+        "    9. Collect metrics",
+        "   10. Download artifacts",
+        "   11. Run conclave-subset CLI subsetting test",
+        "   12. Shred all artifacts",
+        "   13. Write results JSON",
+        "   14. Print summary",
         "",
         "  DRY RUN complete -- no HTTP calls made, no data written.",
     ]
@@ -297,7 +300,7 @@ def step_preflight(api_base_url: str) -> None:
         SystemExit: If the API is not reachable.
     """
     health_url = f"{api_base_url}/health"
-    click.echo(f"[1/13] Pre-flight: checking {health_url} ...")
+    click.echo(f"[1/14] Pre-flight: checking {health_url} ...")
     try:
         resp = httpx.get(health_url, timeout=10.0)
         resp.raise_for_status()
@@ -320,7 +323,7 @@ def step_generate_and_load(source_dsn: str) -> dict[str, int]:
     Returns:
         Dict mapping table name to number of rows loaded.
     """
-    click.echo("[2/13] Generating & loading data ...")
+    click.echo("[2/14] Generating & loading data ...")
     seed_mod = _load_seed_module()
 
     customers = seed_mod.generate_customers(n=N_CUSTOMERS, seed=42)
@@ -364,7 +367,7 @@ def step_unseal_vault(api_base_url: str, passphrase: str) -> None:
         SystemExit: On unexpected HTTP errors.
     """
     url = f"{api_base_url}/unseal"
-    click.echo(f"[3/13] Unsealing vault at {url} ...")
+    click.echo(f"[3/14] Unsealing vault at {url} ...")
     try:
         resp = httpx.post(url, json={"passphrase": passphrase}, timeout=30.0)
         if resp.status_code in (400, 409):
@@ -375,6 +378,74 @@ def step_unseal_vault(api_base_url: str, passphrase: str) -> None:
             click.echo(f"       Vault unsealed -- status {resp.status_code}")
     except httpx.HTTPStatusError as exc:
         click.echo(f"ERROR: Vault unseal failed: {exc}", err=True)
+        sys.exit(1)
+
+
+def step_activate_license(
+    api_base_url: str,
+    license_key_path: Path,
+) -> None:
+    """Activate the Conclave Engine license using a dev RS256 JWT.
+
+    Reads the RSA private key from ``license_key_path``, fetches the
+    container's hardware ID from ``GET /license/challenge``, signs a
+    short-lived RS256 JWT, and posts it to ``POST /license/activate``.
+
+    A 409 response (already activated) is treated as success.  Any other
+    HTTP error causes the script to exit with a non-zero status.
+
+    Args:
+        api_base_url: Base URL of the Conclave Engine API.
+        license_key_path: Path to the PEM-encoded RSA private key file.
+
+    Raises:
+        SystemExit: On unexpected HTTP errors or missing key file.
+    """
+    click.echo(f"[4/14] Activating license (key: {license_key_path}) ...")
+
+    # -- Read private key -------------------------------------------------------
+    if not license_key_path.exists():
+        click.echo(
+            f"ERROR: License private key not found at {license_key_path}. "
+            "Run: openssl genrsa -out secrets/license_dev_private_key.pem 2048",
+            err=True,
+        )
+        sys.exit(1)
+    private_key_pem = license_key_path.read_text(encoding="utf-8")
+
+    # -- Fetch hardware_id from challenge endpoint ------------------------------
+    challenge_url = f"{api_base_url}/license/challenge"
+    try:
+        challenge_resp = httpx.get(challenge_url, timeout=10.0)
+        challenge_resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        click.echo(f"ERROR: License challenge failed: {exc}", err=True)
+        sys.exit(1)
+
+    hardware_id: str = challenge_resp.json()["hardware_id"]
+    click.echo(f"       hardware_id: {hardware_id}")
+
+    # -- Sign RS256 JWT ---------------------------------------------------------
+    now = datetime.datetime.now(tz=datetime.UTC)
+    claims: dict[str, Any] = {
+        "hardware_id": hardware_id,
+        "sub": "e2e-load-test",
+        "iat": int(now.timestamp()),
+        "exp": int((now + datetime.timedelta(hours=24)).timestamp()),
+    }
+    token = pyjwt.encode(claims, private_key_pem, algorithm="RS256")
+
+    # -- POST to /license/activate ---------------------------------------------
+    activate_url = f"{api_base_url}/license/activate"
+    try:
+        activate_resp = httpx.post(activate_url, json={"token": token}, timeout=30.0)
+        if activate_resp.status_code == 409:
+            click.echo("       License already activated on this hardware -- continuing")
+            return
+        activate_resp.raise_for_status()
+        click.echo(f"       License activated -- status {activate_resp.status_code}")
+    except httpx.HTTPStatusError as exc:
+        click.echo(f"ERROR: License activation failed: {exc}", err=True)
         sys.exit(1)
 
 
@@ -396,7 +467,7 @@ def step_export_parquet(
     Raises:
         SystemExit: If a required library is missing or a query fails.
     """
-    click.echo("[4/13] Exporting tables to Parquet ...")
+    click.echo("[5/14] Exporting tables to Parquet ...")
     try:
         import pandas as pd
         from sqlalchemy import create_engine
@@ -451,7 +522,7 @@ def step_create_jobs(
     Raises:
         SystemExit: On HTTP errors.
     """
-    click.echo("[5/13] Creating synthesis jobs ...")
+    click.echo("[6/14] Creating synthesis jobs ...")
     jobs_url = f"{api_base_url}/jobs"
     table_to_job_id: dict[str, int] = {}
 
@@ -484,7 +555,7 @@ def step_start_jobs(api_base_url: str, table_to_job_id: dict[str, int]) -> None:
     Raises:
         SystemExit: On HTTP errors.
     """
-    click.echo("[6/13] Starting all synthesis jobs ...")
+    click.echo("[7/14] Starting all synthesis jobs ...")
     for table, job_id in table_to_job_id.items():
         url = f"{api_base_url}/jobs/{job_id}/start"
         try:
@@ -510,7 +581,7 @@ def step_poll_jobs(
         Mapping of table name to final job response dict (including timing keys
         ``_start_time`` and ``_end_time`` in epoch seconds).
     """
-    click.echo("[7/13] Polling for job completion (30s interval, 4h timeout) ...")
+    click.echo("[8/14] Polling for job completion (30s interval, 4h timeout) ...")
     terminal_statuses = {"COMPLETE", "FAILED"}
     job_data: dict[str, dict[str, Any]] = {}
     job_start: dict[str, float] = {t: time.monotonic() for t in table_to_job_id}
@@ -573,8 +644,8 @@ def step_collect_metrics(
     Returns:
         List of job metric dicts in TABLES_IN_ORDER order.
     """
-    click.echo("[8/13] Collecting metrics ...")
-    click.echo("[9/13] Downloading artifacts ...")
+    click.echo("[9/14] Collecting metrics ...")
+    click.echo("[10/14] Downloading artifacts ...")
     job_results: list[dict[str, Any]] = []
 
     for table in TABLES_IN_ORDER:
@@ -633,7 +704,7 @@ def step_cli_subsetting(source_dsn: str, target_dsn: str) -> dict[str, Any]:
     Returns:
         Dict with keys: status, duration_s, seed_rows, total_rows_subsetted.
     """
-    click.echo("[10/13] Running conclave-subset CLI ...")
+    click.echo("[11/14] Running conclave-subset CLI ...")
     cmd = [
         "conclave-subset",
         "--source",
@@ -648,6 +719,7 @@ def step_cli_subsetting(source_dsn: str, target_dsn: str) -> dict[str, Any]:
     ]
     t0 = time.monotonic()
     status = "failed"
+    duration_s = 0.0
     try:
         proc = subprocess.run(  # nosec B603 -- argv list, not shell=True
             cmd,
@@ -688,7 +760,7 @@ def step_shred_jobs(
     Returns:
         List of dicts with job_id and status keys.
     """
-    click.echo("[11/13] Shredding artifacts ...")
+    click.echo("[12/14] Shredding artifacts ...")
     shred_results: list[dict[str, Any]] = []
     for table in TABLES_IN_ORDER:
         job_id = table_to_job_id[table]
@@ -712,7 +784,7 @@ def step_write_results(results: dict[str, Any], results_path: Path) -> None:
         results: Assembled results dict from build_results_dict().
         results_path: Destination path for the JSON file.
     """
-    click.echo(f"[12/13] Writing results to {results_path} ...")
+    click.echo(f"[13/14] Writing results to {results_path} ...")
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(json.dumps(results, indent=2, default=str), encoding="utf-8")
     click.echo(f"       Results written to {results_path}")
@@ -724,7 +796,7 @@ def step_print_summary(results: dict[str, Any]) -> None:
     Args:
         results: Results dict from build_results_dict().
     """
-    click.echo("\n[13/13] Summary")
+    click.echo("\n[14/14] Summary")
     click.echo("=" * 72)
     click.echo(f"Run date       : {results['run_date']}")
     click.echo(f"Total rows     : {results['total_source_rows']:,}")
@@ -803,6 +875,14 @@ def step_print_summary(results: dict[str, Any]) -> None:
     help="Vault unseal passphrase (dev default: test-passphrase).",
 )
 @click.option(
+    "--license-key-path",
+    default=DEFAULT_LICENSE_KEY_PATH,
+    show_default=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    envvar="LICENSE_KEY_PATH",
+    help="Path to the dev RSA private key for license JWT signing.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -814,6 +894,7 @@ def main(
     api_base_url: str,
     results_path: Path,
     vault_passphrase: str,
+    license_key_path: Path,
     dry_run: bool,
 ) -> None:
     """Run the Conclave Engine 1M-row end-to-end load test.
@@ -851,19 +932,25 @@ def main(
         table_row_counts = step_generate_and_load(source_dsn)
         step_unseal_vault(api_base_url, vault_passphrase)
 
-        # Step 4 - Parquet export
+        # Step 4 - License activation
+        step_activate_license(
+            api_base_url=api_base_url,
+            license_key_path=license_key_path,
+        )
+
+        # Step 5 - Parquet export
         parquet_paths = step_export_parquet(
             source_dsn=source_dsn,
             tmp_dir=tmp_dir,
             table_row_counts=table_row_counts,
         )
 
-        # Steps 5-7 - jobs
+        # Steps 6-8 - jobs
         table_to_job_id = step_create_jobs(api_base_url, parquet_paths)
         step_start_jobs(api_base_url, table_to_job_id)
         job_responses = step_poll_jobs(api_base_url, table_to_job_id)
 
-        # Steps 8-9 - metrics + downloads
+        # Steps 9-10 - metrics + downloads
         job_results = step_collect_metrics(
             api_base_url=api_base_url,
             table_to_job_id=table_to_job_id,
@@ -871,13 +958,13 @@ def main(
             tmp_dir=tmp_dir,
         )
 
-        # Step 10 - CLI subsetting
+        # Step 11 - CLI subsetting
         cli_result = step_cli_subsetting(source_dsn=source_dsn, target_dsn=target_dsn)
 
-        # Step 11 - shred
+        # Step 12 - shred
         shred_results = step_shred_jobs(api_base_url, table_to_job_id)
 
-    # Steps 12-13 - results
+    # Steps 13-14 - results
     total_source_rows = sum(table_row_counts.values())
     results = build_results_dict(
         run_date=run_date,
