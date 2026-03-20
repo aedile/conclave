@@ -89,14 +89,28 @@ If the backlog says "integration test" or names a specific tool (`pytest-postgre
 - **REFACTOR**: Clean up the code, optimize imports, ensure strict typing (`mypy` strict mode), and add Google-style docstrings.
 
 ### 3. Quality Assurance
-Before finalizing your work, you MUST run and pass all quality gates locally:
+
+The project uses a **Two-Gate Test Policy** to balance thoroughness with efficiency.
+
+**GREEN phase (Gate #1 — full suite):**
+After making tests pass, run the complete quality gate battery:
 - `poetry run ruff check src/ tests/`
 - `poetry run ruff format --check src/ tests/`
 - `poetry run mypy src/`
 - `poetry run bandit -c pyproject.toml -r src/`
-- `poetry run pytest --cov=src/synth_engine --cov-fail-under=90`
+- `poetry run pytest tests/unit/ --cov=src/synth_engine --cov-fail-under=95 -W error`
+- `poetry run pytest tests/integration/ -v`
+- `vulture src/ .vulture_whitelist.py --min-confidence 60`
+- `pre-commit run --all-files`
 
-If ANY of these fail, you must fix the code. Do NOT bypass them.
+**REFACTOR phase and fix rounds (light gate):**
+Run static analysis (ruff, mypy, bandit, vulture, pre-commit) plus only the test files
+that changed in this branch and any test files that import from changed source modules.
+
+**Pre-merge (Gate #2 — full suite):**
+Before the PM merges, run the full suite one final time (same commands as Gate #1).
+
+If ANY gate fails at any checkpoint, fix the code. Do NOT bypass them.
 
 ### 4. PR Drafting and Handoff
 Once the code is complete and passing:

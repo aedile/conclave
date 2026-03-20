@@ -1,0 +1,81 @@
+{
+  "run_date": "2026-03-20T00:23:24Z",
+  "total_source_rows": 1011540,
+  "dataset": {
+    "customers": 50000,
+    "orders": 175000,
+    "order_items": 611540,
+    "payments": 175000
+  },
+  "jobs": [
+    {
+      "table": "customers",
+      "status": "COMPLETE",
+      "duration_s": 782.0,
+      "rows_per_sec": 63.9386,
+      "epsilon_spent": 9.89121586918064,
+      "artifact_size_mb": 0.0,
+      "dp_enabled": true,
+      "noise_multiplier": 1.1
+    },
+    {
+      "table": "orders",
+      "status": "COMPLETE",
+      "duration_s": 2523.0,
+      "rows_per_sec": 69.3619,
+      "epsilon_spent": 0.6850836025146139,
+      "artifact_size_mb": 0.0,
+      "dp_enabled": true,
+      "noise_multiplier": 5.0
+    },
+    {
+      "table": "order_items",
+      "status": "COMPLETE",
+      "duration_s": 8709.0,
+      "rows_per_sec": 22.9647,
+      "epsilon_spent": 0.1689114049407273,
+      "artifact_size_mb": 0.0,
+      "dp_enabled": true,
+      "noise_multiplier": 10.0
+    },
+    {
+      "table": "payments",
+      "status": "COMPLETE",
+      "duration_s": 3908.0,
+      "rows_per_sec": 44.7799,
+      "epsilon_spent": null,
+      "artifact_size_mb": 0.0,
+      "dp_enabled": false,
+      "noise_multiplier": 0.0
+    }
+  ],
+  "cli_subsetting": {
+    "status": "failed",
+    "duration_s": 0.86,
+    "seed_rows": 100,
+    "total_rows_subsetted": null
+  },
+  "shred_results": [
+    {
+      "job_id": 30,
+      "status": "success"
+    },
+    {
+      "job_id": 31,
+      "status": "success"
+    },
+    {
+      "job_id": 32,
+      "status": "success"
+    },
+    {
+      "job_id": 33,
+      "status": "success"
+    }
+  ],
+  "system": {
+    "platform": "macOS-15.5-arm64-arm-64bit-Mach-O",
+    "ram_gb": 24.0,
+    "cpu_count": 10
+  }
+}

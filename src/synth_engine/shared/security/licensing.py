@@ -108,6 +108,10 @@ def get_active_public_key() -> str:
     Checks ``LICENSE_PUBLIC_KEY`` via :func:`get_settings` first; falls back to
     the embedded placeholder key.
 
+    When the key is passed as a single-line environment variable (common with
+    Docker ``env_file`` directives), literal ``\\n`` sequences are converted
+    to real newlines so the PEM is valid for RSA operations.
+
     Returns:
         PEM-encoded RSA public key string.
     """
@@ -115,7 +119,7 @@ def get_active_public_key() -> str:
 
     env_key = get_settings().license_public_key
     if env_key:
-        return env_key
+        return env_key.replace("\\n", "\n")
     return _EMBEDDED_PUBLIC_KEY
 
 

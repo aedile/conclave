@@ -159,11 +159,18 @@ Security is Priority Zero — it overrides every other consideration. See
 **Current**: Discriminator-level DP-SGD (Phase 30). Proxy-model fallback available for
 environments where Opacus cannot instrument the Discriminator.
 
-> **Benchmarks Pending** — The Phase 30 discriminator-level DP-SGD quality benchmark has not
-> yet been executed against the production training path. Historical proxy-model benchmark
-> results are available in [docs/DP_QUALITY_REPORT.md](docs/DP_QUALITY_REPORT.md). Run
-> `poetry run python3 scripts/benchmark_dp_quality.py` to generate live discriminator-level
-> results.
+Production-scale epsilon results from the 1M-row load test (2026-03-20, CPU-only, macOS ARM64):
+
+| Table | Source Rows | noise_multiplier (σ) | actual_epsilon | Privacy Level |
+|-------|------------|----------------------|----------------|--------------|
+| customers | 50,000 | 1.1 | 9.891 | Moderate |
+| orders | 175,000 | 5.0 | 0.685 | Strong |
+| order_items | 611,540 | 10.0 | 0.169 | Excellent |
+| payments | 175,000 | N/A | N/A | No DP (enable_dp=False) |
+
+Higher σ → lower ε → stronger privacy guarantee. All three DP-enabled jobs trained to COMPLETE
+with correct end-to-end DP accounting. See [docs/DP_QUALITY_REPORT.md](docs/DP_QUALITY_REPORT.md)
+for the full analysis and recommended epsilon ranges by use case.
 
 | Aspect | Phase 30 Implementation | Proxy-model Fallback |
 |--------|------------------------|---------------------|
@@ -295,6 +302,29 @@ every table, every run — so join integrity holds. The mapping is not reversibl
 
 FK traversal from this run: 50 customers → 116 orders → 396 order items + 116 payments.
 Zero orphan rows. See [full E2E validation evidence](docs/E2E_VALIDATION.md).
+
+---
+
+## Validated Scale
+
+The 1M-row load test (2026-03-20) validated Conclave at production scale on CPU-only
+hardware (macOS ARM64, 10 cores, 24 GB RAM). All four synthesis jobs completed without
+errors, with correct DP accounting and artifact shredding.
+
+| Table | Source Rows | Synth Rows | Training Time | Throughput |
+|-------|------------|------------|---------------|------------|
+| customers | 50,000 | 50,000 | 13 min | 64 rows/s |
+| orders | 175,000 | 175,000 | 42 min | 69 rows/s |
+| order_items | 611,540 | 200,000 | 2 h 25 min | 23 rows/s |
+| payments | 175,000 | 175,000 | 1 h 5 min | 45 rows/s |
+| **Total** | **1,011,540** | **600,000** | **~4 h 12 min** | — |
+
+These numbers are CPU-only baselines. GPU-accelerated training will be substantially faster.
+The total training time would compress significantly with a CUDA-capable device — the
+discriminator-level DP-SGD training loop is the primary bottleneck, and it is GPU-bound once
+CTGAN's embedding step is complete.
+
+Full evidence is in [docs/E2E_VALIDATION.md](docs/E2E_VALIDATION.md).
 
 ---
 

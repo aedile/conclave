@@ -90,6 +90,12 @@ correctness, security, or functionality findings.
 If a "phase" would have fewer than 5 meaningful commits, it becomes a task within the current
 or next phase — not a standalone phase.
 
+**Rule 18 — Two-Gate Test Policy.** [sunset: Phase 45]
+Full test suite runs only twice per feature: post-GREEN (Gate #1) and pre-merge (Gate #2).
+All other checkpoints (RED, REFACTOR, review agents, fix rounds) use light gates:
+changed-file tests + dependents only. Static analysis (ruff, mypy, bandit, vulture,
+pre-commit) runs at every checkpoint. See the Test Run Cadence table in the TDD section.
+
 ---
 
 ## Core Philosophy
@@ -132,6 +138,21 @@ pre-commit run --all-files                                     # All hooks
 
 **Two-gate test policy**: Unit tests (mocks OK, `-W error`) + Integration tests (real infra,
 pytest-postgresql). Both must pass. "Integration test using X" is NOT satisfied by unit mocks.
+
+### Test Run Cadence (Two-Gate Policy)
+
+| Phase         | Test scope                              | Gate type |
+|---------------|-----------------------------------------|-----------|
+| RED           | New test file(s) only (confirm failure) | —         |
+| GREEN         | **Full suite** (all unit + integration) | Gate #1   |
+| REFACTOR      | Changed-file tests + dependents         | Light     |
+| Review agents | Changed-file tests + dependents         | Light     |
+| Fix round(s)  | Changed-file tests + dependents         | Light     |
+| Pre-merge     | **Full suite** (all unit + integration) | Gate #2   |
+
+"Changed-file tests + dependents" means: run only test files that changed in this branch,
+plus any test files that import from changed source modules. Static analysis gates
+(ruff, mypy, bandit, vulture, pre-commit) run at **every** checkpoint regardless.
 
 ### Git Workflow
 

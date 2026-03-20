@@ -184,7 +184,7 @@ def generate_customers(
                 "id": i,
                 "first_name": fake.first_name(),
                 "last_name": fake.last_name(),
-                "email": fake.email(),
+                "email": f"user{i}_{fake.email()}",
                 "ssn": fake.ssn(),
                 "phone": fake.phone_number(),
                 "address": fake.address().replace("\n", ", "),

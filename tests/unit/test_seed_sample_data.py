@@ -751,48 +751,52 @@ class TestE2eValidationDoc:
     def test_e2e_doc_contains_docker_compose_step(self) -> None:
         """docs/E2E_VALIDATION.md must document the Docker infrastructure step.
 
-        Updated for P28: the document was rewritten to reflect the new container-based
-        validation approach (conclave-app-e2e). The old docker-compose CLI workflow
-        was superseded; the test now checks for Docker infrastructure evidence that
-        IS present in the P28 document.
+        Updated for 1M-row load test: the document was rewritten to reflect the
+        load test run on 1,011,540 rows. Docker Compose infrastructure is documented
+        in the Environment table. The test checks for Docker infrastructure evidence
+        that IS present in the current document.
         """
         doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
         if not doc_path.is_file():
             pytest.skip("docs/E2E_VALIDATION.md not found")
         content = doc_path.read_text(encoding="utf-8")
         assert "docker" in content.lower(), "E2E_VALIDATION.md must document Docker infrastructure"
-        assert "conclave-app-e2e" in content, (
-            "E2E_VALIDATION.md must reference the conclave-app-e2e container"
+        assert "Docker Compose" in content, (
+            "E2E_VALIDATION.md must reference the Docker Compose environment"
         )
 
     def test_e2e_doc_contains_seed_data_step(self) -> None:
-        """docs/E2E_VALIDATION.md must document the infrastructure health step.
+        """docs/E2E_VALIDATION.md must document the source dataset step.
 
-        Updated for P28: the old seed-data CLI step was superseded by a live
-        container health validation step. The test now checks for Infrastructure
-        Health evidence that IS present in the P28 document.
+        Updated for 1M-row load test: the document was rewritten to reflect the
+        load test dataset with 1,011,540 source rows. The test now checks for
+        Source Dataset evidence that IS present in the current document.
         """
         doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
         if not doc_path.is_file():
             pytest.skip("docs/E2E_VALIDATION.md not found")
         content = doc_path.read_text(encoding="utf-8")
-        assert "Infrastructure Health" in content, (
-            "E2E_VALIDATION.md must document the infrastructure health step"
+        assert "Source Dataset" in content, (
+            "E2E_VALIDATION.md must document the source dataset step"
         )
 
     def test_e2e_doc_contains_conclave_subset_step(self) -> None:
-        """docs/E2E_VALIDATION.md must document the API pipeline step.
+        """docs/E2E_VALIDATION.md must document the training results step.
 
-        Updated for P28: the old conclave-subset CLI step was superseded by a live
-        API pipeline validation step with HTTP evidence. The test now checks for
-        API Pipeline content that IS present in the P28 document.
+        Updated for 1M-row load test: the document was rewritten to reflect per-table
+        training results. The test now checks for Training Results evidence that IS
+        present in the current document.
         """
         doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
         if not doc_path.is_file():
             pytest.skip("docs/E2E_VALIDATION.md not found")
         content = doc_path.read_text(encoding="utf-8")
-        assert "API Pipeline" in content, "E2E_VALIDATION.md must document the API pipeline step"
-        assert "HTTP/1.1" in content, "E2E_VALIDATION.md must contain live HTTP response evidence"
+        assert "Training Results" in content, (
+            "E2E_VALIDATION.md must document the training results step"
+        )
+        assert "COMPLETE" in content, (
+            "E2E_VALIDATION.md must contain synthesis job completion evidence"
+        )
 
     def test_e2e_doc_contains_synthesis_step(self) -> None:
         """docs/E2E_VALIDATION.md must document the synthesis API step."""
@@ -803,23 +807,24 @@ class TestE2eValidationDoc:
         assert "synth" in content, "E2E_VALIDATION.md must document the synthesis step"
 
     def test_e2e_doc_contains_live_validation_evidence(self) -> None:
-        """docs/E2E_VALIDATION.md must contain live validation evidence (P28).
+        """docs/E2E_VALIDATION.md must contain live validation evidence (1M-row load test).
 
-        P28 rewrote the E2E document with fresh live evidence: HTTP API responses,
-        Playwright screenshot run output, Dockerfile findings, and quality gate
-        results. This test verifies the P28 live run evidence is present.
+        The 1M-row load test rewrote the E2E document with fresh live evidence:
+        per-table training results, DP accounting (epsilon values), shredding
+        confirmation, and row counts. This test verifies the load test evidence is
+        present.
         """
         doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
         if not doc_path.is_file():
             pytest.skip("docs/E2E_VALIDATION.md not found")
         content = doc_path.read_text(encoding="utf-8")
-        # P28 documents blocking findings in the Findings Summary table
-        assert "BLOCKER" in content, (
-            "E2E_VALIDATION.md must document findings from the live validation run"
+        # Load test total source row count
+        assert "1,011,540" in content, (
+            "E2E_VALIDATION.md must document the 1M-row load test source row count"
         )
-        # P28 Playwright evidence: 32 specs passing (4 pre-existing unseal.spec.ts failures)
-        assert "32 passed" in content, "E2E_VALIDATION.md must contain Playwright test run evidence"
-        # P28 live API evidence: HTTP responses captured
-        assert "HTTP/1.1 200" in content, (
-            "E2E_VALIDATION.md must contain live HTTP response evidence"
+        # Load test DP accounting evidence: epsilon values present
+        assert "epsilon" in content, "E2E_VALIDATION.md must document DP epsilon accounting results"
+        # All synthesis jobs completed successfully
+        assert "COMPLETE" in content, (
+            "E2E_VALIDATION.md must contain synthesis job completion evidence"
         )

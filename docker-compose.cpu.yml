@@ -1,0 +1,23 @@
+# CPU-only override — injects .env and adds capabilities for gosu on macOS.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml \
+#       -f docker-compose.cpu.yml up -d
+#
+# Requires a .env file (gitignored) with DATABASE_URL, AUDIT_KEY, etc.
+# See .env.example for the full list of variables.
+services:
+  app:
+    env_file:
+      - .env
+    cap_add:
+      - IPC_LOCK
+      - SETUID   # Required by gosu to drop from root to appuser during container startup.
+      - SETGID   # Required by gosu to drop from root to appuser during container startup.
+                 # The process runs as unprivileged appuser after initialization completes.
+
+  # Expose PostgreSQL to localhost for E2E load test data seeding.
+  # Production deployments MUST NOT expose this port.
+  postgres:
+    ports:
+      - "5432:5432"
