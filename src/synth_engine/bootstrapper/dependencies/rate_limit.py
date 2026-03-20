@@ -191,6 +191,24 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
     (added last in LIFO ordering) to protect against DoS and brute-force
     attacks before any downstream processing.
 
+    When ``None`` is passed for any tier, the value is read from
+    :func:`~synth_engine.shared.settings.get_settings` at construction
+    time.  Explicit values override settings — this allows tests to inject
+    low limits without environment variable manipulation.
+
+    Args:
+        app: The next ASGI application in the stack.
+        unseal_limit: Requests per minute allowed on /unseal per IP.
+            Defaults to ``ConclaveSettings.rate_limit_unseal_per_minute``.
+        auth_limit: Requests per minute allowed on /auth/token per IP.
+            Defaults to ``ConclaveSettings.rate_limit_auth_per_minute``.
+        general_limit: Requests per minute allowed per operator on all
+            other endpoints.  Defaults to
+            ``ConclaveSettings.rate_limit_general_per_minute``.
+        download_limit: Requests per minute allowed per operator on
+            download endpoints.  Defaults to
+            ``ConclaveSettings.rate_limit_download_per_minute``.
+
     Attributes:
         _limiter: Fixed-window rate limiter backed by in-memory storage.
         _unseal_limit: Parsed rate limit item for the /unseal endpoint.
@@ -208,26 +226,6 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         general_limit: int | None = None,
         download_limit: int | None = None,
     ) -> None:
-        """Initialise the middleware with configurable rate limit tiers.
-
-        When ``None`` is passed for any tier, the value is read from
-        :func:`~synth_engine.shared.settings.get_settings` at construction
-        time.  Explicit values override settings — this allows tests to inject
-        low limits without environment variable manipulation.
-
-        Args:
-            app: The next ASGI application in the stack.
-            unseal_limit: Requests per minute allowed on /unseal per IP.
-                Defaults to ``ConclaveSettings.rate_limit_unseal_per_minute``.
-            auth_limit: Requests per minute allowed on /auth/token per IP.
-                Defaults to ``ConclaveSettings.rate_limit_auth_per_minute``.
-            general_limit: Requests per minute allowed per operator on all
-                other endpoints.  Defaults to
-                ``ConclaveSettings.rate_limit_general_per_minute``.
-            download_limit: Requests per minute allowed per operator on
-                download endpoints.  Defaults to
-                ``ConclaveSettings.rate_limit_download_per_minute``.
-        """
         super().__init__(app)  # type: ignore[arg-type]
         settings = get_settings()
         _unseal = (
@@ -298,7 +296,10 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         """
         try:
             stats = self._limiter.get_window_stats(limit, key)
-            seconds = math.ceil(stats.reset_time - time.time())
+            # Cast reset_time to float: limits library does not ship py.typed,
+            # so stats attributes are typed as Any in the pre-commit mypy env.
+            reset_time: float = float(stats.reset_time)
+            seconds = math.ceil(reset_time - time.time())
             return max(0, seconds)
         except Exception:  # pragma: no cover — defensive fallback; MemoryStorage does not raise
             # If stats are unavailable, return a safe default (60 seconds = 1 window).

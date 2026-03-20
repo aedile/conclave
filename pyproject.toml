@@ -59,6 +59,9 @@ qrcode = {version = ">=8.0.0,<9.0.0", extras = ["pil"]}
 pillow = ">=12.0.0,<13.0.0"
 pydantic-settings = ">=2.0.0,<3.0.0"
 bcrypt = ">=4.0.1,<6.0.0"
+# limits: in-memory fixed-window rate limiting for RateLimitGateMiddleware.
+# This is the same underlying engine used by slowapi.  MemoryStorage backend
+# requires no external services — air-gap safe.  Added in T39.3.
 limits = ">=3.14.0,<6.0.0"
 
 [tool.poetry.group.dev.dependencies]
@@ -245,6 +248,15 @@ ignore_missing_imports = true
 # (e.g. pre-commit mypy hook) may not have it installed alongside pydantic.
 # Consistent with the strategy in ADR-0032 — rely on runtime integration tests.
 module = ["pydantic_settings"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# limits does not ship py.typed. The pre-commit mirrors-mypy hook runs in an
+# isolated environment that may not have limits installed. ignore_missing_imports
+# suppresses import-not-found errors in that context; runtime API correctness
+# is verified by integration tests (test_rate_limit_middleware.py).
+# Added in T39.3 (RateLimitGateMiddleware).
+module = ["limits", "limits.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
