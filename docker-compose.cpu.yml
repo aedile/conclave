@@ -14,3 +14,9 @@ services:
       - IPC_LOCK
       - SETUID
       - SETGID
+
+  # Expose PostgreSQL to localhost for E2E load test data seeding.
+  # Production deployments MUST NOT expose this port.
+  postgres:
+    ports:
+      - "5432:5432"
