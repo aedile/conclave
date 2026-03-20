@@ -3,6 +3,7 @@ name = "conclave-engine"
 version = "0.1.0"
 description = "Air-Gapped Synthetic Data Generation Engine"
 authors = []
+license = "AGPL-3.0-or-later"
 readme = "README.md"
 packages = [{ include = "synth_engine", from = "src" }]
 
