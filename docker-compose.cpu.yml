@@ -1,0 +1,18 @@
+# CPU-only override — removes NVIDIA GPU reservation for non-GPU hosts.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml \
+#       -f docker-compose.cpu.yml up -d
+#
+# This override disables the NVIDIA Container Toolkit device reservation
+# in the app service and sets FORCE_CPU=true so the synthesis training
+# pipeline uses CPU instead of GPU.  Required for macOS, CI runners,
+# and any host without an NVIDIA GPU.
+services:
+  app:
+    deploy:
+      resources:
+        reservations:
+          devices: []
+    environment:
+      FORCE_CPU: "true"
