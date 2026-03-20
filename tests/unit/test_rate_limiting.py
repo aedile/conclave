@@ -337,13 +337,16 @@ def test_rate_limit_settings_fields_exist() -> None:
 
 
 def test_rate_limit_middleware_is_importable() -> None:
-    """RateLimitGateMiddleware must be importable from its canonical path.
+    """RateLimitGateMiddleware must be a concrete BaseHTTPMiddleware subclass.
 
-    Verifies that the module exists and the class is exported.
+    Verifies that the class is exported from its canonical path and is
+    a properly-wired Starlette middleware (not just a non-None sentinel).
     """
+    from starlette.middleware.base import BaseHTTPMiddleware
+
     from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
 
-    assert RateLimitGateMiddleware is not None
+    assert issubclass(RateLimitGateMiddleware, BaseHTTPMiddleware)
 
 
 def test_rate_limit_middleware_registered_in_setup_middleware(

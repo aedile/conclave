@@ -17,6 +17,8 @@ Rate limit tiers (per T39.3 specification)
 
 ``/jobs/{id}/download``:
     10 requests/minute per authenticated operator.  Bandwidth protection.
+    Matched with ``path.endswith("/download")`` to enforce the specific
+    route contract rather than a broader substring match.
 
 All other endpoints:
     60 requests/minute per authenticated operator.
@@ -73,6 +75,7 @@ Task: T39.3 — Add Rate Limiting Middleware
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import time
@@ -93,8 +96,9 @@ _logger = logging.getLogger(__name__)
 #: Paths where the rate limit key is the client IP (pre-authentication endpoints).
 _IP_KEYED_PATHS: frozenset[str] = frozenset({"/unseal", "/auth/token"})
 
-#: Path prefix that triggers the download-specific (lower) rate limit tier.
-_DOWNLOAD_PATH_PREFIX: str = "/download"
+#: Path suffix that triggers the download-specific (lower) rate limit tier.
+#: Uses endswith() to enforce the specific /jobs/{id}/download route contract.
+_DOWNLOAD_PATH_SUFFIX: str = "/download"
 
 
 def _extract_client_ip(request: Request) -> str:
@@ -254,8 +258,9 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         Routing logic:
         - ``/unseal`` → unseal_limit keyed by client IP.
         - ``/auth/token`` → auth_limit keyed by client IP.
-        - Paths containing ``/download`` → download_limit keyed by operator
-          sub (or IP fallback).
+        - Paths ending with ``/download`` → download_limit keyed by operator
+          sub (or IP fallback).  Uses endswith() to match the specific
+          /jobs/{id}/download route contract.
         - All other paths → general_limit keyed by operator sub (or IP
           fallback).
 
@@ -279,7 +284,7 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         operator_id = _extract_operator_id(request)
         key = f"op:{operator_id}" if operator_id else f"ip:{_extract_client_ip(request)}"
 
-        if _DOWNLOAD_PATH_PREFIX in path:
+        if path.endswith(_DOWNLOAD_PATH_SUFFIX):
             return self._download_limit, key
 
         return self._general_limit, key
@@ -301,8 +306,10 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
             reset_time: float = float(stats.reset_time)
             seconds = math.ceil(reset_time - time.time())
             return max(0, seconds)
-        except Exception:  # pragma: no cover — defensive fallback; MemoryStorage does not raise
-            # If stats are unavailable, return a safe default (60 seconds = 1 window).
+        except Exception as e:  # pragma: no cover
+            # Defensive fallback: MemoryStorage is documented not to raise, but
+            # this guard protects against future storage backend substitutions.
+            _logger.warning("rate_limit: window stats unavailable for key=%s: %s", key, e)
             return 60
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -325,10 +332,13 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
 
         if not allowed:
             retry_after = self._compute_retry_after(limit, key)
+            # Hash the key before logging to avoid emitting raw client IPs or
+            # operator identifiers in log files (CONSTITUTION Priority 0: privacy).
+            hashed_key = hashlib.sha256(key.encode()).hexdigest()[:12]
             _logger.warning(
-                "Rate limit exceeded: path=%s key=%s retry_after=%ds",
+                "rate_limit: exceeded for key=%s path=%s retry_after=%ds",
+                hashed_key,
                 request.url.path,
-                key,
                 retry_after,
             )
             return _build_429_response(retry_after)
