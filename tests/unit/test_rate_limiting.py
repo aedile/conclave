@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -247,7 +246,10 @@ async def test_different_ips_have_independent_limits_on_unseal() -> None:
 async def test_different_operators_have_independent_limits() -> None:
     """Two different authenticated operators have independent rate limit buckets.
 
-    Arrange: build with general_limit=1; two different Authorization tokens.
+    Uses real JWT tokens with distinct 'sub' claims.  The middleware decodes
+    the sub claim without signature verification to identify the operator.
+
+    Arrange: build with general_limit=1; two operators with distinct JWTs.
     Act: exhaust limit for operator A; make request from operator B.
     Assert: operator A gets 429; operator B gets 200.
     """
@@ -269,22 +271,16 @@ async def test_different_operators_have_independent_limits() -> None:
     token_a = _make_token("operator-alpha")
     token_b = _make_token("operator-beta")
 
-    with patch(
-        "synth_engine.bootstrapper.dependencies.rate_limit._extract_operator_id",
-        side_effect=lambda req: (
-            "operator-alpha" if "alpha" in req.headers.get("Authorization", "") else "operator-beta"
-        ),
-    ):
-        app = _build_isolated_app(general_limit=1)
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            headers_a = {"Authorization": f"Bearer {token_a}"}
-            headers_b = {"Authorization": f"Bearer {token_b}"}
+    app = _build_isolated_app(general_limit=1)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        headers_a = {"Authorization": f"Bearer {token_a}"}
+        headers_b = {"Authorization": f"Bearer {token_b}"}
 
-            # Exhaust operator A
-            await client.get("/jobs", headers=headers_a)
-            response_a2 = await client.get("/jobs", headers=headers_a)
-            # Operator B should still be allowed
-            response_b1 = await client.get("/jobs", headers=headers_b)
+        # Exhaust operator A
+        await client.get("/jobs", headers=headers_a)
+        response_a2 = await client.get("/jobs", headers=headers_a)
+        # Operator B should still be allowed
+        response_b1 = await client.get("/jobs", headers=headers_b)
 
     assert response_a2.status_code == 429, "Operator A must be rate limited after exceeding"
     assert response_b1.status_code == 200, "Operator B must NOT be affected by operator A's limit"
@@ -355,8 +351,11 @@ def test_rate_limit_middleware_registered_in_setup_middleware(
 ) -> None:
     """setup_middleware() must register RateLimitGateMiddleware on the app.
 
+    Starlette wraps each middleware in a ``Middleware`` namedtuple-like object.
+    The actual class is accessible via ``m.cls``.
+
     Arrange: build the full app with settings configured.
-    Assert: the middleware stack includes RateLimitGateMiddleware.
+    Assert: the middleware stack includes RateLimitGateMiddleware via m.cls.
     """
     monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
     monkeypatch.setenv("AUDIT_KEY", "a" * 64)
@@ -368,9 +367,9 @@ def test_rate_limit_middleware_registered_in_setup_middleware(
     from synth_engine.bootstrapper.main import create_app
 
     app = create_app()
-    middleware_types = [type(m).__name__ for m in app.user_middleware]
-    assert "RateLimitGateMiddleware" in middleware_types, (
-        f"RateLimitGateMiddleware must be in middleware stack; found: {middleware_types}"
+    middleware_class_names = [m.cls.__name__ for m in app.user_middleware]
+    assert "RateLimitGateMiddleware" in middleware_class_names, (
+        f"RateLimitGateMiddleware must be in middleware stack; found: {middleware_class_names}"
     )
 
 

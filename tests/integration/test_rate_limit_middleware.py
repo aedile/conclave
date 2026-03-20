@@ -173,7 +173,9 @@ async def test_rate_limit_middleware_active_in_full_stack(
         headers = {"X-Forwarded-For": "192.0.2.1"}
         # First request should succeed
         r1 = await client.post("/unseal", json={"passphrase": "anything"}, headers=headers)
-        assert r1.status_code != 429, f"First request must not be rate limited; got {r1.status_code}"
+        assert r1.status_code != 429, (
+            f"First request must not be rate limited; got {r1.status_code}"
+        )
         # Second request should be rate limited
         r2 = await client.post("/unseal", json={"passphrase": "anything"}, headers=headers)
 
@@ -292,9 +294,7 @@ async def test_authenticated_endpoint_rate_limited_per_operator(
             r2 = await client.get("/jobs", headers=headers)
 
     assert r1.status_code != 429, f"First request must not be rate limited; got {r1.status_code}"
-    assert r2.status_code == 429, (
-        f"Second request must be rate limited (429); got {r2.status_code}"
-    )
+    assert r2.status_code == 429, f"Second request must be rate limited (429); got {r2.status_code}"
 
 
 # ---------------------------------------------------------------------------
