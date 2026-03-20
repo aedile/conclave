@@ -1,0 +1,19 @@
+# GPU override — adds NVIDIA Container Toolkit device reservation.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# Requires the NVIDIA Container Toolkit and a compatible GPU.
+# CPU-only hosts should NOT include this file.
+#
+# Task: T4.1 — GPU Passthrough (moved from base docker-compose.yml)
+services:
+  app:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities:
+                - gpu

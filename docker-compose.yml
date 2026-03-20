@@ -76,22 +76,12 @@ services:
     volumes:
       - chroma_data:/app/.chroma_data
 
-    # --- NVIDIA Container Toolkit GPU passthrough (T4.1) ----------------------
-    # Uses the current `deploy.resources.reservations.devices` spec.
-    # The deprecated `runtime: nvidia` field is intentionally NOT used.
-    # FORCE_CPU=true in the environment bypasses GPU access for CI and
-    # development machines without NVIDIA hardware.
+    # --- NVIDIA GPU passthrough (T4.1) -----------------------------------------
+    # GPU reservation moved to docker-compose.gpu.yml so that non-GPU hosts
+    # (macOS, CI runners) can `docker compose up` without the NVIDIA runtime.
     #
-    # To disable GPU passthrough entirely (e.g. CPU-only hosts), remove this
-    # `deploy` block or set FORCE_CPU=true in the app environment.
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities:
-                - gpu
+    # GPU hosts:  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+    # CPU hosts:  docker compose up -d  (default, FORCE_CPU=true in .env or cpu override)
 
     # --- Log rotation (Task 1.6) ---------------------------------------------
     logging:
