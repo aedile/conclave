@@ -12,8 +12,9 @@ services:
       - .env
     cap_add:
       - IPC_LOCK
-      - SETUID
-      - SETGID
+      - SETUID   # Required by gosu to drop from root to appuser during container startup.
+      - SETGID   # Required by gosu to drop from root to appuser during container startup.
+                 # The process runs as unprivileged appuser after initialization completes.
 
   # Expose PostgreSQL to localhost for E2E load test data seeding.
   # Production deployments MUST NOT expose this port.
