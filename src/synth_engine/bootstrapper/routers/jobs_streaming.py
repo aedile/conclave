@@ -7,11 +7,17 @@ Implements:
 Split from ``jobs.py`` in P26-T26.1 to separate streaming concerns from
 CRUD lifecycle routes.
 
+Authorization (T39.2):
+    Both endpoints filter by ``owner_id`` from the JWT ``sub`` claim.
+    Accessing a resource owned by a different operator returns 404 Not Found
+    (not 403 Forbidden) to prevent resource enumeration.
+
 All 404 and error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
 
 Task: P23-T23.2 — /jobs/{id}/download Endpoint
 Task: P26-T26.1 — Split Oversized Files (Refactor Only)
+Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
+from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.sse import job_event_stream
@@ -204,8 +211,12 @@ def _make_session_factory(session: Session) -> SessionFactory:
 async def stream_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> EventSourceResponse | JSONResponse:
     """Stream real-time progress for a synthesis job via Server-Sent Events.
+
+    Returns 404 if the job does not exist **or** is owned by a different
+    operator (IDOR protection).
 
     Polls the database for status changes and yields SSE events:
       - ``progress``: Training in progress with ``percent`` field.
@@ -215,13 +226,15 @@ async def stream_job(
     Args:
         job_id: The integer primary key of the job to stream.
         session: Database session (injected by FastAPI DI).
+        current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
         :class:`sse_starlette.sse.EventSourceResponse` streaming events, or
-        RFC 7807 404 :class:`fastapi.responses.JSONResponse` if not found.
+        RFC 7807 404 :class:`fastapi.responses.JSONResponse` if not found or
+        ownership mismatch.
     """
     job = session.get(SynthesisJob, job_id)
-    if job is None:
+    if job is None or job.owner_id != current_operator:
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -250,8 +263,12 @@ async def stream_job(
 def download_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> StreamingResponse | JSONResponse:
     """Stream the synthetic Parquet artifact for a completed job.
+
+    Returns 404 if the job does not exist **or** is owned by a different
+    operator (IDOR protection).
 
     Verifies the artifact HMAC-SHA256 signature before serving (if
     ``ARTIFACT_SIGNING_KEY`` is set in the environment).  Uses
@@ -262,6 +279,7 @@ def download_job(
     Args:
         job_id: The integer primary key of the job.
         session: Database session (injected by FastAPI DI).
+        current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
         :class:`~fastapi.responses.StreamingResponse` with
@@ -269,14 +287,14 @@ def download_job(
         ``Content-Disposition: attachment; filename="<table_name>-synthetic.parquet"``
         on success; or RFC 7807 JSON responses for error conditions:
 
-        - **404** if the job does not exist.
+        - **404** if the job does not exist or ownership mismatch.
         - **404** if the job status is not ``COMPLETE``.
         - **404** if ``output_path`` is ``None`` or the file does not exist.
         - **409** if the artifact HMAC signature verification fails
           (confirmed mismatch or missing sidecar).
     """
     job = session.get(SynthesisJob, job_id)
-    if job is None:
+    if job is None or job.owner_id != current_operator:
         return JSONResponse(
             status_code=404,
             content=problem_detail(

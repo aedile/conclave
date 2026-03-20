@@ -51,6 +51,7 @@ eliminate the maintenance debt. Tracked as ARCH-ADV-1 from T39.1 review.
 CONSTITUTION Priority 0: Security — algorithm pinning, no alg:none
 CONSTITUTION Priority 3: TDD
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
+Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 """
 
 from __future__ import annotations
@@ -60,6 +61,7 @@ import time
 
 import bcrypt as _bcrypt
 import jwt as pyjwt
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -201,6 +203,73 @@ def verify_operator_credentials(passphrase: str) -> bool:
         # Broad catch: any bcrypt error (e.g. invalid hash format) → deny
         _logger.warning("Credential verification failed due to unexpected error", exc_info=True)
         return False
+
+
+def get_current_operator(request: Request) -> str:
+    """Extract and return the operator's sub claim from the JWT bearer token.
+
+    This is a FastAPI dependency for resource endpoints that need to know
+    which operator is making the request.  It extracts the ``Authorization``
+    header, verifies the bearer token, and returns the ``sub`` claim string.
+
+    When ``jwt_secret_key`` is empty (unconfigured/pass-through mode),
+    a sentinel value of ``""`` is returned — this matches the default
+    ``owner_id`` for resources created before T39.2, maintaining backward
+    compatibility for single-operator deployments where JWT is not yet
+    configured.
+
+    Args:
+        request: The incoming HTTP request (injected by FastAPI).
+
+    Returns:
+        The ``sub`` claim from the verified JWT token, or ``""`` when
+        operating in unconfigured/pass-through mode.
+
+    Raises:
+        HTTPException: 401 Unauthorized if the Authorization header is
+            absent, malformed, or contains an invalid/expired token.
+    """
+    settings = get_settings()
+
+    # Pass-through mode: when JWT is not configured, return sentinel "".
+    # This matches the default owner_id for pre-T39.2 resources.
+    if not settings.jwt_secret_key:
+        return ""
+
+    auth_header: str | None = request.headers.get("Authorization")
+    if auth_header is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Provide a valid Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Authorization header format. Expected: 'Bearer <token>'.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = auth_header[len("Bearer ") :]
+
+    try:
+        claims = verify_token(token)
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    sub = claims.get("sub")
+    if not isinstance(sub, str):
+        raise HTTPException(
+            status_code=401,
+            detail="Token is missing required sub claim.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return sub
 
 
 def _build_401_response(detail: str) -> JSONResponse:

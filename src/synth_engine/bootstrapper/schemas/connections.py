@@ -4,7 +4,15 @@ Connections represent database connection configurations used as sources
 for ingestion.  They live in the bootstrapper (API layer) because they are
 API resources, not domain objects owned by a specific module.
 
+Authorization (T39.2):
+
+    ``owner_id`` stores the JWT ``sub`` claim of the operator who created the
+    connection.  All resource endpoints filter by ``owner_id`` to prevent
+    horizontal privilege escalation (IDOR).  Defaults to ``""`` for backward
+    compatibility with records created before T39.2.
+
 Task: P5-T5.1 — Task Orchestration API Core
+Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 """
 
 from __future__ import annotations
@@ -47,6 +55,10 @@ class Connection(SQLModel, table=True):
         port: Database port number.
         database: Database name to connect to.
         schema_name: Schema within the database (default: public).
+        owner_id: JWT ``sub`` claim of the operator who created this connection.
+            Used for IDOR protection — all resource queries filter by this
+            field.  Defaults to ``""`` for backward compatibility with
+            records created before T39.2.
     """
 
     __tablename__ = "connection"
@@ -57,6 +69,8 @@ class Connection(SQLModel, table=True):
     port: int
     database: str
     schema_name: str = Field(default="public")
+    #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
+    owner_id: str = Field(default="")
 
 
 class ConnectionCreateRequest(BaseModel):
@@ -89,6 +103,7 @@ class ConnectionResponse(BaseModel):
         port: Database port.
         database: Database name.
         schema_name: Schema name.
+        owner_id: Operator identity who owns this connection.
     """
 
     id: str
@@ -97,6 +112,7 @@ class ConnectionResponse(BaseModel):
     port: int
     database: str
     schema_name: str
+    owner_id: str = ""
 
     model_config = {"from_attributes": True}
 

@@ -8,6 +8,7 @@ Task: P5-T5.1 — Task Orchestration API Core
 Task: P22-T22.1 — Job Schema DP Parameters
 Task: P23-T23.1 — Generation Step in Huey Task
 Task: P23-T23.2 — /jobs/{id}/download Endpoint (review findings fix)
+Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 """
 
 from __future__ import annotations
@@ -111,6 +112,7 @@ class JobResponse(BaseModel):
         max_grad_norm: Gradient clipping bound used for DP-SGD.
         actual_epsilon: Actual epsilon spent after training (None until set
             by T22.2 training task).
+        owner_id: Operator identity who owns this job (T39.2 IDOR protection).
     """
 
     id: int
@@ -128,6 +130,7 @@ class JobResponse(BaseModel):
     noise_multiplier: float
     max_grad_norm: float
     actual_epsilon: float | None
+    owner_id: str = ""
 
     model_config = {"from_attributes": True}
 

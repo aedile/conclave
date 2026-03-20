@@ -945,7 +945,6 @@ def test_create_job_sets_owner_id_from_jwt_sub(
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
@@ -1021,7 +1020,6 @@ def test_create_connection_sets_owner_id_from_jwt_sub(
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.connections import router as connections_router
-    from synth_engine.bootstrapper.schemas.connections import Connection
 
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")

@@ -211,9 +211,7 @@ async def test_integration_get_job_idor_returns_404(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 f"/jobs/{seed_ids['job_b_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -244,9 +242,7 @@ async def test_integration_get_job_own_resource_returns_200(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 f"/jobs/{seed_ids['job_a_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -281,9 +277,7 @@ async def test_integration_start_job_idor_returns_404(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 f"/jobs/{seed_ids['job_b_id']}/start",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -307,8 +301,9 @@ async def test_integration_shred_job_idor_returns_404(
     Act: POST /jobs/{job_b_id}/shred.
     Assert: 404 returned.
     """
-    from sqlalchemy.pool import StaticPool
     from unittest.mock import patch
+
+    from sqlalchemy.pool import StaticPool
 
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.modules.synthesizer.job_models import SynthesisJob
@@ -359,9 +354,7 @@ async def test_integration_shred_job_idor_returns_404(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 f"/jobs/{job_b_id}/shred",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -394,9 +387,7 @@ async def test_integration_stream_job_idor_returns_404(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 f"/jobs/{seed_ids['job_b_id']}/stream",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -420,8 +411,9 @@ async def test_integration_download_job_idor_returns_404(
     Act: GET /jobs/{job_b_id}/download.
     Assert: 404 returned.
     """
-    from sqlalchemy.pool import StaticPool
     from unittest.mock import patch
+
+    from sqlalchemy.pool import StaticPool
 
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.modules.synthesizer.job_models import SynthesisJob
@@ -472,9 +464,7 @@ async def test_integration_download_job_idor_returns_404(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 f"/jobs/{job_b_id}/download",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -507,9 +497,7 @@ async def test_integration_get_connection_idor_returns_404(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 f"/connections/{seed_ids['conn_b_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -538,9 +526,7 @@ async def test_integration_get_connection_own_resource_returns_200(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 f"/connections/{seed_ids['conn_a_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -575,9 +561,7 @@ async def test_integration_delete_connection_idor_returns_404(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.delete(
                 f"/connections/{seed_ids['conn_b_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
@@ -609,9 +593,7 @@ async def test_integration_unauthenticated_get_job_returns_401(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(f"/jobs/{seed_ids['job_a_id']}")
 
     assert response.status_code == 401
@@ -635,9 +617,7 @@ async def test_integration_unauthenticated_get_connection_returns_401(
         patch(_VAULT_PATCH, return_value=False),
         patch(_LICENSE_PATCH, return_value=True),
     ):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(f"/connections/{seed_ids['conn_a_id']}")
 
     assert response.status_code == 401

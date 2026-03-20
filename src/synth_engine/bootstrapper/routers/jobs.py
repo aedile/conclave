@@ -15,6 +15,11 @@ Cursor-based pagination uses the integer ``id`` column as the cursor.
 Pattern: ``GET /jobs?after=<cursor>&limit=20`` returns jobs where
 ``id > cursor``, ordered by ``id`` ascending.
 
+Authorization (T39.2):
+    All resource endpoints filter by ``owner_id`` from the JWT ``sub`` claim.
+    Accessing a resource owned by a different operator returns 404 Not Found
+    (not 403 Forbidden) to prevent resource enumeration.
+
 All 404 and error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
 
@@ -22,6 +27,7 @@ Task: P5-T5.1 — Task Orchestration API Core
 Task: P22-T22.1 — Job Schema DP Parameters
 Task: P23-T23.4 — Cryptographic Erasure Endpoint
 Task: P26-T26.1 — Split Oversized Files (Refactor Only)
+Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, col, select
 
+from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.schemas.jobs import (
@@ -66,13 +73,17 @@ _SHREDDED_STATUS: str = "SHREDDED"
 @router.get("", response_model=JobListResponse)
 def list_jobs(
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
     after: int | None = Query(default=None, description="Cursor: return jobs with id > after"),
     limit: int = Query(default=_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
 ) -> JobListResponse:
     """List synthesis jobs with cursor-based pagination.
 
+    Only returns jobs owned by the authenticated operator (IDOR protection).
+
     Args:
         session: Database session (injected by FastAPI DI).
+        current_operator: JWT sub claim of the authenticated operator.
         after: Integer cursor -- only return jobs with ``id > after``.
         limit: Maximum number of results to return (default 20, max 100).
 
@@ -80,7 +91,11 @@ def list_jobs(
         :class:`JobListResponse` with a list of jobs and an optional
         ``next_cursor`` for fetching the next page.
     """
-    query = select(SynthesisJob).order_by(col(SynthesisJob.id))
+    query = (
+        select(SynthesisJob)
+        .where(SynthesisJob.owner_id == current_operator)
+        .order_by(col(SynthesisJob.id))
+    )
     if after is not None:
         query = query.where(col(SynthesisJob.id) > after)
     query = query.limit(limit + 1)  # fetch one extra to determine next_cursor
@@ -102,15 +117,18 @@ def list_jobs(
 def create_job(
     body: JobCreateRequest,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> JobResponse:
     """Create a new synthesis job in QUEUED status.
 
     The job is persisted to the database but NOT yet enqueued.  Call
-    ``POST /jobs/{id}/start`` to enqueue and begin training.
+    ``POST /jobs/{id}/start`` to enqueue and begin training.  The
+    ``owner_id`` is set from the authenticated operator's JWT sub claim.
 
     Args:
         body: Job creation request payload.
         session: Database session (injected by FastAPI DI).
+        current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
         The newly created :class:`JobResponse`.
@@ -124,6 +142,7 @@ def create_job(
         enable_dp=body.enable_dp,
         noise_multiplier=body.noise_multiplier,
         max_grad_norm=body.max_grad_norm,
+        owner_id=current_operator,
     )
     session.add(job)
     session.commit()
@@ -135,18 +154,24 @@ def create_job(
 def get_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> JobResponse | JSONResponse:
     """Get a synthesis job by ID.
+
+    Returns 404 if the job does not exist **or** is owned by a different
+    operator (IDOR protection — 404 prevents resource enumeration).
 
     Args:
         job_id: The integer primary key of the job.
         session: Database session (injected by FastAPI DI).
+        current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
-        :class:`JobResponse` on success, or RFC 7807 404 on not found.
+        :class:`JobResponse` on success, or RFC 7807 404 on not found
+        or ownership mismatch.
     """
     job = session.get(SynthesisJob, job_id)
-    if job is None:
+    if job is None or job.owner_id != current_operator:
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -162,6 +187,7 @@ def get_job(
 def start_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> JSONResponse:
     """Enqueue a synthesis job for background processing.
 
@@ -169,16 +195,20 @@ def start_job(
     ``run_synthesis_job(job_id)`` to enqueue the Huey task.  Returns
     ``202 Accepted`` immediately -- the job runs asynchronously.
 
+    Returns 404 if the job does not exist **or** is owned by a different
+    operator (IDOR protection).
+
     Args:
         job_id: The integer primary key of the job to start.
         session: Database session (injected by FastAPI DI).
+        current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
         ``{"status": "accepted", "job_id": <id>}`` with HTTP 202, or
-        RFC 7807 404 if the job does not exist.
+        RFC 7807 404 if the job does not exist or ownership mismatch.
     """
     job = session.get(SynthesisJob, job_id)
-    if job is None:
+    if job is None or job.owner_id != current_operator:
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -205,6 +235,7 @@ def start_job(
 def shred_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> JSONResponse:
     """Shred all synthesis artifacts for a COMPLETE job (NIST SP 800-88).
 
@@ -212,21 +243,23 @@ def shred_job(
     and the trained model artifact pickle from the filesystem.  Emits a WORM
     audit event and transitions the job status to ``SHREDDED``.
 
-    Only jobs in ``COMPLETE`` status are eligible.  Jobs in any other status
-    (including already-``SHREDDED`` jobs) return a 404 Problem Detail response.
+    Only jobs in ``COMPLETE`` status **owned by the authenticated operator**
+    are eligible.  Jobs in any other status, owned by a different operator,
+    or already-``SHREDDED`` jobs return 404 Problem Detail response.
 
     Args:
         job_id: The integer primary key of the job to shred.
         session: Database session (injected by FastAPI DI).
+        current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
         ``{"status": "SHREDDED", "job_id": <id>}`` with HTTP 200 on success,
-        RFC 7807 404 if the job does not exist or is not eligible, or
-        RFC 7807 500 if an ``OSError`` prevents artifact deletion.
+        RFC 7807 404 if the job does not exist, is not eligible, or ownership
+        mismatch, or RFC 7807 500 if an ``OSError`` prevents artifact deletion.
     """
     job = session.get(SynthesisJob, job_id)
 
-    if job is None or job.status != _SHRED_ELIGIBLE_STATUS:
+    if job is None or job.owner_id != current_operator or job.status != _SHRED_ELIGIBLE_STATUS:
         detail = (
             f"SynthesisJob with id={job_id} not found or not eligible for shredding. "
             f"Only jobs with status=COMPLETE may be shredded."
