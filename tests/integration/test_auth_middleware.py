@@ -25,6 +25,7 @@ from collections.abc import Generator
 from typing import Any
 from unittest.mock import patch
 
+import bcrypt as _bcrypt
 import jwt as pyjwt
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -39,7 +40,9 @@ _VAULT_PATCH = "synth_engine.bootstrapper.dependencies.vault.VaultState.is_seale
 _LICENSE_PATCH = "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed"
 
 #: A secret long enough for HS256 (PyJWT requires ≥256-bit for HS256 in strict mode).
-_TEST_SECRET = "integration-test-jwt-secret-key-long-enough-for-hs256-32chars+"
+_TEST_SECRET = (
+    "integration-test-jwt-secret-key-long-enough-for-hs256-32chars+"  # pragma: allowlist secret
+)
 
 #: Test passphrase — well under 72-byte bcrypt limit.
 _TEST_PASSPHRASE = "test-pass-ok"
@@ -51,7 +54,7 @@ _TEST_PASSPHRASE = "test-pass-ok"
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -76,12 +79,13 @@ def clear_settings_cache() -> Generator[None, None, None]:
 def test_passphrase_hash() -> str:
     """Compute bcrypt hash of the test passphrase once per session.
 
+    Uses the ``bcrypt`` library directly (not passlib) since passlib's
+    bcrypt backend is incompatible with bcrypt 5.0.0 on Python 3.14.
+
     Returns:
         bcrypt hash string of _TEST_PASSPHRASE.
     """
-    import passlib.hash  # type: ignore[import-untyped]
-
-    return str(passlib.hash.bcrypt.hash(_TEST_PASSPHRASE))
+    return _bcrypt.hashpw(_TEST_PASSPHRASE.encode(), _bcrypt.gensalt()).decode()
 
 
 # ---------------------------------------------------------------------------
@@ -277,9 +281,7 @@ async def test_unseal_endpoint_exempt_from_auth(
         )
 
     # Must not be 401 — auth gate must pass /unseal through
-    assert response.status_code != 401, (
-        f"/unseal must be auth-exempt; got 401: {response.text}"
-    )
+    assert response.status_code != 401, f"/unseal must be auth-exempt; got 401: {response.text}"
 
 
 @pytest.mark.asyncio
@@ -323,17 +325,25 @@ async def test_algorithm_confusion_attack_rejected(
     app = _make_auth_test_app(monkeypatch, credentials_hash=test_passphrase_hash)
 
     now = int(time.time())
-    header = base64.urlsafe_b64encode(
-        json.dumps({"alg": "RS256", "typ": "JWT"}).encode()
-    ).rstrip(b"=").decode()
-    payload_b64 = base64.urlsafe_b64encode(
-        json.dumps({
-            "sub": "attacker",
-            "exp": now + 3600,
-            "iat": now,
-            "scope": ["admin"],
-        }).encode()
-    ).rstrip(b"=").decode()
+    header = (
+        base64.urlsafe_b64encode(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    payload_b64 = (
+        base64.urlsafe_b64encode(
+            json.dumps(
+                {
+                    "sub": "attacker",
+                    "exp": now + 3600,
+                    "iat": now,
+                    "scope": ["admin"],
+                }
+            ).encode()
+        )
+        .rstrip(b"=")
+        .decode()
+    )
     forged_token = f"{header}.{payload_b64}.fakesignature"
 
     with (

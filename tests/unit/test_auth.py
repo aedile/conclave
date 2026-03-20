@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import time
 from collections.abc import Generator
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -32,7 +31,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Prevents stale cached settings from leaking between tests that
@@ -236,17 +235,25 @@ def test_verify_token_rejects_alg_none(monkeypatch: pytest.MonkeyPatch) -> None:
 
     now = int(time.time())
     # Craft a token with alg:none header
-    header = base64.urlsafe_b64encode(
-        json.dumps({"alg": "none", "typ": "JWT"}).encode()
-    ).rstrip(b"=").decode()
-    payload = base64.urlsafe_b64encode(
-        json.dumps({
-            "sub": "attacker",
-            "exp": now + 3600,
-            "iat": now,
-            "scope": ["admin"],
-        }).encode()
-    ).rstrip(b"=").decode()
+    header = (
+        base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    payload = (
+        base64.urlsafe_b64encode(
+            json.dumps(
+                {
+                    "sub": "attacker",
+                    "exp": now + 3600,
+                    "iat": now,
+                    "scope": ["admin"],
+                }
+            ).encode()
+        )
+        .rstrip(b"=")
+        .decode()
+    )
     none_alg_token = f"{header}.{payload}."
 
     from synth_engine.bootstrapper.dependencies.auth import AuthenticationError, verify_token
@@ -261,7 +268,7 @@ def test_verify_token_rejects_algorithm_confusion_rs256(monkeypatch: pytest.Monk
     Security: algorithm confusion where an attacker uses a different algorithm
     than the one the server expects. Pinning prevents downgrade attacks.
 
-    Arrange: settings use HS256; craft a token encoded with RS256 claims.
+    Arrange: settings use HS256; craft a token encoding with RS256 claims.
     Act: call verify_token() with a token claiming RS256.
     Assert: AuthenticationError is raised.
     """
@@ -273,17 +280,25 @@ def test_verify_token_rejects_algorithm_confusion_rs256(monkeypatch: pytest.Monk
 
     now = int(time.time())
     # Craft a malformed token with RS256 header but no real signature
-    header = base64.urlsafe_b64encode(
-        json.dumps({"alg": "RS256", "typ": "JWT"}).encode()
-    ).rstrip(b"=").decode()
-    payload = base64.urlsafe_b64encode(
-        json.dumps({
-            "sub": "attacker",
-            "exp": now + 3600,
-            "iat": now,
-            "scope": ["admin"],
-        }).encode()
-    ).rstrip(b"=").decode()
+    header = (
+        base64.urlsafe_b64encode(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    payload = (
+        base64.urlsafe_b64encode(
+            json.dumps(
+                {
+                    "sub": "attacker",
+                    "exp": now + 3600,
+                    "iat": now,
+                    "scope": ["admin"],
+                }
+            ).encode()
+        )
+        .rstrip(b"=")
+        .decode()
+    )
     rs256_token = f"{header}.{payload}.fakesignature"
 
     from synth_engine.bootstrapper.dependencies.auth import AuthenticationError, verify_token
@@ -302,19 +317,19 @@ def test_verify_operator_credentials_returns_true_for_valid(
 ) -> None:
     """verify_operator_credentials() returns True when passphrase matches stored hash.
 
-    Arrange: set OPERATOR_CREDENTIALS_HASH to a known bcrypt hash of "secret".
-    Act: call verify_operator_credentials("operator", "secret").
+    Arrange: set OPERATOR_CREDENTIALS_HASH to a known bcrypt hash of "short-pass".
+    Act: call verify_operator_credentials("operator", "short-pass").
     Assert: returns True.
     """
-    import passlib.hash  # type: ignore[import-untyped]
+    import bcrypt
 
-    hashed = passlib.hash.bcrypt.hash("secret-passphrase-for-testing")
+    hashed = bcrypt.hashpw(b"short-pass", bcrypt.gensalt()).decode()
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", hashed)
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
 
     from synth_engine.bootstrapper.dependencies.auth import verify_operator_credentials
 
-    result = verify_operator_credentials("operator", "secret-passphrase-for-testing")
+    result = verify_operator_credentials("operator", "short-pass")
     assert result is True
 
 
@@ -323,19 +338,19 @@ def test_verify_operator_credentials_returns_false_for_invalid(
 ) -> None:
     """verify_operator_credentials() returns False when passphrase is wrong.
 
-    Arrange: set OPERATOR_CREDENTIALS_HASH to a hash of "secret".
-    Act: call verify_operator_credentials("operator", "wrong-password").
+    Arrange: set OPERATOR_CREDENTIALS_HASH to a hash of "correct-pass".
+    Act: call verify_operator_credentials("operator", "wrong-pass").
     Assert: returns False.
     """
-    import passlib.hash  # type: ignore[import-untyped]
+    import bcrypt
 
-    hashed = passlib.hash.bcrypt.hash("correct-passphrase")
+    hashed = bcrypt.hashpw(b"correct-pass", bcrypt.gensalt()).decode()
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", hashed)
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
 
     from synth_engine.bootstrapper.dependencies.auth import verify_operator_credentials
 
-    result = verify_operator_credentials("operator", "wrong-passphrase")
+    result = verify_operator_credentials("operator", "wrong-pass")
     assert result is False
 
 
@@ -640,7 +655,7 @@ def test_conclave_settings_jwt_fields_accept_env_values(
     assert settings.jwt_algorithm == "HS384"
     assert settings.jwt_expiry_seconds == 7200
     assert settings.operator_credentials_hash == "$2b$12$fakehash"
-    assert settings.jwt_secret_key == "my-custom-secret-key"
+    assert settings.jwt_secret_key == "my-custom-secret-key"  # pragma: allowlist secret
 
 
 # ---------------------------------------------------------------------------

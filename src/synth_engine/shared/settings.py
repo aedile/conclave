@@ -38,6 +38,7 @@ This module imports only ``pydantic-settings`` and stdlib — no violation.
 CONSTITUTION Priority 0: Security — centralized fail-fast configuration
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
+Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 """
 
 from __future__ import annotations
@@ -88,6 +89,16 @@ class ConclaveSettings(BaseSettings):
             Defaults to ``redis://redis:6379/0``.
         license_public_key: PEM-encoded RSA public key for license JWT
             verification.  Falls back to the embedded placeholder when absent.
+        jwt_algorithm: JWT signing algorithm, pinned to prevent confusion attacks.
+            Defaults to ``"HS256"``.
+        jwt_expiry_seconds: Lifetime of issued JWT tokens in seconds.
+            Defaults to ``3600`` (1 hour).
+        operator_credentials_hash: bcrypt hash of the operator passphrase used
+            for ``POST /auth/token``.  Empty string means no operator is
+            configured and token issuance will always fail.
+        jwt_secret_key: HMAC secret key for JWT signing and verification.
+            Required when ``jwt_algorithm`` is ``"HS256"`` or ``"HS384"`` or
+            ``"HS512"``.  Empty string in development/test only.
     """
 
     model_config = SettingsConfigDict(
@@ -222,6 +233,41 @@ class ConclaveSettings(BaseSettings):
     redis_url: str = Field(
         default="redis://redis:6379/0",
         description="Redis connection URL for the Huey Redis backend.",
+    )
+
+    # -----------------------------------------------------------------------
+    # JWT Authentication (T39.1)
+    # -----------------------------------------------------------------------
+
+    jwt_algorithm: str = Field(
+        default="HS256",
+        description=(
+            "JWT signing algorithm.  Pinned to prevent algorithm confusion attacks. "
+            "Defaults to 'HS256'.  Supported: 'HS256', 'HS384', 'HS512'."
+        ),
+    )
+    jwt_expiry_seconds: int = Field(
+        default=3600,
+        description=(
+            "Lifetime of issued JWT tokens in seconds.  Defaults to 3600 (1 hour). "
+            "Operators should use short-lived tokens in production."
+        ),
+    )
+    operator_credentials_hash: str = Field(
+        default="",
+        description=(
+            "bcrypt hash of the operator passphrase for POST /auth/token. "
+            "Empty string disables token issuance — no operator configured."
+        ),
+    )
+    jwt_secret_key: str = Field(
+        default="",
+        description=(
+            "HMAC secret key for JWT signing and verification. "
+            "Required when jwt_algorithm is HS256/HS384/HS512. "
+            "Must be a cryptographically random string of at least 32 characters. "
+            "Empty string only acceptable in development/test environments."
+        ),
     )
 
     # -----------------------------------------------------------------------
