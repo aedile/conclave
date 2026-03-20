@@ -406,10 +406,10 @@ def step_export_parquet(
 
     engine = create_engine(source_dsn)
     parquet_paths: dict[str, Path] = {}
-    container_dir = "/tmp/e2e_parquet"  # noqa: S108  # nosec B108 — tmpfs inside container
+    container_dir = "/app/e2e_parquet"  # writable rootfs (read_only: false in override)
 
     # Create the directory inside the app container for Parquet files
-    subprocess.run(  # noqa: S603, S607  # nosec B603, B607 — trusted argv
+    subprocess.run(  # nosec B603, B607 — trusted argv
         ["docker", "exec", "synthetic_data-app-1", "mkdir", "-p", container_dir],
         check=True,
         capture_output=True,
@@ -423,7 +423,7 @@ def step_export_parquet(
 
         # Copy Parquet file into the app container so the API can read it
         container_path = f"{container_dir}/{table}.parquet"
-        subprocess.run(  # noqa: S603, S607  # nosec B603, B607 — trusted argv
+        subprocess.run(  # nosec B603, B607 — trusted argv
             ["docker", "cp", str(pq_path), f"synthetic_data-app-1:{container_path}"],
             check=True,
             capture_output=True,
