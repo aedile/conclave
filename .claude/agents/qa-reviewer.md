@@ -78,18 +78,30 @@ backlog-compliance:     PASS/BLOCKER — <list each section's items and whether 
 
 ## Running the Quality Gates
 
+Per the **Two-Gate Test Policy**, review agents run a **light gate** — not the full suite.
+The full suite was verified at GREEN (Gate #1) and will be re-verified at pre-merge (Gate #2).
+
 Run these commands and include key output in your findings:
 
 ```bash
-# Tests + coverage (parse total % for coverage-gate)
+# Light test gate: changed-file tests + dependents only
+# Identify test files that changed in this branch or import from changed source modules,
+# then run only those. Example:
+# poetry run python -m pytest tests/unit/test_changed_module.py -q --tb=short 2>&1
+# If you cannot determine which tests are affected, run the full unit suite as fallback.
 poetry run python -m pytest tests/unit/ --cov=src/synth_engine -q --tb=short 2>&1
 
-# Dead code gate
+# Dead code gate (always run)
 poetry run python -m vulture src/ --min-confidence 80
 
-# Linting (should be clean — report if not)
+# Linting (always run)
 poetry run python -m ruff check src/ tests/
 ```
+
+**coverage-gate note**: Project-wide coverage was verified at the GREEN gate (Gate #1).
+If running only changed-file tests, do not fail the coverage-gate based on a partial run.
+Instead, verify that no new public code is untested by checking the coverage report
+for the changed files specifically.
 
 ## Output Format
 
