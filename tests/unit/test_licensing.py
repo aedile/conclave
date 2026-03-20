@@ -677,12 +677,35 @@ def test_get_active_public_key_returns_env_var_when_set(
 def test_get_active_public_key_falls_back_to_embedded_when_env_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """get_active_public_key() returns the embedded key when LICENSE_PUBLIC_KEY is not set."""
+    """get_active_public_key() returns the embedded key when LICENSE_PUBLIC_KEY is not set.
+
+    pydantic-settings reads from the .env file as well as os.environ, so
+    monkeypatch.delenv() alone is not sufficient — the .env file value is
+    still loaded on cache miss.  We clear the lru_cache and then temporarily
+    replace get_settings() with a stub that returns None for license_public_key.
+    The stub is replaced by monkeypatch (which preserves the cache_clear attr)
+    so the autouse conftest fixture can call cache_clear() safely on teardown.
+    """
+    from unittest.mock import patch
+
     import synth_engine.shared.security.licensing as lic_mod
     from synth_engine.shared.security.licensing import get_active_public_key
+    from synth_engine.shared.settings import ConclaveSettings, get_settings
 
     monkeypatch.delenv("LICENSE_PUBLIC_KEY", raising=False)
-    result = get_active_public_key()
+    get_settings.cache_clear()
+
+    # Build a stub settings object with license_public_key=None.
+    stub_settings = ConclaveSettings.model_construct(license_public_key=None)
+
+    # Use unittest.mock.patch as a context manager so we replace the local
+    # import inside get_active_public_key() while preserving cache_clear().
+    with patch(
+        "synth_engine.shared.settings.get_settings",
+        return_value=stub_settings,
+    ):
+        result = get_active_public_key()
+
     assert result == lic_mod._EMBEDDED_PUBLIC_KEY
 
 
@@ -831,15 +854,26 @@ def test_get_active_public_key_converts_literal_newlines(
     receive a properly formatted PEM string.
     """
     from synth_engine.shared.security.licensing import get_active_public_key
+    from synth_engine.shared.settings import get_settings
+
+    # Clear lru_cache so that get_settings() re-reads from the environment
+    # after monkeypatch.setenv — without this the cached instance is stale.
+    get_settings.cache_clear()
 
     # Simulate a PEM key as delivered by Docker env_file: literal \n, not real newlines
     pem_with_literal_newlines = (
         "-----BEGIN PUBLIC KEY-----\\nFAKEKEYDATA\\n-----END PUBLIC KEY-----\\n"
     )
     monkeypatch.setenv("LICENSE_PUBLIC_KEY", pem_with_literal_newlines)
+    # Force re-read of settings with the new env var value
+    get_settings.cache_clear()
 
     result = get_active_public_key()
 
     assert "\\n" not in result
     assert "\n" in result
     assert result == pem_with_literal_newlines.replace("\\n", "\n")
+
+    # Cleanup: clear cache so subsequent tests don't inherit the patched settings.
+    # monkeypatch restores the env var on teardown; this clears the stale cache.
+    get_settings.cache_clear()
