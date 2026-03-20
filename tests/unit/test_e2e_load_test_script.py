@@ -19,11 +19,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
-# Module loader — scripts/ is not a package on sys.path by default
+# Module loader -- scripts/ is not a package on sys.path by default
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
+
+# Dev DSN constant used across dry-run tests.
+# This is a fictional dev credential, not a real secret.
+_DEV_SOURCE_DSN = "postgresql://dev:dev@localhost:5432/conclave_source"  # pragma: allowlist secret
 
 
 def _import_load_test_module() -> Any:
@@ -240,7 +244,7 @@ class TestDryRunMode:
     def test_build_dry_run_plan_returns_string(self, mod: Any) -> None:
         """build_dry_run_plan returns a non-empty string."""
         plan = mod.build_dry_run_plan(
-            source_dsn="postgresql://conclave:conclave@localhost:5432/conclave_source",
+            source_dsn=_DEV_SOURCE_DSN,
             api_base_url="http://localhost:8000",
             n_customers=50_000,
             n_orders=175_000,
@@ -251,7 +255,7 @@ class TestDryRunMode:
     def test_build_dry_run_plan_mentions_row_counts(self, mod: Any) -> None:
         """build_dry_run_plan includes the dataset row counts in its output."""
         plan = mod.build_dry_run_plan(
-            source_dsn="postgresql://conclave:conclave@localhost:5432/conclave_source",
+            source_dsn=_DEV_SOURCE_DSN,
             api_base_url="http://localhost:8000",
             n_customers=50_000,
             n_orders=175_000,
@@ -263,7 +267,7 @@ class TestDryRunMode:
         """build_dry_run_plan must not make any HTTP requests."""
         with patch("httpx.Client") as mock_client, patch("httpx.get") as mock_get:
             mod.build_dry_run_plan(
-                source_dsn="postgresql://conclave:conclave@localhost:5432/conclave_source",
+                source_dsn=_DEV_SOURCE_DSN,
                 api_base_url="http://localhost:8000",
                 n_customers=50_000,
                 n_orders=175_000,
@@ -275,7 +279,7 @@ class TestDryRunMode:
         """build_dry_run_plan echoes the configured API base URL."""
         custom_url = "http://custom-host:9000"
         plan = mod.build_dry_run_plan(
-            source_dsn="postgresql://conclave:conclave@localhost:5432/conclave_source",
+            source_dsn=_DEV_SOURCE_DSN,
             api_base_url=custom_url,
             n_customers=50_000,
             n_orders=175_000,
