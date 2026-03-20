@@ -42,6 +42,12 @@ Exempt paths
 :data:`AUTH_EXEMPT_PATHS` lists all paths that must remain unauthenticated
 by definition (pre-auth bootstrapping endpoints).
 
+TODO [CONCLAVE-ADV-EXEMPT]: Three middleware files (vault.py, licensing.py,
+auth.py) maintain independent frozensets of exempt paths. Extract a
+``COMMON_INFRA_EXEMPT_PATHS`` constant to
+``bootstrapper/dependencies/_exempt_paths.py`` and compose from it to
+eliminate the maintenance debt. Tracked as ARCH-ADV-1 from T39.1 review.
+
 CONSTITUTION Priority 0: Security — algorithm pinning, no alg:none
 CONSTITUTION Priority 3: TDD
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
@@ -89,18 +95,11 @@ class AuthenticationError(Exception):
 
     This is the single exception type for all authentication failures:
     expired tokens, invalid signatures, malformed tokens, algorithm
-    confusion, and algorithm rejection.
-
-    Attributes:
-        message: Human-readable description of the failure reason.
+    confusion, and algorithm rejection.  Construct with a human-readable
+    message describing the failure reason.
     """
 
     def __init__(self, message: str) -> None:
-        """Initialise with a human-readable failure message.
-
-        Args:
-            message: Description of why authentication failed.
-        """
         super().__init__(message)
 
 
@@ -167,8 +166,8 @@ def verify_token(token: str) -> dict[str, object]:
         raise AuthenticationError(f"Token is invalid: {type(exc).__name__}") from exc
 
 
-def verify_operator_credentials(username: str, passphrase: str) -> bool:
-    """Verify operator credentials against the configured bcrypt hash.
+def verify_operator_credentials(passphrase: str) -> bool:
+    """Verify operator passphrase against the configured bcrypt hash.
 
     The passphrase is checked against ``ConclaveSettings.operator_credentials_hash``
     using ``bcrypt.checkpw()`` for constant-time comparison.
@@ -176,15 +175,16 @@ def verify_operator_credentials(username: str, passphrase: str) -> bool:
     If no credentials hash is configured (empty string), always returns
     ``False`` — unconfigured credentials mean no operator is registered.
 
+    Single-operator model: the system uses one operator identity whose
+    passphrase is hashed in ``OPERATOR_CREDENTIALS_HASH``.  Multi-operator
+    support will require a separate operator registry (post-T39.1 backlog).
+
     Args:
-        username: Operator username (currently unused — single-operator model).
         passphrase: Plain-text passphrase to check.
 
     Returns:
         ``True`` if the passphrase matches the stored hash, ``False`` otherwise.
     """
-    # username is part of the API for future multi-operator support; currently unused.
-    _ = username
     settings = get_settings()
 
     stored_hash = settings.operator_credentials_hash

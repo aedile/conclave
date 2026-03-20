@@ -15,8 +15,9 @@ Authentication model
 --------------------
 For MVP, a single-operator model is used: one operator identity with a
 bcrypt-hashed passphrase stored in ``ConclaveSettings.operator_credentials_hash``.
-The username field is accepted but not used for dispatch — any username that
-provides the correct passphrase is granted a token.
+The username field is accepted for display/logging purposes but not used for
+credential dispatch — the single configured hash is checked against the supplied
+passphrase.
 
 Future extension: replace with a multi-operator registry backed by the
 vault KEK-encrypted operator store (tracked as post-T39.1 backlog item).
@@ -49,7 +50,7 @@ class TokenRequest(BaseModel):
     """Request body for POST /auth/token.
 
     Attributes:
-        username: Operator identifier (accepted but not dispatched in MVP).
+        username: Operator identifier (logged but not used for dispatch in MVP).
         passphrase: Plain-text passphrase to verify against the stored hash.
     """
 
@@ -100,7 +101,7 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
         the same generic 401 regardless of whether the username exists or
         the passphrase is wrong (no oracle attack surface).
     """
-    if not verify_operator_credentials(body.username, body.passphrase):
+    if not verify_operator_credentials(body.passphrase):
         _logger.warning(
             "Failed authentication attempt for username=%r",
             body.username,

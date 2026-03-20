@@ -11,6 +11,11 @@ Tests cover:
 - Algorithm confusion (RS256 for HS256-pinned key) is rejected
 - AuthenticationGateMiddleware blocks unauthenticated requests (401)
 - Exempt paths pass without authentication
+- Pass-through mode when JWT_SECRET_KEY is empty
+- Malformed bcrypt hash returns False from verify_operator_credentials
+- Empty-string Bearer token returns 401
+- Middleware dispatch error path (invalid token with valid secret)
+- post_auth_token route (valid credentials → 200, invalid credentials → 401)
 
 CONSTITUTION Priority 0: Security — JWT algorithm pinned, no alg:none
 CONSTITUTION Priority 3: TDD — RED phase
@@ -318,7 +323,7 @@ def test_verify_operator_credentials_returns_true_for_valid(
     """verify_operator_credentials() returns True when passphrase matches stored hash.
 
     Arrange: set OPERATOR_CREDENTIALS_HASH to a known bcrypt hash of "short-pass".
-    Act: call verify_operator_credentials("operator", "short-pass").
+    Act: call verify_operator_credentials("short-pass").
     Assert: returns True.
     """
     import bcrypt
@@ -329,7 +334,7 @@ def test_verify_operator_credentials_returns_true_for_valid(
 
     from synth_engine.bootstrapper.dependencies.auth import verify_operator_credentials
 
-    result = verify_operator_credentials("operator", "short-pass")
+    result = verify_operator_credentials("short-pass")
     assert result is True
 
 
@@ -339,7 +344,7 @@ def test_verify_operator_credentials_returns_false_for_invalid(
     """verify_operator_credentials() returns False when passphrase is wrong.
 
     Arrange: set OPERATOR_CREDENTIALS_HASH to a hash of "correct-pass".
-    Act: call verify_operator_credentials("operator", "wrong-pass").
+    Act: call verify_operator_credentials("wrong-pass").
     Assert: returns False.
     """
     import bcrypt
@@ -350,7 +355,7 @@ def test_verify_operator_credentials_returns_false_for_invalid(
 
     from synth_engine.bootstrapper.dependencies.auth import verify_operator_credentials
 
-    result = verify_operator_credentials("operator", "wrong-pass")
+    result = verify_operator_credentials("wrong-pass")
     assert result is False
 
 
@@ -360,7 +365,7 @@ def test_verify_operator_credentials_returns_false_when_hash_not_configured(
     """verify_operator_credentials() returns False when no hash is configured.
 
     Arrange: OPERATOR_CREDENTIALS_HASH is empty string (default).
-    Act: call verify_operator_credentials("operator", "anything").
+    Act: call verify_operator_credentials("anything").
     Assert: returns False — no credentials configured means no access.
     """
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "")
@@ -368,7 +373,29 @@ def test_verify_operator_credentials_returns_false_when_hash_not_configured(
 
     from synth_engine.bootstrapper.dependencies.auth import verify_operator_credentials
 
-    result = verify_operator_credentials("operator", "anything")
+    result = verify_operator_credentials("anything")
+    assert result is False
+
+
+def test_verify_operator_credentials_returns_false_for_malformed_bcrypt_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """verify_operator_credentials() returns False when stored_hash is not a valid bcrypt format.
+
+    Security: if an operator misconfigures OPERATOR_CREDENTIALS_HASH with a
+    non-bcrypt string, the function must deny access rather than raise an
+    unhandled exception. The broad except clause in auth.py covers this path.
+
+    Arrange: set OPERATOR_CREDENTIALS_HASH to a garbage (non-bcrypt) string.
+    Act: call verify_operator_credentials("any-passphrase").
+    Assert: returns False without raising.
+    """
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "not-a-valid-bcrypt-hash-at-all")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+
+    from synth_engine.bootstrapper.dependencies.auth import verify_operator_credentials
+
+    result = verify_operator_credentials("any-passphrase")
     assert result is False
 
 
@@ -442,6 +469,42 @@ async def test_middleware_allows_auth_token_path_without_token(
 
 
 @pytest.mark.asyncio
+async def test_middleware_pass_through_when_jwt_secret_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AuthenticationGateMiddleware passes requests through when JWT_SECRET_KEY is empty.
+
+    Unconfigured mode: when JWT_SECRET_KEY is empty, the middleware logs a WARNING
+    and allows all requests without token verification. This supports development
+    and initial setup before credentials are configured.
+
+    Arrange: JWT_SECRET_KEY is empty; request to a protected path with no token.
+    Act: call dispatch() with a mocked call_next.
+    Assert: call_next is invoked (request passes through despite no token).
+    """
+    monkeypatch.setenv("JWT_SECRET_KEY", "")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+    from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
+
+    mock_app = MagicMock()
+    middleware = AuthenticationGateMiddleware(mock_app)
+
+    mock_request = MagicMock()
+    mock_request.url.path = "/jobs"
+    mock_request.headers = MagicMock()
+    mock_request.headers.get = MagicMock(return_value=None)
+
+    expected_response = MagicMock()
+    mock_call_next = AsyncMock(return_value=expected_response)
+
+    response = await middleware.dispatch(mock_request, mock_call_next)
+
+    mock_call_next.assert_called_once_with(mock_request)
+    assert response is expected_response
+
+
+@pytest.mark.asyncio
 async def test_middleware_returns_401_for_missing_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -494,6 +557,77 @@ async def test_middleware_returns_401_for_invalid_bearer_format(
     mock_request.url.path = "/jobs"
     mock_request.headers = MagicMock()
     mock_request.headers.get = MagicMock(return_value="Token not-bearer-scheme")
+
+    mock_call_next = AsyncMock()
+
+    response = await middleware.dispatch(mock_request, mock_call_next)
+
+    assert response.status_code == 401
+    mock_call_next.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_middleware_returns_401_for_empty_bearer_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AuthenticationGateMiddleware must return 401 for 'Authorization: Bearer ' with empty token.
+
+    A header value of "Bearer " (with trailing space but no token) presents an
+    empty string to verify_token(), which must be rejected with 401.
+
+    Arrange: JWT_SECRET_KEY is set; Authorization header is "Bearer " (empty token).
+    Act: call dispatch() on a protected path.
+    Assert: returns 401 — empty token string is not a valid JWT.
+    """
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+    from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
+
+    mock_app = MagicMock()
+    middleware = AuthenticationGateMiddleware(mock_app)
+
+    mock_request = MagicMock()
+    mock_request.url.path = "/jobs"
+    mock_request.headers = MagicMock()
+    # "Bearer " with a trailing space but no token — token string is ""
+    mock_request.headers.get = MagicMock(return_value="Bearer ")
+
+    mock_call_next = AsyncMock()
+
+    response = await middleware.dispatch(mock_request, mock_call_next)
+
+    assert response.status_code == 401
+    mock_call_next.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_middleware_returns_401_for_invalid_token_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AuthenticationGateMiddleware must return 401 when Bearer token is invalid.
+
+    This covers the dispatch error path in auth.py lines 296-300: when a
+    syntactically-structured Bearer header is present but the token is not
+    a valid JWT, verify_token() raises AuthenticationError which the
+    middleware catches and converts to a 401.
+
+    Arrange: JWT_SECRET_KEY is set to a valid value; token is "invalid-token".
+    Act: call dispatch() on a protected path.
+    Assert: returns 401; call_next is not invoked.
+    """
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+    from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
+
+    mock_app = MagicMock()
+    middleware = AuthenticationGateMiddleware(mock_app)
+
+    mock_request = MagicMock()
+    mock_request.url.path = "/jobs"
+    mock_request.headers = MagicMock()
+    mock_request.headers.get = MagicMock(return_value="Bearer this-is-not-a-valid-jwt-token")
 
     mock_call_next = AsyncMock()
 
@@ -674,3 +808,81 @@ def test_authentication_error_is_exception() -> None:
     err = AuthenticationError("test message")
     assert isinstance(err, Exception)
     assert str(err) == "test message"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: post_auth_token route
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_post_auth_token_returns_200_and_token_response_for_valid_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """post_auth_token() returns 200 with a TokenResponse for valid credentials.
+
+    Arrange: set OPERATOR_CREDENTIALS_HASH to a known bcrypt hash; set JWT_SECRET_KEY.
+    Act: POST /auth/token with valid username and passphrase via TestClient.
+    Assert: response status is 200; body contains access_token and token_type=="bearer".
+    """
+    import bcrypt
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    hashed = bcrypt.hashpw(b"correct-passphrase", bcrypt.gensalt()).decode()
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", hashed)
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+    from synth_engine.bootstrapper.routers.auth import router
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/auth/token",
+        json={"username": "operator", "passphrase": "correct-passphrase"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "access_token" in body
+    assert body["token_type"] == "bearer"
+    assert isinstance(body["access_token"], str)
+    assert len(body["access_token"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_post_auth_token_returns_401_for_invalid_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """post_auth_token() returns 401 for wrong passphrase.
+
+    Arrange: set OPERATOR_CREDENTIALS_HASH to a known bcrypt hash; set JWT_SECRET_KEY.
+    Act: POST /auth/token with correct username but wrong passphrase via TestClient.
+    Assert: response status is 401; no access_token in body.
+    """
+    import bcrypt
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    hashed = bcrypt.hashpw(b"correct-passphrase", bcrypt.gensalt()).decode()
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", hashed)
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+    from synth_engine.bootstrapper.routers.auth import router
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/auth/token",
+        json={"username": "operator", "passphrase": "wrong-passphrase"},
+    )
+
+    assert response.status_code == 401
+    body = response.json()
+    assert "access_token" not in body
