@@ -354,7 +354,7 @@ def step_generate_and_load(source_dsn: str) -> dict[str, int]:
 
 
 def step_unseal_vault(api_base_url: str, passphrase: str) -> None:
-    """POST to /vault/unseal. Treats 409 (already unsealed) as success.
+    """POST to /unseal. Treats 400 (already unsealed) as success.
 
     Args:
         api_base_url: Base URL of the Conclave Engine API.
@@ -363,12 +363,13 @@ def step_unseal_vault(api_base_url: str, passphrase: str) -> None:
     Raises:
         SystemExit: On unexpected HTTP errors.
     """
-    url = f"{api_base_url}/vault/unseal"
+    url = f"{api_base_url}/unseal"
     click.echo(f"[3/13] Unsealing vault at {url} ...")
     try:
         resp = httpx.post(url, json={"passphrase": passphrase}, timeout=30.0)
-        if resp.status_code == 409:
-            click.echo("       Vault already unsealed (409) -- continuing")
+        if resp.status_code in (400, 409):
+            # 400 = already unsealed (RFC 7807 response), 409 = legacy
+            click.echo("       Vault already unsealed -- continuing")
         else:
             resp.raise_for_status()
             click.echo(f"       Vault unsealed -- status {resp.status_code}")
