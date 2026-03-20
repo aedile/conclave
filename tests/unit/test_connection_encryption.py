@@ -11,7 +11,6 @@ Task: T39.4 — Encrypt Connection Metadata with ALE
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import pytest
@@ -192,9 +191,7 @@ def test_raw_database_value_is_encrypted_for_host(db_engine: Any, ale_key: str) 
     )
 
 
-def test_raw_database_value_is_encrypted_for_database_field(
-    db_engine: Any, ale_key: str
-) -> None:
+def test_raw_database_value_is_encrypted_for_database_field(db_engine: Any, ale_key: str) -> None:
     """Raw SQL read of the database column must return ciphertext, not plaintext."""
     from synth_engine.bootstrapper.schemas.connections import Connection
 
@@ -224,9 +221,7 @@ def test_raw_database_value_is_encrypted_for_database_field(
     )
 
 
-def test_raw_database_value_is_encrypted_for_schema_name(
-    db_engine: Any, ale_key: str
-) -> None:
+def test_raw_database_value_is_encrypted_for_schema_name(db_engine: Any, ale_key: str) -> None:
     """Raw SQL read of the schema_name column must return ciphertext, not plaintext."""
     from synth_engine.bootstrapper.schemas.connections import Connection
 
@@ -252,7 +247,8 @@ def test_raw_database_value_is_encrypted_for_schema_name(
         raw_value = result.scalar_one()
 
     assert raw_value != plaintext_schema, (
-        f"schema_name stored in plaintext! raw value '{raw_value}' matches plaintext '{plaintext_schema}'"
+        f"schema_name stored in plaintext! raw value '{raw_value}' "
+        f"matches plaintext '{plaintext_schema}'"
     )
 
 
@@ -338,9 +334,7 @@ def test_orm_read_returns_decrypted_schema_name(db_engine: Any, ale_key: str) ->
         assert fetched.schema_name == plaintext_schema
 
 
-def test_port_value_is_stored_and_read_as_plain_integer(
-    db_engine: Any, ale_key: str
-) -> None:
+def test_port_value_is_stored_and_read_as_plain_integer(db_engine: Any, ale_key: str) -> None:
     """port must be stored and retrieved as a plain integer, not ciphertext."""
     from synth_engine.bootstrapper.schemas.connections import Connection
 
