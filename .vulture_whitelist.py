@@ -46,6 +46,7 @@ health_check  # unused function — FastAPI route handler (bootstrapper/lifecycl
 unseal_vault  # unused function — FastAPI route handler (bootstrapper/lifecycle.py)
 get_budget  # unused function — FastAPI route handler (routers/privacy.py)
 refresh_budget  # unused function — FastAPI route handler (routers/privacy.py)
+post_auth_token  # unused function — FastAPI route handler (routers/auth.py)
 
 # ---------------------------------------------------------------------------
 # Category B — Starlette middleware dispatch() methods
@@ -94,6 +95,8 @@ tier  # unused variable — Pydantic field (schemas/licensing.py)
 validate_parquet_path  # unused method — Pydantic field_validator (schemas/jobs.py)
 remaining_epsilon  # unused variable — Pydantic field (schemas/privacy.py)
 is_exhausted  # unused variable — Pydantic field (schemas/privacy.py)
+access_token  # unused variable — Pydantic field (routers/auth.py TokenResponse)
+token_type  # unused variable — Pydantic field (routers/auth.py TokenResponse)
 
 # ---------------------------------------------------------------------------
 # Category D (continued) — SQLAlchemy model timestamp fields

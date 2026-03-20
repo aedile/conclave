@@ -12,7 +12,31 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| *(none — all drained)* | | | | |
+| ADV-T39.1-01 | T39.1 Arch Review | TBD | ADVISORY | EXEMPT_PATHS duplication across 3 middleware files (vault.py, licensing.py, auth.py). Extract to shared `bootstrapper/dependencies/_exempt_paths.py`. |
+
+---
+
+### [2026-03-20] P39-T39.1 — JWT Bearer Token Authentication
+
+**Branch**: `feat/P39-T39.1-jwt-authentication` (4 commits)
+
+**Review agents**: QA (PASS — 2 rounds, 3 findings fixed), DevOps (PASS — 2 rounds, 2 findings fixed), Architecture (PASS — 2 advisories addressed)
+
+**Findings fixed — QA Round 1 (review commit)**:
+- QA-F1: Missing edge-case unit tests: pass-through mode (middleware lines 273–280), malformed bcrypt hash (lines 200–203), empty-string Bearer token. Fixed: 3 new tests added.
+- QA-F2: Missing middleware dispatch error-path test for valid Bearer scheme + invalid JWT. Fixed: 1 new test added.
+- QA-F3: `post_auth_token` route had 0% unit coverage (only integration tests). Fixed: 2 new unit tests (200 happy path, 401 invalid credentials).
+
+**Findings fixed — DevOps Round 1 (review commit)**:
+- DEVOPS-F1: `bcrypt` imported directly in auth.py but not declared as direct dependency in pyproject.toml (arrived only transitively via passlib[bcrypt]). Fixed: added `bcrypt = ">=4.0.1,<6.0.0"` to pyproject.toml.
+- DEVOPS-F2: `.env.example` missing `OPERATOR_CREDENTIALS_HASH`, `JWT_ALGORITHM`, `JWT_EXPIRY_SECONDS`. Fixed: added "JWT Authentication" section with generation instructions.
+
+**Architecture advisories addressed (review commit)**:
+- ARCH-ADV-1: Three-way EXEMPT_PATHS duplication across vault.py, licensing.py, auth.py. TODO added with ticket tag [CONCLAVE-ADV-EXEMPT] for future extraction to `bootstrapper/dependencies/_exempt_paths.py`.
+- ARCH-ADV-2: Unused `username` parameter in `verify_operator_credentials()` removed. Function signature simplified to single-responsibility passphrase check.
+
+**New advisory**:
+- ADV-T39.1-01: EXEMPT_PATHS duplication across 3 middleware files (vault, licensing, auth). Tracked via TODO [CONCLAVE-ADV-EXEMPT]. Low severity — maintenance debt, not a security issue.
 
 ---
 
@@ -27,7 +51,7 @@ Drain (delete) rows when their target task is completed.
 - ADV-E2E-02: Documented as acceptable for dev-only script. Comment added noting production should use env var.
 - ADV-E2E-03: Changed `if duration_s == 0.0` to `if duration_s <= 0` in `calculate_rows_per_sec`. 4 tests added.
 
-**Open advisories**: 0
+**Open advisories**: 0 → 1 (ADV-T39.1-01 added)
 
 ---
 

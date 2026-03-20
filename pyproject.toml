@@ -58,6 +58,7 @@ qrcode = {version = ">=8.0.0,<9.0.0", extras = ["pil"]}
 # to ensure version stability and allow security audits via pip-audit.
 pillow = ">=12.0.0,<13.0.0"
 pydantic-settings = ">=2.0.0,<3.0.0"
+bcrypt = ">=4.0.1,<6.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3"

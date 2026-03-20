@@ -14,7 +14,11 @@ Modules under test (expected ABSENT):
   - synth_engine.shared.auth.scopes
   - synth_engine.shared.middleware.idempotency
   - synth_engine.shared.tasks.reaper
-  - synth_engine.bootstrapper.dependencies.auth
+
+Note: synth_engine.bootstrapper.dependencies.auth was originally deleted in
+T32.1 as dead scaffolding. It has been re-created in T39.1 as the production
+JWT authentication middleware. Its absence guard has been removed here to
+reflect that intentional re-introduction.
 
 Also asserts no surviving import sites exist for any of these modules.
 """
@@ -127,14 +131,6 @@ def test_shared_tasks_package_is_removed() -> None:
     )
 
 
-def test_bootstrapper_dependencies_auth_is_removed() -> None:
-    """synth_engine.bootstrapper.dependencies.auth must not exist after T32.1 cleanup."""
-    assert not _module_importable("synth_engine.bootstrapper.dependencies.auth"), (
-        "synth_engine.bootstrapper.dependencies.auth still exists — "
-        "remove bootstrapper/dependencies/auth.py (T32.1)"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Spec-level contract: find_spec returns None or raises for removed paths
 # ---------------------------------------------------------------------------
@@ -149,7 +145,8 @@ def test_bootstrapper_dependencies_auth_is_removed() -> None:
         "synth_engine.shared.middleware.idempotency",
         "synth_engine.shared.tasks.reaper",
         "synth_engine.shared.tasks",
-        "synth_engine.bootstrapper.dependencies.auth",
+        # NOTE: synth_engine.bootstrapper.dependencies.auth was removed from this list
+        # in T39.1 — the module is now legitimately present as production JWT auth middleware.
     ],
 )
 def test_find_spec_cannot_resolve_removed_module(dotted_name: str) -> None:
