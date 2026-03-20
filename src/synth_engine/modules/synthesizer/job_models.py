@@ -39,6 +39,7 @@ Authorization (T39.2):
     job.  All resource endpoints filter by ``owner_id`` to prevent horizontal
     privilege escalation (IDOR).  Defaults to ``""`` for backward compatibility
     with records created before T39.2 (single-operator deployments).
+    Indexed for query performance (ADR-0040).
 
 Boundary constraints (import-linter enforced):
     - Must NOT import from ``modules/ingestion/``, ``modules/masking/``,
@@ -118,7 +119,8 @@ class SynthesisJob(SQLModel, table=True):
         owner_id: JWT ``sub`` claim of the operator who created this job.
             Used for IDOR protection — all resource queries filter by this
             field.  Defaults to ``""`` for backward compatibility with
-            records created before T39.2.
+            records created before T39.2.  Indexed for query performance
+            (ADR-0040).
 
     Args:
         **data: Keyword arguments forwarded to SQLModel base class.
@@ -148,7 +150,7 @@ class SynthesisJob(SQLModel, table=True):
     max_grad_norm: float = Field(default=_DEFAULT_MAX_GRAD_NORM)
     actual_epsilon: float | None = Field(default=None)
     #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
-    owner_id: str = Field(default="")
+    owner_id: str = Field(default="", index=True)
 
     # Defense-in-depth: these guards duplicate the Pydantic Field constraints in
     # bootstrapper/schemas/jobs.py.  Both must be updated together.

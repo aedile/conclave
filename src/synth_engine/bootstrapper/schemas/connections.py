@@ -58,7 +58,7 @@ class Connection(SQLModel, table=True):
         owner_id: JWT ``sub`` claim of the operator who created this connection.
             Used for IDOR protection — all resource queries filter by this
             field.  Defaults to ``""`` for backward compatibility with
-            records created before T39.2.
+            records created before T39.2.  Indexed for query performance.
     """
 
     __tablename__ = "connection"
@@ -70,7 +70,7 @@ class Connection(SQLModel, table=True):
     database: str
     schema_name: str = Field(default="public")
     #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
-    owner_id: str = Field(default="")
+    owner_id: str = Field(default="", index=True)
 
 
 class ConnectionCreateRequest(BaseModel):

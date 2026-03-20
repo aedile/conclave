@@ -4,6 +4,7 @@ Tests cover:
 - get_current_operator() dependency extracts sub claim from valid JWT.
 - get_current_operator() raises HTTPException(401) when no Authorization header.
 - get_current_operator() raises HTTPException(401) for invalid token.
+- get_current_operator() raises HTTPException(401) when sub claim is empty string.
 - Resource endpoints filter by owner_id — operator A cannot access operator B's job.
 - Resource endpoints return 404 (not 403) for non-owned resources.
 - Unauthenticated requests return 401.
@@ -132,14 +133,14 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
     return app, engine
 
 
-def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
+def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any, str, str]:
     """Build a test FastAPI app with the connections router and in-memory SQLite.
 
     Args:
         monkeypatch: pytest monkeypatch for env var injection.
 
     Returns:
-        Tuple of (app, engine) for test use.
+        Tuple of (app, engine, conn_a_id, conn_b_id) for test use.
     """
     from sqlalchemy.pool import StaticPool
 
@@ -197,7 +198,7 @@ def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any
             yield session
 
     app.dependency_overrides[get_db_session] = _override_session
-    return app, engine, conn_a_id, conn_b_id  # type: ignore[return-value]
+    return app, engine, conn_a_id, conn_b_id
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +276,48 @@ def test_get_current_operator_raises_401_for_invalid_token(
         get_current_operator(mock_request)
 
     assert exc_info.value.status_code == 401
+
+
+def test_get_current_operator_raises_401_for_empty_sub_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_current_operator() raises HTTPException(401) when token sub claim is empty string.
+
+    An empty sub claim is structurally valid JWT but semantically invalid for
+    resource ownership — it would collide with the pass-through sentinel value
+    and grant access to all pre-T39.2 resources owned by any legacy operator.
+
+    Arrange: set JWT_SECRET_KEY; build a valid token with sub="".
+    Act: call get_current_operator() via a mocked Request.
+    Assert: HTTPException with status_code=401 is raised with an informative detail.
+    """
+    import jwt as pyjwt
+
+    monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+    from fastapi import HTTPException
+
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+    from synth_engine.shared.settings import get_settings
+
+    get_settings.cache_clear()
+
+    now = int(time.time())
+    token_empty_sub = pyjwt.encode(
+        {"sub": "", "iat": now, "exp": now + 3600, "scope": []},
+        _TEST_SECRET,
+        algorithm="HS256",
+    )
+
+    mock_request = MagicMock()
+    mock_request.headers = {"Authorization": f"Bearer {token_empty_sub}"}
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_current_operator(mock_request)
+
+    assert exc_info.value.status_code == 401
+    assert "empty" in exc_info.value.detail.lower()
 
 
 # ---------------------------------------------------------------------------

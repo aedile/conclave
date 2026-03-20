@@ -41,6 +41,13 @@ SQLite supports ``ALTER TABLE … ADD COLUMN`` with a constant
 ``server_default``.  The ``server_default=""`` is a constant literal so
 SQLite handles it correctly.
 
+Index rationale (ADR-0040)
+--------------------------
+All ``owner_id`` columns carry an index because every resource query filters
+by this column (``WHERE owner_id = ?``).  Without an index, a full table
+scan is required for every authenticated list or single-item fetch, which
+degrades linearly with table size in a multi-operator deployment.
+
 CONSTITUTION Priority 0: Security — IDOR prevention
 CONSTITUTION Priority 4: Correctness — schema must match ORM definition.
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
@@ -59,11 +66,14 @@ depends_on: str | None = None
 
 
 def upgrade() -> None:
-    """Add owner_id column to synthesis_job and connection tables.
+    """Add owner_id column and index to synthesis_job and connection tables.
 
     Both columns are appended with a server default of ``''`` (empty string)
     so existing rows are not left with NULL and remain accessible in
     pass-through mode (JWT_SECRET_KEY not configured).
+
+    Indexes are created explicitly to match the ``index=True`` ORM field
+    declaration and to ensure efficient per-operator filtering queries.
     """
     op.add_column(
         "synthesis_job",
@@ -83,12 +93,16 @@ def upgrade() -> None:
             server_default="",
         ),
     )
+    op.create_index("ix_synthesis_job_owner_id", "synthesis_job", ["owner_id"])
+    op.create_index("ix_connection_owner_id", "connection", ["owner_id"])
 
 
 def downgrade() -> None:
-    """Remove owner_id column from synthesis_job and connection tables.
+    """Remove owner_id column and index from synthesis_job and connection tables.
 
-    Columns are dropped in reverse order to mirror the upgrade.
+    Indexes are dropped before columns in reverse order to mirror the upgrade.
     """
+    op.drop_index("ix_connection_owner_id", table_name="connection")
+    op.drop_index("ix_synthesis_job_owner_id", table_name="synthesis_job")
     op.drop_column("connection", "owner_id")
     op.drop_column("synthesis_job", "owner_id")

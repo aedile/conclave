@@ -227,7 +227,8 @@ def get_current_operator(request: Request) -> str:
 
     Raises:
         HTTPException: 401 Unauthorized if the Authorization header is
-            absent, malformed, or contains an invalid/expired token.
+            absent, malformed, or contains an invalid/expired token, or
+            if the ``sub`` claim is present but empty.
     """
     settings = get_settings()
 
@@ -267,6 +268,12 @@ def get_current_operator(request: Request) -> str:
         raise HTTPException(
             status_code=401,
             detail="Token is missing required sub claim.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not sub:
+        raise HTTPException(
+            status_code=401,
+            detail="Token sub claim must not be empty.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return sub
