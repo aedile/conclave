@@ -26,6 +26,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
+from synth_engine.shared.settings import get_settings
+
 pytestmark = pytest.mark.integration
 
 
@@ -263,10 +265,14 @@ class TestDownloadAfterSynthesis:
             ),
             patch.dict(os.environ, {"ARTIFACT_SIGNING_KEY": signing_key.hex()}),
         ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+            get_settings.cache_clear()  # force re-read of ARTIFACT_SIGNING_KEY from patched env
+            try:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.get(f"/jobs/{job_id}/download")
+            finally:
+                get_settings.cache_clear()  # prevent cache poisoning for subsequent tests
 
         assert response.status_code == 409
 
