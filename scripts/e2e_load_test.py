@@ -126,9 +126,9 @@ def calculate_rows_per_sec(num_rows: int, duration_s: float) -> float:
         duration_s: Wall-clock duration in seconds.
 
     Returns:
-        Rows per second, or 0.0 if duration_s is zero.
+        Rows per second, or 0.0 if duration_s is zero or negative.
     """
-    if duration_s == 0.0:
+    if duration_s <= 0:
         return 0.0
     return round(num_rows / duration_s, 4)
 
@@ -595,7 +595,7 @@ def step_poll_jobs(
             try:
                 resp = httpx.get(url, timeout=30.0)
                 resp.raise_for_status()
-            except httpx.HTTPStatusError as exc:
+            except Exception as exc:  # ADV-E2E-01: broad catch — non-fatal poll, keeps loop running
                 click.echo(f"       WARNING: poll error for {table} job {job_id}: {exc}")
                 continue
 
@@ -673,7 +673,7 @@ def step_collect_metrics(
                 artifact_path.write_bytes(resp.content)
                 artifact_size_mb = mb_from_bytes(len(resp.content))
                 click.echo(f"       {table}: downloaded {artifact_size_mb} MiB")
-            except httpx.HTTPStatusError as exc:
+            except Exception as exc:  # ADV-E2E-01: broad catch — non-fatal, avoids aborting metrics
                 click.echo(f"       WARNING: download failed for {table}: {exc}")
 
         job_results.append(
@@ -703,6 +703,8 @@ def step_cli_subsetting(source_dsn: str, target_dsn: str) -> dict[str, Any]:
         Dict with keys: status, duration_s, seed_rows, total_rows_subsetted.
     """
     click.echo("[11/14] Running conclave-subset CLI ...")
+    # ADVISORY: DSN is visible via ps on shared systems. Acceptable for dev-only script.
+    # For production use, pass DSN via environment variable.
     cmd = [
         "conclave-subset",
         "--source",

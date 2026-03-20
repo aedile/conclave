@@ -1038,3 +1038,116 @@ class TestDpAccountingStepAuditFailure:
         from synth_engine.shared.exceptions import AuditWriteError
 
         assert AuditWriteError in OPERATOR_ERROR_MAP
+
+
+# ---------------------------------------------------------------------------
+# ADV-P38-01: DpAccountingStep non-BudgetExhaustionError exception handling
+# ---------------------------------------------------------------------------
+
+
+class TestDpAccountingStepNonBudgetError:
+    """DpAccountingStep must handle non-BudgetExhaustionError exceptions from _spend_budget_fn.
+
+    ADV-P38-01: A ConnectionError (or any other unexpected exception) raised by
+    _spend_budget_fn must not propagate uncaught — the step must catch it, log at
+    ERROR level, and mark the job FAILED via a StepResult(success=False).
+    """
+
+    def test_connection_error_from_spend_budget_fn_returns_failure(self) -> None:
+        """ConnectionError from _spend_budget_fn must produce StepResult(success=False).
+
+        ADV-P38-01: Before the fix, ConnectionError propagates uncaught from
+        DpAccountingStep.execute(). After the fix it must be caught and returned
+        as a StepResult failure so the orchestrator can mark the job FAILED.
+        """
+        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep, StepResult
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.return_value = 1.5
+
+        mock_budget_fn = MagicMock(side_effect=ConnectionError("DB unreachable"))
+
+        job = _make_synthesis_job(id=7, status="TRAINING")
+        ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
+        step = DpAccountingStep()
+
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                mock_budget_fn,
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            result = step.execute(ctx)
+
+        assert isinstance(result, StepResult)
+        assert result.success is False, (
+            "DpAccountingStep must return failure when _spend_budget_fn raises ConnectionError"
+        )
+
+    def test_connection_error_does_not_set_job_status(self) -> None:
+        """DpAccountingStep must NOT mutate job.status on ConnectionError.
+
+        ADV-P38-01: The orchestrator is the sole owner of job.status (AC4).
+        The step must return a failure StepResult; the orchestrator sets FAILED.
+        """
+        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.return_value = 1.5
+
+        mock_budget_fn = MagicMock(side_effect=ConnectionError("DB unreachable"))
+
+        job = _make_synthesis_job(id=8, status="TRAINING")
+        ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
+
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                mock_budget_fn,
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            DpAccountingStep().execute(ctx)
+
+        assert job.status == "TRAINING", (
+            f"DpAccountingStep must not set job.status; expected TRAINING, got {job.status!r}"
+        )
+
+    def test_connection_error_result_has_error_msg(self) -> None:
+        """StepResult.error_msg must be non-None on ConnectionError from _spend_budget_fn.
+
+        ADV-P38-01: The job's error_msg must convey that the budget spend failed
+        so the operator can investigate.
+        """
+        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.return_value = 1.5
+
+        mock_budget_fn = MagicMock(side_effect=ConnectionError("DB unreachable"))
+
+        job = _make_synthesis_job(id=9, status="TRAINING")
+        ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
+
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                mock_budget_fn,
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            result = DpAccountingStep().execute(ctx)
+
+        assert result.error_msg is not None, (
+            "StepResult.error_msg must be set when _spend_budget_fn raises ConnectionError"
+        )

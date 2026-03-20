@@ -260,6 +260,18 @@ def _handle_dp_accounting(
     except BudgetExhaustionError:
         _logger.error("Job %d: Privacy budget exhausted — marking FAILED.", job_id)
         raise  # Re-raise: orchestrator (not step) sets job.status (AC4).
+    except Exception as exc:  # ADV-P38-01: broad catch — any unexpected error from _spend_budget_fn
+        # ADV-P38-01: Non-BudgetExhaustionError exceptions (e.g. ConnectionError, RuntimeError)
+        # from _spend_budget_fn must not propagate uncaught. We log at ERROR and surface as
+        # AuditWriteError so DpAccountingStep marks the job FAILED with a meaningful message.
+        _logger.error(
+            "Job %d: Unexpected error from _spend_budget_fn — budget spend status unknown.",
+            job_id,
+            exc_info=True,
+        )
+        raise AuditWriteError(
+            f"Budget spend failed with unexpected error: {exc!s} — manual reconciliation required"
+        ) from exc
 
     if budget_spent:
         try:
