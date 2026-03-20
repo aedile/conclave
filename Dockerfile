@@ -21,11 +21,11 @@ RUN mkdir -p dist
 #   a dedicated prefix so we can copy only the installed packages, not Poetry
 #   itself, into the final image.
 # =============================================================================
-# Digest pinned 2026-03-16 via Docker Registry v2 API (ADV-014 resolved).
+# Digest pinned 2026-03-20 via docker pull / docker inspect (refreshed for CVE-2026-0861 — glibc 2.41-12+deb13u2).
 # To refresh: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
 # ADV-017 fix: comment moved above FROM to prevent BuildKit inline-comment parse error.
 # python:3.14-slim
-FROM python:3.14-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456 AS python-builder
+FROM python:3.14-slim@sha256:fb83750094b46fd6b8adaa80f66e2302ecbe45d513f6cece637a841e1025b4ca AS python-builder
 
 WORKDIR /build
 
@@ -71,12 +71,12 @@ RUN pip install --no-cache-dir --prefix=/install --no-deps .
 #   Minimal python:3.14-slim surface; no dev tools, no build caches, no secrets.
 #   Runs as non-root user appuser (UID 1000) via gosu + tini.
 # =============================================================================
-# Digest pinned 2026-03-16 via Docker Registry v2 API (ADV-014 resolved).
+# Digest pinned 2026-03-20 via docker pull / docker inspect (refreshed for CVE-2026-0861 — glibc 2.41-12+deb13u2).
 # Same digest as python-builder stage — intentional for split-brain prevention.
 # To refresh: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
 # ADV-017 fix: comment moved above FROM to prevent BuildKit inline-comment parse error.
 # python:3.14-slim
-FROM python:3.14-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456 AS final
+FROM python:3.14-slim@sha256:fb83750094b46fd6b8adaa80f66e2302ecbe45d513f6cece637a841e1025b4ca AS final
 
 # ---- Security: install tini (PID-1 init) and gosu (privilege drop) ---------
 # tini reaps zombie processes; gosu drops from root to appuser before exec.
