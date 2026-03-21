@@ -16,6 +16,31 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] T45.1 — Reintroduce Idempotency Middleware (TBD-07)
+
+**Branch**: `feat/P45-webhook-idempotency-reaper`
+
+**What was implemented**:
+- `shared/middleware/idempotency.py`: IdempotencyMiddleware using Redis SET NX EX.
+  Per-operator key scoping (`idempotency:{operator_id}:{user_key}`), graceful Redis
+  degradation (WARNING + pass-through), key release on handler exception.
+- `bootstrapper/dependencies/redis.py`: singleton sync Redis client from settings.
+- `shared/settings.py`: adds `idempotency_ttl_seconds` field (default=300, ge=1).
+- `bootstrapper/middleware.py`: wires IdempotencyMiddleware as innermost layer.
+
+**Test coverage**: 32 unit tests (15 attack/boundary + 17 feature), 5 integration tests.
+Coverage: 97% (gate: 95%). All quality gates pass (ruff, mypy, bandit, vulture, pre-commit).
+
+**Known failure patterns addressed**:
+- Redis requirepass (AuthenticationError) caught in broad RedisError handler.
+- Sync redis-py used (not async) — BaseHTTPMiddleware runs in a thread pool.
+- EXEMPT_PATHS injected at registration time, not imported in shared/.
+- T32.1 scaffolding removal tests updated to reflect intentional re-introduction.
+
+**Advisories**: None.
+
+---
+
 ### [2026-03-21] Phase 44 — Comprehensive Documentation Audit & Cleanup
 
 **Branch**: `docs/P44-documentation-audit` (8 commits)
