@@ -10,6 +10,116 @@ For a narrative account of the project, see [`docs/DEVELOPMENT_STORY.md`](docs/D
 
 ---
 
+## Advisory Drain — Pre-Phase 44
+*2026-03-21 | PR [#168](../../pull/168)*
+
+- Drained all 8 open advisories (ADV-017 through ADV-024) blocking Phase 44 entry.
+- Added JWT auth guards to settings, security, and privacy routers; wired `cleanup_expired_jobs`
+  and `cleanup_expired_artifacts` to Huey `@periodic_task` cron jobs at 02:00 UTC and 03:00 UTC.
+- Changed `shred_job` audit actor from `"system/api"` to `current_operator` (JWT sub).
+- Corrected stale `EpsilonAccountant` references in README and test docstring.
+
+## Phase 43 — Architectural Polish, Code Hygiene & Rule Sunset
+*2026-03-21 | T43.1–T43.5 | PRs [#164](../../pull/164)–[#167](../../pull/167)*
+
+- Extracted `_handle_dp_accounting()` and `DpAccountingStep` from `job_orchestration.py`
+  into `dp_accounting.py`; `job_orchestration.py` reduced by ~180 lines (T43.1).
+- Consolidated 5 repeated optional import patterns (`sdv`, `torch`, `opacus`, `ctgan`, `pandas`)
+  into a single `_optional_deps.py` module (T43.2).
+- Added `docs/REQUEST_FLOW.md` documenting the full HTTP request lifecycle and conditional
+  import pattern (T43.3).
+- Batched 4 cosmetic hygiene items per Rule 16 (T43.4).
+- Evaluated and deleted 3 Phase-40-sunset rules (Rules 4, 5, 10) from CLAUDE.md; 7 rules
+  extended to Phase 50 (T43.5).
+
+## Phase 42 — Security Hardening: Artifact Signing, HTTPS, DP Benchmarks & CORS Docs
+*2026-03-21 | T42.1–T42.4 | PRs [#156](../../pull/156)–[#162](../../pull/162)*
+
+- Multi-key artifact signing with versioned signature format (`KEY_ID || HMAC-SHA256`);
+  auto-detection of legacy vs. versioned signatures; `build_key_map_from_settings()` moved
+  to `shared/security/hmac_signing.py` (T42.1, ADR-0042).
+- HTTPS enforcement middleware (`HTTPSEnforcementMiddleware`) checking `X-Forwarded-Proto`,
+  rejecting HTTP with 421 in production; `warn_if_ssl_misconfigured()` startup hook (T42.2, ADR-0043).
+- DP quality benchmarks executed and documented in `docs/DP_QUALITY_REPORT.md` with actual
+  epsilon values, honest analysis of calibration mismatch, and use-case recommendations (T42.3).
+- Created `docs/SECURITY_HARDENING.md` covering CORS policy, DDoS mitigation, TLS configuration,
+  vault passphrase management, and key rotation procedures (T42.4).
+
+## Phase 41 — Data Retention & Compliance
+*2026-03-21 | T41.1–T41.3 | PRs [#153](../../pull/153)–[#155](../../pull/155)*
+
+- Implemented configurable data retention TTLs (`JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`,
+  `ARTIFACT_RETENTION_DAYS`) with Huey scheduled cleanup tasks; legal hold flag prevents
+  purge regardless of TTL; manual purge endpoint (`POST /admin/retention/purge`) (T41.1, ADR-0041).
+- GDPR Article 17 / CCPA right-to-erasure endpoint (`DELETE /compliance/erasure`) with cascade
+  deletion, compliance receipt, and `min_length=1` guard against bulk deletion (T41.2).
+- Created `docs/DATA_COMPLIANCE.md` (full compliance policy, GDPR/CCPA/HIPAA guidance,
+  erasure procedure, audit trail guarantees) (T41.3).
+
+## Phase 40 — Test Suite Hardening
+*2026-03-21 | T40.1–T40.3 | PRs [#150](../../pull/150)–[#152](../../pull/152)*
+
+- Replaced shallow/tautological assertions with value-checking tests across the synthesizer
+  module; eliminated rubber-stamp `pytest.raises` patterns (T40.1).
+- Rewrote mock-heavy synthesizer tests with behavioral tests; tightened test predicates to
+  prevent false positives (T40.2).
+- Added missing concurrency, boundary, and performance test categories; fixed `_logger.exception()`
+  PII exposure risk in masking worker threads (T40.3).
+
+## Advisory Drain — Pre-Phase 40
+*2026-03-21 | branch: fix/advisory-drain-pre-p40*
+
+- Drained 5 open advisories: extracted `EXEMPT_PATHS` to `_exempt_paths.py`, amended ADR-0021
+  and ADR-0040, fixed raw key logging in rate limit fallback, amended ADR-0006.
+
+## Phase 39 — Authentication, Authorization & Connection Encryption
+*2026-03-20 | T39.1–T39.4 | PRs [#143](../../pull/143)–[#148](../../pull/148)*
+
+- JWT bearer authentication via `get_current_operator()` dependency; `Depends()` added to all
+  non-exempt routes; ADR-0039 (T39.1).
+- IDOR protection with `owner_id` ownership scoping on all job, connection, and setting queries;
+  Alembic migration 008 adding indexed `owner_id` columns; ADR-0040 (T39.2).
+- Rate limiting middleware (`RateLimitGateMiddleware`) using Redis sorted sets with fallback to
+  in-process deque; configurable per-operator limits (T39.3).
+- ALE encryption of connection metadata (`host`, `port`, `database`, `username`, `password`)
+  with Alembic migration 007 for key rotation support (T39.4).
+
+## Advisory Drain — Pre-Phase 39
+*2026-03-20 | branch: fix/advisory-drain-pre-p39*
+
+- Drained 5 advisories from Phase 38 and E2E load test: audit write failure handling,
+  stale E2E doc assertions, non-fatal exception handling, dev-only DSN caveat,
+  `calculate_rows_per_sec` negative duration guard.
+
+## E2E 1M-Row Load Test
+*2026-03-20 | branch: test/e2e-1m-row-load-test*
+
+- Validated full pipeline at production scale: 1,011,540 source rows across 4 tables;
+  4 CTGAN synthesis jobs COMPLETE with correct DP accounting (ε up to 9.89); all artifacts shredded.
+- Fixed 5 review findings across QA and DevOps; overwritten `docs/E2E_VALIDATION.md` with evidence.
+
+## Phase 38 — Audit Integrity, Timing Side-Channel Fix & Pre-Commit Hardening
+*2026-03-19 | T38.1–T38.4*
+
+- If `AuditLogger.log_event()` raises during a job's DP accounting step, the job is marked
+  FAILED — privacy budget spend MUST have an audit entry (T38.1, Constitution Priority 0).
+- Vault timing side-channel eliminated: `derive_kek()` runs unconditionally before the
+  empty-passphrase check, preventing oracle attacks (T38.2, ADR-0009 amended).
+- Import-linter enforcement confirmed already in pre-commit since Phase 20 — T38.3 task
+  verified satisfied, no changes required.
+- Batched 4 documentation and hygiene items (T38.4).
+
+## Phase 37 — Advisory Drain, CHANGELOG Currency & E2E Demo Capstone
+*2026-03-19 | T37.1–T37.3*
+
+- Fixed silent privacy budget deduction failure: if `epsilon_spent()` raises, job is marked
+  FAILED with `EpsilonMeasurementError` — prevents untracked DP use (T37.1).
+- Drained 4 advisory items: `safe_error_msg()` wrapping in error logs, stale PIIFilter
+  reference removal, `config_validation.py` delegating to `get_settings()` singleton (T37.2).
+- Added `EpsilonMeasurementError` to shared exception hierarchy, `OPERATOR_ERROR_MAP`,
+  ADR-0037, and ADR-0038.
+- CHANGELOG backfilled through Phase 36 (T37.3).
+
 ## Phase 36 — Configuration Centralization, Documentation Pruning & Hygiene
 *2026-03-19 | T36.1–T36.4*
 
@@ -211,7 +321,7 @@ For a narrative account of the project, see [`docs/DEVELOPMENT_STORY.md`](docs/D
 - Fixed `nosec` annotation accuracy audit.
 
 ## Phases 10–15 — Quality Infrastructure
-*2026-03-16 | PRs [#67](../../pull/67)–[#81](../../pull/80)*
+*2026-03-16 | PRs [#67](../../pull/67)–[#81](../../pull/81)*
 
 - Phase 10: Drained stale `TODO(T4.4)`; fixed `pytest-asyncio` Python 3.14 compatibility.
 - Phase 11: Workspace hygiene (worktrees, spikes, `.gitignore`); ADR-0029 architecture
