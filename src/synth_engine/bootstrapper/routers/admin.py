@@ -12,6 +12,13 @@ Security posture:
 - The endpoint is a privileged admin action.  In a multi-operator deployment
   it SHOULD be gated behind an elevated role.  In the current single-operator
   model, the same operator credential suffices.
+- Admin endpoints are intentionally not ownership-scoped — they operate on
+  any job by ID.  In the current single-operator model this is the correct
+  behaviour: there is exactly one operator and all jobs belong to the same
+  system context.  Multi-operator deployments MUST add role-based access
+  control (RBAC) to restrict admin operations to authorised principals only.
+  ADV-023 is resolved by this documentation; no code change is required until
+  a multi-operator deployment model is adopted.
 - The request payload contains only a boolean (``enable``); no PII is accepted
   or returned.
 - Every toggle emits a ``LEGAL_HOLD_SET`` or ``LEGAL_HOLD_CLEARED`` WORM audit
@@ -96,6 +103,13 @@ def set_legal_hold(
 
     Every invocation emits a WORM audit event recording the toggle so the
     hold history is fully attributable.
+
+    Security:
+        This endpoint is not ownership-scoped — any authenticated operator can
+        toggle legal hold on any job by ID.  This is intentional for admin
+        operations in the current single-operator model (ADV-023).  When a
+        multi-operator deployment model is adopted, RBAC restrictions MUST be
+        added here.
 
     Args:
         job_id: Integer primary key of the job to update.
