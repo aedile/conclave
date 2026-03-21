@@ -15,6 +15,8 @@ Drain (delete) rows when their target task is completed.
 | ADV-T39.1-01 | T39.1 Arch Review | TBD | ADVISORY | EXEMPT_PATHS duplication across 3 middleware files (vault.py, licensing.py, auth.py). Extract to shared `bootstrapper/dependencies/_exempt_paths.py`. |
 | ADV-T39.2-01 | T39.2 Arch Review | TBD | ADVISORY | SynthesisJob lives in modules/synthesizer/job_models.py but ADR-0021 rules it belongs in bootstrapper/schemas/. Pre-existing placement debt. |
 | ADV-T39.2-02 | T39.2 DevOps Review | TBD | ADVISORY | owner_id visible in API response bodies. Evaluate for exclusion before multi-tenant rollout. |
+| ADV-T39.4-01 | T39.4 Arch Review | TBD | ADVISORY | ADR-0006 scope expansion undocumented: ALE now covers infrastructure-sensitive fields (host, database, schema_name) beyond original GDPR/HIPAA PII scope. Amend ADR-0006. |
+| ADV-T39.3-01 | T39.3 DevOps Review | TBD | ADVISORY | _compute_retry_after fallback path logs raw key (potentially IP). Fix before non-MemoryStorage backend deployment. |
 
 ---
 
@@ -31,6 +33,42 @@ Drain (delete) rows when their target task is completed.
 - ARCH-B2: No ADR for authorization decisions. Fixed: created ADR-0040 (173 lines).
 
 **Architecture advisories deferred**: ADV-T39.2-01 (SynthesisJob placement), ADV-T39.2-02 (owner_id in responses).
+
+---
+
+### [2026-03-20] P39-T39.4 — Encrypt Connection Metadata with ALE
+
+**Branch**: `feat/P39-T39.4-connection-encryption` (5 commits)
+
+**Review agents**: QA (FINDING — 2 rounds, 4 findings fixed), DevOps (FINDING — 1 round, 2 findings fixed), Architecture (FINDING — 1 round, 2 findings fixed)
+
+**Findings fixed (review commits)**:
+- QA-B1: Migration test gap — no test exercised upgrade()/downgrade(). Fixed: 491-line test file with 23 tests.
+- QA-B2: NULL guard missing in migration. Fixed: added None guards in upgrade() and downgrade().
+- QA-B3: NULL guard skip path untested. Fixed: added TestMigration007NullGuard tests.
+- QA-ADV: schema_name default path untested. Fixed: added default encryption round-trip test.
+- DEVOPS-B1: server_default="public" on EncryptedString bypasses TypeDecorator. Fixed: removed server_default.
+- ARCH-B1: Migration imports synth_engine breaking clean pattern. Fixed: documented with inline comment.
+
+**New advisory**: ADV-T39.4-01 (ADR-0006 scope expansion).
+
+---
+
+### [2026-03-20] P39-T39.3 — Rate Limiting Middleware
+
+**Branch**: `feat/P39-T39.3-rate-limiting` (6 commits)
+
+**Review agents**: QA (FINDING — 2 rounds, 5 findings fixed), DevOps (FINDING — 1 round, 2 findings fixed)
+
+**Findings fixed (review commits)**:
+- QA-B1: Silent failure in _compute_retry_after(). Fixed: added _logger.warning() call.
+- QA-B2: Rubber-stamp assertion. Fixed: replaced with issubclass check.
+- QA-B3: Download path substring match. Fixed: tightened to path.endswith("/download").
+- QA-B4: Download rate limit tier untested. Fixed: added test_download_exceeds_limit_returns_429.
+- DEVOPS-B1: Raw client IP in WARNING log. Fixed: hashed key with SHA-256[:12].
+- DEVOPS-B2: .env.example missing rate limit settings. Fixed: added 4-variable section.
+
+**New advisory**: ADV-T39.3-01 (fallback path raw key logging).
 
 ---
 

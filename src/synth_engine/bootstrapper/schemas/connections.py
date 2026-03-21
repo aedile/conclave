@@ -11,8 +11,16 @@ Authorization (T39.2):
     horizontal privilege escalation (IDOR).  Defaults to ``""`` for backward
     compatibility with records created before T39.2.
 
+Security note: ``host``, ``database``, and ``schema_name`` are stored
+encrypted at rest using the ALE (Application-Level Encryption)
+``EncryptedString`` TypeDecorator.  The ``port`` field is a plain integer
+and is not sensitive.  Decryption is transparent through the SQLAlchemy
+ORM; the API layer always works with plaintext strings.
+
 Task: P5-T5.1 — Task Orchestration API Core
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
+Task: T39.4 — Encrypt Connection Metadata with ALE
+CONSTITUTION Priority 0: Security — sensitive fields encrypted at rest
 """
 
 from __future__ import annotations
@@ -20,7 +28,10 @@ from __future__ import annotations
 import uuid
 
 from pydantic import BaseModel
+from sqlalchemy import Column
 from sqlmodel import Field, SQLModel
+
+from synth_engine.shared.security.ale import EncryptedString
 
 
 def _uuid_str() -> str:
@@ -42,6 +53,11 @@ class Connection(SQLModel, table=True):
     The primary key is stored as a VARCHAR UUID string for SQLite
     compatibility.  PostgreSQL stores the same column as TEXT.
 
+    Sensitive fields (``host``, ``database``, ``schema_name``) are
+    encrypted at rest via the ALE ``EncryptedString`` TypeDecorator.
+    The ORM transparently encrypts on write and decrypts on read; callers
+    always receive and supply plaintext strings.
+
     Note: This class extends ``SQLModel`` directly rather than
     ``shared.db.BaseModel``.  That is intentional — ``Connection`` is an
     API-layer resource (operator-visible configuration), not a domain entity.
@@ -51,10 +67,11 @@ class Connection(SQLModel, table=True):
     Attributes:
         id: UUID v4 primary key (stored as VARCHAR string).
         name: Human-readable display name.
-        host: Database hostname or IP address.
-        port: Database port number.
-        database: Database name to connect to.
-        schema_name: Schema within the database (default: public).
+        host: Database hostname or IP address (ALE-encrypted at rest).
+        port: Database port number (plain integer, not sensitive).
+        database: Database name to connect to (ALE-encrypted at rest).
+        schema_name: Schema within the database (ALE-encrypted at rest,
+            default: ``"public"``).
         owner_id: JWT ``sub`` claim of the operator who created this connection.
             Used for IDOR protection — all resource queries filter by this
             field.  Defaults to ``""`` for backward compatibility with
@@ -65,10 +82,13 @@ class Connection(SQLModel, table=True):
 
     id: str = Field(default_factory=_uuid_str, primary_key=True)
     name: str = Field(..., index=True)
-    host: str
+    host: str = Field(sa_column=Column(EncryptedString(), nullable=False))
     port: int
-    database: str
-    schema_name: str = Field(default="public")
+    database: str = Field(sa_column=Column(EncryptedString(), nullable=False))
+    schema_name: str = Field(
+        default="public",
+        sa_column=Column(EncryptedString(), nullable=False),
+    )
     #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
     owner_id: str = Field(default="", index=True)
 
@@ -99,10 +119,10 @@ class ConnectionResponse(BaseModel):
     Attributes:
         id: UUID primary key as a string.
         name: Display name.
-        host: Database hostname.
+        host: Database hostname (decrypted).
         port: Database port.
-        database: Database name.
-        schema_name: Schema name.
+        database: Database name (decrypted).
+        schema_name: Schema name (decrypted).
         owner_id: Operator identity who owns this connection.
     """
 

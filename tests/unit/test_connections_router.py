@@ -3,11 +3,16 @@
 Tests follow TDD RED phase — all tests must fail before implementation.
 
 Task: P5-T5.1 — Task Orchestration API Core
+Task: T39.4 — Encrypt Connection Metadata with ALE (router tests updated to
+    unseal the vault so EncryptedString columns can encrypt/decrypt via the
+    vault KEK path, consistent with how these tests already mock is_sealed)
 CONSTITUTION Priority 3: TDD — RED phase
 """
 
 from __future__ import annotations
 
+import base64
+import os
 import uuid
 from typing import Any
 from unittest.mock import patch
@@ -49,6 +54,26 @@ def _make_connections_app() -> Any:
 
 class TestConnectionsCRUD:
     """CRUD tests for the /connections endpoints."""
+
+    @pytest.fixture(autouse=True)
+    def _unseal_vault_for_ale(self, monkeypatch: pytest.MonkeyPatch) -> Any:
+        """Unseal the vault so EncryptedString columns can encrypt/decrypt.
+
+        The router tests mock ``VaultState.is_sealed`` to return ``False`` to
+        bypass the 423 vault gate.  Since that mock also affects
+        ``get_fernet()`` in ``ale.py``, the vault must actually be unsealed
+        so that ``VaultState.get_kek()`` succeeds and the ALE layer can
+        derive the encryption key via HKDF.
+
+        Resets (re-seals) the vault after each test for isolation.
+        """
+        from synth_engine.shared.security.vault import VaultState
+
+        salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+        monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+        VaultState.unseal("test-router-passphrase")
+        yield
+        VaultState.reset()
 
     @pytest.mark.asyncio
     async def test_list_connections_returns_200(self) -> None:
