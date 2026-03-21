@@ -15,16 +15,33 @@ Authorization (T39.2):
 All 404 and error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
 
+Signature verification (T42.1):
+    :func:`_verify_artifact_signature` supports two formats:
+
+    - **Versioned** (36 bytes): Built from ``ARTIFACT_SIGNING_KEYS`` multi-key
+      map + ``ARTIFACT_SIGNING_KEY_ACTIVE``.  Key ID is extracted from the
+      signature prefix and matched in the key map.
+
+    - **Legacy** (32 bytes): Built from ``ARTIFACT_SIGNING_KEY`` single-key
+      setting.  The legacy key is resolved from the key map returned by
+      :func:`~synth_engine.shared.security.hmac_signing.build_key_map_from_settings`
+      and verified via :func:`hmac.compare_digest`.
+
+    Both formats use an incremental HMAC computation via :mod:`hmac` —
+    the file is read in fixed-size chunks and fed to ``hmac.new().update()``
+    so the entire artifact is never loaded into memory (security mandate C&C 3).
+
 Task: P23-T23.2 — /jobs/{id}/download Endpoint
 Task: P26-T26.1 — Split Oversized Files (Refactor Only)
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
+Task: T42.1 — Artifact Signing Key Versioning
 """
 
 from __future__ import annotations
 
 import contextlib
 import hashlib
-import hmac
+import hmac as hmac_mod
 import logging
 import re
 from collections.abc import AsyncGenerator, Generator, Iterator
@@ -43,6 +60,13 @@ from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.sse import job_event_stream
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 from synth_engine.shared.db import SessionFactory
+from synth_engine.shared.security.hmac_signing import (
+    HMAC_DIGEST_SIZE,
+    KEY_ID_SIZE,
+    LEGACY_KEY_ID,
+    VERSIONED_SIGNATURE_SIZE,
+    build_key_map_from_settings,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -53,9 +77,6 @@ _SSE_POLL_INTERVAL: float = 1.0
 
 #: Chunk size for streaming Parquet downloads (64 KiB).
 _DOWNLOAD_CHUNK_SIZE: int = 65536
-
-#: Environment variable name for the artifact HMAC signing key.
-_ARTIFACT_SIGNING_KEY_ENV: str = "ARTIFACT_SIGNING_KEY"
 
 #: Pattern for safe filename characters in Content-Disposition header.
 _SAFE_FILENAME_RE: re.Pattern[str] = re.compile(r"[^a-zA-Z0-9_\-]")
@@ -89,18 +110,20 @@ def _iter_file_chunks(path: str, chunk_size: int = _DOWNLOAD_CHUNK_SIZE) -> Iter
 def _verify_artifact_signature(output_path: str) -> bool | None:
     """Check the HMAC-SHA256 signature of a Parquet artifact.
 
-    Reads ``ARTIFACT_SIGNING_KEY`` from the environment.  If absent,
-    empty, or whitespace-only, verification is skipped and ``None`` is
-    returned (unsigned artifacts are acceptable in development).
+    Supports both versioned (36-byte ``KEY_ID || HMAC``) and legacy
+    (32-byte bare HMAC) sidecar formats.
+
+    Key resolution order:
+      1. Multi-key map from ``ARTIFACT_SIGNING_KEYS`` (versioned mode).
+      2. Single key from ``ARTIFACT_SIGNING_KEY`` mapped to
+         :data:`LEGACY_KEY_ID` (legacy mode).
+      3. If neither is configured, returns ``None`` (skip verification).
 
     If the key is present, the ``.sig`` sidecar file at
     ``output_path + '.sig'`` is read.  If the sidecar is absent, returns
-    ``False``.  The HMAC is computed incrementally by reading the artifact
-    in :data:`_DOWNLOAD_CHUNK_SIZE` chunks — the entire file is never
-    loaded into memory.  On a valid match, returns ``True``; on mismatch,
-    returns ``False``.  If any ``OSError`` is raised while reading the
-    artifact or sidecar, ``None`` is returned so the caller can
-    distinguish an I/O failure from a confirmed signature mismatch.
+    ``False``.  HMAC is computed incrementally in :data:`_DOWNLOAD_CHUNK_SIZE`
+    chunks so the entire artifact is never loaded into memory
+    (security mandate C&C 3).
 
     Args:
         output_path: Absolute filesystem path to the Parquet file.
@@ -108,31 +131,11 @@ def _verify_artifact_signature(output_path: str) -> bool | None:
     Returns:
         ``True`` if verification succeeds.
         ``False`` if verification fails (missing sidecar or wrong digest).
-        ``None`` if signing is not enabled (no key set, whitespace-only
-        key, or key that is not valid hexadecimal — logged at WARNING;
-        verification skipped) or if an ``OSError`` occurred reading the
-        artifact or sidecar (also logged at WARNING; verification skipped).
+        ``None`` if signing is not enabled or an ``OSError`` occurred.
     """
-    from synth_engine.shared.settings import get_settings
-
-    raw_key_env = get_settings().artifact_signing_key
-    if not raw_key_env or not raw_key_env.strip():
+    key_map = build_key_map_from_settings()
+    if key_map is None:
         return None  # signing not enabled — skip verification
-
-    try:
-        signing_key = bytes.fromhex(raw_key_env.strip())
-    except ValueError:
-        _logger.warning(
-            "ARTIFACT_SIGNING_KEY is not valid hex; skipping signature verification for %s",
-            Path(output_path).name,
-        )
-        return None
-
-    if len(signing_key) == 0:
-        _logger.warning(
-            "ARTIFACT_SIGNING_KEY decoded to empty bytes; skipping signature verification."
-        )
-        return None
 
     sig_path = output_path + ".sig"
     if not Path(sig_path).exists():
@@ -143,21 +146,36 @@ def _verify_artifact_signature(output_path: str) -> bool | None:
         return False
 
     try:
-        stored_digest = Path(sig_path).read_bytes()
-        # Compute HMAC incrementally — never load the whole Parquet into memory.
-        h = hmac.new(signing_key, digestmod=hashlib.sha256)
+        stored_signature = Path(sig_path).read_bytes()
+        # Compute HMAC incrementally — never load whole Parquet into memory.
+        h = hmac_mod.new(b"placeholder", digestmod=hashlib.sha256)
+        # Resolve the key from stored_signature before computing HMAC.
+        if len(stored_signature) == VERSIONED_SIGNATURE_SIZE:
+            key_id = stored_signature[:KEY_ID_SIZE]
+            stored_digest = stored_signature[KEY_ID_SIZE:]
+        elif len(stored_signature) == HMAC_DIGEST_SIZE:
+            key_id = LEGACY_KEY_ID
+            stored_digest = stored_signature
+        else:
+            return False
+
+        key = key_map.get(key_id)
+        if key is None:
+            return False
+
+        h = hmac_mod.new(key, digestmod=hashlib.sha256)
         for chunk in _iter_file_chunks(output_path, _DOWNLOAD_CHUNK_SIZE):
             h.update(chunk)
-        actual_digest = h.digest()
+        computed = h.digest()
     except OSError as exc:
         _logger.warning(
             "Failed to read artifact or sidecar for verification: %s — %s",
-            exc.__class__.__name__,
+            type(exc).__name__,
             Path(output_path).name,
         )
         return None  # I/O failure — distinct from confirmed signature mismatch
 
-    return hmac.compare_digest(actual_digest, stored_digest)
+    return hmac_mod.compare_digest(computed, stored_digest)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -271,8 +289,9 @@ def download_job(
     operator (IDOR protection).
 
     Verifies the artifact HMAC-SHA256 signature before serving (if
-    ``ARTIFACT_SIGNING_KEY`` is set in the environment).  Uses
-    :class:`~fastapi.responses.StreamingResponse` to stream raw bytes
+    any signing key is configured).  Supports both versioned
+    (``KEY_ID || HMAC``) and legacy (bare 32-byte HMAC) sidecar formats.
+    Uses :class:`~fastapi.responses.StreamingResponse` to stream raw bytes
     in 64 KiB chunks — the entire file is never loaded into memory
     (security mandate C&C 3).
 

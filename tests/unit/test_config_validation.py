@@ -13,16 +13,20 @@ Contract:
 - Returns ``None`` successfully when all required vars are present.
 - Emits a ``logging.WARNING`` when ``CONCLAVE_SSL_REQUIRED=false`` is set in
   production mode (security misconfiguration guard — ADV-020 / T20.4).
+- Validates multi-key signing consistency (T42.1): if ``ARTIFACT_SIGNING_KEYS``
+  is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE`` must be set and present in the map.
 
 CONSTITUTION Priority 0: Security — fail-fast on missing security-critical config
 CONSTITUTION Priority 3: TDD
 Task: P9-T9.1 — Advisory Drain + Startup Validation (ADV-077)
 Task: P19-T19.2 — Security Hardening: MASKING_SALT production enforcement
 Task: P20-T20.4 — Architecture Tightening (ADV-020: SSL override warning)
+Task: T42.1 — Artifact Signing Key Versioning (multi-key consistency validation)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
@@ -41,7 +45,8 @@ def test_missing_database_url_raises_system_exit(monkeypatch: pytest.MonkeyPatch
     from synth_engine.bootstrapper.config_validation import validate_config
 
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    # Set to empty string (not delenv) so OS env overrides .env file value
+    monkeypatch.setenv("DATABASE_URL", "")
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
@@ -60,7 +65,8 @@ def test_missing_audit_key_raises_system_exit(monkeypatch: pytest.MonkeyPatch) -
     from synth_engine.bootstrapper.config_validation import validate_config
 
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.delenv("AUDIT_KEY", raising=False)
+    # Set to empty string (not delenv) so OS env overrides .env file value
+    monkeypatch.setenv("AUDIT_KEY", "")
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
@@ -80,8 +86,9 @@ def test_missing_multiple_vars_lists_all_in_error_message(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.delenv("AUDIT_KEY", raising=False)
+    # Set to empty string (not delenv) so OS env overrides .env file value
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("AUDIT_KEY", "")
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
@@ -159,6 +166,8 @@ def test_non_production_mode_without_artifact_signing_key_passes(
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     # Must not raise — development mode does not require ARTIFACT_SIGNING_KEY or MASKING_SALT
     result = validate_config()
@@ -177,6 +186,8 @@ def test_all_vars_present_non_production_passes(
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     result = validate_config()
     assert result is None
@@ -194,6 +205,8 @@ def test_all_vars_present_production_passes(
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
     monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     result = validate_config()
     assert result is None
@@ -320,6 +333,8 @@ def test_non_production_mode_without_masking_salt_passes(
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     result = validate_config()
     assert result is None
@@ -436,6 +451,8 @@ def test_production_ssl_required_false_emits_warning(
     monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
     monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.config_validation"):
         result = validate_config()
@@ -473,6 +490,8 @@ def test_production_ssl_required_true_does_not_warn(
     # ssl_required=True but no cert path is set).
     monkeypatch.setenv("CONCLAVE_TLS_CERT_PATH", "/etc/ssl/conclave/conclave.crt")
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.config_validation"):
         validate_config()
@@ -503,6 +522,8 @@ def test_development_ssl_required_false_does_not_warn(
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.config_validation"):
         validate_config()
@@ -513,6 +534,105 @@ def test_development_ssl_required_false_does_not_warn(
         if r.levelno == logging.WARNING and "CONCLAVE_SSL_REQUIRED" in r.message
     ]
     assert not ssl_warnings, "No CONCLAVE_SSL_REQUIRED warning expected in development mode"
+
+
+# ---------------------------------------------------------------------------
+# Tests: T42.1 — multi-key signing consistency validation
+# ---------------------------------------------------------------------------
+
+
+def test_signing_keys_non_empty_without_active_raises_system_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """validate_config() raises SystemExit when ARTIFACT_SIGNING_KEYS is set but ACTIVE is absent.
+
+    If an operator configures multi-key rotation support but forgets to set the
+    active key pointer, the engine must refuse to start rather than silently
+    falling back to an unspecified key or writing unsigned artifacts.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    keys_dict = json.dumps({"00000001": "ab" * 32})
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEYS", keys_dict)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        validate_config()
+
+    assert "ARTIFACT_SIGNING_KEY_ACTIVE" in str(exc_info.value)
+
+
+def test_signing_keys_active_not_in_map_raises_system_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """validate_config() raises SystemExit when ARTIFACT_SIGNING_KEY_ACTIVE is not in the map.
+
+    If the active key ID does not exist in the key map, the engine cannot sign
+    new artifacts.  This is a fatal misconfiguration that must be caught at boot.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    keys_dict = json.dumps({"00000002": "cd" * 32})  # only key 00000002 is present
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEYS", keys_dict)
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY_ACTIVE", "00000001")  # not in map!
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        validate_config()
+
+    assert "00000001" in str(exc_info.value)
+
+
+def test_signing_keys_active_present_in_map_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """validate_config() passes when ARTIFACT_SIGNING_KEYS and ACTIVE are consistent.
+
+    A correctly configured multi-key map with a valid active key ID must not
+    cause a startup failure.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    keys_dict = json.dumps({"00000001": "ab" * 32, "00000002": "cd" * 32})
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEYS", keys_dict)
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY_ACTIVE", "00000001")
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
+
+    result = validate_config()
+    assert result is None
+
+
+def test_empty_signing_keys_without_active_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """validate_config() passes when ARTIFACT_SIGNING_KEYS is empty (no multi-key config).
+
+    When no multi-key signing is configured (legacy or unsigned mode), the active
+    key pointer is irrelevant and must not trigger a validation error.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
+
+    result = validate_config()
+    assert result is None
 
 
 pytestmark = pytest.mark.unit

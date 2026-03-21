@@ -10,6 +10,10 @@ Tests verifying:
 
 CONSTITUTION Priority 3: TDD
 Task: T38.4 — Documentation & Hygiene Polish Batch
+Task: T42.1 — Artifact Signing Key Versioning (fix test mocks: explicitly
+    set artifact_signing_keys={} to route through legacy code path; without
+    this, MagicMock's default attribute access returns truthy objects that
+    cause the versioned signing branch to execute instead of legacy).
 """
 
 from __future__ import annotations
@@ -228,6 +232,12 @@ class TestJobFinalizationSigningKeyErrorLog:
         A malformed signing key means the artifact will be written unsigned
         even though the operator intended to sign it. This is a security-
         relevant misconfiguration and warrants ERROR, not WARNING.
+
+        Note: artifact_signing_keys is explicitly set to {} so the legacy
+        single-key code path is exercised. Without this, MagicMock's default
+        attribute access returns a truthy MagicMock, causing the versioned
+        signing branch to execute and raising TypeError instead of the expected
+        ValueError from bytes.fromhex() on the legacy key (T42.1 compat fix).
         """
         import pandas as pd
 
@@ -246,6 +256,9 @@ class TestJobFinalizationSigningKeyErrorLog:
                 mock_settings = mock_get_settings.return_value
                 # "GGGG" is not valid hex — bytes.fromhex() raises ValueError
                 mock_settings.artifact_signing_key = "GGGG"
+                # Explicitly empty so the versioned branch is skipped (T42.1)
+                mock_settings.artifact_signing_keys = {}
+                mock_settings.artifact_signing_key_active = None
 
                 with caplog.at_level(logging.DEBUG):
                     _write_parquet_with_signing(df, parquet_path)
@@ -271,6 +284,9 @@ class TestJobFinalizationSigningKeyErrorLog:
 
         After T38.4, the log level is elevated to ERROR. A WARNING record for
         the invalid-hex signing key path is a regression.
+
+        Note: artifact_signing_keys is explicitly set to {} so the legacy
+        single-key code path is exercised (T42.1 compat fix).
         """
         import pandas as pd
 
@@ -286,6 +302,9 @@ class TestJobFinalizationSigningKeyErrorLog:
             with patch("synth_engine.shared.settings.get_settings") as mock_get_settings:
                 mock_settings = mock_get_settings.return_value
                 mock_settings.artifact_signing_key = "GGGG"
+                # Explicitly empty so the versioned branch is skipped (T42.1)
+                mock_settings.artifact_signing_keys = {}
+                mock_settings.artifact_signing_key_active = None
 
                 with caplog.at_level(logging.DEBUG):
                     _write_parquet_with_signing(df, parquet_path)
@@ -309,6 +328,9 @@ class TestJobFinalizationSigningKeyErrorLog:
 
         This test ensures we did NOT accidentally elevate the absent-key warning
         to ERROR — only the malformed-hex path should be ERROR.
+
+        Note: artifact_signing_keys is explicitly set to {} so the legacy
+        single-key code path is exercised (T42.1 compat fix).
         """
         import pandas as pd
 
@@ -324,6 +346,9 @@ class TestJobFinalizationSigningKeyErrorLog:
             with patch("synth_engine.shared.settings.get_settings") as mock_get_settings:
                 mock_settings = mock_get_settings.return_value
                 mock_settings.artifact_signing_key = ""  # empty = absent
+                # Explicitly empty so the versioned branch is skipped (T42.1)
+                mock_settings.artifact_signing_keys = {}
+                mock_settings.artifact_signing_key_active = None
 
                 with caplog.at_level(logging.DEBUG):
                     _write_parquet_with_signing(df, parquet_path)
