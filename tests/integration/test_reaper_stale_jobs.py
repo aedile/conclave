@@ -1,0 +1,297 @@
+"""Integration tests for the orphan task reaper — T45.2.
+
+Exercises the full reaper pipeline with a real in-memory SQLite database:
+  - Injects stale IN_PROGRESS jobs and asserts they are marked FAILED.
+  - Verifies legal-hold jobs survive.
+  - Verifies jobs that complete between query and update are not double-marked.
+
+CONSTITUTION Priority 0: Security
+CONSTITUTION Priority 3: TDD
+Task: T45.2 — Reintroduce Orphan Task Reaper (TBD-08)
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from unittest.mock import patch
+
+import pytest
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine, select, text
+
+from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.reaper_repository import SQLAlchemyTaskRepository
+from synth_engine.shared.tasks.reaper import OrphanTaskReaper
+
+pytestmark = pytest.mark.integration
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_engine() -> Any:
+    """Create an in-memory SQLite engine for testing.
+
+    Returns:
+        SQLAlchemy engine backed by in-memory SQLite.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    return engine
+
+
+def _make_job(
+    *,
+    status: str = "IN_PROGRESS",
+    legal_hold: bool = False,
+    table_name: str = "test_table",
+) -> SynthesisJob:
+    """Build a minimal SynthesisJob for insertion.
+
+    Args:
+        status: Initial job status string.
+        legal_hold: Whether the job has a legal hold.
+        table_name: Source table name (arbitrary for tests).
+
+    Returns:
+        An unsaved :class:`SynthesisJob` instance.
+    """
+    return SynthesisJob(
+        status=status,
+        total_epochs=1,
+        num_rows=1,
+        table_name=table_name,
+        parquet_path="/tmp/test.parquet",
+        legal_hold=legal_hold,
+    )
+
+
+def _backdate(session: Session, job_id: int, minutes: int) -> None:
+    """Move a job's created_at back by ``minutes`` minutes.
+
+    Args:
+        session: Active database session.
+        job_id: Primary key of the job.
+        minutes: Number of minutes to subtract.
+    """
+    new_ts = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+    session.execute(
+        text("UPDATE synthesis_job SET created_at = :ts WHERE id = :id"),
+        {"ts": new_ts, "id": job_id},
+    )
+    session.commit()
+
+
+# ---------------------------------------------------------------------------
+# AC-13: Inject stale IN_PROGRESS job → assert FAILED
+# ---------------------------------------------------------------------------
+
+
+class TestStaleJobMarkedFailed:
+    """Core integration scenario: stale IN_PROGRESS job → FAILED after reap."""
+
+    def test_stale_in_progress_job_is_marked_failed(self) -> None:
+        """A job older than the threshold must be set to FAILED after reap()."""
+        engine = _make_engine()
+        threshold_minutes = 30
+
+        with Session(engine) as session:
+            job = _make_job(status="IN_PROGRESS")
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            assert job.id is not None
+            _backdate(session, job.id, minutes=threshold_minutes + 10)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=threshold_minutes)
+
+        with patch("synth_engine.shared.tasks.reaper.get_audit_logger"):
+            reaped = reaper.reap()
+
+        assert reaped == 1
+
+        with Session(engine) as session:
+            updated = session.get(SynthesisJob, job.id)
+            assert updated is not None
+            assert updated.status == "FAILED"
+            assert updated.error_msg == (
+                "Reaped: exceeded staleness threshold — possible worker crash"
+            )
+
+    def test_recent_in_progress_job_is_not_reaped(self) -> None:
+        """A job younger than the threshold must NOT be reaped."""
+        engine = _make_engine()
+        threshold_minutes = 60
+
+        with Session(engine) as session:
+            job = _make_job(status="IN_PROGRESS")
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            # Job is brand new — no backdate applied
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=threshold_minutes)
+
+        with patch("synth_engine.shared.tasks.reaper.get_audit_logger"):
+            reaped = reaper.reap()
+
+        assert reaped == 0
+
+        with Session(engine) as session:
+            unchanged = session.get(SynthesisJob, job.id)
+            assert unchanged is not None
+            assert unchanged.status == "IN_PROGRESS"
+
+
+class TestLegalHoldSurvivesReap:
+    """AC-2: legal-hold IN_PROGRESS jobs must survive the reap cycle."""
+
+    def test_legal_hold_job_is_not_marked_failed(self) -> None:
+        """A stale IN_PROGRESS job with legal_hold=True must remain IN_PROGRESS."""
+        engine = _make_engine()
+
+        with Session(engine) as session:
+            job = _make_job(status="IN_PROGRESS", legal_hold=True)
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            assert job.id is not None
+            _backdate(session, job.id, minutes=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=30)
+
+        with patch("synth_engine.shared.tasks.reaper.get_audit_logger"):
+            reaped = reaper.reap()
+
+        assert reaped == 0
+
+        with Session(engine) as session:
+            unchanged = session.get(SynthesisJob, job.id)
+            assert unchanged is not None
+            assert unchanged.status == "IN_PROGRESS"
+
+
+class TestConditionalUpdateRaceCondition:
+    """AC-6: race condition guard — mark_failed uses WHERE status='IN_PROGRESS'."""
+
+    def test_mark_failed_on_already_completed_job_returns_false(self) -> None:
+        """If a job was updated to COMPLETE before mark_failed runs, it returns False."""
+        engine = _make_engine()
+
+        with Session(engine) as session:
+            job = _make_job(status="COMPLETE")
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            assert job.id is not None
+            job_id = job.id
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        # Directly attempt to mark a COMPLETE job as FAILED
+        result = repo.mark_failed(
+            job_id,
+            "Reaped: exceeded staleness threshold — possible worker crash",
+        )
+
+        assert result is False
+
+        with Session(engine) as session:
+            unchanged = session.get(SynthesisJob, job_id)
+            assert unchanged is not None
+            assert unchanged.status == "COMPLETE"
+
+
+class TestTerminalAndQueuedJobsExcluded:
+    """Only IN_PROGRESS non-held jobs older than threshold qualify."""
+
+    def test_queued_job_is_not_returned_by_repository(self) -> None:
+        """get_stale_in_progress must not return QUEUED jobs."""
+        engine = _make_engine()
+
+        with Session(engine) as session:
+            job = _make_job(status="QUEUED")
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            assert job.id is not None
+            _backdate(session, job.id, minutes=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        cutoff = datetime.now(UTC) - timedelta(minutes=60)
+        stale = repo.get_stale_in_progress(older_than=cutoff)
+
+        assert len(stale) == 0
+
+    def test_failed_job_is_not_returned_by_repository(self) -> None:
+        """get_stale_in_progress must not return FAILED jobs."""
+        engine = _make_engine()
+
+        with Session(engine) as session:
+            job = _make_job(status="FAILED")
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            assert job.id is not None
+            _backdate(session, job.id, minutes=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        cutoff = datetime.now(UTC) - timedelta(minutes=60)
+        stale = repo.get_stale_in_progress(older_than=cutoff)
+
+        assert len(stale) == 0
+
+    def test_complete_job_is_not_returned_by_repository(self) -> None:
+        """get_stale_in_progress must not return COMPLETE jobs."""
+        engine = _make_engine()
+
+        with Session(engine) as session:
+            job = _make_job(status="COMPLETE")
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            assert job.id is not None
+            _backdate(session, job.id, minutes=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        cutoff = datetime.now(UTC) - timedelta(minutes=60)
+        stale = repo.get_stale_in_progress(older_than=cutoff)
+
+        assert len(stale) == 0
+
+    def test_multiple_statuses_only_in_progress_reaped(self) -> None:
+        """Mix of statuses: only IN_PROGRESS non-held old jobs are reaped."""
+        engine = _make_engine()
+
+        with Session(engine) as session:
+            jobs = [
+                _make_job(status="IN_PROGRESS"),  # should be reaped
+                _make_job(status="QUEUED"),  # should be skipped
+                _make_job(status="FAILED"),  # should be skipped
+                _make_job(status="COMPLETE"),  # should be skipped
+                _make_job(status="IN_PROGRESS", legal_hold=True),  # held — skip
+            ]
+            for j in jobs:
+                session.add(j)
+            session.commit()
+            for j in jobs:
+                session.refresh(j)
+                assert j.id is not None
+                _backdate(session, j.id, minutes=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=60)
+
+        with patch("synth_engine.shared.tasks.reaper.get_audit_logger"):
+            reaped = reaper.reap()
+
+        assert reaped == 1
