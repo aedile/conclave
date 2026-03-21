@@ -1,5 +1,8 @@
 # Air-Gapped Synthetic Data Generation Engine: Execution Plan
 
+> **HISTORICAL — ARCHIVED**: This document is superseded. Retained for project history only.
+
+
 This execution plan translates the Business and Architectural requirements into a phased, prioritized task list designed for execution by a development team of up to four (4) people. The plan ensures strict adherence to the **Constitutional Directives** by establishing unbreakable security and quality gates before any domain work begins.
 
 ## Phases Overview & Dependencies

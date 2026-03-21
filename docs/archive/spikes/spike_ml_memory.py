@@ -1,3 +1,4 @@
+# HISTORICAL — DO NOT USE: Pre-production spike. See docs/archive/spikes/findings_spike_*.md for conclusions.
 """Spike A: ML Memory Physics & OSS Synthesizer Constraints.
 
 Proves that a tabular ML synthesizer can train on a 500 MB dataset and

@@ -15,18 +15,18 @@ Before starting your review, read these files:
 2. `CLAUDE.md` — review the Accessibility Requirements section
 
 Key project facts:
-- Templates live in `src/synth_engine/templates/` (Jinja2, autoescape=True)
-- Static assets live in `src/synth_engine/static/`
-- API routes will live in `src/synth_engine/api/`
+- The frontend is a React/Vite SPA located in `frontend/`
+- Static assets are bundled by Vite and served from `frontend/dist/`
+- API routes live in `src/synth_engine/bootstrapper/routers/`
 - The output is an offline dashboard/interface requiring WCAG 2.1 AA compliance
 
 ## Scope Gate — Answer This First
 
 Check the diff for:
-- Any file in `src/synth_engine/templates/`
-- Any file in `src/synth_engine/static/`
-- Any file in `src/synth_engine/api/`
-- Any Jinja2 template change (`.html`, `.jinja`, `.j2`)
+- Any file in `frontend/src/`
+- Any file in `frontend/public/` or `frontend/dist/`
+- Any file in `src/synth_engine/bootstrapper/routers/`
+- Any React component change (`.tsx`, `.jsx`, `.css`)
 - Any new form, input, button, or interactive element
 
 **If NONE of the above are present**: Issue a SKIP. State exactly which directories were checked and confirm none had changes. No further review needed.
@@ -76,7 +76,7 @@ Return your findings in EXACTLY this format:
 **If out of scope:**
 ```
 SCOPE: SKIP — no template/route/form changes detected.
-Files checked: src/synth_engine/templates/, src/synth_engine/static/, src/synth_engine/api/
+Files checked: frontend/src/, frontend/public/, src/synth_engine/bootstrapper/routers/
 ```
 
 **If in scope:**

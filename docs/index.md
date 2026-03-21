@@ -4,7 +4,7 @@ This is the central navigation page for all Conclave Engine documentation.
 Documents are organized by primary audience. Many documents are relevant to
 multiple audiences; cross-references are noted.
 
-**Total documents indexed: 89**
+**Total documents indexed: 122**
 
 ---
 
@@ -89,6 +89,30 @@ The backlog is split into per-phase files for navigability:
 | [backlog/phase-18.md](backlog/phase-18.md) | Phase 18 |
 | [backlog/phase-19.md](backlog/phase-19.md) | Phase 19 |
 | [backlog/phase-20.md](backlog/phase-20.md) | Phase 20 |
+| [backlog/phase-21.md](backlog/phase-21.md) | Phase 21 — CLI Masking Fix & E2E Smoke Tests |
+| [backlog/phase-22.md](backlog/phase-22.md) | Phase 22 — DP Pipeline End-to-End Integration |
+| [backlog/phase-23.md](backlog/phase-23.md) | Phase 23 — Job Lifecycle Completion |
+| [backlog/phase-24.md](backlog/phase-24.md) | Phase 24 — Integration Test Repair |
+| [backlog/phase-25.md](backlog/phase-25.md) | Phase 25 — Observability |
+| [backlog/phase-26.md](backlog/phase-26.md) | Phase 26 — Backend Production Hardening |
+| [backlog/phase-27.md](backlog/phase-27.md) | Phase 27 — Frontend Production Hardening |
+| [backlog/phase-28.md](backlog/phase-28.md) | Phase 28 — Full E2E Validation |
+| [backlog/phase-29.md](backlog/phase-29.md) | Phase 29 — Documentation Integrity & Review Debt |
+| [backlog/phase-30.md](backlog/phase-30.md) | Phase 30 — True Discriminator-Level DP-SGD |
+| [backlog/phase-31.md](backlog/phase-31.md) | Phase 31 — Code Health & Bus Factor Elimination |
+| [backlog/phase-32.md](backlog/phase-32.md) | Phase 32 — Dead Module Cleanup & Development Process Documentation |
+| [backlog/phase-33.md](backlog/phase-33.md) | Phase 33 — Governance Hygiene, Documentation Currency & Codebase Polish |
+| [backlog/phase-34.md](backlog/phase-34.md) | Phase 34 — Exception Hierarchy Unification & Operator Error Coverage |
+| [backlog/phase-35.md](backlog/phase-35.md) | Phase 35 — Synthesis Layer Refactor & Test Replacement |
+| [backlog/phase-36.md](backlog/phase-36.md) | Phase 36 — Configuration Centralization, Documentation Pruning & Hygiene |
+| [backlog/phase-37.md](backlog/phase-37.md) | Phase 37 — Advisory Drain, CHANGELOG Currency & E2E Demo Capstone |
+| [backlog/phase-38.md](backlog/phase-38.md) | Phase 38 — Audit Integrity, Timing Side-Channel Fix & Pre-Commit Hardening |
+| [backlog/phase-39.md](backlog/phase-39.md) | Phase 39 — Authentication, Authorization & Rate Limiting |
+| [backlog/phase-40.md](backlog/phase-40.md) | Phase 40 — Test Suite Quality Overhaul |
+| [backlog/phase-41.md](backlog/phase-41.md) | Phase 41 — Data Compliance, Retention Policy & GDPR/CCPA Readiness |
+| [backlog/phase-42.md](backlog/phase-42.md) | Phase 42 — Security Hardening, Key Rotation & Deployment Safety |
+| [backlog/phase-43.md](backlog/phase-43.md) | Phase 43 — Architectural Polish, Code Hygiene & Rule Sunset Evaluation |
+| [backlog/phase-44.md](backlog/phase-44.md) | Phase 44 — Comprehensive Documentation Audit & Cleanup |
 | [backlog/phase-45.md](backlog/phase-45.md) | Phase 45 — Webhook Callbacks, Idempotency & Reaper |
 | [backlog/phase-46.md](backlog/phase-46.md) | Phase 46 — mTLS Inter-Container Communication |
 | [backlog/deferred-items.md](backlog/deferred-items.md) | Deferred and parked items |
@@ -173,6 +197,15 @@ are annotated with a status notice at the top.
 | [ADR-0032](adr/ADR-0032-mypy-synthesizer-ignore-missing-imports.md) | Mypy Synthesizer `ignore_missing_imports` | Retired (see file) |
 | [ADR-0033](adr/ADR-0033-cross-module-exception-detection-by-class-name.md) | Cross-Module Exception Detection by Class Name | Accepted |
 | [ADR-0034](adr/ADR-0034-shredded-lifecycle-state-and-audit-tolerance.md) | Shredded Lifecycle State and Audit Tolerance | Accepted |
+| [ADR-0035](adr/ADR-0035-dual-driver-db-access.md) | Dual Driver DB Access | Accepted |
+| [ADR-0036](adr/ADR-0036-discriminator-level-dp-sgd.md) | Discriminator-Level DP-SGD | Accepted |
+| [ADR-0037](adr/ADR-0037-exception-hierarchy-consolidation.md) | Exception Hierarchy Consolidation | Accepted |
+| [ADR-0038](adr/ADR-0038-synthesis-orchestration-step-decomposition.md) | Synthesis Orchestration Step Decomposition | Accepted |
+| [ADR-0039](adr/ADR-0039-jwt-bearer-authentication.md) | JWT Bearer Authentication | Accepted |
+| [ADR-0040](adr/ADR-0040-idor-protection-ownership-model.md) | IDOR Protection Ownership Model | Accepted |
+| [ADR-0041](adr/ADR-0041-data-retention-compliance.md) | Data Retention Compliance | Accepted |
+| [ADR-0042](adr/ADR-0042-artifact-signing-key-versioning.md) | Artifact Signing Key Versioning | Accepted |
+| [ADR-0043](adr/ADR-0043-https-enforcement-middleware.md) | HTTPS Enforcement Middleware | Accepted |
 | [ADR-template.md](adr/ADR-template.md) | Template for new ADRs | Template |
 
 ---
@@ -208,13 +241,13 @@ evidence.
 |----------|-------|
 | Operator guides | 9 |
 | Developer guides | 8 |
-| Backlog documents | 25 |
+| Backlog documents | 49 |
 | Retrospective archives | 3 |
 | Review prompt templates | 8 |
 | Archived documents | 6 (not indexed — see `docs/archive/`) |
-| ADRs (including template) | 36 |
+| ADRs (including template) | 45 |
 | Security cross-references | (subset of above) |
-| **Total** | **89** |
+| **Total** | **122** |
 
 ---
 

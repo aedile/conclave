@@ -48,9 +48,9 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 38: Audit Integrity, Timing Side-Channel Fix & Pre-Commit Hardening](backlog/phase-38.md) ✅
 *   [Phase 39: Authentication, Authorization & Rate Limiting](backlog/phase-39.md) ✅
 *   [Phase 40: Test Suite Quality Overhaul](backlog/phase-40.md) ✅
-*   [Phase 41: Data Compliance, Retention Policy & GDPR/CCPA Readiness](backlog/phase-41.md)
-*   [Phase 42: Security Hardening, Key Rotation & Deployment Safety](backlog/phase-42.md)
-*   [Phase 43: Architectural Polish, Code Hygiene & Rule Sunset Evaluation](backlog/phase-43.md)
+*   [Phase 41: Data Compliance, Retention Policy & GDPR/CCPA Readiness](backlog/phase-41.md) ✅
+*   [Phase 42: Security Hardening, Key Rotation & Deployment Safety](backlog/phase-42.md) ✅
+*   [Phase 43: Architectural Polish, Code Hygiene & Rule Sunset Evaluation](backlog/phase-43.md) ✅
 *   [Phase 44: Comprehensive Documentation Audit & Cleanup](backlog/phase-44.md)
 *   [Phase 45: Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper](backlog/phase-45.md)
 *   [Phase 46: mTLS Inter-Container Communication](backlog/phase-46.md)
