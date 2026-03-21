@@ -22,13 +22,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
-
 
 # ---------------------------------------------------------------------------
 # Settings cache isolation
@@ -36,7 +35,7 @@ from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -257,6 +256,8 @@ async def test_forwarded_proto_http_rejected_in_production() -> None:
 # AC6 — Startup warning: SSL required but TLS not configured
 # ---------------------------------------------------------------------------
 
+_HTTPS_LOGGER = "synth_engine.bootstrapper.dependencies.https_enforcement"
+
 
 def test_warn_ssl_required_but_no_tls_cert(caplog: pytest.LogCaptureFixture) -> None:
     """warn_if_ssl_misconfigured must log WARNING when ssl_required=True but cert absent."""
@@ -264,7 +265,7 @@ def test_warn_ssl_required_but_no_tls_cert(caplog: pytest.LogCaptureFixture) -> 
         warn_if_ssl_misconfigured,
     )
 
-    with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.dependencies.https_enforcement"):
+    with caplog.at_level(logging.WARNING, logger=_HTTPS_LOGGER):
         warn_if_ssl_misconfigured(ssl_required=True, tls_cert_configured=False)
 
     assert any(
@@ -281,7 +282,7 @@ def test_no_warn_ssl_required_and_tls_configured(caplog: pytest.LogCaptureFixtur
         warn_if_ssl_misconfigured,
     )
 
-    with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.dependencies.https_enforcement"):
+    with caplog.at_level(logging.WARNING, logger=_HTTPS_LOGGER):
         warn_if_ssl_misconfigured(ssl_required=True, tls_cert_configured=True)
 
     warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -294,7 +295,7 @@ def test_no_warn_ssl_not_required(caplog: pytest.LogCaptureFixture) -> None:
         warn_if_ssl_misconfigured,
     )
 
-    with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.dependencies.https_enforcement"):
+    with caplog.at_level(logging.WARNING, logger=_HTTPS_LOGGER):
         warn_if_ssl_misconfigured(ssl_required=False, tls_cert_configured=False)
 
     warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -320,8 +321,6 @@ def test_middleware_reads_production_flag_from_settings(monkeypatch: pytest.Monk
     monkeypatch.setenv("AUDIT_KEY", "a" * 64)
     get_settings.cache_clear()
 
-    app = FastAPI()
-    # No explicit production= kwarg → reads from settings
     middleware = HTTPSEnforcementMiddleware.__new__(HTTPSEnforcementMiddleware)
     HTTPSEnforcementMiddleware.__init__(middleware, MagicMock())
 
@@ -343,7 +342,6 @@ def test_middleware_is_not_production_when_env_is_dev(monkeypatch: pytest.Monkey
     monkeypatch.setenv("AUDIT_KEY", "a" * 64)
     get_settings.cache_clear()
 
-    app = FastAPI()
     middleware = HTTPSEnforcementMiddleware.__new__(HTTPSEnforcementMiddleware)
     HTTPSEnforcementMiddleware.__init__(middleware, MagicMock())
 
@@ -379,16 +377,15 @@ def test_setup_middleware_registers_https_enforcement() -> None:
     Verifies that the middleware.py wiring calls add_middleware with
     HTTPSEnforcementMiddleware.
     """
-    from unittest.mock import MagicMock, call
-
-    from synth_engine.bootstrapper.middleware import setup_middleware
-
-    mock_app = MagicMock()
-    setup_middleware(mock_app)
+    from unittest.mock import MagicMock
 
     from synth_engine.bootstrapper.dependencies.https_enforcement import (
         HTTPSEnforcementMiddleware,
     )
+    from synth_engine.bootstrapper.middleware import setup_middleware
+
+    mock_app = MagicMock()
+    setup_middleware(mock_app)
 
     added_middleware_classes = [c.args[0] for c in mock_app.add_middleware.call_args_list]
     assert HTTPSEnforcementMiddleware in added_middleware_classes
