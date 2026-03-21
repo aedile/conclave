@@ -788,6 +788,13 @@ guidance, erasure procedures, and audit trail guarantees — is in
 
 ### 11.1 Retention Environment Variables
 
+> **Planned — T41.1**: The retention environment variables in this section
+> (`JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, `ARTIFACT_RETENTION_DAYS`)
+> and the corresponding `ConclaveSettings` fields are not yet implemented.
+> They are scheduled for delivery in task T41.1. Do not set these variables
+> in `.env` on the current release — they will have no effect. The table
+> below documents the intended interface once T41.1 is merged.
+
 Add these to `.env` to override the defaults:
 
 | Variable | Default | Description |
@@ -816,6 +823,10 @@ ARTIFACT_RETENTION_DAYS=30
 
 ### 11.2 Legal Hold
 
+> **Planned — T41.1**: The `legal_hold` field on `SynthesisJob` records and
+> the admin API endpoints below are not yet implemented. They are scheduled
+> for delivery in task T41.1.
+
 Place a synthesis job on legal hold to prevent it from being deleted regardless
 of TTL. This satisfies e-discovery obligations and regulatory hold requirements.
 
@@ -838,6 +849,10 @@ Every hold and release is logged to the WORM audit trail.
 
 ### 11.3 Manual Purge
 
+> **Planned — T41.1**: The manual purge endpoint (`POST /admin/retention/purge`)
+> and the automated purge task are not yet implemented. They are scheduled for
+> delivery in task T41.1.
+
 The purge task runs automatically on its configured schedule. To trigger a
 manual purge immediately:
 
@@ -850,6 +865,9 @@ The response includes counts of jobs deleted and artifacts shredded. All
 deletions are logged to the audit trail.
 
 ### 11.4 GDPR / CCPA Erasure Requests
+
+> **Planned — T41.2**: The `DELETE /compliance/erasure` endpoint is not yet
+> implemented. It is scheduled for delivery in task T41.2.
 
 To process a right-to-erasure request for a specific data subject:
 

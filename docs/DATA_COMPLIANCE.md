@@ -23,6 +23,12 @@ different retention lifecycle, protection requirement, and deletion mechanism.
 | **Audit events** | WORM cryptographic audit trail of all security operations | 1,095 days / 3 years (`AUDIT_RETENTION_DAYS`) | Archive to cold storage; never deleted within retention period |
 | **Synthesis artifacts** | Parquet output files, model checkpoints on MinIO tmpfs | 30 days (`ARTIFACT_RETENTION_DAYS`); immediately on container restart | NIST SP 800-88 shred or tmpfs reclaim |
 
+> **Planned — T41.1**: The `JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, and
+> `ARTIFACT_RETENTION_DAYS` environment variables and the corresponding
+> `ConclaveSettings` fields are not yet implemented. They are scheduled for
+> delivery in task T41.1. Until that task is merged, retention periods are
+> not configurable and the automated purge task does not exist.
+
 Retention periods are configurable via `ConclaveSettings` environment variables.
 See [Section 5](#5-retention-configuration) for configuration details.
 
@@ -189,6 +195,15 @@ investigations or legal holds.
 
 ## 5. Retention Configuration
 
+> **Planned — T41.1**: The `ConclaveSettings` retention fields
+> (`job_retention_days`, `audit_retention_days`, `artifact_retention_days`)
+> and the corresponding environment variables (`JOB_RETENTION_DAYS`,
+> `AUDIT_RETENTION_DAYS`, `ARTIFACT_RETENTION_DAYS`) are not yet implemented.
+> They are scheduled for delivery in task T41.1. The configuration table and
+> examples below document the intended interface. Do not set these variables
+> in `.env` until T41.1 is merged — they will have no effect on the current
+> release.
+
 Retention periods are configured via `ConclaveSettings` fields, which map
 directly to environment variables.
 
@@ -225,6 +240,12 @@ jurisdiction and data category.
 ---
 
 ## 6. Legal Hold Mechanism
+
+> **Planned — T41.1**: The `legal_hold` field on `SynthesisJob` records and
+> the admin API endpoints for setting and releasing holds
+> (`POST /admin/jobs/<id>/legal-hold`, `DELETE /admin/jobs/<id>/legal-hold`)
+> are not yet implemented. They are scheduled for delivery in task T41.1.
+> The description below documents the intended behaviour.
 
 A `legal_hold` boolean flag on `SynthesisJob` records prevents deletion
 regardless of the configured TTL. This satisfies e-discovery obligations and
@@ -309,6 +330,10 @@ No data leaves the network boundary at any stage.
 
 ## 8. Automated Purge Task
 
+> **Planned — T41.1**: The automated purge task described in this section does
+> not yet exist. It is scheduled for delivery in task T41.1. The description
+> below documents the intended behaviour of the purge implementation.
+
 The purge task runs as a scheduled Huey job. It performs the following actions
 on each execution:
 
@@ -337,13 +362,13 @@ operational practices satisfy the full requirements of any applicable regulation
 | Property | Implementation | Evidence |
 |----------|---------------|---------|
 | Data minimization (GDPR Art. 5(1)(c)) | Read-only ingestion; source data never persisted to disk in raw form | Pre-flight privilege check; ingestion module design |
-| Storage limitation (GDPR Art. 5(1)(e)) | Configurable retention TTLs; automated purge task | `ConclaveSettings` retention fields; retention module |
-| Right to erasure (GDPR Art. 17) | `DELETE /compliance/erasure` endpoint with cascade deletion and compliance receipt | Erasure module; audit log entry per request |
+| Storage limitation (GDPR Art. 5(1)(e)) | Configurable retention TTLs; automated purge task — **Planned T41.1** | `ConclaveSettings` retention fields; retention module |
+| Right to erasure (GDPR Art. 17) | `DELETE /compliance/erasure` endpoint with cascade deletion and compliance receipt — **Planned T41.2** | Erasure module; audit log entry per request |
 | Audit trail integrity | WORM, HMAC-SHA256 signed, append-only; no delete path in application code | `shared/security/audit.py`; WORM module design |
 | Formal privacy guarantee | (ε, δ)-DP on synthesized output via Opacus DP-SGD | `EpsilonAccountant`; ADR-0036 |
 | Air-gap compliance | No external network calls; offline license activation | Network isolation design; `make build-airgap-bundle` |
 | Cryptographic erasure | NIST SP 800-88 compliant shredding of synthesis artifacts | `modules/synthesizer/shred.py`; ADR-0034 |
-| Legal hold | `legal_hold` boolean on job records; prevents purge | Admin API; retention module |
+| Legal hold | `legal_hold` boolean on job records; prevents purge — **Planned T41.1** | Admin API; retention module |
 
 ---
 
@@ -353,8 +378,9 @@ Conclave provides the technical mechanisms. Operators must:
 
 1. **Configure retention periods** appropriate for their regulatory context
    before going to production (see [Section 5](#5-retention-configuration)).
+   Note: retention configuration is **planned for T41.1** and is not yet active.
 2. **Schedule the purge task** to run at an appropriate cadence
-   (daily recommended).
+   (daily recommended). Note: the purge task is **planned for T41.1**.
 3. **Protect `AUDIT_KEY`** and rotate it per the key rotation procedures in
    [docs/OPERATOR_MANUAL.md](OPERATOR_MANUAL.md). Loss of `AUDIT_KEY` renders
    the audit trail unverifiable.
@@ -363,6 +389,7 @@ Conclave provides the technical mechanisms. Operators must:
    categories. Conclave's audit trail provides the technical evidence to
    support this record but does not replace it.
 5. **Process erasure requests promptly**. GDPR Article 12(3) requires
-   erasure within one calendar month of receipt.
+   erasure within one calendar month of receipt. Note: the erasure endpoint
+   is **planned for T41.2**.
 6. **Test the erasure endpoint** before production deployment to verify
    cascade deletion behaves as expected for your schema.
