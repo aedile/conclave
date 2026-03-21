@@ -16,6 +16,58 @@ Drain (delete) rows when their target task is completed.
 | ADV-018 | P40-T40.3 QA (post-merge) | Polish task | ADVISORY | Module docstring line 8 in `tests/unit/test_boundary_values.py` says "rounds to zero" but test renamed to "sub-scale Decimal passes positivity guard" |
 | ADV-019 | P41-T41.1 Rule 8 | T41.x or follow-on | BLOCKER | `RetentionCleanup.cleanup_expired_jobs()` is not wired to a scheduler — retention policy has no effect until periodic invocation is configured (Huey/APScheduler) |
 | ADV-020 | P41-T41.1 Rule 8 | T41.x or follow-on | BLOCKER | `artifact_retention_days` setting exists but artifact cleanup is decoupled from job cleanup — no independent disk sweep implemented |
+| ADV-021 | P42-T42.1 Red-Team R1 | Security phase | BLOCKER | Settings router (`/settings`) has no auth guard — any unauthenticated request can read/write application settings |
+| ADV-022 | P42-T42.1 Red-Team R1 | Security phase | BLOCKER | Security router endpoints (`/security/shred`, `/security/unseal`) are auth-exempt — destructive operations callable without authentication |
+| ADV-023 | P42-T42.2 Red-Team R1 | Security phase | BLOCKER | Admin IDOR — `/admin/jobs/{job_id}` has no ownership check; any authenticated user can cancel/delete another user's jobs |
+| ADV-024 | P42-T42.2 Red-Team R1 | Security phase | BLOCKER | Privacy budget ownership — `/privacy/budget` endpoints lack per-user scoping; users can view/modify other users' epsilon budgets |
+
+---
+
+### [2026-03-21] P42-T42.1 — Artifact Signing Key Versioning
+
+**Branch**: `feat/P42-T42.1-artifact-key-versioning` (6 commits)
+**Changes**: Implemented multi-key artifact signing with versioned signature format
+(`KEY_ID (4 bytes) || HMAC-SHA256 (32 bytes)`). Auto-detection by signature length
+(36=versioned, 32=legacy). `build_key_map_from_settings()` moved from `jobs_streaming.py`
+to `shared/security/hmac_signing.py`. Startup validation ensures active key exists in key map.
+Dead `_ARTIFACT_SIGNING_KEY_ENV` constants deleted from `jobs_streaming.py` and `job_finalization.py`.
+Created ADR-0042.
+
+**Quality Gates**: Gate #1 (post-GREEN) PASS. Gate #2 (pre-merge) pending.
+
+**Review agents**: QA (FINDING → PASS, 2 rounds), DevOps (FINDING → PASS, 2 rounds),
+Architecture (FINDING → PASS, 2 rounds), Red-Team (FINDING → PASS, 2 rounds).
+
+**R1 Findings fixed** (commit `b67fa75`):
+- QA-B1: `b"".join(chunks)` in `_verify_artifact_signature` defeats streaming benefit → Fixed:
+  incremental HMAC via chunked `h.update()`.
+- QA-B2: Missing error-path tests for invalid key IDs, empty payloads, corrupt signatures →
+  Fixed: 6 new test cases added.
+- DevOps-F1: `.env.example` missing new env vars → Fixed: added `ARTIFACT_SIGNING_KEYS` and
+  `ARTIFACT_SIGNING_KEY_ACTIVE` documentation.
+- DevOps-F2: `build_key_map_from_settings()` lived in router module → Fixed: moved to
+  `shared/security/hmac_signing.py`, re-exported from `shared/security/__init__.py`.
+- Arch-F1: Startup validation gap — `artifact_signing_key_active` not checked against key map →
+  Fixed: `config_validation.py` now validates active key exists in dict at startup (SystemExit on failure).
+- Arch-F2: Dead `_ARTIFACT_SIGNING_KEY_ENV` constant in `job_finalization.py` → Fixed: deleted.
+- Red-Team: Settings router auth gap (ADV-021), security router auth-exempt endpoints (ADV-022) —
+  pre-existing, not introduced by this diff. Tracked as BLOCKERs.
+
+**R2 Results**:
+- QA R2: FINDING — residual docstring reference to `verify_versioned` in `jobs_streaming.py:27`.
+  Fixed in commit `5bb09cb`.
+- DevOps R2: PASS.
+- Architecture R2: PASS.
+- Red-Team R2: PASS.
+
+**Judgment call — docstring fix re-review skip**: The `5bb09cb` fix changes a single word in a
+module docstring (removing a stale function reference). Per Rule 16 materiality threshold, a
+mechanical single-word docstring correction does not warrant a full 4-agent re-review cycle.
+
+**Retrospective Note**:
+The incremental HMAC fix (QA-B1) is a good catch — the original `b"".join(chunks)` pattern
+would have negated the memory benefit of chunked reading for large artifacts. Future streaming
+signature operations should default to incremental digest updates from the start.
 
 ---
 
