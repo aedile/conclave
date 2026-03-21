@@ -94,8 +94,11 @@ Formal guarantees:
 - **No memorization**: The Generator is trained on Discriminator outputs, not
   directly on real data. The Discriminator's gradient updates are privatized
   by DP-SGD before influencing the Generator.
-- **Epsilon budget enforcement**: `EpsilonAccountant` blocks any job that
-  would exceed the configured per-table epsilon budget.
+- **Epsilon budget enforcement**: The `spend_budget` function in
+  `modules/privacy/accountant.py` raises `BudgetExhaustionError` if the job
+  would exceed the configured per-ledger epsilon budget. Budget spending is
+  atomic (pessimistic `SELECT ... FOR UPDATE` locking prevents concurrent
+  jobs from overrunning the budget).
 
 Synthesized output is not PII under GDPR Recital 26 or CCPA § 1798.140(v)
 because: (a) it is generated data with formal DP guarantees, (b) it cannot be
@@ -365,7 +368,7 @@ operational practices satisfy the full requirements of any applicable regulation
 | Storage limitation (GDPR Art. 5(1)(e)) | Configurable retention TTLs; automated purge task — **Planned T41.1** | `ConclaveSettings` retention fields; retention module |
 | Right to erasure (GDPR Art. 17) | `DELETE /compliance/erasure` endpoint with cascade deletion and compliance receipt — **Planned T41.2** | Erasure module; audit log entry per request |
 | Audit trail integrity | WORM, HMAC-SHA256 signed, append-only; no delete path in application code | `shared/security/audit.py`; WORM module design |
-| Formal privacy guarantee | (ε, δ)-DP on synthesized output via Opacus DP-SGD | `EpsilonAccountant`; ADR-0036 |
+| Formal privacy guarantee | (ε, δ)-DP on synthesized output via Opacus DP-SGD | `spend_budget` / `reset_budget` in `modules/privacy/accountant.py`; ADR-0036 |
 | Air-gap compliance | No external network calls; offline license activation | Network isolation design; `make build-airgap-bundle` |
 | Cryptographic erasure | NIST SP 800-88 compliant shredding of synthesis artifacts | `modules/synthesizer/shred.py`; ADR-0034 |
 | Legal hold | `legal_hold` boolean on job records; prevents purge — **Planned T41.1** | Admin API; retention module |
