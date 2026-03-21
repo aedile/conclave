@@ -17,6 +17,7 @@ Task: T42.1 — Implement Artifact Signing Key Versioning
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -84,6 +85,20 @@ class TestSignVersionedFormat:
         # The key IDs differ, so the full signature bytes differ
         assert sig_a != sig_b
 
+    def test_sign_versioned_raises_for_short_key_id(self) -> None:
+        """sign_versioned raises ValueError when key_id is fewer than 4 bytes."""
+        key = b"\xab" * 32
+        data = b"some payload"
+        with pytest.raises(ValueError, match="key_id must be exactly 4 bytes"):
+            sign_versioned(key=key, key_id=b"\x00\x00\x01", data=data)  # 3 bytes
+
+    def test_sign_versioned_raises_for_long_key_id(self) -> None:
+        """sign_versioned raises ValueError when key_id is more than 4 bytes."""
+        key = b"\xab" * 32
+        data = b"some payload"
+        with pytest.raises(ValueError, match="key_id must be exactly 4 bytes"):
+            sign_versioned(key=key, key_id=b"\x00\x00\x00\x00\x01", data=data)  # 5 bytes
+
 
 # ---------------------------------------------------------------------------
 # AC2 + AC3: Multiple keys, active key used for signing
@@ -144,6 +159,14 @@ class TestVerifyVersioned:
         key_map = {key_id_a: key_a, key_id_b: key_b}
         assert verify_versioned(key_map=key_map, data=data, signature=sig_a) is True
         assert verify_versioned(key_map=key_map, data=data, signature=sig_b) is True
+
+    def test_verify_versioned_returns_false_for_empty_key_map(self) -> None:
+        """verify_versioned returns False when the key_map dict is empty."""
+        key_bytes = b"\xab" * 32
+        key_id = b"\x00\x00\x00\x01"
+        data = b"artifact bytes"
+        signature = sign_versioned(key=key_bytes, key_id=key_id, data=data)
+        assert verify_versioned(key_map={}, data=data, signature=signature) is False
 
 
 # ---------------------------------------------------------------------------
@@ -278,8 +301,6 @@ class TestConclaveSettingsMultiKey:
 
     def test_settings_accepts_artifact_signing_keys_dict(self) -> None:
         """ConclaveSettings must accept artifact_signing_keys as a JSON-encoded dict."""
-        import json
-
         from synth_engine.shared.settings import ConclaveSettings, get_settings
 
         keys_dict = {"00000001": "ab" * 32, "00000002": "cd" * 32}
@@ -327,9 +348,6 @@ class TestJobFinalizationVersionedSigning:
 
     def test_write_parquet_writes_versioned_sig_file(self, tmp_path: Path) -> None:
         """_write_parquet_with_signing writes a KEY_ID_SIZE+HMAC_DIGEST_SIZE sig file."""
-        import json
-        from unittest.mock import MagicMock
-
         from synth_engine.modules.synthesizer.job_finalization import (
             _write_parquet_with_signing,
         )
@@ -368,8 +386,6 @@ class TestJobFinalizationVersionedSigning:
         self, tmp_path: Path
     ) -> None:
         """Falls back to legacy single-key signing when only ARTIFACT_SIGNING_KEY is set."""
-        from unittest.mock import MagicMock
-
         from synth_engine.modules.synthesizer.job_finalization import (
             _write_parquet_with_signing,
         )
@@ -398,6 +414,63 @@ class TestJobFinalizationVersionedSigning:
 
         get_settings.cache_clear()
 
+    def test_write_versioned_signature_logs_error_when_active_key_not_in_dict(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_write_versioned_signature logs ERROR and skips signing when active key not in dict."""
+        import logging
+
+        from synth_engine.modules.synthesizer.job_finalization import _write_versioned_signature
+
+        parquet_path = str(tmp_path / "nosig.parquet")
+        Path(parquet_path).write_bytes(b"PAR1\x00data")
+        parquet_name = "nosig.parquet"
+
+        _logger_name = "synth_engine.modules.synthesizer.job_finalization"
+        keys_dict = {"00000002": "bb" * 32}  # active key 00000001 is NOT present
+        with caplog.at_level(logging.ERROR, logger=_logger_name):
+            _write_versioned_signature(
+                parquet_path=parquet_path,
+                parquet_name=parquet_name,
+                keys_dict=keys_dict,
+                active_key_id_hex="00000001",
+            )
+
+        assert not Path(parquet_path + ".sig").exists(), "Sidecar must NOT be written"
+        error_messages = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert any("00000001" in msg for msg in error_messages), (
+            "ERROR log must reference the missing active key ID"
+        )
+
+    def test_write_versioned_signature_logs_error_when_key_decodes_to_empty(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_write_versioned_signature logs ERROR and skips signing when key decodes to empty."""
+        import logging
+
+        from synth_engine.modules.synthesizer.job_finalization import _write_versioned_signature
+
+        parquet_path = str(tmp_path / "emptykey.parquet")
+        Path(parquet_path).write_bytes(b"PAR1\x00data")
+        parquet_name = "emptykey.parquet"
+
+        _logger_name = "synth_engine.modules.synthesizer.job_finalization"
+        # Empty hex string decodes to zero-length bytes
+        keys_dict = {"00000001": ""}
+        with caplog.at_level(logging.ERROR, logger=_logger_name):
+            _write_versioned_signature(
+                parquet_path=parquet_path,
+                parquet_name=parquet_name,
+                keys_dict=keys_dict,
+                active_key_id_hex="00000001",
+            )
+
+        assert not Path(parquet_path + ".sig").exists(), "Sidecar must NOT be written"
+        error_messages = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert any("empty" in msg.lower() for msg in error_messages), (
+            "ERROR log must mention empty bytes"
+        )
+
 
 # ---------------------------------------------------------------------------
 # jobs_streaming — versioned verification
@@ -409,8 +482,6 @@ class TestJobsStreamingVersionedVerification:
 
     def test_verify_accepts_versioned_signature(self, tmp_path: Path) -> None:
         """_verify_artifact_signature returns True for a valid versioned signature."""
-        import json
-
         from synth_engine.bootstrapper.routers.jobs_streaming import (
             _verify_artifact_signature,
         )
@@ -473,8 +544,6 @@ class TestJobsStreamingVersionedVerification:
 
     def test_verify_returns_false_for_tampered_versioned_artifact(self, tmp_path: Path) -> None:
         """_verify_artifact_signature returns False when versioned signature doesn't match."""
-        import json
-
         from synth_engine.bootstrapper.routers.jobs_streaming import (
             _verify_artifact_signature,
         )
@@ -505,3 +574,62 @@ class TestJobsStreamingVersionedVerification:
 
         assert result is False
         get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# build_key_map_from_settings — error-path tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildKeyMapFromSettings:
+    """Tests for build_key_map_from_settings error handling (T42.1 review findings)."""
+
+    def test_build_key_map_skips_bad_hex_returns_good(self) -> None:
+        """build_key_map_from_settings skips malformed entries and returns valid ones."""
+        from synth_engine.shared.security.hmac_signing import build_key_map_from_settings
+        from synth_engine.shared.settings import get_settings
+
+        good_key_hex = "ab" * 32
+        keys_dict = {
+            "00000001": good_key_hex,  # valid
+            "00000002": "not-valid-hex!",  # malformed
+        }
+        env_vars = {
+            "ARTIFACT_SIGNING_KEYS": json.dumps(keys_dict),
+            "ARTIFACT_SIGNING_KEY_ACTIVE": "00000001",
+        }
+        remove_keys = ["ARTIFACT_SIGNING_KEY"]
+        with patch.dict(os.environ, env_vars, clear=False):
+            for k in remove_keys:
+                os.environ.pop(k, None)
+            get_settings.cache_clear()
+            result = build_key_map_from_settings()
+
+        get_settings.cache_clear()
+
+        assert result is not None, "Should return a map with the valid entry"
+        assert bytes.fromhex("00000001") in result, "Valid entry must be present"
+        assert bytes.fromhex("00000002") not in result, "Malformed entry must be skipped"
+
+    def test_build_key_map_returns_none_when_all_entries_malformed(self) -> None:
+        """build_key_map_from_settings returns None when all entries are malformed."""
+        from synth_engine.shared.security.hmac_signing import build_key_map_from_settings
+        from synth_engine.shared.settings import get_settings
+
+        keys_dict = {
+            "00000001": "not-valid-hex!",
+            "00000002": "also-not-hex!!",
+        }
+        env_vars = {
+            "ARTIFACT_SIGNING_KEYS": json.dumps(keys_dict),
+        }
+        remove_keys = ["ARTIFACT_SIGNING_KEY", "ARTIFACT_SIGNING_KEY_ACTIVE"]
+        with patch.dict(os.environ, env_vars, clear=False):
+            for k in remove_keys:
+                os.environ.pop(k, None)
+            get_settings.cache_clear()
+            result = build_key_map_from_settings()
+
+        get_settings.cache_clear()
+
+        assert result is None, "Should return None when all entries malformed"

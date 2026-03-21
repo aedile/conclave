@@ -40,10 +40,6 @@ from synth_engine.shared.security.hmac_signing import (
 
 _logger = logging.getLogger(__name__)
 
-#: Environment variable name for the artifact HMAC signing key.
-#: Value must be a hex-encoded byte string (e.g. 64 hex chars for 32 bytes).
-_ARTIFACT_SIGNING_KEY_ENV: str = "ARTIFACT_SIGNING_KEY"
-
 #: Sanitized error message written to job.error_msg on generation failure.
 #: Internal exception details are logged server-side; this generic string is
 #: safe to surface in API responses (finding F4 — DevOps review).

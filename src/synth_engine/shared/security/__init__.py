@@ -10,6 +10,7 @@ or more modules, currently:
   :func:`verify_hmac`, :data:`HMAC_DIGEST_SIZE`,
   :data:`KEY_ID_SIZE`, :data:`LEGACY_KEY_ID`,
   :func:`sign_versioned`, :func:`verify_versioned`,
+  :func:`build_key_map_from_settings`,
   :func:`log_key_rotation_event`.
 """
 
@@ -19,6 +20,7 @@ from synth_engine.shared.security.hmac_signing import (
     LEGACY_KEY_ID,
     VERSIONED_SIGNATURE_SIZE,
     SecurityError,
+    build_key_map_from_settings,
     compute_hmac,
     log_key_rotation_event,
     sign_versioned,
@@ -32,6 +34,7 @@ __all__ = [
     "LEGACY_KEY_ID",
     "VERSIONED_SIGNATURE_SIZE",
     "SecurityError",
+    "build_key_map_from_settings",
     "compute_hmac",
     "log_key_rotation_event",
     "sign_versioned",

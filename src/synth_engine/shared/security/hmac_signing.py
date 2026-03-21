@@ -33,12 +33,15 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 from typing import TYPE_CHECKING
 
 from synth_engine.shared.exceptions import ArtifactTamperingError
 
 if TYPE_CHECKING:
     from synth_engine.shared.security.audit import AuditLogger
+
+_logger = logging.getLogger(__name__)
 
 #: Size of the HMAC-SHA256 digest in bytes (fixed: 256 bits / 8 = 32 bytes).
 HMAC_DIGEST_SIZE: int = 32
@@ -139,14 +142,18 @@ def verify_versioned(
     Args:
         key_map: Mapping from raw 4-byte key ID bytes to raw key bytes.
             Should contain all known signing keys (active + retired).
+            An empty dict causes the function to return ``False``.
         data: The bytes over which the signature was computed.
         signature: The raw signature bytes to verify.
 
     Returns:
         ``True`` if the signature is valid for any key in ``key_map``.
-        ``False`` if the signature is invalid, malformed, or the embedded
-        key ID is absent from ``key_map``.
+        ``False`` if the signature is invalid, malformed, the embedded
+        key ID is absent from ``key_map``, or ``key_map`` is empty.
     """
+    if not key_map:
+        return False
+
     if len(signature) == VERSIONED_SIGNATURE_SIZE:
         # Versioned format: extract the 4-byte key ID prefix
         key_id = signature[:KEY_ID_SIZE]
@@ -165,6 +172,63 @@ def verify_versioned(
 
     actual_digest = compute_hmac(key, data)
     return hmac.compare_digest(actual_digest, stored_digest)
+
+
+def build_key_map_from_settings() -> dict[bytes, bytes] | None:
+    """Build a key map for :func:`verify_versioned` from application settings.
+
+    Reads :class:`~synth_engine.shared.settings.ConclaveSettings` and builds
+    a ``{key_id_bytes: key_bytes}`` mapping that :func:`verify_versioned` can
+    use to authenticate any known signature — versioned or legacy.
+
+    Priority:
+      1. If ``artifact_signing_keys`` is populated, decode all entries and
+         include them.  Also include the legacy key (if set) mapped to
+         :data:`LEGACY_KEY_ID` for backward compatibility.
+      2. If only ``artifact_signing_key`` is set, include it under
+         :data:`LEGACY_KEY_ID` for legacy verification.
+      3. If neither is set, return ``None`` (signing not enabled).
+
+    Malformed entries (non-hex key ID or key values) are skipped with a
+    WARNING log.  Returns ``None`` only when no valid keys remain after
+    filtering.
+
+    Returns:
+        A dict mapping raw key-ID bytes to raw key bytes, or ``None`` if no
+        signing keys are configured or all configured entries were malformed.
+    """
+    from synth_engine.shared.settings import get_settings
+
+    settings = get_settings()
+    key_map: dict[bytes, bytes] = {}
+
+    # Decode multi-key map (versioned mode)
+    if settings.artifact_signing_keys:
+        for key_id_hex, key_hex in settings.artifact_signing_keys.items():
+            try:
+                key_id_bytes = bytes.fromhex(key_id_hex)
+                key_bytes = bytes.fromhex(key_hex)
+            except ValueError:
+                _logger.warning(
+                    "Malformed entry in ARTIFACT_SIGNING_KEYS (key_id=%s); skipping.",
+                    key_id_hex,
+                )
+                continue
+            key_map[key_id_bytes] = key_bytes
+
+    # Also include legacy key for backward compatibility during rotation window
+    legacy_hex = settings.artifact_signing_key
+    if legacy_hex and legacy_hex.strip():
+        try:
+            legacy_key = bytes.fromhex(legacy_hex.strip())
+            if len(legacy_key) > 0:
+                key_map[LEGACY_KEY_ID] = legacy_key
+        except ValueError:
+            _logger.warning("ARTIFACT_SIGNING_KEY is not valid hex; legacy verification disabled.")
+
+    if not key_map:
+        return None
+    return key_map
 
 
 def log_key_rotation_event(
