@@ -96,6 +96,9 @@ _OOM_FALLBACK_COLUMNS: int = 50
 
 _dp_wrapper_factory: Callable[[float, float], DPWrapperProtocol] | None = None
 _spend_budget_fn: SpendBudgetProtocol | None = None
+#: IoC callback for webhook delivery — registered by bootstrapper at startup (T45.3).
+#: Signature: (job_id: int, status: str) -> None.
+_webhook_delivery_fn: Any | None = None
 
 
 def set_dp_wrapper_factory(
@@ -121,6 +124,31 @@ def set_spend_budget_fn(fn: SpendBudgetProtocol) -> None:
 
 
 # ---------------------------------------------------------------------------
+
+
+def set_webhook_delivery_fn(fn: Any) -> None:
+    """Register the webhook delivery callback (called by bootstrapper at startup).
+
+    The bootstrapper wires this at startup so that job_orchestration.py can
+    trigger webhook delivery without importing from bootstrapper/.
+
+    Args:
+        fn: Callable ``(job_id: int, status: str) -> None`` that dispatches
+            webhook deliveries for all active registrations for the given job.
+    """
+    global _webhook_delivery_fn
+    _webhook_delivery_fn = fn
+
+
+def _reset_webhook_delivery_fn() -> None:
+    """Reset the IoC webhook delivery callback to None.
+
+    For test isolation only.  Not a production path.
+    """
+    global _webhook_delivery_fn
+    _webhook_delivery_fn = None
+
+
 # Internal helpers (defined here to preserve patch-path compatibility)
 # ---------------------------------------------------------------------------
 
@@ -392,6 +420,28 @@ class GenerationStep:
 # ---------------------------------------------------------------------------
 
 
+def _fire_webhook_callback(job_id: int, status: str) -> None:
+    """Fire the IoC webhook delivery callback if one is registered.
+
+    Called after terminal status commits (COMPLETE, FAILED).  Errors are
+    caught and logged so that a webhook delivery failure never affects the
+    job lifecycle outcome.
+
+    Args:
+        job_id: Integer PK of the synthesis job.
+        status: Terminal status string (``"COMPLETE"`` or ``"FAILED"``).
+    """
+    if _webhook_delivery_fn is not None:
+        try:
+            _webhook_delivery_fn(job_id, status)
+        except Exception:
+            _logger.exception(
+                "Webhook delivery callback failed for job %d (%s).",
+                job_id,
+                status,
+            )
+
+
 def _run_synthesis_job_impl(
     job_id: int,
     session: Session,
@@ -427,6 +477,7 @@ def _run_synthesis_job_impl(
                 job.status = "FAILED"
                 job.error_msg = result.error_msg
                 _commit_job(job, session)
+                _fire_webhook_callback(job_id, "FAILED")
                 return
             if step is dp_accounting and ctx.last_ckpt_path is not None:
                 job.artifact_path = ctx.last_ckpt_path
@@ -434,6 +485,7 @@ def _run_synthesis_job_impl(
         job.status = "COMPLETE"
         _commit_job(job, session)
         _logger.info("Job %d: COMPLETE (output=%s).", job_id, job.output_path)
+        _fire_webhook_callback(job_id, "COMPLETE")
     finally:
         if tmp_dir_ctx is not None:
             tmp_dir_ctx.cleanup()

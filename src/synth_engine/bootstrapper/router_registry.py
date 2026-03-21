@@ -25,6 +25,8 @@ Task: T41.1 — Implement Data Retention Policy
     Registered admin_router for PATCH /admin/jobs/{id}/legal-hold.
 Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
     Registered compliance_router for DELETE /compliance/erasure.
+Task: T45.3 — Implement Webhook Callbacks for Task Completion
+    Registered webhooks_router for POST/GET/DELETE /webhooks.
 """
 
 from __future__ import annotations
@@ -64,6 +66,7 @@ def _include_routers(app: FastAPI) -> None:
     from synth_engine.bootstrapper.routers.privacy import router as privacy_router
     from synth_engine.bootstrapper.routers.security import router as security_router
     from synth_engine.bootstrapper.routers.settings import router as settings_router
+    from synth_engine.bootstrapper.routers.webhooks import router as webhooks_router
 
     app.include_router(auth_router)
     app.include_router(admin_router)
@@ -75,6 +78,7 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(licensing_router)
     app.include_router(security_router)
     app.include_router(privacy_router)
+    app.include_router(webhooks_router)
 
 
 def _register_exception_handlers(app: FastAPI) -> None:

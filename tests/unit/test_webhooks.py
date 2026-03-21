@@ -33,19 +33,15 @@ Task: T45.3 — Implement Webhook Callbacks for Task Completion
 
 from __future__ import annotations
 
-import ipaddress
 import uuid
 from collections.abc import Generator
-from typing import Annotated
 from unittest.mock import patch
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pydantic import AnyHttpUrl
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
-
 
 # ---------------------------------------------------------------------------
 # State isolation
@@ -53,7 +49,7 @@ from sqlmodel.pool import StaticPool
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -79,17 +75,13 @@ def clear_settings_cache() -> Generator[None, None, None]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def in_memory_engine() -> object:
     """Create an in-memory SQLite engine for testing.
 
     Returns:
         A SQLAlchemy engine using in-memory SQLite.
     """
-    from synth_engine.bootstrapper.schemas.webhooks import (
-        WebhookDelivery,
-        WebhookRegistration,
-    )
 
     engine = create_engine(
         "sqlite:///:memory:",
@@ -100,8 +92,8 @@ def in_memory_engine() -> object:
     return engine
 
 
-@pytest.fixture()
-def db_session(in_memory_engine: object) -> Generator[Session, None, None]:
+@pytest.fixture
+def db_session(in_memory_engine: object) -> Generator[Session]:
     """Provide a transactional SQLite session for tests.
 
     Args:
@@ -116,7 +108,7 @@ def db_session(in_memory_engine: object) -> Generator[Session, None, None]:
         yield session
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(db_session: Session) -> TestClient:
     """Build a TestClient with the webhooks router.
 
@@ -126,9 +118,9 @@ def client(db_session: Session) -> TestClient:
     Returns:
         Starlette TestClient for the minimal app.
     """
-    from synth_engine.bootstrapper.routers.webhooks import router
     from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.routers.webhooks import router
 
     app = FastAPI()
     app.include_router(router)
@@ -139,7 +131,7 @@ def client(db_session: Session) -> TestClient:
     return TestClient(app)
 
 
-@pytest.fixture()
+@pytest.fixture
 def client_operator_b(db_session: Session) -> TestClient:
     """Build a TestClient authenticating as operator B.
 
@@ -149,9 +141,9 @@ def client_operator_b(db_session: Session) -> TestClient:
     Returns:
         Starlette TestClient for the minimal app authenticated as operator B.
     """
-    from synth_engine.bootstrapper.routers.webhooks import router
     from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.routers.webhooks import router
 
     app = FastAPI()
     app.include_router(router)
@@ -234,9 +226,7 @@ class TestSSRFProtection:
         """SSRF attack: AWS/GCP metadata endpoint must be rejected."""
         resp = client.post(
             "/webhooks/",
-            json=_registration_payload(
-                callback_url="http://169.254.169.254/latest/meta-data/"
-            ),
+            json=_registration_payload(callback_url="http://169.254.169.254/latest/meta-data/"),
         )
         assert resp.status_code == 400
 
@@ -268,9 +258,7 @@ class TestSigningKeyValidation:
             client: Test client for webhook router.
             key: Short signing key.
         """
-        resp = client.post(
-            "/webhooks/", json=_registration_payload(signing_key=key)
-        )
+        resp = client.post("/webhooks/", json=_registration_payload(signing_key=key))
         assert resp.status_code in (400, 422), (
             f"Expected 400/422 for short key, got {resp.status_code}"
         )
@@ -281,9 +269,7 @@ class TestSigningKeyValidation:
         Args:
             client: Test client for webhook router.
         """
-        resp = client.post(
-            "/webhooks/", json=_registration_payload(signing_key="a" * 32)
-        )
+        resp = client.post("/webhooks/", json=_registration_payload(signing_key="a" * 32))
         assert resp.status_code == 201
 
 
@@ -306,9 +292,7 @@ class TestCallbackUrlValidation:
             client: Test client for webhook router.
             url: Invalid callback URL.
         """
-        resp = client.post(
-            "/webhooks/", json=_registration_payload(callback_url=url)
-        )
+        resp = client.post("/webhooks/", json=_registration_payload(callback_url=url))
         assert resp.status_code in (400, 422), (
             f"Expected 400/422 for url={url!r}, got {resp.status_code}"
         )
@@ -317,9 +301,7 @@ class TestCallbackUrlValidation:
 class TestRegistrationLimit:
     """T45.3 max 10 active registrations per operator."""
 
-    def test_eleventh_registration_rejected(
-        self, client: TestClient, db_session: Session
-    ) -> None:
+    def test_eleventh_registration_rejected(self, client: TestClient, db_session: Session) -> None:
         """Attempting to create an 11th registration must return 409.
 
         Args:
@@ -329,11 +311,9 @@ class TestRegistrationLimit:
         for i in range(10):
             resp = client.post(
                 "/webhooks/",
-                json=_registration_payload(
-                    callback_url=f"https://example.com/hook{i}"
-                ),
+                json=_registration_payload(callback_url=f"https://example.com/hook{i}"),
             )
-            assert resp.status_code == 201, f"Registration {i+1} failed: {resp.json()}"
+            assert resp.status_code == 201, f"Registration {i + 1} failed: {resp.json()}"
 
         # 11th must fail
         resp = client.post(
@@ -394,26 +374,22 @@ class TestIDOR:
 class TestProductionHttpsOnly:
     """T45.3 production mode must reject http:// callback URLs."""
 
-    def test_http_url_rejected_in_production(
-        self, db_session: Session
-    ) -> None:
+    def test_http_url_rejected_in_production(self, db_session: Session) -> None:
         """In production mode, http:// callback URLs must be rejected with 400.
 
         Args:
             db_session: Open in-memory SQLite session.
         """
-        from synth_engine.bootstrapper.routers.webhooks import router
         from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.routers.webhooks import router
 
         app = FastAPI()
         app.include_router(router)
         app.dependency_overrides[get_db_session] = lambda: db_session
         app.dependency_overrides[get_current_operator] = lambda: "operator-a"
 
-        with patch(
-            "synth_engine.bootstrapper.routers.webhooks.get_settings"
-        ) as mock_settings:
+        with patch("synth_engine.bootstrapper.routers.webhooks.get_settings") as mock_settings:
             mock_settings.return_value.is_production.return_value = True
             mock_settings.return_value.webhook_max_registrations = 10
 
@@ -448,9 +424,7 @@ class TestWebhookRegistrationCRUD:
         assert body["callback_url"] == _VALID_CALLBACK
         assert body["active"] is True
 
-    def test_create_webhook_does_not_expose_signing_key(
-        self, client: TestClient
-    ) -> None:
+    def test_create_webhook_does_not_expose_signing_key(self, client: TestClient) -> None:
         """POST /webhooks response must NOT include the signing_key value.
 
         Args:
@@ -478,9 +452,7 @@ class TestWebhookRegistrationCRUD:
         for item in body["items"]:
             assert item["owner_id"] == "operator-a"
 
-    def test_delete_webhook_deactivates_registration(
-        self, client: TestClient
-    ) -> None:
+    def test_delete_webhook_deactivates_registration(self, client: TestClient) -> None:
         """DELETE /webhooks/{id} must set active=False on the registration.
 
         Args:
@@ -501,9 +473,7 @@ class TestWebhookRegistrationCRUD:
         for item in matching:
             assert item["active"] is False
 
-    def test_delete_nonexistent_webhook_returns_404(
-        self, client: TestClient
-    ) -> None:
+    def test_delete_nonexistent_webhook_returns_404(self, client: TestClient) -> None:
         """DELETE /webhooks/{id} for unknown id must return 404.
 
         Args:
