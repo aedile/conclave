@@ -13,6 +13,25 @@ Drain (delete) rows when their target task is completed.
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
 | ADV-T39.1-01 | T39.1 Arch Review | TBD | ADVISORY | EXEMPT_PATHS duplication across 3 middleware files (vault.py, licensing.py, auth.py). Extract to shared `bootstrapper/dependencies/_exempt_paths.py`. |
+| ADV-T39.3-01 | T39.3 DevOps Review | TBD | ADVISORY | _compute_retry_after fallback path logs raw key (potentially IP). Fix before non-MemoryStorage backend deployment. |
+
+---
+
+### [2026-03-20] P39-T39.3 — Rate Limiting Middleware
+
+**Branch**: `feat/P39-T39.3-rate-limiting` (6 commits)
+
+**Review agents**: QA (FINDING — 2 rounds, 5 findings fixed), DevOps (FINDING — 1 round, 2 findings fixed)
+
+**Findings fixed (review commits)**:
+- QA-B1: Silent failure in _compute_retry_after(). Fixed: added _logger.warning() call.
+- QA-B2: Rubber-stamp assertion. Fixed: replaced with issubclass check.
+- QA-B3: Download path substring match. Fixed: tightened to path.endswith("/download").
+- QA-B4: Download rate limit tier untested. Fixed: added test_download_exceeds_limit_returns_429.
+- DEVOPS-B1: Raw client IP in WARNING log. Fixed: hashed key with SHA-256[:12].
+- DEVOPS-B2: .env.example missing rate limit settings. Fixed: added 4-variable section.
+
+**New advisory**: ADV-T39.3-01 (fallback path raw key logging).
 
 ---
 
