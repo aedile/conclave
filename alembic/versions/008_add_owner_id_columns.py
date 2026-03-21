@@ -1,7 +1,7 @@
 """Add owner_id columns to synthesis_job and connection tables.
 
-Revision ID: 007
-Revises: 006
+Revision ID: 008
+Revises: 007
 Create Date: 2026-03-20
 
 Adds ``owner_id`` VARCHAR column to both ``synthesis_job`` and ``connection``
@@ -59,8 +59,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # Revision identifiers used by Alembic.
-revision: str = "007"
-down_revision: str | None = "006"
+revision: str = "008"
+down_revision: str | None = "007"
 branch_labels: str | None = None
 depends_on: str | None = None
 

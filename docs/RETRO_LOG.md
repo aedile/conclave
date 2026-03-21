@@ -13,6 +13,24 @@ Drain (delete) rows when their target task is completed.
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
 | ADV-T39.1-01 | T39.1 Arch Review | TBD | ADVISORY | EXEMPT_PATHS duplication across 3 middleware files (vault.py, licensing.py, auth.py). Extract to shared `bootstrapper/dependencies/_exempt_paths.py`. |
+| ADV-T39.2-01 | T39.2 Arch Review | TBD | ADVISORY | SynthesisJob lives in modules/synthesizer/job_models.py but ADR-0021 rules it belongs in bootstrapper/schemas/. Pre-existing placement debt. |
+| ADV-T39.2-02 | T39.2 DevOps Review | TBD | ADVISORY | owner_id visible in API response bodies. Evaluate for exclusion before multi-tenant rollout. |
+
+---
+
+### [2026-03-20] P39-T39.2 — Authorization & IDOR Protection
+
+**Branch**: `feat/P39-T39.2-authorization-idor` (4 commits)
+
+**Review agents**: QA (FINDING — PASS, 1 round, 2 findings fixed), DevOps (PASS), Architecture (FINDING — PASS, 1 round, 2 findings fixed)
+
+**Findings fixed (review commit)**:
+- QA-B1: Empty sub="" JWT claim accepted — collides with legacy owner_id="" sentinel. Fixed: added guard + test.
+- QA-B2: Type annotation mismatch on test helper. Fixed: corrected return type, removed # type: ignore.
+- ARCH-B1: owner_id columns missing index. Fixed: added index=True + op.create_index() in migration.
+- ARCH-B2: No ADR for authorization decisions. Fixed: created ADR-0040 (173 lines).
+
+**Architecture advisories deferred**: ADV-T39.2-01 (SynthesisJob placement), ADV-T39.2-02 (owner_id in responses).
 
 ---
 
