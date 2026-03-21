@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -233,9 +233,7 @@ class TestZeroStaleJobs:
         audit_mock = MagicMock()
 
         reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=60)
-        with patch(
-            "synth_engine.shared.tasks.reaper.get_audit_logger", return_value=audit_mock
-        ):
+        with patch("synth_engine.shared.tasks.reaper.get_audit_logger", return_value=audit_mock):
             reaped = reaper.reap()
 
         assert reaped == 0
@@ -477,9 +475,7 @@ class TestHappyPath:
             reaper.reap()
 
         _, error_msg = repo.mark_failed.call_args[0]
-        assert error_msg == (
-            "Reaped: exceeded staleness threshold — possible worker crash"
-        )
+        assert error_msg == ("Reaped: exceeded staleness threshold — possible worker crash")
 
     def test_audit_event_emitted_per_reaped_job(self) -> None:
         """One audit log_event call per reaped job, with correct event_type and actor."""
@@ -492,9 +488,7 @@ class TestHappyPath:
 
         audit_mock = MagicMock()
         reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=60)
-        with patch(
-            "synth_engine.shared.tasks.reaper.get_audit_logger", return_value=audit_mock
-        ):
+        with patch("synth_engine.shared.tasks.reaper.get_audit_logger", return_value=audit_mock):
             reaped = reaper.reap()
 
         assert reaped == 2
@@ -550,7 +544,6 @@ class TestSettingsField:
 
     def test_settings_threshold_below_5_raises(self) -> None:
         """reaper_stale_threshold_minutes=4 must fail Pydantic validation."""
-        import os
 
         from pydantic import ValidationError
 

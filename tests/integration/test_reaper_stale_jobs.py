@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine, select, text
+from sqlmodel import Session, SQLModel, create_engine, text
 
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 from synth_engine.modules.synthesizer.reaper_repository import SQLAlchemyTaskRepository

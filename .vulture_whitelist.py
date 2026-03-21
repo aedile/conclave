@@ -173,6 +173,8 @@ cleanup_expired_jobs  # unused method — RetentionCleanup.cleanup_expired_jobs 
 cleanup_expired_artifacts  # unused method — RetentionCleanup.cleanup_expired_artifacts (retention.py)
 periodic_cleanup_expired_jobs  # unused function — Huey periodic task, registered at 02:00 UTC (retention_tasks.py)
 periodic_cleanup_expired_artifacts  # unused function — Huey periodic task, registered at 03:00 UTC (retention_tasks.py)
+periodic_reap_orphan_tasks  # unused function — Huey periodic task, registered every 15 min (reaper_tasks.py)
+idempotency_ttl_seconds  # unused variable — ConclaveSettings field read by IdempotencyMiddleware (shared/settings.py)
 get_claims  # unused method — LicenseManager.get_claims (shared/security/licensing.py)
 
 # ---------------------------------------------------------------------------

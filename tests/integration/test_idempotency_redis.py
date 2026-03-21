@@ -68,7 +68,7 @@ pytestmark = [
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -89,8 +89,8 @@ def clear_settings_cache() -> Generator[None, None, None]:
         pass
 
 
-@pytest.fixture()
-def redis_client() -> Generator[redis_lib.Redis[Any], None, None]:
+@pytest.fixture
+def redis_client() -> Generator[redis_lib.Redis[Any]]:
     """Provide a Redis client connected to DB 1 (test isolation).
 
     Flushes DB 1 before and after each test to ensure a clean state.
