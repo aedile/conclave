@@ -55,6 +55,7 @@ This step cannot be skipped. The project has institutional memory; use it.
 
 ### 1. Planning & Verification
 
+- **Read spec-challenger output and incorporate all missing ACs.** The PM will include a section "## Negative Test Requirements (from spec-challenger)" in your brief. These are mandatory test cases — not suggestions. Every listed negative test must be written.
 - Read the specific task requirements — ALL sections: User Story, Context & Constraints, Acceptance Criteria, Testing & Quality Gates. Do not skip Context & Constraints; it contains requirements that may not be repeated in the AC items.
 - Cross-reference every bullet in "Context & Constraints" against the AC items. If a constraint is stated in Context but absent from the AC checklist, flag it to the PM before proceeding — it is in scope.
 - Identify the correct module in `src/synth_engine/` for your changes. Ensure you are not violating boundary lines. Ask: "does this class's responsibility match the module name?" If not, raise it with the PM.
@@ -62,7 +63,43 @@ This step cannot be skipped. The project has institutional memory; use it.
 - Ensure you are operating on a feature branch (`feat/P#-T##-...`).
 - Check `docs/RETRO_LOG.md` Open Advisory Items for any rows targeting this task — address them during implementation.
 
-### 2. TDD Implementation (Red/Green/Refactor)
+### 2. Attack Surface Analysis (MANDATORY)
+
+Before writing ANY test, fill out this table for the task at hand:
+
+| Attack Surface Area | Details |
+|---------------------|---------|
+| New endpoints added | [list with auth requirements for each] |
+| New user inputs accepted | [list with validation requirements for each] |
+| New data written to storage | [list with encryption requirements for each] |
+| New external calls made | [list with timeout requirements for each] |
+| Failure modes | [what happens when each dependency is down?] |
+| What does an attacker see? | [error messages, response codes, timing information] |
+
+This table MUST be filled out before proceeding. It informs both the attack tests and the feature tests. If the task introduces no new attack surface, state that explicitly with justification.
+
+### 3. TDD Implementation (Attack-First Red/Green/Refactor)
+
+#### Attack Tests First (MANDATORY — before feature RED)
+
+BEFORE writing any feature tests, write failing tests that prove the system REJECTS:
+- **Unauthenticated requests** (expected: 401)
+- **Unauthorized requests / IDOR** (expected: 404 — not 403, to avoid leaking resource existence)
+- **Malformed input** (expected: 422)
+- **Oversized input** (expected: 413)
+
+These "attack tests" come from the spec-challenger output and the Attack Surface Analysis above. They are committed separately:
+```
+git commit -m "test: add negative/attack tests for <feature>"
+```
+
+The attack tests MUST fail (RED) before you proceed to feature tests. They MUST pass (GREEN) alongside the feature tests. The TDD loop becomes:
+
+1. **ATTACK RED**: Write failing negative/attack tests
+2. **ATTACK GREEN**: Write minimal code to make attack tests pass (auth checks, validation, error handling)
+3. **FEATURE RED**: Write failing feature tests
+4. **FEATURE GREEN**: Write minimal code to make feature tests pass
+5. **REFACTOR**: Clean up while all tests (attack + feature) continue to pass
 
 #### Before Writing a Single Test — Pre-RED Checklist
 

@@ -17,7 +17,8 @@ perform any development work directly. Every one of those actions belongs to a s
 - Create the feature branch
 - Delegate ALL implementation to the `software-developer` subagent
 - Verify the subagent's output (git log, test summary) — do not re-implement
-- Spawn parallel review subagents: `qa-reviewer`, `devops-reviewer` (always); `ui-ux-reviewer`
+- Spawn `spec-challenger` BEFORE spawning `software-developer` — incorporate its output into the developer brief
+- Spawn parallel review subagents: `qa-reviewer`, `devops-reviewer`, `red-team-reviewer` (always); `ui-ux-reviewer`
   (only when diff touches `frontend/`, `*.tsx`, `*.css`, or template files);
   `architecture-reviewer` (only when diff touches `src/synth_engine/` or adds new `.py` files under `src/`)
 - Commit review findings and update `docs/RETRO_LOG.md`
@@ -96,6 +97,18 @@ All other checkpoints (RED, REFACTOR, review agents, fix rounds) use light gates
 changed-file tests + dependents only. Static analysis (ruff, mypy, bandit, vulture,
 pre-commit) runs at every checkpoint. See the Test Run Cadence table in the TDD section.
 
+**Rule 20 — Spec challenge gate.** [sunset: never — structural]
+Before spawning the software-developer, the PM MUST spawn the `spec-challenger` agent with the full task spec. The spec-challenger's output (missing ACs, negative cases, attack vectors) MUST be incorporated into the developer brief. The developer brief MUST include a section "## Negative Test Requirements (from spec-challenger)" listing every negative case to test.
+
+**Rule 21 — Red-team review on every phase.** [sunset: never — structural]
+The `red-team-reviewer` agent MUST be spawned on EVERY phase, regardless of what changed. It reviews the FULL system, not just the diff. Its BLOCKER findings block the PR merge. This is not a periodic audit — it is a continuous gate.
+
+**Rule 22 — Attack tests before feature tests.** [sunset: never — structural]
+The software-developer MUST write negative/attack tests (auth rejection, IDOR, input validation, error handling) BEFORE writing feature tests. The TDD loop becomes: ATTACK RED -> FEATURE RED -> GREEN -> REFACTOR. Negative tests are committed separately: `test: add negative/attack tests for <feature>`.
+
+**Rule 23 — Full-system reviewer context.** [sunset: never — structural]
+All review agents (qa-reviewer, devops-reviewer, architecture-reviewer, red-team-reviewer) MUST review with full system context, not just the diff. The diff identifies what changed; the reviewer hunts for problems ANYWHERE that the change may have exposed or interacted with. Reviewers MUST read related files beyond the diff.
+
 ---
 
 ## Core Philosophy
@@ -112,12 +125,14 @@ Clean workspace, clear organization, security by default, minimal footprint, zer
 
 `--no-verify`, `--skip=...`, `SKIP=...` are **FORBIDDEN**. If hooks fail, fix the code.
 
-### TDD - Red/Green/Refactor (STRICT)
+### TDD - Attack-First Red/Green/Refactor (STRICT)
 
-1. **RED**: Write failing tests FIRST → commit `test: add failing tests for <feature>`
-2. **GREEN**: Minimal code to pass → commit `feat: implement <feature>`
-3. **REFACTOR**: Clean up if needed → commit `refactor: improve <feature>`
-4. **REVIEW**: Spawn `qa-reviewer` + `devops-reviewer` (always); `ui-ux-reviewer` (frontend);
+1. **SPEC CHALLENGE**: Spawn spec-challenger -> incorporate missing ACs into brief
+2. **ATTACK RED**: Write failing negative/attack tests FIRST -> commit `test: add negative/attack tests for <feature>`
+3. **RED**: Write failing feature tests -> commit `test: add failing tests for <feature>`
+4. **GREEN**: Minimal code to pass ALL tests (attack + feature) -> commit `feat: implement <feature>`
+5. **REFACTOR**: Clean up -> commit `refactor: improve <feature>`
+6. **REVIEW**: Spawn `qa-reviewer` + `devops-reviewer` + `red-team-reviewer` (always); `ui-ux-reviewer` (frontend);
    `architecture-reviewer` (src/synth_engine/). One consolidated `review:` commit.
    Update RETRO_LOG: add unresolved advisories, drain completed rows.
 
@@ -274,7 +289,7 @@ WHILE CODING:    Minimal impl → Pass tests → Refactor
 BEFORE COMMIT:   git status → git diff → ruff → mypy → pytest → vulture → pre-commit
 AFTER CODE:      Spawn reviewers (qa+devops always; ui-ux/arch conditional) → review commit → RETRO_LOG
 COMMIT TYPES:    test: feat: fix: refactor: review: docs: chore:
-REVIEWERS:       QA+DevOps always | UI/UX: frontend | Arch: src/synth_engine/
+REVIEWERS:       QA+DevOps+RedTeam always | UI/UX: frontend | Arch: src/synth_engine/ | SpecChallenger: before dev
 NEVER:           --no-verify, skip hooks, commit PII, dead code, untyped code
 ALWAYS:          TDD, 95% coverage, type hints, clean workspace, review commit
 ```
