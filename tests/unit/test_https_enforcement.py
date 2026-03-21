@@ -253,6 +253,41 @@ async def test_forwarded_proto_http_rejected_in_production() -> None:
 
 
 # ---------------------------------------------------------------------------
+# AC5 (edge cases) — X-Forwarded-Proto header value normalisation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_forwarded_proto_mixed_case_https_allowed_in_production() -> None:
+    """X-Forwarded-Proto: HTTPS (mixed-case) must be allowed in production.
+
+    Verifies that _extract_scheme() applies .lower() normalisation so that
+    non-standard proxy implementations that capitalise the value do not
+    cause false rejections.
+    """
+    app = _build_production_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/test", headers={"X-Forwarded-Proto": "HTTPS"})
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_forwarded_proto_whitespace_padded_https_allowed_in_production() -> None:
+    """X-Forwarded-Proto with surrounding whitespace must be allowed in production.
+
+    Verifies that _extract_scheme() applies .strip() normalisation so that
+    proxies that emit whitespace around the value (e.g. "  https  ") do not
+    cause false rejections.
+    """
+    app = _build_production_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/test", headers={"X-Forwarded-Proto": "  https  "})
+
+    assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # AC6 — Startup warning: SSL required but TLS not configured
 # ---------------------------------------------------------------------------
 
@@ -372,13 +407,13 @@ async def test_production_421_content_type_is_json() -> None:
 
 
 def test_setup_middleware_registers_https_enforcement() -> None:
-    """setup_middleware must register HTTPSEnforcementMiddleware on the app.
+    """setup_middleware must register HTTPSEnforcementMiddleware as the last add_middleware call.
 
-    Verifies that the middleware.py wiring calls add_middleware with
-    HTTPSEnforcementMiddleware.
+    Verifies that HTTPSEnforcementMiddleware is the LAST middleware registered
+    in setup_middleware(), making it the outermost layer in Starlette's LIFO
+    middleware stack.  Being outermost ensures plaintext requests are rejected
+    before any other middleware (auth, rate limiting, CSP) processes them.
     """
-    from unittest.mock import MagicMock
-
     from synth_engine.bootstrapper.dependencies.https_enforcement import (
         HTTPSEnforcementMiddleware,
     )
@@ -387,5 +422,7 @@ def test_setup_middleware_registers_https_enforcement() -> None:
     mock_app = MagicMock()
     setup_middleware(mock_app)
 
-    added_middleware_classes = [c.args[0] for c in mock_app.add_middleware.call_args_list]
-    assert HTTPSEnforcementMiddleware in added_middleware_classes
+    # Verify HTTPSEnforcementMiddleware is the LAST add_middleware call so it
+    # becomes the outermost layer in LIFO processing order.
+    last_call = mock_app.add_middleware.call_args_list[-1]
+    assert last_call.args[0] is HTTPSEnforcementMiddleware
