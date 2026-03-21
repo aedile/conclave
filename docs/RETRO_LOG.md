@@ -14,6 +14,33 @@ Drain (delete) rows when their target task is completed.
 |----|--------|-------------|----------|----------|
 | ADV-017 | P41-T41.3 QA R5 | Polish task | ADVISORY | Pre-existing `EpsilonAccountant` references in README.md (lines ~74, ~182) — stale class name, actual interface is `spend_budget`/`reset_budget` functions |
 | ADV-018 | P40-T40.3 QA (post-merge) | Polish task | ADVISORY | Module docstring line 8 in `tests/unit/test_boundary_values.py` says "rounds to zero" but test renamed to "sub-scale Decimal passes positivity guard" |
+| ADV-019 | P41-T41.1 Rule 8 | T41.x or follow-on | BLOCKER | `RetentionCleanup.cleanup_expired_jobs()` is not wired to a scheduler — retention policy has no effect until periodic invocation is configured (Huey/APScheduler) |
+| ADV-020 | P41-T41.1 Rule 8 | T41.x or follow-on | BLOCKER | `artifact_retention_days` setting exists but artifact cleanup is decoupled from job cleanup — no independent disk sweep implemented |
+
+---
+
+### [2026-03-21] P41-T41.1 — Implement Data Retention Policy
+
+**Branch**: `feat/P41-T41.1-data-retention-policy` (9 commits) — PR #155
+
+**Review agents**: Architecture (FINDING → PASS, 4 rounds), DevOps (FINDING → PASS, 2 rounds), QA (FINDING → PASS, 4 rounds)
+
+**Findings fixed (fix commits)**:
+- ARCH-B1: Missing `Depends(get_current_operator)` auth guard on admin endpoint. Fixed: `d8f8af3`.
+- ARCH-B2: `engine: Any` type annotation should be `Engine`. Fixed: `d8f8af3`.
+- DEVOPS-B1: Missing `index=True` on `legal_hold` field per ADR-0041. Fixed: `bd33a1d`.
+- QA-B1: `type(OSError).__name__` evaluates to `"type"` — wrong exception class name in log. Fixed: `23c692c`.
+- QA-B2: Weak assertion in `test_mixed_expired_and_held_jobs` — only one side of invariant verified. Fixed: `273eb83`.
+- QA-B3: Missing OSError path test for `_delete_artifact`. Fixed: `273eb83` (TestDeleteArtifactOSError).
+- QA-B4: Dead code `_make_job()` helper. Fixed: `273eb83`.
+- QA-B5: Missing `ge=1` validators on retention day settings. Fixed: `273eb83`.
+- QA-B6: ADR-0041 contained 8 factual errors (AUDIT_RETENTION_DAYS default, HTTP method, field names, class name, method signature, audit event format, record_id type, false "no audit trail" claim). Fixed: `4114ec1`.
+- QA-B7: `_delete_artifact` docstring misrepresented FileNotFoundError behavior. Fixed: `8226646`.
+- QA-B8: Missing `ge=1` boundary tests. Fixed: `8226646`.
+- QA-B9: Missing audit-failure graceful degradation test for admin endpoint. Fixed: `8226646`.
+- QA-ADV: Renamed misleading `remaining_ids` → `remaining_hold_flags`. Fixed: `8226646`.
+
+**New advisories**: ADV-019 (scheduler wiring, BLOCKER per Rule 8), ADV-020 (artifact cleanup decoupled, BLOCKER per Rule 8).
 
 ---
 
