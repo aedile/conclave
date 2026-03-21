@@ -8,15 +8,21 @@ artefacts of the CI environment, not real vulnerabilities:
 
 | Rule | Status | Justification |
 |------|--------|---------------|
-| 10035 — HSTS Header Not Set | IGNORED | Production is served over TLS via a reverse proxy (nginx/Caddy). Raw uvicorn in CI does not terminate TLS; HSTS is set by the proxy. |
+| 10035 — HSTS Header Not Set | IGNORED | Production is served over TLS via a reverse proxy (nginx/Caddy). Raw uvicorn in CI does not terminate TLS; HSTS is set by the proxy. Application-layer HTTP rejection is enforced by `HTTPSEnforcementMiddleware` (T42.2). |
 | 10038 — CSP Header Not Found | WARN | `CSPMiddleware` is implemented and tested; ZAP may flag non-HTML API responses where CSP is optional. |
 | 10096 — Timestamp Disclosure | IGNORED | Timestamps in JSON API responses are intentional (`created_at`, `updated_at` fields). |
 | 10054 — Cookie Without SameSite | IGNORED | The engine uses token-based authentication. Cookies are not part of the auth flow. |
 
 No code changes were required as a result of the ZAP scan findings.
-All active security controls (`CSPMiddleware`, `SealGateMiddleware`,
-`LicenseGateMiddleware`, `RequestBodyLimitMiddleware`) are verified by
-unit and integration tests.
+All active security controls (`HTTPSEnforcementMiddleware`, `CSPMiddleware`,
+`SealGateMiddleware`, `LicenseGateMiddleware`, `RequestBodyLimitMiddleware`,
+`RateLimitGateMiddleware`) are verified by unit and integration tests.
+
+**HTTPS requirement (T42.2):** In production mode (`CONCLAVE_ENV=production`),
+the engine rejects all plain HTTP requests with 421 Misdirected Request before
+any other processing. A TLS-terminating reverse proxy (nginx or Caddy) that sets
+`X-Forwarded-Proto: https` is required in production. See
+`docs/PRODUCTION_DEPLOYMENT.md` Appendix A for configuration details.
 
 ---
 
@@ -607,6 +613,63 @@ server {
 **Risk if omitted:** Without a trusted reverse proxy, any client may set
 `X-Forwarded-For: 127.0.0.1` to appear as a loopback address, potentially
 bypassing IP-based access controls or audit log accuracy.
+
+
+### 8.9 HTTPS Enforcement (T42.2)
+
+**Security requirement:** In production mode (`CONCLAVE_ENV=production` or
+`ENV=production`), the engine rejects all plain HTTP requests with
+**421 Misdirected Request** (RFC 7231 §6.5.11) before any rate limiting,
+authentication, or business logic runs.  This prevents synthetic data from
+being transmitted in cleartext.
+
+#### Why 421 and not a redirect?
+
+A redirect to HTTPS (301/302) would silently transmit the request line and
+headers in cleartext before the redirect fires — a classic SSL-stripping attack
+vector.  HTTP 421 immediately terminates the connection and forces the operator
+to correct their deployment rather than silently degrading to insecure HTTP.
+
+#### How scheme detection works
+
+`HTTPSEnforcementMiddleware` determines the effective request scheme by:
+
+1. Checking the `X-Forwarded-Proto` header first.  In a reverse-proxy
+   deployment the ASGI server sees internal `http://` traffic; only
+   `X-Forwarded-Proto` carries the real client scheme.
+2. Falling back to the raw ASGI request scheme when the header is absent.
+
+#### Deployment requirements
+
+A production deployment **must** front the `app` service with a
+TLS-terminating reverse proxy that:
+
+1. Terminates TLS on port 443.
+2. Sets `X-Forwarded-Proto: https` on every forwarded request.
+3. Strips any `X-Forwarded-Proto` header injected by the client.
+
+See `docs/PRODUCTION_DEPLOYMENT.md` §2.1 for an nginx and Caddy configuration
+template that satisfies all three requirements.
+
+#### Startup health check
+
+At startup, the engine calls `warn_if_ssl_misconfigured()` and emits a
+`WARNING` log when `CONCLAVE_SSL_REQUIRED=true` but no TLS certificate path
+is configured.  Check application logs for this warning after initial
+deployment.
+
+#### Development mode
+
+In development mode (`CONCLAVE_ENV` is absent or set to any value other than
+`production`), all HTTP requests are allowed.  The enforcement check is
+completely bypassed — no configuration change is required for local development.
+
+| Environment variable | Value | HTTPS enforced? |
+|----------------------|-------|-----------------|
+| `CONCLAVE_ENV=production` | production | Yes — HTTP → 421 |
+| `ENV=production` | production | Yes — HTTP → 421 |
+| `CONCLAVE_ENV=development` | development | No — HTTP allowed |
+| (absent) | (none) | No — HTTP allowed |
 
 
 ## 9. Differential Privacy (DP-SGD) Configuration

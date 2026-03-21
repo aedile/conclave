@@ -38,6 +38,7 @@ Task: P20-T20.4 — Architecture Tightening (ADV-020: SSL override warning)
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: P36 review — Delegate _is_production() to get_settings().is_production() (QA Finding 1)
 Task: T37.2 — Drain ADV-P36-01: replace remaining os.environ.get() with get_settings()
+Task: T42.2 — Add HTTPS Enforcement & Deployment Safety Checks
 Task: T42.1 — Artifact Signing Key Versioning (multi-key consistency validation)
 """
 
@@ -45,6 +46,7 @@ from __future__ import annotations
 
 import logging
 
+from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
 from synth_engine.shared.settings import get_settings
 
 _ALWAYS_REQUIRED: tuple[str, ...] = (
@@ -81,6 +83,14 @@ def validate_config() -> None:
     In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
     also validates that ``ARTIFACT_SIGNING_KEY`` and ``MASKING_SALT`` are present.
 
+    Additionally:
+    - Emits a security warning when ``CONCLAVE_SSL_REQUIRED=false`` is detected
+      in production mode, as this disables SSL enforcement for PostgreSQL
+      connections.
+    - Calls :func:`warn_if_ssl_misconfigured` to warn when
+      ``CONCLAVE_SSL_REQUIRED=true`` but no TLS certificate path is configured
+      in the environment — indicating a potential misconfiguration where the
+      application expects TLS but no cert is wired.
     Additionally, validates multi-key signing consistency (T42.1): if
     ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE``
     must be set and present as a key within the map.  This check applies in
@@ -150,3 +160,14 @@ def validate_config() -> None:
             "SSL enforcement for PostgreSQL connections is disabled. "
             "This is a security misconfiguration for production."
         )
+
+    # TLS cert misconfiguration check (T42.2): warn if ssl_required=True but no
+    # TLS certificate path is configured.  A TLS cert path is considered
+    # "configured" when CONCLAVE_TLS_CERT_PATH is set and non-empty.  This is a
+    # heuristic advisory — the definitive TLS enforcement is handled by the
+    # reverse proxy (nginx/Caddy) per docs/PRODUCTION_DEPLOYMENT.md §2.1.
+    tls_cert_configured: bool = bool(settings.conclave_tls_cert_path)
+    warn_if_ssl_misconfigured(
+        ssl_required=settings.conclave_ssl_required,
+        tls_cert_configured=tls_cert_configured,
+    )

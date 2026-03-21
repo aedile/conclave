@@ -201,3 +201,12 @@ calc_gradient_penalty  # unused method — OpacusCompatibleDiscriminator.calc_gr
 is_production  # unused method — ConclaveSettings.is_production() (shared/settings.py)
 audit_retention_days  # unused variable — ConclaveSettings field read by operator tooling (shared/settings.py)
 artifact_retention_days  # unused variable — ConclaveSettings field read by operator tooling (shared/settings.py)
+
+# ---------------------------------------------------------------------------
+# Category J — T42.2 HTTPS enforcement startup hook
+# warn_if_ssl_misconfigured is called from config_validation.validate_config()
+# at startup.  Vulture cannot trace cross-module function calls that go
+# through a concrete import in config_validation.py.
+# ---------------------------------------------------------------------------
+
+warn_if_ssl_misconfigured  # unused function — startup hook called by config_validation.validate_config() (bootstrapper/dependencies/https_enforcement.py)

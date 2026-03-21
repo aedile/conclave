@@ -475,6 +475,7 @@ def test_production_ssl_required_true_does_not_warn(
     """validate_config() must NOT emit a warning when CONCLAVE_SSL_REQUIRED=true in production.
 
     The default (unset or "true") means SSL is enforced — no warning is needed.
+    A TLS certificate path is configured to suppress the T42.2 startup check.
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
@@ -484,6 +485,10 @@ def test_production_ssl_required_true_does_not_warn(
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
     monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
     monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "true")
+    # Simulate a correctly-configured TLS cert path so the T42.2 startup check
+    # does not emit a spurious warning during this test (T42.2 warns when
+    # ssl_required=True but no cert path is set).
+    monkeypatch.setenv("CONCLAVE_TLS_CERT_PATH", "/etc/ssl/conclave/conclave.crt")
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)

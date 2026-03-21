@@ -23,6 +23,38 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] P42-T42.2 — HTTPS Enforcement Middleware
+
+**Branch**: `feat/P42-T42.2-https-enforcement` (5 commits)
+**Changes**: Implemented `HTTPSEnforcementMiddleware` checking `X-Forwarded-Proto`,
+rejecting HTTP with 421 Misdirected Request (RFC 7807) in production mode, passing
+through in development. Added `warn_if_ssl_misconfigured()` startup hook in
+`config_validation.py`. Added `conclave_tls_cert_path` setting. Created ADR-0043.
+
+**Quality Gates**: Gate #1 (post-GREEN) PASS. Gate #2 (pre-merge) pending.
+
+**Review agents**: QA (FINDING → PASS, 2 rounds), DevOps (FINDING → PASS, 2 rounds),
+Architecture (FINDING → PASS, 2 rounds), Red-Team (FINDING → PASS, 2 rounds).
+
+**R1 Findings fixed** (commit `bfe73b4`):
+- QA-F1: Missing ADR for middleware design decisions → Fixed: created ADR-0043.
+- QA-F2: No edge-case tests for mixed-case/whitespace `X-Forwarded-Proto` → Fixed: 2 tests added.
+- DevOps-F1: Duplicate `warn_if_ssl_misconfigured` entry in `.vulture_whitelist.py` → Fixed: removed.
+- DevOps-F2: `.env.example` missing `CONCLAVE_TLS_CERT_PATH` → Fixed: added.
+- Arch-F1: Middleware ordering assertion too weak (presence, not position) → Fixed: asserts `call_args_list[-1]`.
+- Red-Team: Admin IDOR (ADV-023), privacy budget ownership (ADV-024) — pre-existing, tracked as BLOCKERs.
+
+**R2 Results**: QA PASS, DevOps PASS, Architecture PASS, Red-Team PASS.
+
+**Retrospective Note**:
+The `.strip().lower()` normalization in `_extract_scheme()` is critical — real-world proxies
+(nginx, AWS ALB, Cloudflare) may send `X-Forwarded-Proto` in varying cases and with
+trailing whitespace. Without the edge-case tests added in R1, this normalization would have
+been untested. Future middleware that reads proxy headers should test case/whitespace variants
+from the start.
+
+---
+
 ### [2026-03-21] P42-T42.1 — Artifact Signing Key Versioning
 
 **Branch**: `feat/P42-T42.1-artifact-key-versioning` (6 commits)
