@@ -100,7 +100,9 @@ The following paths bypass authentication by definition (pre-auth bootstrapping 
 - `/unseal`, `/health`, `/metrics` — infrastructure / liveness
 - `/docs`, `/redoc`, `/openapi.json` — API documentation
 - `/license/challenge`, `/license/activate` — license activation flow
-- `/security/shred`, `/security/keys/rotate` — vault shred and key rotation
+- `/security/shred`, `/security/keys/rotate` — middleware-exempt for pre-boot
+  emergency access, but **route-level `Depends(get_current_operator)` enforces
+  auth** since advisory drain pre-P44 (ADV-022)
 - `/auth/token` — token issuance (must be pre-auth so operators can log in)
 
 ---
