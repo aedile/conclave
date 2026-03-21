@@ -13,6 +13,18 @@ Drain (delete) rows when their target task is completed.
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
 | ADV-017 | P41-T41.3 QA R5 | Polish task | ADVISORY | Pre-existing `EpsilonAccountant` references in README.md (lines ~74, ~182) — stale class name, actual interface is `spend_budget`/`reset_budget` functions |
+| ADV-018 | P40-T40.3 QA (post-merge) | Polish task | ADVISORY | Module docstring line 8 in `tests/unit/test_boundary_values.py` says "rounds to zero" but test renamed to "sub-scale Decimal passes positivity guard" |
+
+---
+
+### [2026-03-21] P40-T40.3 (post-merge) — Thread Liveness, Docstring, Precondition Fixes
+
+**Branch**: `fix/P40-T40.3-post-merge-qa` (2 commits) — PR #154
+
+**Review agents**: QA (FINDING — 1 advisory, batched per Rule 16), DevOps (PASS x2)
+
+**Findings**:
+- QA-ADV: Module docstring entry at line 8 of `test_boundary_values.py` stale after test rename. Tracked as ADV-018 (cosmetic, batched per Rule 16).
 
 ---
 
