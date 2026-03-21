@@ -24,6 +24,10 @@ Key project facts:
 - Dependency direction: modules depend on `shared/`; bootstrapper depends on modules; modules NEVER depend on bootstrapper or each other
 - Import-linter contracts enforce these boundaries — do not propose changes that would break them
 
+## Full System Context Rule
+
+**You are NOT limited to reviewing the diff.** The diff tells you what changed. Your job is to find problems ANYWHERE in the system that the change may have exposed. Read related files. Trace call chains. Check that callers of modified functions still work correctly. Check that new code interacts safely with existing code. The diff is your starting point, not your boundary.
+
 ## Scope Gate — Answer This First
 
 Check the diff for changes in:

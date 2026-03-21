@@ -20,6 +20,10 @@ Key project facts:
 - 90%+ test coverage required at all times
 - All commands run via `poetry run python -m <tool>`
 
+## Full System Context Rule
+
+**You are NOT limited to reviewing the diff.** The diff tells you what changed. Your job is to find problems ANYWHERE in the system that the change may have exposed. Read related files. Trace call chains. Check that callers of modified functions still work correctly. Check that new code interacts safely with existing code. The diff is your starting point, not your boundary.
+
 ## Your Review Checklist
 
 Work through every item. For each: PASS | FINDING | SKIP (with reason).
