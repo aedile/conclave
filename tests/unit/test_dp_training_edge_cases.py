@@ -555,8 +555,20 @@ class TestRealDataPaddingGuardWiring:
         padding_cat_calls: list[bool] = []
 
         def spy_cat_check(tensors: Any, *, dim: int = 0, **kwargs: Any) -> Any:
-            # Check if this call looks like it's doing padding (concatenating zeros)
-            if isinstance(tensors, list | tuple) and len(tensors) == 2:
+            # Discriminate padding cats from any other 2-tensor cat (e.g., pac grouping).
+            # The padding guard in the production code always:
+            #   (1) concatenates along dim=1 (column-wise),
+            #   (2) uses a second operand that is a 2D all-zeros tensor with shape[1] > 0.
+            # Only record the call when ALL three conditions hold.
+            if (
+                dim == 1
+                and isinstance(tensors, list | tuple)
+                and len(tensors) == 2
+                and hasattr(tensors[1], "shape")
+                and tensors[1].ndim == 2
+                and tensors[1].shape[1] > 0
+                and torch.allclose(tensors[1], torch.zeros_like(tensors[1]))
+            ):
                 padding_cat_calls.append(True)
             return torch.cat(tensors, dim=dim, **kwargs)
 
