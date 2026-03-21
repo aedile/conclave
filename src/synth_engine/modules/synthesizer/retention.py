@@ -24,8 +24,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
+from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
@@ -52,7 +52,7 @@ class RetentionCleanup:
             eligible for deletion (unless ``legal_hold=True``).
     """
 
-    def __init__(self, *, engine: Any, job_retention_days: int) -> None:
+    def __init__(self, *, engine: Engine, job_retention_days: int) -> None:
         self._engine = engine
         self._job_retention_days = job_retention_days
 

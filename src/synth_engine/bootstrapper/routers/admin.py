@@ -37,6 +37,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
+from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
@@ -84,6 +85,7 @@ def set_legal_hold(
     job_id: int,
     body: LegalHoldRequest,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> LegalHoldResponse | JSONResponse:
     """Toggle the legal hold flag on a synthesis job.
 
@@ -99,6 +101,7 @@ def set_legal_hold(
         job_id: Integer primary key of the job to update.
         body: JSON body with a single boolean ``enable`` field.
         session: Database session (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
         :class:`LegalHoldResponse` with the updated ``legal_hold`` value on
@@ -133,7 +136,7 @@ def set_legal_hold(
     try:
         get_audit_logger().log_event(
             event_type=event_type,
-            actor="system/api",
+            actor=current_operator,
             resource=f"synthesis_job/{job_id}",
             action="legal_hold",
             details={
