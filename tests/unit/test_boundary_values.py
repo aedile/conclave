@@ -9,7 +9,7 @@ Covers edge inputs that are valid-but-degenerate, invalid, or precision-critical
 5. Very large epsilon (1e9) — valid large-but-legal value; must be accepted.
 6. Unicode/emoji in masking input columns — deterministic masking must handle UTF-8.
 7. Maximum-length strings in FPE masking (max_length boundary enforcement).
-8. NUMERIC(20,10) precision boundary: value that rounds to zero.
+8. Sub-scale Decimal passes spend_budget() positivity guard without raising.
 9. Empty string as masking input — must return deterministic result.
 10. Negative max_length in mask_name — must not raise; returns empty string.
 11. check_budget() with zero allocated_epsilon — must raise ValueError.
@@ -344,7 +344,7 @@ def test_mask_name_max_length_zero_returns_empty_string() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Boundary: NUMERIC(20,10) precision — value that rounds to zero
+# Boundary: sub-scale Decimal — passes spend_budget() positivity guard without raising
 # ---------------------------------------------------------------------------
 
 
