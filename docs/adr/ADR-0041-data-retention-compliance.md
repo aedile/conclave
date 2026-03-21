@@ -121,14 +121,16 @@ teams a three-year window to retrieve deletion records.
 
 ## Known Debt
 
-### Scheduler wiring not included in T41.1
+### Scheduler wiring — Resolved (advisory-drain-pre-p44)
 
-`RetentionCleanup.cleanup_expired_jobs()` is a callable method but is not yet wired to
-a scheduler. T41.1 delivers the mechanism; a follow-on task must wire it to the
-existing Celery/APScheduler infrastructure (or equivalent) as a periodic task.
+`RetentionCleanup.cleanup_expired_jobs()` and `cleanup_expired_artifacts()` are wired
+to Huey `@periodic_task` cron jobs in `bootstrapper/retention_tasks.py`:
 
-Per Rule 8, this is logged as a BLOCKER advisory. The retention policy has no effect
-until the scheduler wiring is complete.
+- `cleanup_expired_jobs`: runs daily at 02:00 UTC
+- `cleanup_expired_artifacts`: runs daily at 03:00 UTC
+
+The BLOCKER advisory (ADV-019/ADV-020) raised per Rule 8 in T41.1 was drained in
+the advisory-drain-pre-p44 branch. The retention policy is fully operational.
 
 ### Artifact retention window not enforced on disk independently
 

@@ -80,17 +80,15 @@ Two similarly named locations exist in `shared/`:
 | Path | Purpose |
 |---|---|
 | `shared/task_queue.py` | Huey instance construction (infrastructure) |
-| `shared/tasks/` | Scheduled task definitions (business logic) |
+| `bootstrapper/` | Periodic task definitions (retention, etc.) |
 
 `shared/task_queue.py` is the **queue infrastructure module** — it constructs
 and configures the Huey instance. It contains no task definitions.
 
-`shared/tasks/` contains **scheduled task definitions** — currently the orphan
-task reaper (ADR-0005). These are tasks that run on a timer and are not
-directly enqueued by the API. They import `huey` from `shared/task_queue.py`.
-
-The naming difference (`task_queue` vs `tasks/`) is intentional: the former is
-singular infrastructure, the latter is a package of definitions.
+**Note (Phase 41, T41.1):** The `shared/tasks/` directory described in the original
+ADR was never created (ADR-0005 orphan reaper was removed in T32.1). Periodic task
+definitions (e.g., `cleanup_expired_jobs`, `cleanup_expired_artifacts`) are in
+`bootstrapper/retention_tasks.py`, which imports the Huey instance from `shared/task_queue.py`.
 
 ---
 

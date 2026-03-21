@@ -1,6 +1,6 @@
 # ADR-0005: Orphan Task Reaper — Background Cron for Stuck IN_PROGRESS Tasks
 
-**Status:** Accepted
+**Status:** Accepted — Deferred (implementation removed T32.1)
 **Date:** 2026-03-13
 **Deciders:** Project team
 

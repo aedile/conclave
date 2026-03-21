@@ -45,10 +45,11 @@ identifier is never stored in the token payload — only the hash.
 
 ## Framework boundary
 
-All JWT logic lives in `synth_engine.shared.auth.jwt` (framework-agnostic). The FastAPI
-`HTTPException` translation layer lives in
-`synth_engine.bootstrapper.dependencies.auth.get_current_user()`. This separation ensures
-`shared/` has no web-framework coupling and can be tested without a running ASGI application.
+All JWT logic (when token binding is implemented) will live in `synth_engine.shared.auth.jwt`
+(framework-agnostic). The FastAPI `HTTPException` translation layer lives in
+`synth_engine.bootstrapper.dependencies.auth.get_current_operator()`. Basic JWT authentication
+was re-implemented in T39.1 without token binding; `synth_engine.shared.auth.jwt` does not
+exist yet. This separation ensures `shared/` has no web-framework coupling.
 
 ## Consequences
 
@@ -69,4 +70,11 @@ Implementation removed in T32.1 as unwired scaffolding — the module was define
 wired into the application (zero call sites in `bootstrapper/`). The design decision remains
 sound and will be re-implemented when the trigger condition is met.
 
-See `docs/backlog/deferred-items.md` TBD-06 for acceptance criteria and trigger condition.
+See `docs/backlog/deferred-items.md` TBD-07 for acceptance criteria and trigger condition.
+
+## Amendment — T39 (Phase 39)
+
+Basic JWT authentication was re-implemented in T39.1/T39.2 in `bootstrapper/dependencies/auth.py`
+using PyJWT (ADR-0007 library). Token binding (`bound_client_hash` claim) remains deferred —
+the re-implementation provides authentication without client binding. `synth_engine.shared.auth.jwt`
+does not exist; all current JWT logic is in the bootstrapper layer.

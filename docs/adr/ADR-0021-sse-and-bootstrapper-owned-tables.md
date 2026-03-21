@@ -14,7 +14,7 @@ corresponding decision record:
 
 1. **Streaming protocol selection** — The job progress endpoint uses
    Server-Sent Events (SSE) rather than WebSockets. An inline comment in
-   `shared/sse.py` explains the rationale informally, but a decision record
+   `bootstrapper/sse.py` explains the rationale informally, but a decision record
    is required per project standards.
 
 2. **API-layer-owned SQLModel tables** — `Connection`, `Setting`, and
@@ -108,9 +108,9 @@ or business rules belong in their domain module.**
 
 | Table | Location | Justification |
 |-------|----------|---------------|
-| `Connection` | `bootstrapper/schemas/connection.py` | Pure CRUD: name, engine, URL, credentials. No domain logic — the ingestion module receives a connection string, not a `Connection` object. |
-| `Setting` | `bootstrapper/schemas/setting.py` | Pure CRUD: key/value store for operator configuration. No domain rules. |
-| `SynthesisJob` | `bootstrapper/schemas/job.py` | API-layer job tracking: status, created_at, result reference. Domain logic (training, synthesis) lives in `modules/synthesizer/`. The job record is an API concern, not a domain concern. |
+| `Connection` | `bootstrapper/schemas/connections.py` | Pure CRUD: name, engine, URL, credentials. No domain logic — the ingestion module receives a connection string, not a `Connection` object. |
+| `Setting` | `bootstrapper/schemas/settings.py` | Pure CRUD: key/value store for operator configuration. No domain rules. |
+| `SynthesisJob` | `bootstrapper/schemas/jobs.py` | API-layer job tracking: status, created_at, result reference. Domain logic (training, synthesis) lives in `modules/synthesizer/`. The job record is an API concern, not a domain concern. |
 | `PrivacyLedger` | `modules/privacy/models.py` | Domain-owned: epsilon budget tracking has domain invariants (budget cannot exceed allocated epsilon), participates in domain logic in `modules/privacy/accountant.py`. |
 
 #### Rationale

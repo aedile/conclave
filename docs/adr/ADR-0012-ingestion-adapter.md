@@ -73,10 +73,11 @@ WHERE grantee = current_user
 For non-superuser accounts, the grants table correctly reflects explicitly
 granted write privileges.  Any result raises `PrivilegeEscalationError`.
 
-`PrivilegeEscalationError` is defined in `postgres_adapter.py` (not in
-`shared/`) because it is a domain-specific exception of the ingestion module.
-Placing it in `shared/` would violate the boundary that `shared/` must not
-import from modules, and the exception carries no cross-cutting utility.
+`PrivilegeEscalationError` is defined in `synth_engine.shared.exceptions` — it was moved
+from `postgres_adapter.py` to `shared/` in P26-T26.2 as part of the exception hierarchy
+consolidation. Despite the ingestion-domain origin, it is referenced by the bootstrapper
+error middleware (`OPERATOR_ERROR_MAP`) and so belongs in `shared/` per the cross-module
+exception detection pattern (ADR-0033, ADR-0037).
 
 ### SSL Enforcement: Local Exemption Rationale
 

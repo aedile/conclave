@@ -74,7 +74,7 @@ All `owner_id` columns carry a database index:
 Rationale: every resource list query and single-item fetch filters by `owner_id`. Without
 an index, each authenticated request requires a full table scan, which degrades linearly
 with table size in a multi-operator deployment. The index is created explicitly in the
-Alembic migration (`007_add_owner_id_columns.py`) and declared with `index=True` in the
+Alembic migration (`008_add_owner_id_columns.py`) and declared with `index=True` in the
 SQLModel field definitions.
 
 ### 5. Pass-through mode: empty `jwt_secret_key` → `owner_id=""` sentinel
@@ -170,7 +170,7 @@ is tracked as an advisory — no action required for the current single-operator
 - `src/synth_engine/bootstrapper/dependencies/auth.py` — `get_current_operator()`
 - `src/synth_engine/bootstrapper/schemas/connections.py` — `Connection.owner_id`
 - `src/synth_engine/modules/synthesizer/job_models.py` — `SynthesisJob.owner_id`
-- `alembic/versions/007_add_owner_id_columns.py` — migration with explicit index DDL
+- `alembic/versions/008_add_owner_id_columns.py` — migration with explicit index DDL
 
 ---
 

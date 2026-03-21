@@ -252,8 +252,8 @@ worker entry points need modification.
 | 5 | `datamodel-code-generator` in CI | Implemented Differently (hand-written models) | N/A — permanent |
 | 6 | Rate limiting & circuit breakers | Deferred | Future multi-tenant phase |
 | 7 | mTLS inter-container | Deferred | Future multi-host/K8s phase |
-| 8 | Custom Prometheus business metrics | Deferred | Phase 25 |
-| 9 | OTEL trace context into Huey workers | Deferred | Phase 25 |
+| 8 | Custom Prometheus business metrics | Implemented | Phase 25 (complete) |
+| 9 | OTEL trace context into Huey workers | Implemented | Phase 25 (complete) |
 
 ---
 

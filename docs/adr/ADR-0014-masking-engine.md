@@ -161,6 +161,12 @@ MASKING_SALT production enforcement implemented in `bootstrapper/config_validati
 Production startup without `MASKING_SALT` raises `SystemExit`. This closes the deferred
 documentation item from the original ADR.
 
+## Amendment — T36.1 (Phase 36)
+
+`ConclaveSettings` (Phase 36) is now the canonical configuration source for all environment
+variables including `MASKING_SALT`. `config_validation.py` reads settings via the
+`ConclaveSettings` Pydantic model rather than direct `os.environ` access.
+
 ---
 
 ## Module boundaries

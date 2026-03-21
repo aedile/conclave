@@ -22,9 +22,10 @@ causing them to bypass the domain exception middleware entirely.
 | `LicenseError` | `Exception` | `shared/security/licensing.py` | Bypassed domain middleware; fell through to catch-all 500 handler |
 | `EpsilonMeasurementError` | *(new in T37.1)* | `shared/exceptions.py` | Added to shared hierarchy so `OPERATOR_ERROR_MAP` can reference it without crossing module boundaries. HTTP-safe. |
 
-The domain exception middleware in `bootstrapper/errors.py` uses
-`OPERATOR_ERROR_MAP`, a `dict[type[Exception], OperatorErrorEntry]`, to map
-domain exceptions to RFC 7807 operator-friendly responses.  This lookup is
+The domain exception middleware in `bootstrapper/errors/` package uses
+`OPERATOR_ERROR_MAP` (defined in `bootstrapper/errors/mapping.py`), a
+`dict[type[Exception], OperatorErrorEntry]`, to map domain exceptions to RFC 7807
+operator-friendly responses.  This lookup is
 based on `isinstance` checks against `SynthEngineError` subclasses.  Exceptions
 that did not inherit `SynthEngineError` could not be matched and therefore
 produced incorrect HTTP responses (500 Internal Server Error instead of 400/403).
@@ -138,7 +139,7 @@ T26.2 explicitly removed.
 - ADR-0033: Cross-module exception detection by class name (the pattern this
   decision continues to supersede)
 - `shared/exceptions.py` — updated exception taxonomy
-- `bootstrapper/errors.py` — `OPERATOR_ERROR_MAP` and domain middleware
+- `bootstrapper/errors/` package — `OPERATOR_ERROR_MAP` in `bootstrapper/errors/mapping.py`, domain middleware in `bootstrapper/errors/middleware.py`
 - `bootstrapper/lifecycle.py` — `/unseal` route exception handling
 - `shared/security/vault.py` — vault exception definitions (now re-exports)
 - `shared/security/licensing.py` — `LicenseError` definition (now re-exports)

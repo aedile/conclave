@@ -269,7 +269,7 @@ gracefully as epsilon decreases (more noise → more privacy → less utility).
 
 ---
 
-## Planned Resolution — Phase 30
+## Resolution — Phase 30 (Complete)
 
 ### Current Limitation: Proxy Model Architecture
 
@@ -291,7 +291,7 @@ holds at the accounting level. However, the DP-SGD noise is not injected into th
 discriminator's actual learning process, which weakens the practical privacy protection
 compared to true discriminator-level DP-SGD.
 
-### Phase 30 Resolution Path
+### Phase 30 Resolution (Completed)
 
 Phase 30 (`docs/backlog/phase-30.md`) will implement true discriminator-level DP-SGD
 by addressing the root Opacus/CTGAN incompatibility:
