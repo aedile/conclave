@@ -26,6 +26,7 @@ Task: T40.3 — Add Missing Test Categories: Boundary Values
 
 from __future__ import annotations
 
+import pathlib
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -39,7 +40,7 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 
 
-def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pytest.TempPathFactory) -> None:
+def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pathlib.Path) -> None:
     """SynthesisEngine.train() must raise, not silently succeed, for an empty Parquet file.
 
     An empty source DataFrame has zero rows.  Training a generative model on
@@ -64,7 +65,7 @@ def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pytest.TempPat
     if CTGANSynthesizer is None:
         pytest.skip("synthesizer group not installed")
 
-    parquet_path = tmp_path / "empty.parquet"  # type: ignore[operator]
+    parquet_path = tmp_path / "empty.parquet"
     empty_df = pd.DataFrame({"col_a": pd.Series([], dtype="float64")})
     empty_df.to_parquet(str(parquet_path), engine="pyarrow")
 
@@ -72,7 +73,7 @@ def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pytest.TempPat
 
     engine = SynthesisEngine(epochs=1)
 
-    with pytest.raises((ValueError, RuntimeError, Exception)):
+    with pytest.raises(ValueError, match="fit dataframe is empty"):
         engine.train("empty_table", str(parquet_path))
 
 
@@ -82,7 +83,7 @@ def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pytest.TempPat
 
 
 def test_synthesis_engine_train_single_row_does_not_crash_structurally(
-    tmp_path: pytest.TempPathFactory,
+    tmp_path: pathlib.Path,
 ) -> None:
     """SynthesisEngine.train() with a single-row DataFrame must not crash internally.
 
@@ -106,7 +107,7 @@ def test_synthesis_engine_train_single_row_does_not_crash_structurally(
         pytest.skip("synthesizer group not installed")
 
     single_row_df = pd.DataFrame({"age": [25], "income": [50000.0]})
-    parquet_path = tmp_path / "single_row.parquet"  # type: ignore[operator]
+    parquet_path = tmp_path / "single_row.parquet"
     single_row_df.to_parquet(str(parquet_path), engine="pyarrow")
 
     mock_model = MagicMock()
@@ -350,15 +351,13 @@ async def test_spend_budget_numeric_precision_rounds_to_zero() -> None:
     """NUMERIC(20,10) precision boundary: 1e-11 rounds to zero in SQLite.
 
     SQLite stores NUMERIC as floating-point.  A value smaller than the
-    NUMERIC(20,10) scale (1e-10) may round to zero after storage.  This
-    test verifies that spend_budget() raises ValueError for such an amount
-    (since the normalised Decimal is still positive, but the DB round-trip
-    may lose it).  The assertion guards against silent zero-spend transactions.
+    NUMERIC(20,10) scale (1e-10) may round to zero after storage.
 
-    Note: The ValueError is raised at the function boundary because
-    Decimal("1e-11") > 0, so it passes the positivity check.  The test
-    verifies that the call completes (no crash) and that the ledger state
-    reflects the Decimal precision — even if the stored value rounds.
+    Note: Decimal("1e-11") is positive, so it passes the positivity check
+    in spend_budget().  This test verifies that the call completes without
+    raising ValueError — the amount is positive and the ledger has sufficient
+    budget.  The assertion guards that the positive-amount guard does not
+    incorrectly reject sub-scale Decimal values.
     """
     from sqlalchemy import select as sa_select
     from sqlmodel import SQLModel

@@ -7,9 +7,10 @@ doubles (or more) the time of a hot path:
 2. Privacy budget query must complete in < 100 ms.
 3. Artifact HMAC signing must complete in < 1 second for a 10 MB payload.
 
-All tests are marked ``@pytest.mark.slow`` and run in the integration gate
-(``poetry run pytest tests/integration/ -v -m slow``).  They are excluded
-from the fast unit test gate.
+All tests are marked ``@pytest.mark.slow`` and run in the standard CI
+integration gate (``poetry run pytest tests/integration/ -v``).  The CI
+marker filter is ``-m "not synthesizer"``, which does NOT exclude ``slow``
+tests — these tests execute on every CI run.
 
 Time bounds are set at 2–3× the expected nominal performance to avoid
 flakiness in CI.  Failure indicates a meaningful regression, not marginal
