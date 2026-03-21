@@ -56,80 +56,80 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ConclaveSettings(BaseSettings):
     """Pydantic BaseSettings model for the Conclave Engine.
 
-        All environment variables consumed by the engine are declared here.
-        Fields map directly to environment variable names (case-insensitive).
-        Required fields with no default will raise a ``ValidationError`` at
-        construction time if the corresponding env var is absent or empty.
+    All environment variables consumed by the engine are declared here.
+    Fields map directly to environment variable names (case-insensitive).
+    Required fields with no default will raise a ``ValidationError`` at
+    construction time if the corresponding env var is absent or empty.
 
-        Vault-deferred values (``VAULT_SEAL_SALT``) are intentionally excluded.
-        See module docstring for rationale.
+    Vault-deferred values (``VAULT_SEAL_SALT``) are intentionally excluded.
+    See module docstring for rationale.
 
-        Attributes:
-            database_url: Async-compatible PostgreSQL DSN or SQLite URL.
-                Required in all deployment modes.
-            audit_key: Hex-encoded 32-byte HMAC key for audit event signing.
-                Required in all deployment modes.
-            ale_key: Fernet key for Application-Level Encryption.
-                Optional — vault KEK path is preferred in production.
-            artifact_signing_key: Hex-encoded HMAC key for ModelArtifact pickle signing.
-                Required in production mode only.
-            artifact_signing_key: Hex-encoded HMAC key for Parquet artifact
-                signing (legacy single-key mode).  Deprecated in favour of
-                ``artifact_signing_keys`` but retained for backward
-                compatibility.  Required in production mode only when
-                ``artifact_signing_keys`` is absent.
-            artifact_signing_keys: JSON-encoded dict mapping hex key ID strings
-                to hex key strings.  Enables multi-key rotation.  When set,
-                takes precedence over ``artifact_signing_key``.
-                Example: ``'{"00000001": "abcd...ef", "00000002": "1234...56"}'``.
-            artifact_signing_key_active: Hex key ID string identifying the
-                currently active signing key in ``artifact_signing_keys``.
-                New artifacts are signed with this key; old artifacts signed
-                with any key in the map remain verifiable.
-            masking_salt: Secret salt for deterministic HMAC masking.
-                Required in production mode only.
-            conclave_env: Deployment environment name (e.g. ``"production"``).
-                Checked by :meth:`is_production`.
-            env: Legacy deployment environment name — also checked by
-                :meth:`is_production` for backward compatibility.
-            conclave_ssl_required: Whether to enforce SSL for PostgreSQL connections.
-                Defaults to ``True``.
-            conclave_tls_cert_path: Path to a TLS certificate file used by the
-                reverse proxy.  When set, the T42.2 startup health check treats TLS
-                as configured and suppresses the misconfiguration warning.  Maps to
-                the ``CONCLAVE_TLS_CERT_PATH`` environment variable.
-            force_cpu: Force CPU device selection regardless of CUDA availability.
-                Defaults to ``False``.
-            otel_exporter_otlp_endpoint: OTLP gRPC endpoint URL for OpenTelemetry.
-                When absent, an InMemorySpanExporter is used (air-gap safe).
-            huey_backend: Huey task queue backend (``"redis"`` or ``"memory"``).
-                Defaults to ``"redis"``.
-            huey_immediate: Execute Huey tasks synchronously in the calling process.
-                Recommended for integration tests.  Defaults to ``False``.
-            redis_url: Redis connection URL for the Huey Redis backend.
-                Defaults to ``redis://redis:6379/0``.
-            license_public_key: PEM-encoded RSA public key for license JWT
-                verification.  Falls back to the embedded placeholder when absent.
-            jwt_algorithm: JWT signing algorithm, pinned to prevent confusion attacks.
-                Defaults to ``"HS256"``.
-            jwt_expiry_seconds: Lifetime of issued JWT tokens in seconds.
-                Defaults to ``3600`` (1 hour).
-            operator_credentials_hash: bcrypt hash of the operator passphrase used
-                for ``POST /auth/token``.  Empty string means no operator is
-                configured and token issuance will always fail.
-            jwt_secret_key: HMAC secret key for JWT signing and verification.
-                Required when ``jwt_algorithm`` is ``"HS256"`` or ``"HS384"`` or
-                ``"HS512"``.  Empty string in development/test only.
-            rate_limit_unseal_per_minute: Maximum requests to ``/unseal`` per IP
-                per minute.  Brute-force protection for the vault unseal endpoint.
-                Defaults to ``5``.
-            rate_limit_auth_per_minute: Maximum requests to ``/auth/token`` per IP
-                per minute.  Credential stuffing protection.  Defaults to ``10``.
-            rate_limit_general_per_minute: Maximum requests per authenticated
-                operator per minute on all other endpoints.  Defaults to ``60``.
-            rate_limit_download_per_minute: Maximum download requests per
-                authenticated operator per minute.  Bandwidth protection.
-                Defaults to ``10``.
+    Attributes:
+        database_url: Async-compatible PostgreSQL DSN or SQLite URL.
+            Required in all deployment modes.
+        audit_key: Hex-encoded 32-byte HMAC key for audit event signing.
+            Required in all deployment modes.
+        ale_key: Fernet key for Application-Level Encryption.
+            Optional — vault KEK path is preferred in production.
+        artifact_signing_key: Hex-encoded HMAC key for ModelArtifact pickle signing.
+            Required in production mode only.
+        artifact_signing_key: Hex-encoded HMAC key for Parquet artifact
+            signing (legacy single-key mode).  Deprecated in favour of
+            ``artifact_signing_keys`` but retained for backward
+            compatibility.  Required in production mode only when
+            ``artifact_signing_keys`` is absent.
+        artifact_signing_keys: JSON-encoded dict mapping hex key ID strings
+            to hex key strings.  Enables multi-key rotation.  When set,
+            takes precedence over ``artifact_signing_key``.
+            Example: ``'{"00000001": "abcd...ef", "00000002": "1234...56"}'``.
+        artifact_signing_key_active: Hex key ID string identifying the
+            currently active signing key in ``artifact_signing_keys``.
+            New artifacts are signed with this key; old artifacts signed
+            with any key in the map remain verifiable.
+        masking_salt: Secret salt for deterministic HMAC masking.
+            Required in production mode only.
+        conclave_env: Deployment environment name (e.g. ``"production"``).
+            Checked by :meth:`is_production`.
+        env: Legacy deployment environment name — also checked by
+            :meth:`is_production` for backward compatibility.
+        conclave_ssl_required: Whether to enforce SSL for PostgreSQL connections.
+            Defaults to ``True``.
+        conclave_tls_cert_path: Path to a TLS certificate file used by the
+            reverse proxy.  When set, the T42.2 startup health check treats TLS
+            as configured and suppresses the misconfiguration warning.  Maps to
+            the ``CONCLAVE_TLS_CERT_PATH`` environment variable.
+        force_cpu: Force CPU device selection regardless of CUDA availability.
+            Defaults to ``False``.
+        otel_exporter_otlp_endpoint: OTLP gRPC endpoint URL for OpenTelemetry.
+            When absent, an InMemorySpanExporter is used (air-gap safe).
+        huey_backend: Huey task queue backend (``"redis"`` or ``"memory"``).
+            Defaults to ``"redis"``.
+        huey_immediate: Execute Huey tasks synchronously in the calling process.
+            Recommended for integration tests.  Defaults to ``False``.
+        redis_url: Redis connection URL for the Huey Redis backend.
+            Defaults to ``redis://redis:6379/0``.
+        license_public_key: PEM-encoded RSA public key for license JWT
+            verification.  Falls back to the embedded placeholder when absent.
+        jwt_algorithm: JWT signing algorithm, pinned to prevent confusion attacks.
+            Defaults to ``"HS256"``.
+        jwt_expiry_seconds: Lifetime of issued JWT tokens in seconds.
+            Defaults to ``3600`` (1 hour).
+        operator_credentials_hash: bcrypt hash of the operator passphrase used
+            for ``POST /auth/token``.  Empty string means no operator is
+            configured and token issuance will always fail.
+        jwt_secret_key: HMAC secret key for JWT signing and verification.
+            Required when ``jwt_algorithm`` is ``"HS256"`` or ``"HS384"`` or
+            ``"HS512"``.  Empty string in development/test only.
+        rate_limit_unseal_per_minute: Maximum requests to ``/unseal`` per IP
+            per minute.  Brute-force protection for the vault unseal endpoint.
+            Defaults to ``5``.
+        rate_limit_auth_per_minute: Maximum requests to ``/auth/token`` per IP
+            per minute.  Credential stuffing protection.  Defaults to ``10``.
+        rate_limit_general_per_minute: Maximum requests per authenticated
+            operator per minute on all other endpoints.  Defaults to ``60``.
+        rate_limit_download_per_minute: Maximum download requests per
+            authenticated operator per minute.  Bandwidth protection.
+            Defaults to ``10``.
     """
 
     model_config = SettingsConfigDict(

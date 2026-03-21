@@ -79,48 +79,48 @@ def _is_production() -> bool:
 def validate_config() -> None:
     """Validate required environment variables at application startup.
 
-        Checks that all required environment variables are set and non-empty.
-        In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
-        also validates that ``ARTIFACT_SIGNING_KEY`` and ``MASKING_SALT`` are present.
+    Checks that all required environment variables are set and non-empty.
+    In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
+    also validates that ``ARTIFACT_SIGNING_KEY`` and ``MASKING_SALT`` are present.
 
-        Additionally:
-        - Emits a security warning when ``CONCLAVE_SSL_REQUIRED=false`` is detected
-          in production mode, as this disables SSL enforcement for PostgreSQL
-          connections.
-        - Calls :func:`warn_if_ssl_misconfigured` to warn when
-          ``CONCLAVE_SSL_REQUIRED=true`` but no TLS certificate path is configured
-          in the environment — indicating a potential misconfiguration where the
-          application expects TLS but no cert is wired.
-        Additionally, validates multi-key signing consistency (T42.1): if
-        ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE``
-        must be set and present as a key within the map.  This check applies in
-        all deployment modes.
+    Additionally:
+    - Emits a security warning when ``CONCLAVE_SSL_REQUIRED=false`` is detected
+      in production mode, as this disables SSL enforcement for PostgreSQL
+      connections.
+    - Calls :func:`warn_if_ssl_misconfigured` to warn when
+      ``CONCLAVE_SSL_REQUIRED=true`` but no TLS certificate path is configured
+      in the environment — indicating a potential misconfiguration where the
+      application expects TLS but no cert is wired.
+    Additionally, validates multi-key signing consistency (T42.1): if
+    ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE``
+    must be set and present as a key within the map.  This check applies in
+    all deployment modes.
 
-        Also emits a security warning when ``CONCLAVE_SSL_REQUIRED=false``
-        is detected in production mode, as this disables SSL enforcement for
-        PostgreSQL connections.
+    Also emits a security warning when ``CONCLAVE_SSL_REQUIRED=false``
+    is detected in production mode, as this disables SSL enforcement for
+    PostgreSQL connections.
 
-        Collects ALL missing variables before raising so that the operator
-        receives a complete list in a single error message — not just the first
-        missing variable.
+    Collects ALL missing variables before raising so that the operator
+    receives a complete list in a single error message — not just the first
+    missing variable.
 
-        All environment variable access goes through the :func:`get_settings`
-        singleton rather than ``os.environ`` directly, ensuring a single source
-        of truth consistent with the T36.1 centralization goal (ADV-P36-01).
+    All environment variable access goes through the :func:`get_settings`
+    singleton rather than ``os.environ`` directly, ensuring a single source
+    of truth consistent with the T36.1 centralization goal (ADV-P36-01).
 
-        Returns:
-            ``None`` when all required variables are present and consistent.
+    Returns:
+        ``None`` when all required variables are present and consistent.
 
-        Raises:
-            SystemExit: If any required environment variable is missing or if the
-                multi-key signing configuration is inconsistent.  The exit message
-                lists every error.
+    Raises:
+        SystemExit: If any required environment variable is missing or if the
+            multi-key signing configuration is inconsistent.  The exit message
+            lists every error.
 
-        Example::
+    Example::
 
-            # Call at application startup before any other initialisation:
-            from synth_engine.bootstrapper.config_validation import validate_config
-            validate_config()
+        # Call at application startup before any other initialisation:
+        from synth_engine.bootstrapper.config_validation import validate_config
+        validate_config()
     """
     settings = get_settings()
     required = list(_ALWAYS_REQUIRED)
