@@ -601,7 +601,17 @@ class TestSdvDataProcessorContract:
             "Our mocks patch synth_engine.modules.synthesizer.dp_training.detect_discrete_columns. "
             "If this import path breaks, the DP training preprocess step will fail silently."
         )
-        assert callable(detect_fn)
+        import inspect
+
+        assert inspect.isfunction(detect_fn), (
+            "detect_discrete_columns must be a plain function, not just any callable. "
+            "Our mock uses unittest.mock.patch which requires a real function target."
+        )
+        # Verify it accepts at least one argument (the DataFrame parameter)
+        sig = inspect.signature(detect_fn)
+        assert len(sig.parameters) >= 1, (
+            "detect_discrete_columns must accept at least one parameter (the DataFrame)"
+        )
 
 
 # ---------------------------------------------------------------------------

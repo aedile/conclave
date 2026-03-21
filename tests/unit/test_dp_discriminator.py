@@ -47,10 +47,13 @@ class TestOpacusCompatibleDiscriminatorInit:
     """Tests for __init__ signature and attribute storage."""
 
     def test_constructor_accepts_expected_parameters(self) -> None:
-        """Constructor accepts input_dim, discriminator_dim, pac."""
+        """Constructor accepts input_dim, discriminator_dim, pac and stores pac correctly."""
         cls = _make_real_module()
         discriminator = cls(input_dim=10, discriminator_dim=(256, 256), pac=10)
-        assert discriminator is not None
+        assert isinstance(discriminator, cls), (
+            "Constructor must return an instance of OpacusCompatibleDiscriminator"
+        )
+        assert discriminator.pac == 10, "Constructor must store pac=10 on the discriminator"
 
     def test_pac_attribute_stored(self) -> None:
         """pac attribute is stored and accessible after construction."""
@@ -352,15 +355,21 @@ class TestMockedTorchImport:
     """Tests that verify correct behaviour when torch is unavailable at import time."""
 
     def test_module_file_is_importable_without_side_effects(self) -> None:
-        """The module can be imported (real torch present in test environment)."""
+        """The module can be imported and exposes the expected public class."""
         import synth_engine.modules.synthesizer.dp_discriminator as m
 
-        assert m is not None
+        assert hasattr(m, "OpacusCompatibleDiscriminator"), (
+            "dp_discriminator module must expose OpacusCompatibleDiscriminator"
+        )
 
     def test_class_is_exported_from_module(self) -> None:
         """OpacusCompatibleDiscriminator is the primary export of dp_discriminator."""
+        import inspect
+
         from synth_engine.modules.synthesizer.dp_discriminator import (
             OpacusCompatibleDiscriminator,
         )
 
-        assert OpacusCompatibleDiscriminator is not None
+        assert inspect.isclass(OpacusCompatibleDiscriminator), (
+            "OpacusCompatibleDiscriminator must be a class"
+        )

@@ -503,9 +503,11 @@ def test_rotate_ale_keys_task_is_huey_decorated() -> None:
     """rotate_ale_keys_task must be a callable Huey task."""
     from synth_engine.shared.security.rotation import rotate_ale_keys_task
 
-    assert callable(rotate_ale_keys_task), "rotate_ale_keys_task must be callable"
+    # callable() is redundant when .call_local is verified: all Huey tasks are callable.
     # Huey exposes .call_local() for synchronous in-process task invocation (no broker)
-    assert hasattr(rotate_ale_keys_task, "call_local")
+    assert hasattr(rotate_ale_keys_task, "call_local"), (
+        "rotate_ale_keys_task must be a Huey task with a .call_local attribute"
+    )
 
 
 def test_rotate_ale_keys_task_calls_rotate_ale_keys(

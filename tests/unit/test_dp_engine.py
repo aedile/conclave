@@ -51,12 +51,21 @@ class TestBudgetExhaustionError:
 class TestDPTrainingWrapperInit:
     """Unit tests for DPTrainingWrapper construction."""
 
-    def test_wrapper_instantiates(self) -> None:
-        """DPTrainingWrapper must instantiate without error."""
+    def test_wrapper_instantiates_with_correct_configuration(self) -> None:
+        """DPTrainingWrapper must instantiate and start in an unwrapped state.
+
+        Verifies: (1) instance is a DPTrainingWrapper, (2) epsilon_spent()
+        returns 0.0 before wrapping (no Opacus engine yet).
+        """
         from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
 
         wrapper = DPTrainingWrapper()
-        assert wrapper is not None
+        assert isinstance(wrapper, DPTrainingWrapper), (
+            "DPTrainingWrapper() must return a DPTrainingWrapper instance"
+        )
+        assert wrapper.epsilon_spent(delta=1e-5) == 0.0, (
+            "Newly created wrapper must report 0.0 epsilon spent (no engine yet)"
+        )
 
     def test_wrapper_is_not_wrapped_initially(self) -> None:
         """A newly created DPTrainingWrapper must not be in a wrapped state."""
@@ -348,7 +357,12 @@ class TestDPTrainingWrapperEpsilonSpent:
             )
 
         result = wrapper.epsilon_spent(delta=1e-5)
-        assert isinstance(result, float)
+        assert isinstance(result, float), (
+            f"epsilon_spent() must return float, got {type(result).__name__}"
+        )
+        assert result == 0.5, (
+            f"epsilon_spent() must return the value from Opacus get_epsilon(), got {result}"
+        )
 
     def test_epsilon_spent_returns_strict_python_float_not_numpy_float64(self) -> None:
         """epsilon_spent() must return a strict Python float, not np.float64.
@@ -529,10 +543,16 @@ class TestPrivacyModuleExports:
         """BudgetExhaustionError must be importable from synth_engine.modules.privacy."""
         from synth_engine.modules.privacy import BudgetExhaustionError
 
-        assert BudgetExhaustionError is not None
+        assert issubclass(BudgetExhaustionError, Exception), (
+            "BudgetExhaustionError must be an Exception subclass"
+        )
 
     def test_dp_training_wrapper_importable_from_privacy_init(self) -> None:
         """DPTrainingWrapper must be importable from synth_engine.modules.privacy."""
+        import inspect
+
         from synth_engine.modules.privacy import DPTrainingWrapper
 
-        assert DPTrainingWrapper is not None
+        assert inspect.isclass(DPTrainingWrapper), (
+            "DPTrainingWrapper must be a class, not just a truthy object"
+        )

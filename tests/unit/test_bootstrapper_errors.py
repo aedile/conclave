@@ -191,9 +191,8 @@ class TestRFC7807PureASGIMiddleware:
             pass
 
         middleware = RFC7807Middleware(app=dummy_app)  # type: ignore[arg-type]
-        assert callable(middleware), (
-            "RFC7807Middleware instance must be callable for pure ASGI protocol."
-        )
+        # callable() is subsumed by the signature inspection below:
+        # if __call__ is absent or not callable, inspect.signature() will raise.
         sig = inspect.signature(middleware.__call__)
         param_names = list(sig.parameters.keys())
         assert "scope" in param_names, "RFC7807Middleware.__call__ must accept 'scope'"
