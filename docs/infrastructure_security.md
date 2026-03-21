@@ -82,7 +82,7 @@ container.  Root is never available to the application at runtime.
    and does not require elevated privileges — root is not needed for port
    binding.
 2. `tini` (PID 1) calls `/entrypoint.sh`.
-3. `/entrypoint.sh` calls `su-exec appuser <CMD>`, which performs a permanent
+3. `/entrypoint.sh` calls `gosu appuser <CMD>`, which performs a permanent
    `setuid`/`setgid` drop to UID/GID 1000 before `exec`-ing the application.
 4. From this point forward the process cannot regain root.
 

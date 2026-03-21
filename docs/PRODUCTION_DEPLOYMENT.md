@@ -146,7 +146,7 @@ To enable TLS on the PostgreSQL container:
          -c ssl_key_file=/var/lib/postgresql/server.key
    ```
 
-3. Update `DATABASE_URL` and `PGBOUNCER_URL` in `.env` to add `?sslmode=require`.
+3. Update `DATABASE_URL` in `.env` to add `?sslmode=require`.
 
 ### 2.3 TLS for Redis
 
@@ -318,7 +318,7 @@ openssl rand -hex 32 > secrets/postgres_password.txt
 chmod 600 secrets/postgres_password.txt
 ```
 
-Update `DATABASE_URL` and `PGBOUNCER_URL` in `.env` to use this password.
+Update `DATABASE_URL` in `.env` to use this password.
 
 ### 5.4 ALE Key (Application-Level Encryption)
 
@@ -626,7 +626,7 @@ application over plain HTTP during local development and integration testing.
 
 At startup, ``validate_config()`` calls ``warn_if_ssl_misconfigured()``.  When
 ``CONCLAVE_SSL_REQUIRED=true`` (the default) but no TLS certificate path is
-set in ``SSL_CERTFILE``, ``TLS_CERT_PATH``, or ``CONCLAVE_TLS_CERT_PATH``, a
+set in ``CONCLAVE_TLS_CERT_PATH``, a
 ``WARNING`` log is emitted:
 
 ```

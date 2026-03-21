@@ -1,5 +1,9 @@
 # Dependency Audit — T18.2
 
+> **Staleness notice**: Last verified T18.2 (2026-03-16). This document has not been
+> updated since Phase 18. Dependency versions, counts, and recommendations may be stale.
+> Re-audit required before any major dependency change.
+
 **Date:** 2026-03-16
 **Task:** P18-T18.2 — Dependency Tree Audit & Slimming
 **Auditor:** Software Developer Agent
