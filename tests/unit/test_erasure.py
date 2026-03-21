@@ -830,7 +830,7 @@ class TestErasureRequestValidation:
 
         assert response.status_code == 422
 
-    def test_whitespace_only_subject_id_returns_422(self) -> None:
+    def test_whitespace_only_subject_id_returns_200_safe_noop(self) -> None:
         """DELETE /compliance/erasure with subject_id="   " documents safe behaviour.
 
         Pydantic's min_length constraint applies to the raw string value.
