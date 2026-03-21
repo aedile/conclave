@@ -23,8 +23,9 @@ Signature verification (T42.1):
       signature prefix and matched in the key map.
 
     - **Legacy** (32 bytes): Built from ``ARTIFACT_SIGNING_KEY`` single-key
-      setting.  The legacy key is mapped to :data:`LEGACY_KEY_ID` and fed to
-      :func:`verify_versioned`.
+      setting.  The legacy key is resolved from the key map returned by
+      :func:`~synth_engine.shared.security.hmac_signing.build_key_map_from_settings`
+      and verified via :func:`hmac.compare_digest`.
 
     Both formats use an incremental HMAC computation via :mod:`hmac` —
     the file is read in fixed-size chunks and fed to ``hmac.new().update()``
