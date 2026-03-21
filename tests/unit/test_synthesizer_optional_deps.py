@@ -11,12 +11,6 @@ Task: P43-T43.2 — Consolidate Optional Import Pattern
 
 from __future__ import annotations
 
-import importlib
-import sys
-import types
-from typing import Any
-from unittest.mock import patch
-
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -32,7 +26,7 @@ class TestOptionalDepsExports:
 
     def test_module_is_importable(self) -> None:
         """_optional_deps can be imported without raising."""
-        import synth_engine.modules.synthesizer._optional_deps as m  # noqa: F401
+        import synth_engine.modules.synthesizer._optional_deps as m
 
         assert m is not None
 

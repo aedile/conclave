@@ -46,15 +46,10 @@ from __future__ import annotations
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Deferred PyTorch imports — bound at module scope for unit-test patching.
-# All production usage of torch/nn is guarded by the try/except below.
+# Optional PyTorch imports — resolved centrally in _optional_deps.py (T43.2).
+# Bound at module scope for unit-test patching.
 # ---------------------------------------------------------------------------
-try:
-    import torch
-    import torch.nn as nn
-except ImportError:  # pragma: no cover — only triggered outside synthesizer group
-    torch: Any = None  # type: ignore[no-redef]
-    nn: Any = None  # type: ignore[no-redef]
+from synth_engine.modules.synthesizer._optional_deps import nn, torch
 
 
 class OpacusCompatibleDiscriminator(nn.Module):

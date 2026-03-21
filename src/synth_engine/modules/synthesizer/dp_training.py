@@ -14,13 +14,19 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from synth_engine.modules.synthesizer._optional_deps import DataLoader, TensorDataset, nn, torch
+from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size, parse_gan_hyperparams
+from synth_engine.modules.synthesizer.dp_discriminator import OpacusCompatibleDiscriminator
+from synth_engine.modules.synthesizer.training_strategies import (
+    DpCtganStrategy,
+    Optimizers,
+    TrainingConfig,
+    VanillaCtganStrategy,
+    build_proxy_dataloader,
+)
 from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.exceptions import BudgetExhaustionError
 from synth_engine.shared.protocols import DPWrapperProtocol
-
-_logger = logging.getLogger(__name__)
-_OPACUS_SECURE_RNG_PATTERN = ".*Secure RNG turned off.*"
-_OPACUS_BATCH_PATTERN = ".*Expected.*batch.*"
 
 try:
     from ctgan.synthesizers.ctgan import CTGAN, Generator
@@ -32,25 +38,9 @@ except ImportError:  # pragma: no cover
     CTGAN = None  # ctgan not installed; synthesis unavailable
     Generator = None  # ctgan not installed; synthesis unavailable
 
-try:
-    import torch
-    import torch.nn as nn
-    from torch.utils.data import DataLoader, TensorDataset
-except ImportError:  # pragma: no cover
-    torch: Any = None  # type: ignore[no-redef]
-    nn: Any = None  # type: ignore[no-redef]
-    DataLoader: Any = None  # type: ignore[no-redef]
-    TensorDataset: Any = None  # type: ignore[no-redef]
-
-from synth_engine.modules.synthesizer.dp_discriminator import OpacusCompatibleDiscriminator  # noqa: E402,I001
-from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size, parse_gan_hyperparams  # noqa: E402
-from synth_engine.modules.synthesizer.training_strategies import (  # noqa: E402
-    DpCtganStrategy,
-    Optimizers,
-    TrainingConfig,
-    VanillaCtganStrategy,
-    build_proxy_dataloader,
-)
+_logger = logging.getLogger(__name__)
+_OPACUS_SECURE_RNG_PATTERN = ".*Secure RNG turned off.*"
+_OPACUS_BATCH_PATTERN = ".*Expected.*batch.*"
 
 
 class DPCompatibleCTGAN:
