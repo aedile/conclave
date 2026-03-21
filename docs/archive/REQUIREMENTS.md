@@ -1,5 +1,8 @@
 # **Software Architecture Document: Air-Gapped Synthetic Data Generation Engine**
 
+> **HISTORICAL — ARCHIVED**: This document is superseded. Retained for project history only.
+
+
 ## **Executive Architecture Summary**
 
 The proliferation of stringent data privacy regulations, including the General Data Protection Regulation (GDPR), the Health Insurance Portability and Accountability Act (HIPAA), and the Payment Card Industry Data Security Standard (PCI DSS), presents a profound and persistent challenge for enterprise software development. Data engineering and artificial intelligence experimentation require high-fidelity, production-like datasets in lower environments to ensure accurate testing, modeling, and validation. However, the exposure of sensitive Personally Identifiable Information (PII) or Protected Health Information (PHI) outside of highly secure, audited production enclaves carries catastrophic legal, financial, and reputational risks. The proposed platform represents a highly rigorous, "Bring Your Own Compute" (BYOC) synthetic data generation engine designed specifically to resolve this tension for the mid-market enterprise.

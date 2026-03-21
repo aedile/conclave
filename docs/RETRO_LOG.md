@@ -16,6 +16,34 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] Phase 44 — Comprehensive Documentation Audit & Cleanup
+
+**Branch**: `docs/P44-documentation-audit` (8 commits)
+
+**Tasks completed**: T44.1 (root docs), T44.2 (ADR statuses), T44.3 (operational docs),
+T44.4 (archive/backlog/index/agent prompts), T44.5 (DOCUMENT_INDEX.md)
+
+**What went well**:
+- T44.2 and T44.3 ran in parallel (5 audit agents simultaneously across 70+ documents)
+- T44.4 audit found 2 BLOCKERs (backlog completion markers, index gaps) and 6 ADVISORYs —
+  all fixed inline per standing directive
+- T44.5 produced comprehensive 149-file document registry with lifecycle statuses
+- All review advisories addressed inline (vault seal endpoint docs, coverage thresholds,
+  stale UI/UX reviewer paths)
+
+**What was challenging**:
+- Context break mid-phase required T44.4 audit re-run (previous agent lost)
+- QA review agent ran long (running full pytest suite for docs-only phase)
+
+**Review results**:
+- DevOps: FINDING (MEDIUM) — vault re-seal endpoint docs referenced non-existent route → fixed
+- Red-Team: PASS with 1 ADVISORY — same seal endpoint inconsistency → fixed
+- QA: Pending at time of review commit
+
+**Advisories raised**: None — all findings fixed inline.
+
+---
+
 ### [2026-03-21] Phase 43 Closure — Architectural Polish, Code Hygiene & Rule Sunset
 
 **Tasks completed**: T43.1 (PR #167), T43.2 (PR #165), T43.3 (PR #164), T43.4 (PR #166), T43.5 (direct merge)

@@ -133,7 +133,7 @@ poetry run mypy src/                                           # Type checking
 poetry run pytest tests/unit/ --cov=src/synth_engine --cov-fail-under=95 -W error
 poetry run pytest tests/integration/ -v                        # Separate gate
 poetry run bandit -c pyproject.toml -r src/                    # Security scan
-vulture src/ .vulture_whitelist.py --min-confidence 60         # Dead code
+poetry run vulture src/ .vulture_whitelist.py --min-confidence 60  # Dead code
 pre-commit run --all-files                                     # All hooks
 ```
 
@@ -189,6 +189,8 @@ Module boundaries enforced by `import-linter` contracts. File placement verified
 |--------|--------|
 | API, DI, middleware | `bootstrapper/` |
 | DB connection, schema | `modules/ingestion/` |
+| Relational mapping, FK DAG | `modules/mapping/` |
+| FK traversal, Saga egress | `modules/subsetting/` |
 | FPE, deterministic masking | `modules/masking/` |
 | DP-SGD, CTGAN | `modules/synthesizer/` |
 | Epsilon/delta budget | `modules/privacy/` |
@@ -232,7 +234,7 @@ Before any git operation: `git status` → `git diff --cached` → `gitleaks det
 
 ## Spike-to-Production Promotion Checklist
 
-Before promoting code from `docs/retired/spikes/` into `src/synth_engine/`, verify:
+Before promoting code from `docs/archive/spikes/` into `src/synth_engine/`, verify:
 silent failure audit, PRNG seeding, edge case guards, type annotations, bandit scan,
 import boundary compliance, ≥95% test coverage, ADR alignment. Partial promotion forbidden.
 
@@ -246,7 +248,9 @@ import boundary compliance, ≥95% test coverage, ADR alignment. Partial promoti
 src/synth_engine/
 ├── bootstrapper/  → API, DI, middleware
 ├── modules/
-│   ├── ingestion/    → Schema inference & mapping
+│   ├── ingestion/    → Schema inference & DB adapter
+│   ├── mapping/      → Schema reflection, FK DAG
+│   ├── subsetting/   → FK traversal, Saga egress
 │   ├── profiler/     → Statistical distributions
 │   ├── synthesizer/  → DP-SGD generation
 │   ├── masking/      → Deterministic FPE

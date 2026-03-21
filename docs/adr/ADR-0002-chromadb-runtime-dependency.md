@@ -50,5 +50,5 @@ and spike work. It is not a production runtime dependency and should not be trea
 
 This ADR is marked Superseded to reflect that the original decision (ChromaDB as a
 production runtime dependency) was reversed in Phase 18. The semantic memory spike
-described here is documented in `docs/retired/spikes/` and tracked as a potential future
-capability in `docs/deferred-items.md`.
+described here is documented in `docs/archive/spikes/` and tracked as a potential future
+capability in `docs/backlog/deferred-items.md`.

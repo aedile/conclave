@@ -40,7 +40,7 @@ Use `click >= 8.0.0, < 9.0.0` as the CLI framework for the
 1. **CliRunner test support**: `click.testing.CliRunner` provides an
    in-process, isolation-friendly test harness that captures stdout/stderr
    and exit codes without spawning subprocesses.  This is essential for the
-   unit tests mandated by T3.5 AC2 and enforced by the project's 90%
+   unit tests mandated by T3.5 AC2 and enforced by the project's 95%
    coverage gate.  Replicating equivalent test infrastructure for `argparse`
    would require either subprocess invocation (fragile, slow, coverage-blind)
    or a custom in-process harness (non-trivial to implement correctly).

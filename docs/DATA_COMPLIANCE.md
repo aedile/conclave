@@ -320,11 +320,9 @@ No data leaves the network boundary at any stage.
 
 ## 8. Automated Purge Task
 
-> **Advisory — scheduler wiring deferred**: The `RetentionCleanup` class in
-> `src/synth_engine/modules/synthesizer/retention.py` is implemented and tested
-> (T41.1), but is not yet wired to a scheduler. The retention policy has no
-> effect until a follow-on task wires it to the Huey scheduler or equivalent.
-> See the Known Debt section in ADR-0041.
+The purge task is wired to Huey `@periodic_task` cron jobs in
+`bootstrapper/retention_tasks.py` (wired in advisory-drain-pre-p44). The retention
+policy is fully operational. See ADR-0041 for implementation details.
 
 The purge task runs as a scheduled Huey job. It performs the following actions
 on each execution:

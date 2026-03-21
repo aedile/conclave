@@ -18,7 +18,7 @@ Before writing any code, you MUST read and understand these foundational documen
 
 Key project facts:
 - **Architecture**: Python Modular Monolith with strict logical separation (Bootstrapper, Ingestion, Profiler, Synthesizer, Masking, Privacy, Shared).
-- **Quality Gates**: 90%+ test coverage required, enforced by `pytest`, `ruff`, `mypy`, `bandit`, and `gitleaks`. All gates MUST pass.
+- **Quality Gates**: 95%+ test coverage required, enforced by `pytest`, `ruff`, `mypy`, `bandit`, and `gitleaks`. All gates MUST pass.
 - **Workflow**: Test-Driven Development (TDD) is MANDATORY (Red -> Green -> Refactor).
 - **Environment**: Air-gapped capabilities. No external API calls without explicit, verified proxying or mocked offline behavior.
 

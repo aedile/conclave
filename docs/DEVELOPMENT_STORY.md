@@ -137,8 +137,8 @@ src/synth_engine/
 │   ├── privacy/           Epsilon/delta accountant, DP engine, PrivacyTransaction
 │   └── profiler/          StatisticalProfiler, ProfileDelta, OOM guardrail
 └── shared/                Cross-cutting concerns
-    ├── crypto.py           AES-256-GCM application-level encryption
-    ├── audit.py            WORM append-only audit logger
+    ├── security/ale.py     AES-256-GCM application-level encryption
+    ├── security/audit.py   WORM append-only audit logger
     ├── telemetry.py        OTEL trace propagation, Prometheus metrics
     ├── security/           Vault unseal, license activation, cryptographic shredding
     └── protocols.py        Protocol types for cross-boundary DI callbacks

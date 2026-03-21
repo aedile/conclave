@@ -1,5 +1,8 @@
 # Conclave Autonomous Development Prompt
 
+> **HISTORICAL — ARCHIVED**: This document is superseded. Retained for project history only.
+
+
 **Version**: 1.4.0
 **Last Updated**: 2026-03-02
 **Status**: Active

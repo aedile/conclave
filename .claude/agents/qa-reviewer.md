@@ -17,7 +17,7 @@ Before starting your review, read these files in full:
 Key project facts:
 - Python 3.14, Poetry, Pydantic v2, async-first design
 - No LangChain — native Claude `tool_use` only
-- 90%+ test coverage required at all times
+- 95%+ test coverage required at all times
 - All commands run via `poetry run python -m <tool>`
 
 ## Full System Context Rule
@@ -62,7 +62,7 @@ backlog-compliance:     PASS/BLOCKER — <list each section's items and whether 
 
 ### Coverage Gate
 
-**coverage-gate**: Run `poetry run python -m pytest tests/unit/ --cov=src/synth_engine -q --tb=short 2>&1` and parse the output for the total coverage percentage. If the reported total is below 90%, this is a FINDING — report the exact percentage. The project requires 90%+ at all times; this gate is non-negotiable.
+**coverage-gate**: Run `poetry run python -m pytest tests/unit/ --cov=src/synth_engine -q --tb=short 2>&1` and parse the output for the total coverage percentage. If the reported total is below 95%, this is a FINDING — report the exact percentage. The project requires 95%+ at all times; this gate is non-negotiable.
 
 ### Test Quality
 

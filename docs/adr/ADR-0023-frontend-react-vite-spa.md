@@ -16,7 +16,7 @@ workflows. The UI must:
 2. Meet WCAG 2.1 AA accessibility standards (4.5:1 contrast, keyboard navigation, screen reader
    support).
 3. Integrate with the FastAPI backend over the local loopback network.
-4. Have 90%+ test coverage enforced by the same CI quality gate as the Python backend.
+4. Have 95%+ test coverage enforced by the same CI quality gate as the Python backend.
 5. Ship as a small, self-contained static bundle that can be served without a Node.js runtime in
    production.
 
@@ -80,7 +80,7 @@ rationale for each architectural choice.
   verification in tests.
 - `@testing-library/user-event` simulates real keyboard and pointer events, enabling accurate
   accessibility interaction testing.
-- The 90% coverage gate (matching the Python backend gate) is enforced via `@vitest/coverage-v8`.
+- The 95% coverage gate (matching the Python backend gate) is enforced via `@vitest/coverage-v8`.
 
 **Why not Jest**:
 - Jest requires a separate transform configuration (Babel or `ts-jest`), creating a mismatch
@@ -188,7 +188,7 @@ iframe, mitigating clickjacking attacks.
 
 ### Positive
 - Zero external runtime dependencies — operates fully air-gapped.
-- 90% test coverage gate mirrors the backend standard, ensuring consistent quality.
+- 95% test coverage gate mirrors the backend standard, ensuring consistent quality.
 - Typed end-to-end (TypeScript strict) reduces runtime errors.
 - Accessibility requirements verified in CI via Testing Library's accessible query API.
 

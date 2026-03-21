@@ -96,12 +96,12 @@ detectable.
   `_audit_logger_lock`.  It exists **solely for test isolation** and MUST NOT
   be called in production code.
 
-**Phase 6 future work:**
+**Cross-restart chain continuity — Deferred (accepted risk):**
 On process restart, the previous chain tail (`prev_hash`) is lost from memory.
 An auditor performing cross-restart integrity verification must stitch chains
-manually.  Phase 6 should persist the latest `prev_hash` to the audit database
-table so that new process instances can continue from where the previous one
-left off, making the chain truly continuous across restarts.
+manually.  Persisting `prev_hash` to the audit database table (so new process
+instances can continue from where the previous one left off) is a backlog item
+tracked as accepted risk in the current deployment model.
 
 ### PII Constraint on `details` Field
 
@@ -111,10 +111,10 @@ unstructured to allow callers to attach contextual metadata.  However, callers
 in this dictionary.  The field's contents are written verbatim to the audit log
 and shipped to the log store.
 
-This constraint is currently enforced by convention only.  Before Phase 3 work
-begins, a Pydantic validator or key allowlist should be added to `AuditEvent` to
-reject keys outside a defined set, converting this from a documentation
-constraint to a code constraint.
+This constraint is currently enforced by convention only.  A Pydantic validator or
+key allowlist should be added to `AuditEvent` to reject keys outside a defined set,
+converting this from a documentation constraint to a code constraint.
+This is tracked as a backlog item (deferred — accepted risk for current deployment).
 
 ---
 
@@ -140,8 +140,7 @@ constraint to a code constraint.
 - `AUDIT_KEY` must be rotated carefully: rotating the key breaks verification
   of old events unless the old key is retained.  Rotation procedure is out of
   scope for this ADR.
-- `details` is an open-ended PII sink until a key allowlist is added (planned
-  before Phase 3).
+- `details` is an open-ended PII sink until a key allowlist is added (backlog item — deferred).
 - `reset_audit_logger()` destroys chain continuity.  It is guarded by a
   docstring warning but not a runtime guard.  Callers in production code MUST
   NOT call it.

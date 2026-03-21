@@ -1,3 +1,4 @@
+# HISTORICAL — DO NOT USE: Pre-production spike. See findings_spike_*.md for conclusions.
 """Spike B: Deterministic Format-Preserving Encryption with LUHN validation.
 
 Demonstrates that a Feistel-based FPE cipher can mask 10,000 credit card numbers

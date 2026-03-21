@@ -154,4 +154,4 @@ for asyncpg.
 - `src/synth_engine/bootstrapper/factories.py` — `build_spend_budget_fn()` and
   `_promote_to_sync_url()` implementation
 - `src/synth_engine/shared/protocols.py` — `SpendBudgetProtocol` definition
-- `tests/unit/test_factories.py` — unit tests for `build_spend_budget_fn()`
+- `tests/unit/test_synthesizer_tasks.py` — unit tests for `build_spend_budget_fn()`

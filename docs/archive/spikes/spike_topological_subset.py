@@ -1,3 +1,4 @@
+# HISTORICAL — DO NOT USE: Pre-production spike. See findings_spike_*.md for conclusions.
 """Spike C — Topological Graphing & Memory-Safe Traversal.
 
 Proves three capabilities for the Phase 3 subsetting engine:

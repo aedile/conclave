@@ -6,7 +6,7 @@
 (b) how does the AI orchestration pipeline that produced it work — and how do you run that
 pipeline manually without AI?
 
-This guide describes the system as it exists after Phase 37. Every file path, command, and
+This guide describes the system as it exists after Phase 43. Every file path, command, and
 module reference has been verified against the actual codebase.
 
 ---
@@ -274,8 +274,7 @@ defined in `bootstrapper/sse.py` and the `jobs_streaming` router.
 
 ## 3. Running Quality Gates
 
-All quality gates must pass before any code is merged. GitHub Actions is offline until
-2026-03-31 due to budget constraints; run all gates locally. The `make ci-local` target
+All quality gates must pass before any code is merged. GitHub Actions CI is active (repo is public). Gates also run locally with the commands below. The `make ci-local` target
 runs them all in CI order:
 
 ```bash

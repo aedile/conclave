@@ -120,7 +120,6 @@ Optional variables (uncomment in `.env` as needed):
 |----------|-------------|---------|
 | `HUEY_BACKEND` | Task queue backend (`redis` or `memory`) | `redis` |
 | `REDIS_URL` | Redis connection URL | `redis://redis:6379/0` |
-| `MINIO_ENDPOINT` | MinIO server URL | `http://minio-ephemeral:9000` |
 | `FORCE_CPU` | Force CPU-only synthesis — set to `true` in environments without a compatible NVIDIA GPU | `false` (auto-detect GPU) |
 | `ARTIFACT_SIGNING_KEY` | Hex-encoded 32-byte HMAC-SHA256 key for model artifact signing. **Required in production mode (`ENV=production`); optional in development.** | Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 
@@ -249,14 +248,38 @@ Successful response (HTTP 200):
 
 ### 4.3 Seal the Vault
 
-To re-seal the vault (zeroizes the in-memory KEK):
+> **Important**: A non-destructive re-seal API endpoint does not currently exist.
+> `POST /security/unseal` with `{"action": "seal"}` is **not** a valid route.
+> This feature is planned for a future release.
+
+There are two ways to seal the vault, with very different consequences:
+
+**Option 1 — Restart the container (non-destructive)**
+
+Restarting the container returns the vault to its sealed state. The encrypted KEK
+remains intact on disk; the service simply has no in-memory key until the next
+unseal operation. All non-exempt routes return `423 Locked` until an operator
+calls `POST /unseal` with the correct passphrase.
 
 ```bash
-curl -X POST http://<host>:8000/unseal/seal
+docker compose restart synth-engine
 ```
 
-After sealing, all non-exempt routes return `423 Locked` again. The passphrase
-is **not** required to re-seal; any authenticated operator can seal the vault.
+**Option 2 — `POST /security/shred` (DESTRUCTIVE — use with extreme caution)**
+
+This endpoint performs a **destructive, irreversible** key zeroization (NIST SP 800-88).
+It permanently destroys all keying material and seals the vault. There is no recovery
+path after shred without a full re-initialisation.
+
+```bash
+curl -X POST http://<host>:8000/security/shred \
+  -H "Authorization: Bearer ${TOKEN}"
+```
+
+> **Warning**: `POST /security/shred` is intended for decommissioning and incident
+> response only. Do **not** use it as a routine seal operation. Unlike a container
+> restart, shred cannot be reversed — all previously encrypted data becomes
+> permanently inaccessible.
 
 ---
 
@@ -786,7 +809,8 @@ and the ledger row is left unchanged.
 - **Proxy model architecture**: Opacus is activated on a lightweight proxy
   linear model (not the CTGAN Discriminator directly) to work around CTGAN's
   internal optimizer lifecycle. The epsilon accounting reflects real gradient
-  steps on this proxy model. See ADR-0025 for the full rationale.
+  steps on this proxy model. See ADR-0025 for proxy-model rationale;
+  see ADR-0036 for the discriminator-level DP-SGD architecture (Phase 30+).
 - **Epoch count**: DP epsilon accumulates with each training epoch. More epochs
   = more epsilon spent. At 300 epochs, epsilon is significantly higher than at
   10 epochs for the same `noise_multiplier`.
@@ -855,13 +879,6 @@ guidance, erasure procedures, and audit trail guarantees — is in
 
 ### 11.1 Retention Environment Variables
 
-> **Planned — T41.1**: The retention environment variables in this section
-> (`JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, `ARTIFACT_RETENTION_DAYS`)
-> and the corresponding `ConclaveSettings` fields are not yet implemented.
-> They are scheduled for delivery in task T41.1. Do not set these variables
-> in `.env` on the current release — they will have no effect. The table
-> below documents the intended interface once T41.1 is merged.
-
 Add these to `.env` to override the defaults:
 
 | Variable | Default | Description |
@@ -890,10 +907,6 @@ ARTIFACT_RETENTION_DAYS=30
 
 ### 11.2 Legal Hold
 
-> **Planned — T41.1**: The `legal_hold` field on `SynthesisJob` records and
-> the admin API endpoints below are not yet implemented. They are scheduled
-> for delivery in task T41.1.
-
 Place a synthesis job on legal hold to prevent it from being deleted regardless
 of TTL. This satisfies e-discovery obligations and regulatory hold requirements.
 
@@ -904,21 +917,21 @@ TOKEN=$(curl -s -X POST http://<host>:8000/auth/token \
   -d '{"password": "<operator-passphrase>"}' | jq -r .access_token)
 
 # Place a job on legal hold
-curl -X POST http://<host>:8000/admin/jobs/<job-id>/legal-hold \
-  -H "Authorization: Bearer ${TOKEN}"
+curl -X PATCH http://<host>:8000/admin/jobs/<job-id>/legal-hold \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"enable": true}'
 
 # Release a legal hold
-curl -X DELETE http://<host>:8000/admin/jobs/<job-id>/legal-hold \
-  -H "Authorization: Bearer ${TOKEN}"
+curl -X PATCH http://<host>:8000/admin/jobs/<job-id>/legal-hold \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"enable": false}'
 ```
 
 Every hold and release is logged to the WORM audit trail.
 
 ### 11.3 Manual Purge
-
-> **Planned — T41.1**: The manual purge endpoint (`POST /admin/retention/purge`)
-> and the automated purge task are not yet implemented. They are scheduled for
-> delivery in task T41.1.
 
 The purge task runs automatically on its configured schedule. To trigger a
 manual purge immediately:
@@ -932,9 +945,6 @@ The response includes counts of jobs deleted and artifacts shredded. All
 deletions are logged to the audit trail.
 
 ### 11.4 GDPR / CCPA Erasure Requests
-
-> **Planned — T41.2**: The `DELETE /compliance/erasure` endpoint is not yet
-> implemented. It is scheduled for delivery in task T41.2.
 
 To process a right-to-erasure request for a specific data subject:
 

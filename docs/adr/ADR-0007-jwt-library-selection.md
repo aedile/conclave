@@ -56,3 +56,12 @@ wired into the application (zero call sites in `bootstrapper/`). The design deci
 sound and will be re-implemented when the trigger condition is met.
 
 See `docs/backlog/deferred-items.md` TBD-06 for acceptance criteria and trigger condition.
+
+---
+
+## Amendment — T39.1/T39.2 (Phase 39)
+
+Basic JWT authentication re-implemented in `bootstrapper/dependencies/auth.py` (T39.1) using
+PyJWT with HS256 signing (this ADR's library selection decision). The re-implementation wires
+`get_current_operator()` dependency injection into all authenticated routes. Token binding
+(ADR-0008) remains deferred per TBD-07.

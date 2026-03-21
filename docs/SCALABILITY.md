@@ -171,11 +171,12 @@ sharing the host. Add 512 MB–1 GB overhead for the application itself.
 
 ### GPU Memory (DP-SGD Training)
 
-When Opacus DP-SGD is enabled, the proxy linear model training also occupies
-GPU memory proportional to `n_features` (number of numeric columns after
-VGM preprocessing). For typical datasets with fewer than 100 features, GPU
-memory usage for the proxy model is under 100 MB. The CTGAN model training
-is the primary GPU consumer.
+When Opacus DP-SGD is enabled (Phase 30+), discriminator-level DP-SGD is applied
+directly to the `OpacusCompatibleDiscriminator`. GPU memory usage scales with the
+Discriminator architecture and batch size. For typical datasets with fewer than
+100 features, DP-SGD GPU overhead is under 200 MB above the base CTGAN memory.
+The CTGAN model training is the primary GPU consumer. See ADR-0036 for the
+discriminator-level DP-SGD architecture.
 
 ---
 
@@ -282,7 +283,7 @@ so peak RAM is the maximum of any single table's requirement — not the sum.
 
 - `src/synth_engine/shared/db.py` — `_POOL_SIZE`, `_MAX_OVERFLOW` constants
 - `src/synth_engine/bootstrapper/sse.py` — `_POLL_INTERVAL_S`, `_MAX_POLL_CYCLES` constants
-- `src/synth_engine/modules/synthesizer/dp_training.py` — Opacus proxy model training pattern
+- `src/synth_engine/modules/synthesizer/dp_training.py` — Discriminator-level DP-SGD training (ADR-0036)
 - `docs/DISASTER_RECOVERY.md` Section 2 — OOM event recovery procedures
 - `docs/OPERATOR_MANUAL.md` Section 1 — Hardware requirements table
 - `docs/DP_QUALITY_REPORT.md` — Empirical epsilon benchmarks on 500-row dataset
