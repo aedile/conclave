@@ -39,6 +39,7 @@ CONSTITUTION Priority 0: Security — centralized fail-fast configuration
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
+Task: T39.3 — Add Rate Limiting Middleware
 """
 
 from __future__ import annotations
@@ -99,6 +100,16 @@ class ConclaveSettings(BaseSettings):
         jwt_secret_key: HMAC secret key for JWT signing and verification.
             Required when ``jwt_algorithm`` is ``"HS256"`` or ``"HS384"`` or
             ``"HS512"``.  Empty string in development/test only.
+        rate_limit_unseal_per_minute: Maximum requests to ``/unseal`` per IP
+            per minute.  Brute-force protection for the vault unseal endpoint.
+            Defaults to ``5``.
+        rate_limit_auth_per_minute: Maximum requests to ``/auth/token`` per IP
+            per minute.  Credential stuffing protection.  Defaults to ``10``.
+        rate_limit_general_per_minute: Maximum requests per authenticated
+            operator per minute on all other endpoints.  Defaults to ``60``.
+        rate_limit_download_per_minute: Maximum download requests per
+            authenticated operator per minute.  Bandwidth protection.
+            Defaults to ``10``.
     """
 
     model_config = SettingsConfigDict(
@@ -267,6 +278,42 @@ class ConclaveSettings(BaseSettings):
             "Required when jwt_algorithm is HS256/HS384/HS512. "
             "Must be a cryptographically random string of at least 32 characters. "
             "Empty string only acceptable in development/test environments."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Rate Limiting (T39.3)
+    # -----------------------------------------------------------------------
+
+    rate_limit_unseal_per_minute: int = Field(
+        default=5,
+        description=(
+            "Maximum requests to /unseal per IP per minute. "
+            "Brute-force protection for the vault unseal endpoint. "
+            "Defaults to 5 per the T39.3 security specification."
+        ),
+    )
+    rate_limit_auth_per_minute: int = Field(
+        default=10,
+        description=(
+            "Maximum requests to /auth/token per IP per minute. "
+            "Credential stuffing protection for the authentication endpoint. "
+            "Defaults to 10 per the T39.3 security specification."
+        ),
+    )
+    rate_limit_general_per_minute: int = Field(
+        default=60,
+        description=(
+            "Maximum requests per authenticated operator per minute on all other endpoints. "
+            "Defaults to 60 per the T39.3 security specification."
+        ),
+    )
+    rate_limit_download_per_minute: int = Field(
+        default=10,
+        description=(
+            "Maximum download requests per authenticated operator per minute. "
+            "Bandwidth protection for /jobs/{id}/download. "
+            "Defaults to 10 per the T39.3 security specification."
         ),
     )
 
