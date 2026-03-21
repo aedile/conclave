@@ -23,10 +23,13 @@ Boundary constraints (import-linter enforced)
 ---------------------------------------------
 - This module is in ``modules/synthesizer/`` and MUST NOT import from
   ``bootstrapper/`` or any other ``modules/`` package.
-- It imports from ``shared/`` (audit logger) only.
+- It imports from ``shared/`` (audit logger, protocols) only.
 - The ``Connection`` model from ``bootstrapper/schemas/connections`` is
   provided by the caller (compliance router) via constructor injection,
   keeping this file free of any ``bootstrapper/`` import.
+- The ``connection_model`` parameter is typed via the
+  :class:`~synth_engine.shared.protocols.OwnedRecordModel` Protocol,
+  replacing the prior ``Any`` type annotation (ARCH-F6 review fix).
 
 CONSTITUTION Priority 0: Security — PII-safe audit, cascade deletion
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
@@ -37,12 +40,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
 
-from sqlalchemy import Engine
 from sqlmodel import Session, select
 
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.shared.protocols import OwnedRecordModel
 from synth_engine.shared.security.audit import get_audit_logger
 
 _logger = logging.getLogger(__name__)
@@ -107,23 +109,30 @@ class ErasureService:
     records whose ``owner_id`` matches the given subject identifier.
     Synthesized output files and the WORM audit trail are always preserved.
 
+    The caller (compliance router) provides both the ``session`` and the
+    ``connection_model`` via constructor injection.  This keeps the service
+    free of any ``bootstrapper/`` import while allowing the router to inject
+    the concrete ``Connection`` model.
+
     Args:
-        session_factory: SQLAlchemy :class:`~sqlalchemy.Engine` used to open
-            a :class:`Session` for the deletion transaction.
+        session: An open :class:`~sqlmodel.Session` for the deletion
+            transaction.  The caller is responsible for its lifecycle;
+            :meth:`execute_erasure` will call :meth:`~sqlmodel.Session.commit`
+            after all deletions are complete.
         connection_model: The SQLModel class for connection records.
-            Must have an ``owner_id`` column.  Provided by the caller
-            (compliance router) via constructor injection so that this
-            module never imports from ``bootstrapper/``.  If ``None``,
-            connection deletion is skipped.
+            Must satisfy :class:`~synth_engine.shared.protocols.OwnedRecordModel`
+            (i.e. have an ``owner_id`` column).  Provided by the caller via
+            constructor injection so that this module never imports from
+            ``bootstrapper/``.  If ``None``, connection deletion is skipped.
     """
 
     def __init__(
         self,
         *,
-        session_factory: Engine,
-        connection_model: Any | None = None,
+        session: Session,
+        connection_model: type[OwnedRecordModel] | None = None,
     ) -> None:
-        self._engine = session_factory
+        self._session = session
         self._connection_model = connection_model
 
     def execute_erasure(
@@ -164,27 +173,24 @@ class ErasureService:
         deleted_jobs: int = 0
         deleted_connections: int = 0
 
-        with Session(self._engine) as session:
-            # --- Delete matching SynthesisJobs ---
-            jobs_to_delete = session.exec(
-                select(SynthesisJob).where(SynthesisJob.owner_id == subject_id)
+        # --- Delete matching SynthesisJobs ---
+        jobs_to_delete = self._session.exec(
+            select(SynthesisJob).where(SynthesisJob.owner_id == subject_id)
+        ).all()
+        for job in jobs_to_delete:
+            self._session.delete(job)
+            deleted_jobs += 1
+
+        # --- Delete matching Connections (if model is available) ---
+        if self._connection_model is not None:
+            conns_to_delete = self._session.exec(
+                select(self._connection_model).where(self._connection_model.owner_id == subject_id)
             ).all()
-            for job in jobs_to_delete:
-                session.delete(job)
-                deleted_jobs += 1
+            for conn in conns_to_delete:
+                self._session.delete(conn)
+                deleted_connections += 1
 
-            # --- Delete matching Connections (if model is available) ---
-            if self._connection_model is not None:
-                conns_to_delete = session.exec(
-                    select(self._connection_model).where(
-                        self._connection_model.owner_id == subject_id
-                    )
-                ).all()
-                for conn in conns_to_delete:
-                    session.delete(conn)
-                    deleted_connections += 1
-
-            session.commit()
+        self._session.commit()
 
         _logger.info(
             "GDPR erasure completed: deleted_jobs=%d deleted_connections=%d actor=%s",

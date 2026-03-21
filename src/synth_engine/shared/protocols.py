@@ -10,6 +10,7 @@ more modules belongs in shared/."
 
 Task: P22-T22.3 — Wire spend_budget() into Synthesis Pipeline (F6 review fix)
 Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (complete DPWrapperProtocol)
+Task: T41.2 — GDPR Erasure Endpoint (ARCH-F6: OwnedRecordModel Protocol)
 """
 
 from __future__ import annotations
@@ -122,3 +123,26 @@ class SpendBudgetProtocol(Protocol):
 
         """
         ...  # pragma: no cover — abstract Protocol stub; body is never executed
+
+
+@runtime_checkable
+class OwnedRecordModel(Protocol):
+    """Structural interface for DB models that have an owner_id column.
+
+    Used by :class:`~synth_engine.modules.synthesizer.erasure.ErasureService`
+    to type the constructor-injected connection model without creating a
+    cross-module import dependency from ``modules/synthesizer/`` into
+    ``bootstrapper/``.
+
+    Any SQLModel class with an ``owner_id: str`` attribute satisfies this
+    Protocol structurally (e.g. ``bootstrapper/schemas/connections.Connection``).
+
+    import-linter note:
+        ``shared/`` must not import from ``bootstrapper/`` — this Protocol is
+        the boundary contract that allows structural duck-typing without
+        crossing that boundary.
+
+    Task: T41.2 — GDPR Erasure Endpoint (ARCH-F6 review fix)
+    """
+
+    owner_id: str

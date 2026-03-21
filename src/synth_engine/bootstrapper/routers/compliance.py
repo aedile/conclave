@@ -23,12 +23,16 @@ Security posture
 - The subject identifier is never written into the audit event details
   (CONSTITUTION Priority 0: no PII in audit payloads).
 - RFC 7807 Problem Details format for all error responses.
+- ``subject_id`` has ``min_length=1`` to prevent bulk-deletion via an empty
+  identifier (QA-B1 + DevOps-B1 review fix).
 
 Boundary constraints (import-linter enforced)
 ---------------------------------------------
 - ``bootstrapper/`` may import from ``shared/`` and ``modules/``.
 - ``Connection`` model is injected into ``ErasureService`` here, keeping
   ``modules/synthesizer/erasure.py`` free of any ``bootstrapper/`` import.
+- The DI-provided ``Session`` is passed directly to ``ErasureService``,
+  eliminating the ``session.get_bind()`` leaky abstraction (ARCH-F7 review fix).
 
 CONSTITUTION Priority 0: Security — vault gate, PII-safe audit
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
@@ -43,7 +47,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine
 from sqlmodel import Session
 
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
@@ -69,9 +72,13 @@ class ErasureRequest(BaseModel):
     Attributes:
         subject_id: Opaque data subject identifier (e.g. owner_id, hashed
             email).  Used as a filter key — never logged verbatim.
+            Must be at least 1 character to prevent accidental bulk-deletion
+            of all records with an empty default owner_id.
     """
 
     subject_id: str = Field(
+        min_length=1,
+        max_length=255,
         description=(
             "Opaque data subject identifier used to locate records for deletion. "
             "Must match the owner_id stored on connection and job records."
@@ -154,7 +161,7 @@ def erasure(
     logged to the WORM audit trail.  Audit failure does not abort erasure.
 
     Args:
-        body: JSON body with a single ``subject_id`` string field.
+        body: JSON body with a single ``subject_id`` string field (min 1 char).
         session: Database session (injected by FastAPI DI).
         current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
@@ -178,25 +185,8 @@ def erasure(
             media_type="application/problem+json",
         )
 
-    engine = session.get_bind()
-    if not isinstance(engine, Engine):
-        _logger.error(
-            "compliance/erasure: session is not bound to a SQLAlchemy Engine "
-            "(got %s). Erasure cannot proceed.",
-            type(engine).__name__,
-        )
-        return JSONResponse(
-            status_code=500,
-            content=problem_detail(
-                status=500,
-                title="Internal Server Error",
-                detail="Database session configuration error. Contact your administrator.",
-            ),
-            media_type="application/problem+json",
-        )
-
     service = ErasureService(
-        session_factory=engine,
+        session=session,
         connection_model=Connection,
     )
     manifest = service.execute_erasure(

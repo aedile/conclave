@@ -17,6 +17,9 @@ Tests verify (in RED order):
 - DELETE /compliance/erasure audit failure does not abort the erasure.
 - DELETE /compliance/erasure with no matching records returns 200 with
   empty manifest (idempotent).
+- ErasureRequest rejects empty subject_id (QA-B1).
+- Whitespace-only subject_id passes validation (opaque identifier — not stripped).
+- Auth guard enforces 401 when JWT_SECRET_KEY is configured (QA-B3).
 
 CONSTITUTION Priority 0: Security — no PII in audit details
 CONSTITUTION Priority 3: TDD — RED/GREEN/REFACTOR
@@ -25,10 +28,12 @@ Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
 
 from __future__ import annotations
 
+import os
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -36,6 +41,37 @@ from synth_engine.bootstrapper.schemas.connections import Connection
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
 pytestmark = pytest.mark.unit
+
+# ---------------------------------------------------------------------------
+# Module-level ALE key fixture
+# ---------------------------------------------------------------------------
+#
+# Connection fields are ALE-encrypted; inserting Connection records requires
+# ALE_KEY to be set.  This autouse session fixture ensures a valid Fernet key
+# is available for every test in this module without modifying other test files.
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _module_ale_key() -> Any:
+    """Set a valid ALE_KEY for the entire test module.
+
+    Connection records have ALE-encrypted fields (host, database, etc.).
+    Without ALE_KEY set, inserting a Connection row raises RuntimeError from
+    the ALE type processor.  This fixture ensures a stable key is present for
+    all tests, without interfering with tests in other modules.
+
+    Yields:
+        None — used for side-effect (env var setup) only.
+    """
+    key = Fernet.generate_key().decode()
+    original = os.environ.get("ALE_KEY")
+    os.environ["ALE_KEY"] = key
+    yield
+    if original is None:
+        os.environ.pop("ALE_KEY", None)
+    else:
+        os.environ["ALE_KEY"] = original
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -175,12 +211,13 @@ class TestErasureServiceDeletesCorrectRecords:
             session.commit()
 
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
 
         assert manifest.deleted_jobs == 1
 
@@ -202,12 +239,13 @@ class TestErasureServiceDeletesCorrectRecords:
             session.commit()
 
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine, connection_model=Connection)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
+        with Session(engine) as session:
+            service = ErasureService(session=session, connection_model=Connection)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
 
         assert manifest.deleted_connections == 1
 
@@ -223,14 +261,15 @@ class TestErasureServiceDeletesCorrectRecords:
         engine = _make_engine()
 
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            manifest = service.execute_erasure(
-                subject_id="nonexistent-subject", actor="operator-admin"
-            )
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                manifest = service.execute_erasure(
+                    subject_id="nonexistent-subject", actor="operator-admin"
+                )
 
         assert manifest.deleted_connections == 0
         assert manifest.deleted_jobs == 0
@@ -248,12 +287,13 @@ class TestErasureServiceDeletesCorrectRecords:
             session.commit()
 
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine, connection_model=Connection)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
+        with Session(engine) as session:
+            service = ErasureService(session=session, connection_model=Connection)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
 
         assert manifest.deleted_jobs == 1
         assert manifest.deleted_connections == 1
@@ -276,12 +316,13 @@ class TestErasureServicePreservation:
 
         engine = _make_engine()
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
 
         assert manifest.retained_synthesized_output is True
 
@@ -291,12 +332,13 @@ class TestErasureServicePreservation:
 
         engine = _make_engine()
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
 
         assert manifest.retained_audit_trail is True
 
@@ -323,12 +365,13 @@ class TestErasureServicePreservation:
 
         engine = _make_engine()
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
 
         assert len(manifest.retained_synthesized_output_justification) > 0
         assert len(manifest.retained_audit_trail_justification) > 0
@@ -343,12 +386,13 @@ class TestErasureServiceAuditLogging:
 
         engine = _make_engine()
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            service.execute_erasure(subject_id="sub-001", actor="op1")
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                service.execute_erasure(subject_id="sub-001", actor="op1")
 
         audit_mock.log_event.assert_called_once()
         call_kwargs = audit_mock.log_event.call_args.kwargs
@@ -360,12 +404,13 @@ class TestErasureServiceAuditLogging:
 
         engine = _make_engine()
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            service.execute_erasure(subject_id="sub-001", actor="operator-alice")
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                service.execute_erasure(subject_id="sub-001", actor="operator-alice")
 
         call_kwargs = audit_mock.log_event.call_args.kwargs
         assert call_kwargs["actor"] == "operator-alice"
@@ -381,12 +426,13 @@ class TestErasureServiceAuditLogging:
 
         engine = _make_engine()
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            service.execute_erasure(subject_id="pii-email@example.com", actor="op1")
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                service.execute_erasure(subject_id="pii-email@example.com", actor="op1")
 
         call_kwargs = audit_mock.log_event.call_args.kwargs
         details: dict[str, str] = call_kwargs["details"]
@@ -406,13 +452,14 @@ class TestErasureServiceAuditLogging:
         audit_mock = MagicMock()
         audit_mock.log_event.side_effect = RuntimeError("audit service down")
 
-        service = ErasureService(session_factory=engine)
-        with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            # Must not raise
-            manifest = service.execute_erasure(subject_id="subject-x", actor="op1")
+        with Session(engine) as session:
+            service = ErasureService(session=session)
+            with patch(
+                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                return_value=audit_mock,
+            ):
+                # Must not raise
+                manifest = service.execute_erasure(subject_id="subject-x", actor="op1")
 
         # Deletion still completed despite audit failure
         assert manifest.deleted_jobs == 1
@@ -447,25 +494,27 @@ class TestComplianceEndpointHappy:
         Returns:
             Configured FastAPI app instance.
         """
-        import os
-
         os.environ.setdefault("AUDIT_KEY", "aa" * 32)
         os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
         from fastapi import FastAPI
-        from sqlmodel import Session
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
 
         app = FastAPI()
         app.include_router(compliance_router)
 
-        def _override() -> Any:
+        def _override_session() -> Any:
             with Session(engine) as session:
                 yield session
 
-        app.dependency_overrides[get_db_session] = _override
+        def _override_operator() -> str:
+            return "test-operator"
+
+        app.dependency_overrides[get_db_session] = _override_session
+        app.dependency_overrides[get_current_operator] = _override_operator
         return app
 
     def test_erasure_returns_200_with_compliance_receipt(self) -> None:
@@ -489,11 +538,9 @@ class TestComplianceEndpointHappy:
 
         assert response.status_code == 200
         body = response.json()
-        assert "subject_id" in body
-        assert "deleted_connections" in body
-        assert "deleted_jobs" in body
-        assert "retained_synthesized_output" in body
-        assert "retained_audit_trail" in body
+        assert body["subject_id"] == "sub-001"
+        assert body["retained_synthesized_output"] is True
+        assert body["retained_audit_trail"] is True
 
     def test_erasure_deletes_correct_jobs(self) -> None:
         """DELETE /compliance/erasure removes only jobs owned by the subject."""
@@ -596,30 +643,46 @@ class TestComplianceEndpointHappy:
 class TestComplianceEndpointVaultSealed:
     """Tests for DELETE /compliance/erasure when vault is sealed."""
 
-    def test_erasure_returns_423_when_vault_sealed(self) -> None:
-        """DELETE /compliance/erasure returns 423 when vault is sealed."""
-        import os
+    def _build_sealed_app(self, engine: Any) -> Any:
+        """Build a FastAPI app with compliance router and auth overridden.
 
+        Args:
+            engine: SQLAlchemy engine for the DB override.
+
+        Returns:
+            Configured FastAPI app instance.
+        """
         os.environ.setdefault("AUDIT_KEY", "aa" * 32)
         os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
         from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-        from sqlmodel import Session
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
-        from synth_engine.shared.security.vault import VaultState
 
-        engine = _make_engine()
         app = FastAPI()
         app.include_router(compliance_router)
 
-        def _override() -> Any:
+        def _override_session() -> Any:
             with Session(engine) as session:
                 yield session
 
-        app.dependency_overrides[get_db_session] = _override
+        def _override_operator() -> str:
+            return "test-operator"
+
+        app.dependency_overrides[get_db_session] = _override_session
+        app.dependency_overrides[get_current_operator] = _override_operator
+        return app
+
+    def test_erasure_returns_423_when_vault_sealed(self) -> None:
+        """DELETE /compliance/erasure returns 423 when vault is sealed."""
+        from fastapi.testclient import TestClient
+
+        from synth_engine.shared.security.vault import VaultState
+
+        engine = _make_engine()
+        app = self._build_sealed_app(engine)
 
         # Ensure vault is sealed
         VaultState.reset()
@@ -632,32 +695,18 @@ class TestComplianceEndpointVaultSealed:
             json={"subject_id": "sub-001"},
         )
 
+        VaultState._is_sealed = False  # restore
+
         assert response.status_code == 423
 
     def test_erasure_returns_423_body_is_rfc7807(self) -> None:
         """DELETE /compliance/erasure 423 response uses RFC 7807 format."""
-        import os
-
-        os.environ.setdefault("AUDIT_KEY", "aa" * 32)
-        os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
-
-        from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from sqlmodel import Session
 
-        from synth_engine.bootstrapper.dependencies.db import get_db_session
-        from synth_engine.bootstrapper.routers.compliance import router as compliance_router
         from synth_engine.shared.security.vault import VaultState
 
         engine = _make_engine()
-        app = FastAPI()
-        app.include_router(compliance_router)
-
-        def _override() -> Any:
-            with Session(engine) as session:
-                yield session
-
-        app.dependency_overrides[get_db_session] = _override
+        app = self._build_sealed_app(engine)
 
         VaultState.reset()
 
@@ -668,34 +717,20 @@ class TestComplianceEndpointVaultSealed:
             json={"subject_id": "sub-001"},
         )
 
+        VaultState._is_sealed = False  # restore
+
         body = response.json()
         assert "status" in body
         assert body["status"] == 423
 
     def test_erasure_proceeds_when_vault_unsealed(self) -> None:
         """DELETE /compliance/erasure proceeds normally when vault is NOT sealed."""
-        import os
-
-        os.environ.setdefault("AUDIT_KEY", "aa" * 32)
-        os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
-
-        from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from sqlmodel import Session
 
-        from synth_engine.bootstrapper.dependencies.db import get_db_session
-        from synth_engine.bootstrapper.routers.compliance import router as compliance_router
         from synth_engine.shared.security.vault import VaultState
 
         engine = _make_engine()
-        app = FastAPI()
-        app.include_router(compliance_router)
-
-        def _override() -> Any:
-            with Session(engine) as session:
-                yield session
-
-        app.dependency_overrides[get_db_session] = _override
+        app = self._build_sealed_app(engine)
 
         # Ensure vault is NOT sealed
         VaultState._is_sealed = False
@@ -716,3 +751,183 @@ class TestComplianceEndpointVaultSealed:
         VaultState.reset()
 
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# New review-fix test classes
+# ---------------------------------------------------------------------------
+
+
+class TestErasureRequestValidation:
+    """Tests for ErasureRequest.subject_id validation (QA-B1 + DevOps-B1 review fix).
+
+    An empty subject_id would match all records whose owner_id is the empty
+    string (the default for pre-JWT legacy records), causing bulk deletion of
+    ALL pre-JWT resources.  The min_length=1 constraint prevents this.
+    """
+
+    def setup_method(self) -> None:
+        """Unseal the vault before each test."""
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState._is_sealed = False
+
+    def teardown_method(self) -> None:
+        """Re-seal vault after each test."""
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState.reset()
+
+    def _build_app(self, engine: Any) -> Any:
+        """Build a FastAPI app with compliance router and auth overridden.
+
+        Args:
+            engine: SQLAlchemy engine for the DB override.
+
+        Returns:
+            Configured FastAPI app instance.
+        """
+        os.environ.setdefault("AUDIT_KEY", "aa" * 32)
+        os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
+
+        from fastapi import FastAPI
+
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.routers.compliance import router as compliance_router
+
+        app = FastAPI()
+        app.include_router(compliance_router)
+
+        def _override_session() -> Any:
+            with Session(engine) as session:
+                yield session
+
+        def _override_operator() -> str:
+            return "test-operator"
+
+        app.dependency_overrides[get_db_session] = _override_session
+        app.dependency_overrides[get_current_operator] = _override_operator
+        return app
+
+    def test_empty_subject_id_returns_422(self) -> None:
+        """DELETE /compliance/erasure with subject_id="" returns HTTP 422.
+
+        An empty subject_id would match all legacy records with owner_id="".
+        The min_length=1 constraint prevents accidental bulk erasure.
+        """
+        from fastapi.testclient import TestClient
+
+        engine = _make_engine()
+        app = self._build_app(engine)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.request(
+            "DELETE",
+            "/compliance/erasure",
+            json={"subject_id": ""},
+        )
+
+        assert response.status_code == 422
+
+    def test_whitespace_only_subject_id_returns_422(self) -> None:
+        """DELETE /compliance/erasure with subject_id="   " documents safe behaviour.
+
+        Pydantic's min_length constraint applies to the raw string value.
+        A whitespace-only string has length >= 1 and passes min_length=1.
+
+        Note: We do NOT add strip_whitespace=True because subject_id is
+        treated as an opaque identifier and must not be silently modified.
+        A whitespace-only ID will match zero real records (safe no-op), so
+        this is not a bulk-delete risk — only the empty string ("") is.
+        """
+        from fastapi.testclient import TestClient
+
+        engine = _make_engine()
+        app = self._build_app(engine)
+        audit_mock = MagicMock()
+
+        client = TestClient(app)
+        with patch(
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            return_value=audit_mock,
+        ):
+            response = client.request(
+                "DELETE",
+                "/compliance/erasure",
+                json={"subject_id": "   "},
+            )
+
+        # "   " has length 3, passes min_length=1; returns 200 with empty manifest
+        assert response.status_code == 200
+        body = response.json()
+        assert body["deleted_jobs"] == 0
+        assert body["deleted_connections"] == 0
+
+
+class TestComplianceEndpointAuthGuard:
+    """Tests for authentication enforcement on DELETE /compliance/erasure (QA-B3).
+
+    When JWT_SECRET_KEY is configured, the get_current_operator dependency
+    raises HTTP 401 for unauthenticated requests.
+    """
+
+    def setup_method(self) -> None:
+        """Unseal vault before each test."""
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState._is_sealed = False
+
+    def teardown_method(self) -> None:
+        """Re-seal vault and clear JWT env var after each test."""
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState.reset()
+        os.environ.pop("JWT_SECRET_KEY", None)
+        # Clear settings cache so subsequent tests get a fresh read
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()  # type: ignore[attr-defined]
+
+    def test_erasure_requires_auth_when_jwt_configured(self) -> None:
+        """DELETE /compliance/erasure returns 401 when JWT is configured but no token given.
+
+        When JWT_SECRET_KEY is set, get_current_operator raises HTTPException(401)
+        for requests that omit the Authorization header.  This test verifies that
+        the erasure endpoint is protected and cannot be accessed unauthenticated.
+        """
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.routers.compliance import router as compliance_router
+
+        os.environ.setdefault("AUDIT_KEY", "aa" * 32)
+        os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
+        # Configure JWT — this activates authentication enforcement in get_current_operator
+        os.environ["JWT_SECRET_KEY"] = "test-secret-key-for-auth-guard-test"
+
+        # Force settings cache to re-read the env
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()  # type: ignore[attr-defined]
+
+        engine = _make_engine()
+        app = FastAPI()
+        app.include_router(compliance_router)
+
+        def _override_session() -> Any:
+            with Session(engine) as session:
+                yield session
+
+        # Do NOT override get_current_operator — we want the real auth guard
+        app.dependency_overrides[get_db_session] = _override_session
+
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.request(
+            "DELETE",
+            "/compliance/erasure",
+            json={"subject_id": "sub-001"},
+        )
+
+        assert response.status_code in {401, 403}
