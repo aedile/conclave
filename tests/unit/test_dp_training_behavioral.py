@@ -603,8 +603,9 @@ class TestSdvDataProcessorContract:
         )
         import inspect
 
-        assert inspect.isfunction(detect_fn) or callable(detect_fn), (
-            "detect_discrete_columns must be callable (function or callable object)"
+        assert inspect.isfunction(detect_fn), (
+            "detect_discrete_columns must be a plain function, not just any callable. "
+            "Our mock uses unittest.mock.patch which requires a real function target."
         )
         # Verify it accepts at least one argument (the DataFrame parameter)
         sig = inspect.signature(detect_fn)
