@@ -23,6 +23,7 @@ module reference has been verified against the actual codebase.
 8. [Operating Without AI](#8-operating-without-ai)
 9. [Critical Invariants](#9-critical-invariants)
 10. [Key Files Reference](#10-key-files-reference)
+11. [Conditional Imports](#11-conditional-imports)
 
 ---
 
@@ -989,3 +990,114 @@ All ADRs live in `docs/adr/`. Key ones for onboarding:
 | `docs/infrastructure_security.md` | LUKS volumes, network isolation, security posture |
 | `docs/DEPENDENCY_AUDIT_POLICY.md` | Dependency review requirements and cadence |
 | `docs/E2E_VALIDATION.md` | End-to-end validation run record (Phase 28+) |
+
+---
+
+## 11. Conditional Imports
+
+### Why the Pattern Exists
+
+Several optional dependency groups are not installed in all environments. The default
+`poetry install` installs only the core group. Synthesis-specific dependencies
+(`sdv`, `ctgan`, `opacus`, `torch`) belong to the `synthesizer` group, which is
+optional:
+
+```bash
+poetry install --with synthesizer  # enables synthesis and DP training
+```
+
+If a module imported these libraries unconditionally at the top of the file,
+`ModuleNotFoundError` would prevent the FastAPI application from starting in
+environments where the synthesizer group is absent — even if no synthesis endpoint
+was called. This would break health checks, the vault-unseal route, and all other
+unrelated routes.
+
+The solution is **deferred conditional imports** using `try/except ImportError` at
+module scope, binding the name to `None` on failure. Code that actually uses the
+name then guards at the call site:
+
+```python
+try:
+    from sdv.single_table import CTGANSynthesizer
+except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
+    CTGANSynthesizer = None  # SDV not installed; synthesis unavailable
+
+# ... later, at the call site:
+if CTGANSynthesizer is None:  # pragma: no cover
+    raise ImportError(
+        "The 'sdv' package is required for synthesis. "
+        "Install it with: poetry install --with synthesizer"
+    )
+```
+
+The `# pragma: no cover` marker on the `except` branch is intentional: in the
+standard test environment (with `--with synthesizer`), this branch is never reached
+and cannot be covered. The marker prevents a spurious coverage failure.
+
+### How to Check Dependency Availability at Runtime
+
+A caller can detect whether synthesis is available before attempting to use it:
+
+```python
+from synth_engine.modules.synthesizer.engine import CTGANSynthesizer
+
+if CTGANSynthesizer is None:
+    # synthesis group not installed — raise a user-friendly error or skip
+    raise ImportError("Install the synthesizer dependency group to use this feature.")
+```
+
+The same pattern applies to `DPCompatibleCTGAN`, `PrivacyEngine`, `torch`, and
+`MinioStorageBackend`.
+
+### Files Using Deferred Conditional Imports
+
+Every file in this list follows the `try/except ImportError` pattern described above.
+All synthesizer-group names are bound to `None` when the group is absent.
+
+| File | Names conditionally imported | Optional group |
+|------|------------------------------|----------------|
+| `modules/synthesizer/engine.py` | `CTGANSynthesizer` (sdv), `DPCompatibleCTGAN` | `synthesizer` |
+| `modules/synthesizer/dp_training.py` | `CTGANSynthesizer`, `CTGAN`, `Generator`, `detect_discrete_columns` (sdv/ctgan), `torch`, `nn`, `DataLoader`, `TensorDataset` | `synthesizer` |
+| `modules/synthesizer/dp_discriminator.py` | `torch`, `nn` | `synthesizer` |
+| `modules/privacy/dp_engine.py` | `PrivacyEngine` (opacus) | `synthesizer` |
+| `bootstrapper/main.py` | `MinioStorageBackend` | `synthesizer` |
+| `shared/telemetry.py` | `OTLPSpanExporter` (opentelemetry-exporter-otlp) [1] | optional OTEL exporter |
+
+> [1] `shared/telemetry.py` uses a **function-scope** lazy import inside `_build_exporter()`, not the module-scope `= None` pattern described above. The name is never bound at module scope; instead, a `try/except ImportError` block inside the function handles absence of the optional package at call time.
+
+### Mypy Configuration
+
+Because these libraries ship without `py.typed` markers, mypy strict mode cannot
+verify their type stubs. The exceptions are declared in `pyproject.toml` under
+`[tool.mypy.overrides]`:
+
+```toml
+[[tool.mypy.overrides]]
+module = ["sdv.*", "ctgan.*", "opacus.*", "huey", "huey.*"]
+ignore_missing_imports = true
+```
+
+See ADR-0032 for the full rationale. Adding a new optional dependency that lacks
+`py.typed` requires a corresponding entry here plus documentation in ADR-0032.
+
+### Testing Conditional Import Code
+
+Unit tests for code that uses conditional imports run with the `synthesizer` group
+installed. The `# pragma: no cover` branches that fire when the group is absent are
+excluded from the 95% coverage requirement.
+
+To test the behavior when a dependency is absent, patch the module-scope name to `None`:
+
+```python
+from unittest.mock import patch
+
+def test_train_raises_when_sdv_absent() -> None:
+    with patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer", None):
+        engine = SynthesisEngine()
+        with pytest.raises(ImportError, match="sdv.*synthesizer"):
+            engine.train("t", "/path/to/data.parquet")
+```
+
+This pattern is used in `tests/unit/synthesizer/test_engine.py` to achieve
+meaningful coverage of the guarded call sites without requiring two separate
+dependency environments.
