@@ -1061,7 +1061,9 @@ All synthesizer-group names are bound to `None` when the group is absent.
 | `modules/synthesizer/dp_discriminator.py` | `torch`, `nn` | `synthesizer` |
 | `modules/privacy/dp_engine.py` | `PrivacyEngine` (opacus) | `synthesizer` |
 | `bootstrapper/main.py` | `MinioStorageBackend` | `synthesizer` |
-| `shared/telemetry.py` | `OTLPSpanExporter` (opentelemetry-exporter-otlp) | optional OTEL exporter |
+| `shared/telemetry.py` | `OTLPSpanExporter` (opentelemetry-exporter-otlp) [1] | optional OTEL exporter |
+
+> [1] `shared/telemetry.py` uses a **function-scope** lazy import inside `_build_exporter()`, not the module-scope `= None` pattern described above. The name is never bound at module scope; instead, a `try/except ImportError` block inside the function handles absence of the optional package at call time.
 
 ### Mypy Configuration
 
@@ -1071,7 +1073,7 @@ verify their type stubs. The exceptions are declared in `pyproject.toml` under
 
 ```toml
 [[tool.mypy.overrides]]
-module = ["sdv.*", "ctgan.*", "opacus.*", "huey.*"]
+module = ["sdv.*", "ctgan.*", "opacus.*", "huey", "huey.*"]
 ignore_missing_imports = true
 ```
 
