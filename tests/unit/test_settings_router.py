@@ -19,9 +19,17 @@ pytestmark = pytest.mark.unit
 
 
 def _make_settings_app() -> Any:
-    """Build a test FastAPI app wired with the settings router."""
+    """Build a test FastAPI app wired with the settings router.
+
+    Overrides ``get_current_operator`` to bypass JWT auth in functional tests
+    that are not testing authentication itself (ADV-021).
+
+    Returns:
+        FastAPI app instance with settings router and mocked auth.
+    """
     from sqlalchemy.pool import StaticPool
 
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
@@ -43,6 +51,8 @@ def _make_settings_app() -> Any:
             yield session
 
     app.dependency_overrides[get_db_session] = _override
+    # Override auth for non-auth-focused tests — they test settings CRUD, not authn
+    app.dependency_overrides[get_current_operator] = lambda: "test-operator"
     return app
 
 

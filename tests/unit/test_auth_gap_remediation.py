@@ -533,9 +533,7 @@ class TestSecurityEmptySubReturns401:
     """Tokens with empty sub must return 401 on security endpoints."""
 
     @pytest.mark.asyncio
-    async def test_shred_vault_empty_sub_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_shred_vault_empty_sub_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """POST /security/shred with token sub="" must return 401."""
         app = _make_security_app(monkeypatch)
         token = _make_token(sub="")
@@ -553,9 +551,7 @@ class TestSecurityEmptySubReturns401:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_rotate_keys_empty_sub_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_rotate_keys_empty_sub_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """POST /security/keys/rotate with token sub="" must return 401."""
         app = _make_security_app(monkeypatch)
         token = _make_token(sub="")
@@ -583,9 +579,7 @@ class TestSecurityWrongKeyReturns401:
     """Tokens signed with wrong key must return 401 on security endpoints."""
 
     @pytest.mark.asyncio
-    async def test_shred_vault_wrong_key_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_shred_vault_wrong_key_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """POST /security/shred with token signed by wrong key must return 401."""
         app = _make_security_app(monkeypatch)
         token = _make_token(secret=_WRONG_SECRET)
@@ -706,9 +700,7 @@ class TestPrivacyEmptySubReturns401:
     """Tokens with empty sub must return 401 on privacy endpoints."""
 
     @pytest.mark.asyncio
-    async def test_get_budget_empty_sub_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_get_budget_empty_sub_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GET /privacy/budget with token sub="" must return 401."""
         app, _ = _make_privacy_app(monkeypatch)
         token = _make_token(sub="")
@@ -756,9 +748,7 @@ class TestPrivacyWrongKeyReturns401:
     """Tokens signed with wrong key must return 401 on privacy endpoints."""
 
     @pytest.mark.asyncio
-    async def test_get_budget_wrong_key_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_get_budget_wrong_key_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GET /privacy/budget with token signed by wrong key must return 401."""
         app, _ = _make_privacy_app(monkeypatch)
         token = _make_token(secret=_WRONG_SECRET)
@@ -785,9 +775,7 @@ class TestPassThroughModeAllowsAccess:
     """When JWT_SECRET_KEY is empty, endpoints must be accessible without token."""
 
     @pytest.mark.asyncio
-    async def test_settings_passthrough_allows_list(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_settings_passthrough_allows_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GET /settings must allow access when JWT_SECRET_KEY is empty (pass-through mode)."""
         from sqlalchemy.pool import StaticPool
 
@@ -1150,12 +1138,8 @@ class TestSecurityAuditUsesJwtSub:
                 return_value=False,
             ),
             # Mock get_fernet and the rotation task to avoid real crypto/Huey
-            patch(
-                "synth_engine.bootstrapper.routers.security.get_fernet"
-            ) as mock_fernet,
-            patch(
-                "synth_engine.bootstrapper.routers.security.rotate_ale_keys_task"
-            ),
+            patch("synth_engine.bootstrapper.routers.security.get_fernet") as mock_fernet,
+            patch("synth_engine.bootstrapper.routers.security.rotate_ale_keys_task"),
         ):
             mock_fernet_instance = MagicMock()
             mock_fernet_instance.encrypt.return_value = b"wrapped_key_bytes"
