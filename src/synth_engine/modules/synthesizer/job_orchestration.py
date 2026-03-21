@@ -229,6 +229,8 @@ def _handle_dp_accounting(
         actual_eps = dp_wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
         job.actual_epsilon = actual_eps
         _logger.info("Job %d: DP complete, actual_epsilon=%.4f.", job_id, actual_eps)
+    # Broad catch: dp_wrapper.epsilon_spent() may raise any DP library exception;
+    # all failures must become EpsilonMeasurementError (Priority 0: safety > availability).
     except Exception as exc:
         _logger.error(
             "Job %d: epsilon_spent() raised — privacy budget cannot be verified.",
@@ -283,6 +285,8 @@ def _handle_dp_accounting(
                 action="spend_budget",
                 details={"job_id": str(job_id), "epsilon_spent": str(job.actual_epsilon)},
             )
+        # Broad catch: audit_logger.log_event() may raise any I/O or serialisation
+        # error; budget already spent — surface as AuditWriteError (T38.1).
         except Exception as exc:
             _logger.error(
                 "Job %d: Audit log failed after budget deduction — reconciliation required.",

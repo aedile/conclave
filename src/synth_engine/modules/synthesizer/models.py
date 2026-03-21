@@ -90,6 +90,10 @@ def _looks_signed(raw: bytes) -> bool:
     )
 
 
+# Intentionally mutable: column_names, column_dtypes, and column_nullables
+# are populated incrementally during job finalization after training completes.
+# frozen=True would require all fields at construction time, conflicting with
+# the step-based orchestration lifecycle (T35.1, ADR-0038).
 @dataclass
 class ModelArtifact:
     """Serialisable container for a trained CTGAN model and its schema metadata.
