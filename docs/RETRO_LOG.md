@@ -26,6 +26,10 @@ Drain (delete) rows when their target task is completed.
 - ADV-T39.3-01: Fixed raw key logging in rate limit fallback path
 - ADV-T39.4-01: Amended ADR-0006 — documented infrastructure-sensitive field scope expansion
 
+**Review agents**: QA (PASS), DevOps (PASS), Architecture (PASS)
+
+**Review summary**: No findings across all three reviewers. Clean drain — all advisory resolutions verified.
+
 ---
 
 ### [2026-03-20] P39-T39.2 — Authorization & IDOR Protection
