@@ -340,7 +340,7 @@ No data leaves the network boundary at any stage.
 The purge task runs as a scheduled Huey job. It performs the following actions
 on each execution:
 
-1. Query `synthesis_job` for records where `completed_at < NOW() - job_retention_days`
+1. Query `synthesis_job` for records where `created_at < NOW() - job_retention_days`
    AND `legal_hold = false` AND `status IN ('COMPLETE', 'FAILED', 'SHREDDED')`.
 2. For each eligible job, shred its artifacts (NIST SP 800-88) and delete the
    job record.
