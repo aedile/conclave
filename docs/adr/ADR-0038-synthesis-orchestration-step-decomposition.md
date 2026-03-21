@@ -64,13 +64,17 @@ writes `job.artifact_path`.  Instead it stores the checkpoint path on
 after `DpAccountingStep` succeeds, preserving the invariant tested by
 `test_budget_exhaustion_artifact_not_persisted`.
 
-**Patch-path compatibility** — all step implementations and helpers live in
-`job_orchestration.py` so existing tests that patch
-`job_orchestration.check_memory_feasibility`,
+**Patch-path compatibility** — step implementations may live in dedicated
+modules within `modules/synthesizer/` (e.g. `dp_accounting.py`), provided
+they are **re-exported through `job_orchestration.py`** so that existing
+tests patching `job_orchestration.check_memory_feasibility`,
 `job_orchestration._spend_budget_fn`,
 `job_orchestration.get_audit_logger`, and
 `job_orchestration._write_parquet_with_signing` continue to work without
-modification.  `job_steps.py` remains a thin re-export façade.
+modification.  Internal helpers (e.g. `_handle_dp_accounting`) that read
+module-level bindings from `job_orchestration` at call time (lazy import)
+preserve patch effectiveness.  `job_steps.py` remains a thin re-export
+façade.
 
 **Line-budget helpers** — three private helpers keep the orchestrator under
 50 lines without hiding logic: `_commit_job(job, session)` (adds + commits),
@@ -98,9 +102,10 @@ modification.  `job_steps.py` remains a thin re-export façade.
 - Three new private helpers (`_commit_job`, `_run_oom_preflight`, `_build_ctx`)
   add surface area to the module.  These are intentionally minimal and do not
   encapsulate business logic — they exist solely to satisfy the 50-line limit.
-- Step classes are defined in `job_orchestration.py` (not `job_steps.py`) for
-  patch-path compatibility.  New code importing step classes should prefer
-  `job_steps` as the stable public path.
+- Step classes may be extracted to dedicated modules (e.g. `dp_accounting.py`)
+  but MUST be re-exported through `job_orchestration.py` for patch-path
+  compatibility.  New code importing step classes should prefer `job_steps`
+  as the stable public path.
 
 ---
 
@@ -119,7 +124,8 @@ current `asyncio.run()` wrapping in `set_spend_budget_fn` is sufficient.
 
 ## References
 
-- `src/synth_engine/modules/synthesizer/job_orchestration.py` — step classes + orchestrator
+- `src/synth_engine/modules/synthesizer/job_orchestration.py` — orchestrator + re-exports
+- `src/synth_engine/modules/synthesizer/dp_accounting.py` — DP accounting step (T43.1)
 - `src/synth_engine/modules/synthesizer/job_steps.py` — re-export façade
 - `tests/unit/test_job_steps.py` — 31 new step isolation tests
 - ADR-0029 — DI injection pattern (`set_dp_wrapper_factory`, `set_spend_budget_fn`)
