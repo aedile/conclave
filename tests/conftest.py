@@ -4,11 +4,13 @@ This module registers custom markers and scaffolds future DB fixtures.
 
 Task: P1-T1.2 — TDD Framework
 Task: T36.1 — Add settings cache-clear autouse fixture
+Task: T39.2 — Add logger-re-enable fixture to counter alembic fileConfig side-effect
 """
 
 from __future__ import annotations
 
 import gc
+import logging
 import os
 import warnings
 from collections.abc import Generator
@@ -87,6 +89,58 @@ def _clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
         get_settings.cache_clear()
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _reenable_loggers_disabled_by_alembic() -> None:
+    """Re-enable application loggers disabled by ``logging.config.fileConfig()``.
+
+    Root cause
+    ----------
+    ``alembic.command.stamp/downgrade/upgrade`` internally calls
+    ``logging.config.fileConfig("alembic.ini")`` with the default
+    ``disable_existing_loggers=True``.  ``fileConfig`` sets
+    ``logger.disabled = True`` on every Python logger that existed
+    before the call but is **not** listed in ``alembic.ini``'s
+    ``[loggers]`` section.
+
+    This includes ``synth_engine.security.audit`` and all other
+    application loggers.  A disabled logger silently drops all records
+    regardless of level, making ``caplog.at_level(INFO, ...)`` unable to
+    capture audit events in tests that run after the migration test module.
+
+    The ``pytest.caplog`` fixture calls ``_force_enable_logging`` which
+    handles the global ``logging.disable()`` level but does NOT reset
+    individual ``logger.disabled`` flags.  Hence the per-logger flag
+    must be repaired in a separate autouse fixture.
+
+    Fix
+    ---
+    Before each test, iterate the logger registry and re-enable (set
+    ``logger.disabled = False``) any application logger whose name starts
+    with ``synth_engine``.  This is scoped to the project namespace to
+    avoid inadvertently re-enabling third-party loggers that were
+    intentionally disabled.
+
+    Args:
+        (none — autouse fixture)
+
+    Returns:
+        None — setup only (no teardown action needed).
+    """
+    # Re-enable all project loggers that may have been disabled by a prior
+    # ``logging.config.fileConfig()`` call (e.g., from alembic commands run
+    # in test_migrations.py).
+    manager = logging.root.manager
+    for name, logger_obj in manager.loggerDict.items():
+        if (
+            name.startswith("synth_engine")
+            and isinstance(logger_obj, logging.Logger)
+            and logger_obj.disabled
+        ):
+            logger_obj.disabled = False
+
+    return
 
 
 @pytest.fixture(autouse=True)

@@ -4,6 +4,13 @@ Connections represent database connection configurations used as sources
 for ingestion.  They live in the bootstrapper (API layer) because they are
 API resources, not domain objects owned by a specific module.
 
+Authorization (T39.2):
+
+    ``owner_id`` stores the JWT ``sub`` claim of the operator who created the
+    connection.  All resource endpoints filter by ``owner_id`` to prevent
+    horizontal privilege escalation (IDOR).  Defaults to ``""`` for backward
+    compatibility with records created before T39.2.
+
 Security note: ``host``, ``database``, and ``schema_name`` are stored
 encrypted at rest using the ALE (Application-Level Encryption)
 ``EncryptedString`` TypeDecorator.  The ``port`` field is a plain integer
@@ -11,6 +18,7 @@ and is not sensitive.  Decryption is transparent through the SQLAlchemy
 ORM; the API layer always works with plaintext strings.
 
 Task: P5-T5.1 — Task Orchestration API Core
+Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 Task: T39.4 — Encrypt Connection Metadata with ALE
 CONSTITUTION Priority 0: Security — sensitive fields encrypted at rest
 """
@@ -64,6 +72,10 @@ class Connection(SQLModel, table=True):
         database: Database name to connect to (ALE-encrypted at rest).
         schema_name: Schema within the database (ALE-encrypted at rest,
             default: ``"public"``).
+        owner_id: JWT ``sub`` claim of the operator who created this connection.
+            Used for IDOR protection — all resource queries filter by this
+            field.  Defaults to ``""`` for backward compatibility with
+            records created before T39.2.  Indexed for query performance.
     """
 
     __tablename__ = "connection"
@@ -77,6 +89,8 @@ class Connection(SQLModel, table=True):
         default="public",
         sa_column=Column(EncryptedString(), nullable=False),
     )
+    #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
+    owner_id: str = Field(default="", index=True)
 
 
 class ConnectionCreateRequest(BaseModel):
@@ -109,6 +123,7 @@ class ConnectionResponse(BaseModel):
         port: Database port.
         database: Database name (decrypted).
         schema_name: Schema name (decrypted).
+        owner_id: Operator identity who owns this connection.
     """
 
     id: str
@@ -117,6 +132,7 @@ class ConnectionResponse(BaseModel):
     port: int
     database: str
     schema_name: str
+    owner_id: str = ""
 
     model_config = {"from_attributes": True}
 

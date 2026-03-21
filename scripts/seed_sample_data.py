@@ -54,6 +54,12 @@ DEFAULT_ORDERS: int = 250
 DEFAULT_ITEMS_PER_ORDER: int = 3
 DEFAULT_OUTPUT_DIR: str = "sample_data"
 
+# Fixed reference epoch for deterministic timestamp generation.
+# All generated timestamps are computed as offsets from this anchor date so
+# that generate_* functions produce identical output across invocations when
+# called with the same seed, regardless of the wall-clock time.
+_EPOCH: datetime.datetime = datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+
 ORDER_STATUSES: tuple[str, ...] = (
     "pending",
     "processing",
@@ -164,6 +170,10 @@ def generate_customers(
     Uses a seeded Faker instance to ensure deterministic, reproducible output.
     All values are purely fictional; no real PII is included.
 
+    Timestamps are computed as offsets from the fixed ``_EPOCH`` constant so
+    that the output is identical across multiple calls with the same seed,
+    regardless of wall-clock time.
+
     Args:
         n: Number of customer records to generate.
         seed: Deterministic seed for Faker and Python random module.
@@ -171,14 +181,15 @@ def generate_customers(
     Returns:
         A list of dicts with keys matching the customers table schema.
     """
-    fake = Faker()
     Faker.seed(seed)
+    fake = Faker()
     rng = random.Random(seed)  # noqa: S311  # nosec B311 — PRNG for fictional data generation, not cryptographic use
     customers: list[dict[str, Any]] = []
     for i in range(1, n + 1):
-        # Build a realistic timestamp spread over the last 3 years
+        # Build a realistic timestamp spread over the last 3 years from _EPOCH.
+        # Using _EPOCH (not datetime.now()) guarantees deterministic output.
         days_ago = rng.randint(0, 1095)
-        created_at = datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(days=days_ago)
+        created_at = _EPOCH - datetime.timedelta(days=days_ago)
         customers.append(
             {
                 "id": i,
@@ -201,6 +212,9 @@ def generate_orders(
 ) -> list[dict[str, Any]]:
     """Generate a list of fictional order records referencing provided customers.
 
+    Timestamps are computed as offsets from the fixed ``_EPOCH`` constant so
+    that the output is identical across multiple calls with the same seed.
+
     Args:
         customers: Customer records produced by generate_customers().
                    Each order's customer_id references a customer's id.
@@ -215,7 +229,7 @@ def generate_orders(
     orders: list[dict[str, Any]] = []
     for i in range(1, n + 1):
         days_ago = rng.randint(0, 730)
-        order_date = datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(days=days_ago)
+        order_date = _EPOCH - datetime.timedelta(days=days_ago)
         total_amount = round(rng.uniform(9.99, 2499.99), 2)
         orders.append(
             {
@@ -297,6 +311,9 @@ def generate_payments(
     total_amount. When n is provided, generates exactly n payments distributed
     randomly across orders.
 
+    Timestamps are computed as offsets from the fixed ``_EPOCH`` constant so
+    that the output is identical across multiple calls with the same seed.
+
     Args:
         orders: Order records produced by generate_orders(). Each payment's
                 order_id references an order's id.
@@ -315,9 +332,7 @@ def generate_payments(
         # Generate exactly n payments distributed across orders
         for i in range(1, n + 1):
             days_ago = rng.randint(0, 30)
-            payment_date = datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(
-                days=days_ago
-            )
+            payment_date = _EPOCH - datetime.timedelta(days=days_ago)
             amount = round(rng.uniform(9.99, 2499.99), 2)
             payments.append(
                 {
@@ -333,9 +348,7 @@ def generate_payments(
         for order in orders:
             # Every order gets at least one payment
             days_ago = rng.randint(0, 30)
-            payment_date = datetime.datetime.now(tz=datetime.UTC) - datetime.timedelta(
-                days=days_ago
-            )
+            payment_date = _EPOCH - datetime.timedelta(days=days_ago)
             total = float(order["total_amount"])
             payments.append(
                 {
