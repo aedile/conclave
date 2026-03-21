@@ -8,7 +8,7 @@ destroys data.
 
 For day-to-day operations, see [docs/OPERATOR_MANUAL.md](OPERATOR_MANUAL.md).
 For security controls, see [docs/infrastructure_security.md](infrastructure_security.md).
-For the retention architecture decision, see docs/adr/ADR-0041-data-retention-compliance.md (to be created in T41.1).
+For the retention architecture decision, see [docs/adr/ADR-0041-data-retention-compliance.md](adr/ADR-0041-data-retention-compliance.md).
 
 ---
 
@@ -22,12 +22,6 @@ different retention lifecycle, protection requirement, and deletion mechanism.
 | **Job records** | Synthesis job metadata, status, epsilon spent, error messages | 90 days (`JOB_RETENTION_DAYS`) | Automated purge task |
 | **Audit events** | WORM cryptographic audit trail of all security operations | 1,095 days / 3 years (`AUDIT_RETENTION_DAYS`) | Archive to cold storage; never deleted within retention period |
 | **Synthesis artifacts** | Parquet output files, model checkpoints on MinIO tmpfs | 30 days (`ARTIFACT_RETENTION_DAYS`); immediately on container restart | NIST SP 800-88 shred or tmpfs reclaim |
-
-> **Planned — T41.1**: The `JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, and
-> `ARTIFACT_RETENTION_DAYS` environment variables and the corresponding
-> `ConclaveSettings` fields are not yet implemented. They are scheduled for
-> delivery in task T41.1. Until that task is merged, retention periods are
-> not configurable and the automated purge task does not exist.
 
 Retention periods are configurable via `ConclaveSettings` environment variables.
 See [Section 5](#5-retention-configuration) for configuration details.
@@ -118,22 +112,25 @@ upload.
 
 ### 3.1 What the Erasure Endpoint Deletes
 
-The `DELETE /compliance/erasure` endpoint (planned for T41.2) accepts a data
-subject identifier and cascades deletion through:
+The `DELETE /compliance/erasure` endpoint accepts a data subject identifier
+and cascades deletion through:
 
 | Record type | Action | Justification |
 |-------------|--------|---------------|
 | Source connection metadata referencing the subject | Deleted | Direct PII reference |
-| Job records that processed the subject's data | Deleted (unless on legal hold) | Indirect association |
-| Synthesis artifacts (Parquet, model checkpoints) | Shredded (NIST SP 800-88) | May encode subject signal |
+| Job records that processed the subject's data | Deleted | Indirect association |
 | Synthesized output in target DB | **Preserved** | DP-protected; not attributable to any individual |
 | Audit trail entries | **Preserved** | Required for compliance proof; deletion would compromise the audit |
 | WORM hash chain | **Preserved** | Deletion would break cryptographic integrity |
 
-The erasure endpoint returns a compliance receipt (RFC 7807 format) documenting
-every record deleted and every record preserved, with a written justification
-for each preservation decision. This receipt is the operator's evidence of
-compliance with an erasure request.
+The erasure endpoint returns a compliance receipt documenting every record
+deleted and every record preserved, with a written justification for each
+preservation decision. This receipt is the operator's evidence of compliance
+with an erasure request.
+
+The endpoint is implemented in `src/synth_engine/bootstrapper/routers/compliance.py`
+and `src/synth_engine/modules/synthesizer/erasure.py`. See ADR-0041 for the
+architectural rationale.
 
 ### 3.2 Preservation Justifications
 
@@ -160,10 +157,11 @@ processing erasure requests.
 
 ### 3.4 Erasure Logging
 
-The erasure request itself — who requested it, when, what subject identifier
-was provided, what was deleted, and what was preserved — is logged to the WORM
-audit trail. This audit entry cannot be deleted and forms the durable compliance
-proof.
+The erasure request itself — who requested it, when, how many records were
+deleted, and what was preserved — is logged to the WORM audit trail. The
+subject identifier is never written into the audit event payload (CONSTITUTION
+Priority 0: no PII in audit payloads). The audit entry cannot be deleted and
+forms the durable compliance proof.
 
 ---
 
@@ -197,15 +195,6 @@ investigations or legal holds.
 ---
 
 ## 5. Retention Configuration
-
-> **Planned — T41.1**: The `ConclaveSettings` retention fields
-> (`job_retention_days`, `audit_retention_days`, `artifact_retention_days`)
-> and the corresponding environment variables (`JOB_RETENTION_DAYS`,
-> `AUDIT_RETENTION_DAYS`, `ARTIFACT_RETENTION_DAYS`) are not yet implemented.
-> They are scheduled for delivery in task T41.1. The configuration table and
-> examples below document the intended interface. Do not set these variables
-> in `.env` until T41.1 is merged — they will have no effect on the current
-> release.
 
 Retention periods are configured via `ConclaveSettings` fields, which map
 directly to environment variables.
@@ -244,12 +233,6 @@ jurisdiction and data category.
 
 ## 6. Legal Hold Mechanism
 
-> **Planned — T41.1**: The `legal_hold` field on `SynthesisJob` records and
-> the admin API endpoints for setting and releasing holds
-> (`POST /admin/jobs/<id>/legal-hold`, `DELETE /admin/jobs/<id>/legal-hold`)
-> are not yet implemented. They are scheduled for delivery in task T41.1.
-> The description below documents the intended behaviour.
-
 A `legal_hold` boolean flag on `SynthesisJob` records prevents deletion
 regardless of the configured TTL. This satisfies e-discovery obligations and
 regulatory hold requirements.
@@ -259,13 +242,17 @@ regulatory hold requirements.
 Legal holds are set via the admin API (requires operator authentication):
 
 ```bash
-# Place a job on legal hold
-curl -X POST http://<host>:8000/admin/jobs/<job-id>/legal-hold \
-  -H "Authorization: Bearer <token>"
+# Toggle legal hold for a job (enable: true sets hold, enable: false releases it)
+curl -X PATCH http://<host>:8000/admin/jobs/<job-id>/legal-hold \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enable": true}'
 
 # Release a legal hold
-curl -X DELETE http://<host>:8000/admin/jobs/<job-id>/legal-hold \
-  -H "Authorization: Bearer <token>"
+curl -X PATCH http://<host>:8000/admin/jobs/<job-id>/legal-hold \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enable": false}'
 ```
 
 Every hold and release operation is logged to the WORM audit trail with the
@@ -333,9 +320,11 @@ No data leaves the network boundary at any stage.
 
 ## 8. Automated Purge Task
 
-> **Planned — T41.1**: The automated purge task described in this section does
-> not yet exist. It is scheduled for delivery in task T41.1. The description
-> below documents the intended behaviour of the purge implementation.
+> **Advisory — scheduler wiring deferred**: The `RetentionCleanup` class in
+> `src/synth_engine/modules/synthesizer/retention.py` is implemented and tested
+> (T41.1), but is not yet wired to a scheduler. The retention policy has no
+> effect until a follow-on task wires it to the Huey scheduler or equivalent.
+> See the Known Debt section in ADR-0041.
 
 The purge task runs as a scheduled Huey job. It performs the following actions
 on each execution:
@@ -365,13 +354,13 @@ operational practices satisfy the full requirements of any applicable regulation
 | Property | Implementation | Evidence |
 |----------|---------------|---------|
 | Data minimization (GDPR Art. 5(1)(c)) | Read-only ingestion; source data never persisted to disk in raw form | Pre-flight privilege check; ingestion module design |
-| Storage limitation (GDPR Art. 5(1)(e)) | Configurable retention TTLs; automated purge task — **Planned T41.1** | `ConclaveSettings` retention fields; retention module |
-| Right to erasure (GDPR Art. 17) | `DELETE /compliance/erasure` endpoint with cascade deletion and compliance receipt — **Planned T41.2** | Erasure module; audit log entry per request |
+| Storage limitation (GDPR Art. 5(1)(e)) | Configurable retention TTLs; automated purge task (scheduler wiring deferred) | `ConclaveSettings` retention fields; `modules/synthesizer/retention.py` |
+| Right to erasure (GDPR Art. 17) | `DELETE /compliance/erasure` endpoint with cascade deletion and compliance receipt | `modules/synthesizer/erasure.py`; `bootstrapper/routers/compliance.py`; audit log entry per request |
 | Audit trail integrity | WORM, HMAC-SHA256 signed, append-only; no delete path in application code | `shared/security/audit.py`; WORM module design |
 | Formal privacy guarantee | (ε, δ)-DP on synthesized output via Opacus DP-SGD | `spend_budget` / `reset_budget` in `modules/privacy/accountant.py`; ADR-0036 |
 | Air-gap compliance | No external network calls; offline license activation | Network isolation design; `make build-airgap-bundle` |
 | Cryptographic erasure | NIST SP 800-88 compliant shredding of synthesis artifacts | `modules/synthesizer/shred.py`; ADR-0034 |
-| Legal hold | `legal_hold` boolean on job records; prevents purge — **Planned T41.1** | Admin API; retention module |
+| Legal hold | `legal_hold` boolean on job records; prevents purge | `PATCH /admin/jobs/{id}/legal-hold`; `bootstrapper/routers/admin.py`; `modules/synthesizer/retention.py` |
 
 ---
 
@@ -381,9 +370,8 @@ Conclave provides the technical mechanisms. Operators must:
 
 1. **Configure retention periods** appropriate for their regulatory context
    before going to production (see [Section 5](#5-retention-configuration)).
-   Note: retention configuration is **planned for T41.1** and is not yet active.
 2. **Schedule the purge task** to run at an appropriate cadence
-   (daily recommended). Note: the purge task is **planned for T41.1**.
+   (daily recommended). Note: scheduler wiring is deferred — see Section 8.
 3. **Protect `AUDIT_KEY`** and rotate it per the key rotation procedures in
    [docs/OPERATOR_MANUAL.md](OPERATOR_MANUAL.md). Loss of `AUDIT_KEY` renders
    the audit trail unverifiable.
@@ -392,7 +380,7 @@ Conclave provides the technical mechanisms. Operators must:
    categories. Conclave's audit trail provides the technical evidence to
    support this record but does not replace it.
 5. **Process erasure requests promptly**. GDPR Article 12(3) requires
-   erasure within one calendar month of receipt. Note: the erasure endpoint
-   is **planned for T41.2**.
+   erasure within one calendar month of receipt. Use `DELETE /compliance/erasure`
+   to submit erasure requests programmatically.
 6. **Test the erasure endpoint** before production deployment to verify
    cascade deletion behaves as expected for your schema.
