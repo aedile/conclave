@@ -166,3 +166,39 @@ dependencies beyond `starlette`, which is already a FastAPI dependency.
   be reviewed for breaking changes to `EventSourceResponse`.
 - Binary artifact download endpoints use plain `StreamingResponse`; this is
   the correct and documented pattern (see Amendment 1a above).
+
+---
+
+### 2a. Amendment (Advisory Drain, 2026-03-21) — SynthesisJob placement accepted in synthesizer module
+
+The original table in section 2 listed `SynthesisJob` as belonging in
+`bootstrapper/schemas/job.py`. In practice, `SynthesisJob` resides in
+`modules/synthesizer/job_models.py` and has remained there since Phase 5.
+
+**Why accept the deviation:**
+
+1. **Domain coupling has grown.** SynthesisJob is directly referenced by
+   `modules/synthesizer/job_orchestration.py`, `job_finalization.py`,
+   `job_steps.py`, and `engine.py`. These are domain services, not HTTP
+   handlers. The model is a participant in domain logic, not merely a
+   CRUD record.
+
+2. **Domain-specific fields.** SynthesisJob now carries DP-SGD parameters
+   (`epsilon`, `delta`, `noise_multiplier`), `owner_id` for authorization,
+   and training configuration. These are domain concerns that bind the
+   model to the synthesizer module.
+
+3. **Migration risk exceeds value.** Moving the file would require updating
+   25+ import sites, import-linter contracts, and every test that references
+   `job_models`. The risk of breakage outweighs the architectural purity gain.
+
+**Updated table row:**
+
+| Table | Location | Justification |
+|-------|----------|---------------|
+| `SynthesisJob` | `modules/synthesizer/job_models.py` | Domain-coupled: referenced by domain services, carries DP-SGD parameters and training config. Accepted deviation from the CRUD-only rule. |
+
+**Rule clarification:** The table placement rule in section 2 applies to
+tables that are *exclusively* API CRUD concerns. When a table accrues domain
+fields or is referenced by domain services, it legitimately belongs in its
+domain module. The boundary is behavioral coupling, not original intent.

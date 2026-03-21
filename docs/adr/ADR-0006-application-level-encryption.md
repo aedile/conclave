@@ -160,3 +160,37 @@ This decision directly supports compliance with:
 
 CONSTITUTION Priority 0: Security — encryption of PII at the application
 layer is a non-negotiable security control for this project.
+
+---
+
+### Amendment (T39.4, 2026-03-21) — Scope expansion to infrastructure-sensitive fields
+
+T39.4 extended ALE encryption to three `Connection` model columns that are
+**not** PII but are **infrastructure-sensitive**:
+
+| Column | Category | Rationale |
+|--------|----------|-----------|
+| `host` | Infrastructure | Database hostname reveals network topology |
+| `database` | Infrastructure | Database name reveals naming conventions |
+| `schema_name` | Infrastructure | Schema name reveals internal organization |
+
+**Why encrypt infrastructure metadata:**
+
+1. **Defense in depth.** If an attacker gains read access to the application
+   database (e.g., SQL injection in a future endpoint), encrypted connection
+   metadata prevents lateral movement to the source database.
+2. **Compliance alignment.** SOC 2 Type II and ISO 27001 require encryption
+   of sensitive configuration data at rest. Connection strings are explicitly
+   called out in CIS benchmarks.
+3. **Negligible performance cost.** Fernet encryption/decryption adds <1ms
+   per operation. Connection records are read infrequently (job start only).
+
+**Updated scope definition:**
+
+ALE applies to two categories of data:
+1. **PII columns** — as originally defined (GDPR Art. 32, HIPAA § 164.312)
+2. **Infrastructure-sensitive columns** — fields whose exposure enables
+   lateral movement or reveals network topology
+
+The `EncryptedString` TypeDecorator (introduced in T39.4) handles both
+categories identically. No separate key or algorithm is used.
