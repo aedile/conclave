@@ -6,7 +6,7 @@ would shadow that package and break all ``from synth_engine.bootstrapper.routers
 imports.
 
 Contains:
-- ``_include_routers()`` — wires the eight domain routers into the application.
+- ``_include_routers()`` — wires the nine domain routers into the application.
 - ``_register_exception_handlers()`` — registers domain exception handlers with
   operator-friendly RFC 7807 messages via :data:`OPERATOR_ERROR_MAP`, and the
   RFC 7807 catch-all via :mod:`synth_engine.bootstrapper.errors`.
@@ -21,6 +21,8 @@ Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
 Task: P36 review — Import CycleDetectionError and CollisionError from shared.exceptions (ADR-0037)
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
     Registered auth_router for POST /auth/token.
+Task: T41.1 — Implement Data Retention Policy
+    Registered admin_router for PATCH /admin/jobs/{id}/legal-hold.
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ def _include_routers(app: FastAPI) -> None:
     Args:
         app: The FastAPI instance to attach routers to.
     """
+    from synth_engine.bootstrapper.routers.admin import router as admin_router
     from synth_engine.bootstrapper.routers.auth import router as auth_router
     from synth_engine.bootstrapper.routers.connections import router as connections_router
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
@@ -60,6 +63,7 @@ def _include_routers(app: FastAPI) -> None:
     from synth_engine.bootstrapper.routers.settings import router as settings_router
 
     app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(jobs_router)
     app.include_router(jobs_streaming_router)
     app.include_router(connections_router)

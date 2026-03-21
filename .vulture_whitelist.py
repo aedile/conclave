@@ -47,6 +47,7 @@ unseal_vault  # unused function — FastAPI route handler (bootstrapper/lifecycl
 get_budget  # unused function — FastAPI route handler (routers/privacy.py)
 refresh_budget  # unused function — FastAPI route handler (routers/privacy.py)
 post_auth_token  # unused function — FastAPI route handler (routers/auth.py)
+set_legal_hold  # unused function — FastAPI route handler (routers/admin.py)
 
 # ---------------------------------------------------------------------------
 # Category B — Starlette middleware dispatch() methods
@@ -96,6 +97,8 @@ validate_parquet_path  # unused method — Pydantic field_validator (schemas/job
 remaining_epsilon  # unused variable — Pydantic field (schemas/privacy.py)
 is_exhausted  # unused variable — Pydantic field (schemas/privacy.py)
 access_token  # unused variable — Pydantic field (routers/auth.py TokenResponse)
+job_id  # unused variable — Pydantic field (routers/admin.py LegalHoldResponse)
+enable  # unused variable — Pydantic field (routers/admin.py LegalHoldRequest)
 token_type  # unused variable — Pydantic field (routers/auth.py TokenResponse)
 
 # ---------------------------------------------------------------------------
@@ -164,6 +167,8 @@ _log_device_selection  # unused function — device selection utility called by 
 generate_ale_key  # unused function — ALE key provisioning utility exported for operator use (shared/security/ale.py); not called from src — intended for one-time key generation at host setup
 verify_event  # unused method — AuditLogger.verify_event used in audit chain verification
 deactivate  # unused method — LicenseManager.deactivate (shared/security/licensing.py)
+RetentionCleanup  # unused class — called by Huey scheduled tasks / CLI (modules/synthesizer/retention.py)
+cleanup_expired_jobs  # unused method — RetentionCleanup.cleanup_expired_jobs (retention.py)
 get_claims  # unused method — LicenseManager.get_claims (shared/security/licensing.py)
 
 # ---------------------------------------------------------------------------
@@ -193,3 +198,5 @@ calc_gradient_penalty  # unused method — OpacusCompatibleDiscriminator.calc_gr
 # ---------------------------------------------------------------------------
 
 is_production  # unused method — ConclaveSettings.is_production() (shared/settings.py)
+audit_retention_days  # unused variable — ConclaveSettings field read by operator tooling (shared/settings.py)
+artifact_retention_days  # unused variable — ConclaveSettings field read by operator tooling (shared/settings.py)
