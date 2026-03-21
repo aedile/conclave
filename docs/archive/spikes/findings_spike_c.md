@@ -1,3 +1,12 @@
+> **HISTORICAL -- DO NOT USE**
+> This document is an archived spike findings report. The spike code it describes
+> was never promoted to production. It is retained for historical reference only.
+> Do not import, adapt, or copy patterns from this document into production code
+> without first consulting the relevant ADR and the Spike-to-Production Promotion
+> Checklist in `CLAUDE.md`.
+
+---
+
 # Spike C Findings — Topological Subset & Memory-Safe Traversal
 
 **Date:** 2026-03-13

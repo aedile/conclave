@@ -418,6 +418,8 @@ class DPCompatibleCTGAN:
                 )
             except BudgetExhaustionError:
                 raise
+            # Broad catch: DpCtganStrategy.run() wraps Opacus/PyTorch; any library
+            # exception triggers fallback to vanilla CTGAN (graceful degradation).
             except Exception as exc:
                 _logger.warning(
                     "DPCompatibleCTGAN: discriminator-level DP-SGD training failed "
