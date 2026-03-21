@@ -19,6 +19,36 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] P42-T42.3 — Run and Document DP Quality Benchmarks
+
+**Branch**: `feat/P42-T42.3-dp-quality-benchmarks` (3 commits + 1 stray RETRO_LOG commit)
+**Changes**: Executed `benchmark_dp_quality.py`, updated `docs/DP_QUALITY_REPORT.md` with actual
+benchmark results (replacing all placeholders), updated `README.md` with benchmark reference.
+Four honest findings documented: epsilon calibration mismatch at micro-benchmark scale,
+identical drift across DP configs at 10 epochs, proxy-model Python 3.14 regression, vanilla
+baseline variance.
+
+**Quality Gates**: Docs-only task. pre-commit: PASS. No Python code changes.
+
+**QA** (FINDING — 1 item fixed):
+- MD028 markdownlint violation at `DP_QUALITY_REPORT.md:52` (blank line between adjacent
+  blockquotes). Fixed with `<!-- -->` separator in commit `0f9364b`. Re-review skipped —
+  mechanical single-line fix; disproportionate to re-review. Content quality checks all PASS.
+
+**DevOps** (PASS): gitleaks clean. No secrets or PII. docs-gate satisfied.
+
+**Judgment call — re-review skip**: The MD028 fix is a single HTML comment insertion (`<!-- -->`)
+between two blockquotes. Re-reviewing a mechanical formatting fix would not produce meaningful
+signal. This is a Rule 16 materiality decision, not a quality compromise.
+
+**Retrospective Note**:
+The benchmark's epsilon target labels (~0.1-~10) were calibrated against the pre-Phase-30
+proxy-model path and produce substantially different actual values under discriminator-level
+DP-SGD at micro-benchmark scale. The report documents this honestly. Future work should
+recalibrate noise_multiplier constants or rename the misleading eps~X labels.
+
+---
+
 ### [2026-03-21] Phase 41 Closure — Judgment Call: Exit Criterion 7
 
 **Decision**: Closed Phase 41 with 4 open advisories despite exit criterion 7 requiring "zero open advisories."
