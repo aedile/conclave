@@ -248,21 +248,38 @@ Successful response (HTTP 200):
 
 ### 4.3 Seal the Vault
 
-To re-seal the vault (zeroizes the in-memory KEK):
+> **Important**: A non-destructive re-seal API endpoint does not currently exist.
+> `POST /security/unseal` with `{"action": "seal"}` is **not** a valid route.
+> This feature is planned for a future release.
+
+There are two ways to seal the vault, with very different consequences:
+
+**Option 1 — Restart the container (non-destructive)**
+
+Restarting the container returns the vault to its sealed state. The encrypted KEK
+remains intact on disk; the service simply has no in-memory key until the next
+unseal operation. All non-exempt routes return `423 Locked` until an operator
+calls `POST /unseal` with the correct passphrase.
 
 ```bash
-curl -X POST http://<host>:8000/security/unseal \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"action": "seal"}'
+docker compose restart synth-engine
 ```
 
-After sealing, all non-exempt routes return `423 Locked` again. The passphrase
-is **not** required to re-seal; any authenticated operator can seal the vault.
+**Option 2 — `POST /security/shred` (DESTRUCTIVE — use with extreme caution)**
 
-> **Warning**: Do not confuse vault sealing with `POST /security/shred` — the shred
-> endpoint performs a **destructive, irreversible** key rotation (NIST SP 800-88). Use
-> shred only for decommissioning or incident response. Vault sealing is non-destructive.
+This endpoint performs a **destructive, irreversible** key zeroization (NIST SP 800-88).
+It permanently destroys all keying material and seals the vault. There is no recovery
+path after shred without a full re-initialisation.
+
+```bash
+curl -X POST http://<host>:8000/security/shred \
+  -H "Authorization: Bearer ${TOKEN}"
+```
+
+> **Warning**: `POST /security/shred` is intended for decommissioning and incident
+> response only. Do **not** use it as a routine seal operation. Unlike a container
+> restart, shred cannot be reversed — all previously encrypted data becomes
+> permanently inaccessible.
 
 ---
 
