@@ -8,7 +8,7 @@ destroys data.
 
 For day-to-day operations, see [docs/OPERATOR_MANUAL.md](OPERATOR_MANUAL.md).
 For security controls, see [docs/infrastructure_security.md](infrastructure_security.md).
-For the retention architecture decision, see [docs/adr/ADR-0041-data-retention-compliance.md](adr/ADR-0041-data-retention-compliance.md).
+For the retention architecture decision, see docs/adr/ADR-0041-data-retention-compliance.md (to be created in T41.1).
 
 ---
 
@@ -171,7 +171,7 @@ recomputing the HMAC chain.
 
 ### 4.2 Append-Only Enforcement
 
-The `WORMAuditLogger` class accepts only `log()` calls. There are no
+The `AuditLogger` class accepts only `log()` calls. There are no
 `delete()`, `update()`, or `truncate()` methods. The application code has no
 path to delete an audit event during the retention period. This is enforced
 by the module boundary: the audit logger is in `shared/` and exposes only an
@@ -295,7 +295,7 @@ requesting operator's identity and timestamp.
 │                         no real PII in output                        │
 │                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  AUDIT TRAIL (shared/audit_logger.py)                          │  │
+│  │  AUDIT TRAIL (shared/security/audit.py)                          │  │
 │  │  WORM, HMAC-signed, append-only; records every job lifecycle   │  │
 │  │  event, vault operation, erasure request, and legal hold.      │  │
 │  └────────────────────────────────────────────────────────────────┘  │
@@ -339,7 +339,7 @@ operational practices satisfy the full requirements of any applicable regulation
 | Data minimization (GDPR Art. 5(1)(c)) | Read-only ingestion; source data never persisted to disk in raw form | Pre-flight privilege check; ingestion module design |
 | Storage limitation (GDPR Art. 5(1)(e)) | Configurable retention TTLs; automated purge task | `ConclaveSettings` retention fields; retention module |
 | Right to erasure (GDPR Art. 17) | `DELETE /compliance/erasure` endpoint with cascade deletion and compliance receipt | Erasure module; audit log entry per request |
-| Audit trail integrity | WORM, HMAC-SHA256 signed, append-only; no delete path in application code | `shared/audit_logger.py`; WORM module design |
+| Audit trail integrity | WORM, HMAC-SHA256 signed, append-only; no delete path in application code | `shared/security/audit.py`; WORM module design |
 | Formal privacy guarantee | (ε, δ)-DP on synthesized output via Opacus DP-SGD | `EpsilonAccountant`; ADR-0036 |
 | Air-gap compliance | No external network calls; offline license activation | Network isolation design; `make build-airgap-bundle` |
 | Cryptographic erasure | NIST SP 800-88 compliant shredding of synthesis artifacts | `modules/synthesizer/shred.py`; ADR-0034 |
