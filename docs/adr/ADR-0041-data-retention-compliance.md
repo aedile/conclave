@@ -41,15 +41,15 @@ Three environment variables control retention windows:
 | Variable | Default | Governs |
 |----------|---------|---------|
 | `JOB_RETENTION_DAYS` | `90` | `synthesis_job` row lifetime |
-| `AUDIT_RETENTION_DAYS` | `365` | Audit event row lifetime |
+| `AUDIT_RETENTION_DAYS` | `1095` | Audit event row lifetime |
 | `ARTIFACT_RETENTION_DAYS` | `30` | Output files on disk |
 
 Defaults reflect a conservative baseline that is defensible under GDPR and common
 enterprise data governance policies. Operators may tighten or relax each window
 independently via environment configuration — no code changes required.
 
-Audit events carry a longer default (365 days) than synthesis jobs (90 days) because
-audit logs are the evidentiary record for compliance reviews. Deleting audit logs
+Audit events carry a longer default (1095 days, 3 years) than synthesis jobs (90 days)
+because audit logs are the evidentiary record for compliance reviews. Deleting audit logs
 on the same schedule as the records they describe would undermine their value.
 
 ### 2. Legal hold field on SynthesisJob (job_models.py)
@@ -64,16 +64,16 @@ The field is indexed because the cleanup query filters on it (`WHERE legal_hold 
 in combination with `created_at`. An unindexed scan over a large `synthesis_job` table
 on every scheduled run would be unacceptable.
 
-### 3. RetentionCleaner (modules/synthesizer/retention.py)
+### 3. RetentionCleanup (modules/synthesizer/retention.py)
 
-A single-responsibility class with one public method: `cleanup_expired_jobs(session)`.
+A single-responsibility class with one public method: `cleanup_expired_jobs()`.
 
 The cleanup algorithm:
 
 1. Compute cutoff timestamp as `now() - timedelta(days=job_retention_days)`.
 2. Query `synthesis_job` WHERE `created_at < cutoff AND legal_hold = FALSE`.
 3. For each expired job: attempt to delete the artifact file, then delete the DB row.
-4. Emit one structured audit event per deleted job (table name, job ID, reason).
+4. Emit one structured audit event per deleted job (see audit event format below).
 5. Suppress `FileNotFoundError` on artifact deletion — artifact may have already been
    purged by a prior run or an external process. This is logged at DEBUG level; it is
    not an error condition.
@@ -81,13 +81,15 @@ The cleanup algorithm:
 Audit events are emitted only when at least one row is deleted, avoiding noise in the
 audit log during routine runs when no jobs have expired.
 
+The class creates its own database session internally; callers do not pass a session.
+
 The class is placed in `modules/synthesizer/` because it exclusively operates on
 `SynthesisJob` domain objects and their associated artifacts. It is not a cross-cutting
 concern — it has no reason to exist in `shared/`.
 
 ### 4. Legal hold endpoint (bootstrapper/routers/admin.py)
 
-`POST /admin/jobs/{job_id}/legal-hold` accepts a JSON body `{"hold": true|false}` and
+`PATCH /admin/jobs/{job_id}/legal-hold` accepts a JSON body `{"enable": true|false}` and
 sets `SynthesisJob.legal_hold` accordingly.
 
 Design rationale:
@@ -96,9 +98,8 @@ Design rationale:
   job lifecycle operations. A dedicated `admin` router makes it easy to apply role-based
   access control (RBAC) at the router level in a future task without retrofitting the
   existing jobs router.
-- **POST semantics**: A PUT would imply replacing the full resource. A POST to a
-  sub-resource path (`/legal-hold`) models a command (apply or release a hold) which
-  aligns with how legal hold is conceptually used.
+- **PATCH semantics**: PATCH models a partial update to the job resource (toggling the
+  `legal_hold` field) which aligns with RFC 5789 semantics.
 - **404 on missing job**: Returns HTTP 404 when the job ID does not exist. Consistent with
   the IDOR pattern established in ADR-0040.
 
@@ -106,13 +107,15 @@ Design rationale:
 
 Every deleted job produces an audit event written via `AuditLogger` with:
 
-- `table`: `"synthesis_job"`
-- `record_id`: the job's UUID
-- `reason`: `"ttl_expired"`
+- `event_type`: `"JOB_RETENTION_PURGE"`
+- `actor`: `"system/retention"`
+- `resource`: `f"synthesis_job/{job_id}"` (where `job_id` is the integer primary key)
+- `action`: `"delete"`
+- `details`: `{"job_id": str(job_id), "table_name": table_name, "retention_days": str(retention_days)}`
 
 This provides a complete deletion history that survives the deletion of the job row itself.
-Audit events are governed by `AUDIT_RETENTION_DAYS` (default 365), giving compliance
-teams a one-year window to retrieve deletion records.
+Audit events are governed by `AUDIT_RETENTION_DAYS` (default 1095), giving compliance
+teams a three-year window to retrieve deletion records.
 
 ---
 
@@ -120,7 +123,7 @@ teams a one-year window to retrieve deletion records.
 
 ### Scheduler wiring not included in T41.1
 
-`RetentionCleaner.cleanup_expired_jobs()` is a callable method but is not yet wired to
+`RetentionCleanup.cleanup_expired_jobs()` is a callable method but is not yet wired to
 a scheduler. T41.1 delivers the mechanism; a follow-on task must wire it to the
 existing Celery/APScheduler infrastructure (or equivalent) as a periodic task.
 
@@ -161,8 +164,9 @@ model where job rows and artifacts are co-located.
 - **Legal hold is binary**: There is no time-bound hold or hold expiry. A hold must be
   manually released via the API. This is acceptable for the MVP; automated hold expiry
   can be added when litigation workflow requirements are clearer.
-- **No hold audit trail**: Setting or clearing a legal hold does not currently emit an
-  audit event. Adding this is deferred as a future enhancement.
+- **Legal hold changes are audited**: Setting or clearing a legal hold emits `LEGAL_HOLD_SET`
+  and `LEGAL_HOLD_CLEARED` audit events respectively, providing a full trail of hold
+  lifecycle changes.
 
 ---
 
@@ -183,7 +187,7 @@ model where job rows and artifacts are co-located.
 - HIPAA 45 CFR 164.530(j) — Documentation and record retention
 - ADR-0040 — IDOR Protection (establishes 404 pattern for missing resources)
 - ADR-0039 — JWT Bearer Token Authentication (auth context for admin endpoint)
-- `src/synth_engine/modules/synthesizer/retention.py` — RetentionCleaner
+- `src/synth_engine/modules/synthesizer/retention.py` — RetentionCleanup
 - `src/synth_engine/bootstrapper/routers/admin.py` — Legal hold endpoint
 - `src/synth_engine/shared/settings.py` — RetentionSettings
 - `src/synth_engine/modules/synthesizer/job_models.py` — SynthesisJob.legal_hold
