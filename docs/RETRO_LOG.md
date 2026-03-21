@@ -19,6 +19,20 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] Phase 41 Closure — Judgment Call: Exit Criterion 7
+
+**Decision**: Closed Phase 41 with 4 open advisories despite exit criterion 7 requiring "zero open advisories."
+
+**Reasoning**:
+- ADV-019/ADV-020 (BLOCKER): Created by Rule 8 compliance ("if wiring cannot be done in the same task, log as BLOCKER advisory"). No Phase 41 task specifies scheduler infrastructure work. Blocking Phase 41 on advisories that Rule 8 mandated creating — but gave no task to resolve — produces a deadlock.
+- ADV-017/ADV-018 (ADVISORY): Explicitly batched per Rule 16 (cosmetic findings go to a polish task). Rule 16 itself defers these by design.
+- Rule 11 sets the hard-stop threshold at 8 open advisories. We are at 4.
+- The exit criterion's "zero" conflicts with Rule 16's batching mechanism and Rule 8's deferred-wiring pattern. Treated Rule 11 + Rule 16 as the operational controls; exit criterion "zero" as aspirational for the phase.
+
+**Disposition**: Advisories carried forward. Phase 41 marked functionally complete. User reviewed and approved this judgment call.
+
+---
+
 ### [2026-03-21] P41-T41.2 — GDPR Right-to-Erasure & CCPA Deletion Endpoint
 
 **Branch**: `feat/P41-T41.2-gdpr-erasure-endpoint` (7 commits)
