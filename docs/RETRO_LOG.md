@@ -23,6 +23,50 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] Phase 43 Closure — Architectural Polish, Code Hygiene & Rule Sunset
+
+**Tasks completed**: T43.1 (PR #167), T43.2 (PR #165), T43.3 (PR #164), T43.4 (PR #166), T43.5 (direct merge)
+
+**Exit criteria met**: 7 of 8. Criterion 7 (zero open advisories) NOT met — 8 advisories
+carried forward from phases 40-42. These are pre-existing and require dedicated phases.
+
+**What went well**:
+- All 5 tasks executed in parallel with no cross-task conflicts
+- T43.1 extraction preserved all 106 pre-existing tests without modification
+- T43.2 consolidated 5 repeated import patterns into 1 module
+- Rule sunset evaluation deleted 3 dead rules, freeing CLAUDE.md headroom
+
+**What was challenging**:
+- T43.1 fix agent ran in wrong worktree (on main instead of T43.1 branch) — fixes
+  had to be re-applied in a subsequent conversation
+- Merge conflict on T43.1 due to T43.4 modifying job_orchestration.py exception
+  handler comments in the same region that T43.1 extracted — clean resolution
+- QA reviewer for T43.1 was extremely thorough (44 tool calls, 30+ minutes) — correct
+  behavior but highlights cost of Rule 23 (full-system review context)
+
+**Advisories raised this phase**:
+- ADV-T43.1-01 (ADVISORY): Lazy import trust boundary assumption — documented, not actionable
+- ADV-T43.1-02 (ADVISORY): Budget→audit TOCTOU gap — pre-existing, design-accepted
+- Architecture retro note: DI registry pattern could eliminate lazy-import workarounds;
+  tracked as future improvement, not blocking
+
+**Advisory drain status**: 8 open (at Rule 11 threshold). Security BLOCKERs (ADV-021–024)
+must be drained before Phase 44. Next action: pull Phase 47 security tasks forward.
+
+---
+
+### [2026-03-21] P43-T43.1 — Extract dp_accounting.py from job_orchestration.py
+
+**Branch**: `refactor/P43-T43.1-extract-dp-accounting` (8 commits)
+**Changes**: Extracted `_handle_dp_accounting()`, `DpAccountingStep`, and constants from
+`job_orchestration.py` into `dp_accounting.py`. Re-exports in `job_orchestration.py` preserve
+patch-path compatibility. ADR-0038 amended. `job_orchestration.py` reduced by ~180 lines.
+**Reviews**: QA PASS, DevOps PASS, Architecture FINDING (1 fix — removed `_spend_budget_fn`
+re-export from `job_steps.py`), Red-Team PASS (2 advisories — pre-existing design).
+**Gate**: 1871 passed, 98% coverage. 1 pre-existing SDV FutureWarning failure (on main too).
+
+---
+
 ### [2026-03-21] P43-T43.5 — Rule Sunset Evaluation (Phase 40 Rules)
 
 **Scope**: PM-only governance task. Evaluated 10 rules tagged `[sunset: Phase 40]` against
