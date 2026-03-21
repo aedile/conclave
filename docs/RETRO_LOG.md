@@ -23,6 +23,33 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] P43-T43.5 — Rule Sunset Evaluation (Phase 40 Rules)
+
+**Scope**: PM-only governance task. Evaluated 10 rules tagged `[sunset: Phase 40]` against
+RETRO_LOG phases 30-42 per Rule 15.
+
+**Rules DELETED (no evidence of preventing failures in 10+ phases)**:
+- **Rule 4** (Phase-end cross-task integration review): Zero invocations in phases 30-42.
+  Superseded by Rules 20 (spec-challenger) and 21 (red-team-reviewer).
+- **Rule 5** (Full backlog spec in agent prompts): Already consolidated with Rule 1 during
+  T33.1 (Phase 33). Redundant since spec-challenger agent handles spec rigor.
+- **Rule 10** (Agent learning gate): Zero evidence of formal "Known Failure Patterns" section
+  being used. Learning happens organically through retrospective review. Overhead without
+  demonstrated benefit.
+
+**Rules EXTENDED to Phase 50**:
+- **Rule 6** (Technology substitution ADR): Active in P39-P42 (ADR-0040, ADR-0042 created).
+- **Rule 8** (Operational wiring): Most effective rule — ADV-019/ADV-020 demonstrate value.
+- **Rule 9** (Documentation gate): Silent compliance across all phases. All PRs have docs commits.
+- **Rule 11** (Advisory drain cadence): Threshold of 8 never breached; drain gates effective.
+- **Rule 12** (Phase execution authority): Non-squash merge enforcement critical for TDD trail.
+- **Rule 16** (Materiality threshold): Actively used in P40-P42 to prevent re-review bloat.
+- **Rule 17** (Small-fix batching): Silent compliance; all phases had sufficient work.
+
+**CLAUDE.md line count**: 283 (down from 295, under 400-line cap).
+
+---
+
 ### [2026-03-21] Phase 42 Closure — Judgment Call: Exit Criterion 6
 
 **Decision**: Closed Phase 42 with 8 open advisories despite exit criterion 6 requiring "zero open advisories."
