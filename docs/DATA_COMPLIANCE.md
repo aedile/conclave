@@ -180,7 +180,7 @@ recomputing the HMAC chain.
 
 ### 4.2 Append-Only Enforcement
 
-The `AuditLogger` class accepts only `log()` calls. There are no
+The `AuditLogger` class accepts only `log_event()` calls. There are no
 `delete()`, `update()`, or `truncate()` methods. The application code has no
 path to delete an audit event during the retention period. This is enforced
 by the module boundary: the audit logger is in `shared/` and exposes only an
