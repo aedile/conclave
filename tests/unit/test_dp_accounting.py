@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -100,7 +101,8 @@ class TestDpAccountingModuleExists:
         from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
 
         step = DpAccountingStep()
-        assert hasattr(step, "execute") and callable(step.execute)
+        assert hasattr(step, "execute")
+        assert callable(step.execute)
 
 
 # ---------------------------------------------------------------------------
@@ -120,19 +122,19 @@ class TestDpAccountingConstants:
         assert "reconciliation" in _AUDIT_RECONCILIATION_MSG.lower()
 
     def test_audit_reconciliation_msg_matches_job_orchestration(self) -> None:
-        """_AUDIT_RECONCILIATION_MSG in dp_accounting must equal the one in job_orchestration.
+        """_AUDIT_RECONCILIATION_MSG in dp_accounting must equal job_orchestration's value.
 
         Ensures the constant is the single source of truth and was not duplicated
         with a different value.
         """
         from synth_engine.modules.synthesizer.dp_accounting import (
-            _AUDIT_RECONCILIATION_MSG as dp_msg,
+            _AUDIT_RECONCILIATION_MSG as DP_MSG,
         )
         from synth_engine.modules.synthesizer.job_orchestration import (
-            _AUDIT_RECONCILIATION_MSG as orch_msg,
+            _AUDIT_RECONCILIATION_MSG as ORCH_MSG,
         )
 
-        assert dp_msg == orch_msg, (
+        assert DP_MSG == ORCH_MSG, (
             "Constant mismatch: dp_accounting and job_orchestration must agree on "
             "_AUDIT_RECONCILIATION_MSG"
         )
@@ -154,13 +156,13 @@ class TestDpAccountingStepIdentity:
         dp_accounting — there must be exactly one class definition.
         """
         from synth_engine.modules.synthesizer.dp_accounting import (
-            DpAccountingStep as from_dp,
+            DpAccountingStep as DpFromDpModule,
         )
         from synth_engine.modules.synthesizer.job_orchestration import (
-            DpAccountingStep as from_orch,
+            DpAccountingStep as DpFromOrchModule,
         )
 
-        assert from_dp is from_orch, (
+        assert DpFromDpModule is DpFromOrchModule, (
             "DpAccountingStep must be the same class object in both modules. "
             "job_orchestration should re-import from dp_accounting, not re-define."
         )
@@ -204,8 +206,6 @@ class TestHandleDpAccountingBehaviour:
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.side_effect = RuntimeError("DP crashed")
 
-        import pytest
-
         with (
             patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
             patch(
@@ -225,8 +225,6 @@ class TestHandleDpAccountingBehaviour:
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 999.0
         mock_budget_fn = MagicMock(side_effect=BudgetExhaustionError("exhausted"))
-
-        import pytest
 
         with (
             patch(
@@ -252,8 +250,6 @@ class TestHandleDpAccountingBehaviour:
         mock_budget_fn = MagicMock()  # budget spend succeeds
         mock_audit = MagicMock()
         mock_audit.log_event.side_effect = RuntimeError("audit write failed")
-
-        import pytest
 
         with (
             patch(
