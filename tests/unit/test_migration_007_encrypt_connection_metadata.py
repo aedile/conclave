@@ -61,6 +61,20 @@ CREATE TABLE IF NOT EXISTS connection (
 )
 """
 
+# Nullable variant — used by NULL-guard tests to bypass SQLite NOT NULL
+# enforcement so we can simulate rows that existed before the NOT NULL
+# constraint was added (e.g. manual inserts or future schema changes).
+_CREATE_CONNECTION_TABLE_NULLABLE = """
+CREATE TABLE IF NOT EXISTS connection (
+    id          TEXT PRIMARY KEY,
+    name        TEXT,
+    host        TEXT,
+    port        INTEGER,
+    "database"  TEXT,
+    schema_name TEXT
+)
+"""
+
 
 def _make_engine() -> Any:
     """Return a fresh in-memory SQLite engine with the connection table.
@@ -75,6 +89,27 @@ def _make_engine() -> Any:
     )
     with engine.connect() as conn:
         conn.execute(sa.text(_CREATE_CONNECTION_TABLE))
+        conn.commit()
+    return engine
+
+
+def _make_nullable_engine() -> Any:
+    """Return a fresh in-memory SQLite engine with nullable connection table.
+
+    The table schema omits NOT NULL constraints so that NULL values can be
+    inserted directly via raw SQL, simulating rows that pre-date strict
+    constraint enforcement (or were created by manual database operations).
+
+    Returns:
+        A SQLAlchemy engine with a nullable connection table created.
+    """
+    engine = sa.create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    with engine.connect() as conn:
+        conn.execute(sa.text(_CREATE_CONNECTION_TABLE_NULLABLE))
         conn.commit()
     return engine
 
@@ -111,6 +146,32 @@ def _insert_row(
             "database": database,
             "schema_name": schema_name,
         },
+    )
+    conn.commit()
+    return row_id
+
+
+def _insert_null_row(conn: Any) -> str:
+    """Insert a row with NULL values for host, database, and schema_name.
+
+    Bypasses ORM-level NOT NULL constraints by using a raw SQL insert against
+    a table created without NOT NULL clauses (see ``_make_nullable_engine``).
+    This simulates rows that could exist due to manual database operations or
+    pre-constraint-era data.
+
+    Args:
+        conn: An active SQLAlchemy connection backed by a nullable-schema engine.
+
+    Returns:
+        The UUID string used as the row's primary key.
+    """
+    row_id = str(uuid.uuid4())
+    conn.execute(
+        sa.text(
+            'INSERT INTO connection (id, name, host, port, "database", schema_name) '
+            "VALUES (:id, :name, NULL, 5432, NULL, NULL)"
+        ),
+        {"id": row_id, "name": "null-test-conn"},
     )
     conn.commit()
     return row_id
@@ -488,4 +549,139 @@ class TestMigration007Metadata:
         assert "intentionally imports synth_engine" in content, (
             "Migration 007 must contain the intentional-import comment explaining "
             "why it imports from synth_engine (unlike DDL-only migrations 001-006)."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test: NULL guard — rows with NULL fields are skipped gracefully
+# ---------------------------------------------------------------------------
+
+
+class TestMigration007NullGuard:
+    """upgrade() and downgrade() must skip rows where any encrypted field is NULL.
+
+    Columns have been NOT NULL since migration 002, but the guard protects
+    against manual inserts or future constraint changes.  The NULL row must
+    be left untouched — its values must remain NULL after both operations.
+
+    A nullable-schema engine is used so raw SQL can insert NULL values
+    without triggering SQLite NOT NULL enforcement.
+    """
+
+    def test_upgrade_skips_null_row_without_raising(self, fernet_instance: Fernet) -> None:
+        """upgrade() must not raise when a row has NULL host/database/schema_name."""
+        engine = _make_nullable_engine()
+        module = _import_migration_007()
+
+        with engine.connect() as conn:
+            null_id = _insert_null_row(conn)
+
+        mock_op = MagicMock()
+        with engine.connect() as bind:
+            mock_op.get_bind.return_value = bind
+            with (
+                patch.object(module, "op", mock_op),
+                patch.object(module, "_get_fernet", return_value=fernet_instance),
+            ):
+                # Must not raise even though the row has NULL encrypted fields.
+                module.upgrade()
+            bind.commit()
+
+        with engine.connect() as conn:
+            row = _fetch_row(conn, null_id)
+
+        assert row is not None
+        assert row.host is None, f"upgrade() must leave NULL host untouched, got: {row.host!r}"
+        assert row.database is None, (
+            f"upgrade() must leave NULL database untouched, got: {row.database!r}"
+        )
+        assert row.schema_name is None, (
+            f"upgrade() must leave NULL schema_name untouched, got: {row.schema_name!r}"
+        )
+
+    def test_downgrade_skips_null_row_without_raising(self, fernet_instance: Fernet) -> None:
+        """downgrade() must not raise when a row has NULL host/database/schema_name."""
+        engine = _make_nullable_engine()
+        module = _import_migration_007()
+
+        with engine.connect() as conn:
+            null_id = _insert_null_row(conn)
+
+        mock_op = MagicMock()
+        with engine.connect() as bind:
+            mock_op.get_bind.return_value = bind
+            with (
+                patch.object(module, "op", mock_op),
+                patch.object(module, "_get_fernet", return_value=fernet_instance),
+            ):
+                # Must not raise even though the row has NULL encrypted fields.
+                module.downgrade()
+            bind.commit()
+
+        with engine.connect() as conn:
+            row = _fetch_row(conn, null_id)
+
+        assert row is not None
+        assert row.host is None, f"downgrade() must leave NULL host untouched, got: {row.host!r}"
+        assert row.database is None, (
+            f"downgrade() must leave NULL database untouched, got: {row.database!r}"
+        )
+        assert row.schema_name is None, (
+            f"downgrade() must leave NULL schema_name untouched, got: {row.schema_name!r}"
+        )
+
+    def test_upgrade_encrypts_non_null_row_alongside_null_row(
+        self, fernet_instance: Fernet
+    ) -> None:
+        """upgrade() must encrypt the non-NULL row and leave the NULL row untouched.
+
+        When the table contains both a NULL row and a valid row, the NULL row
+        must be skipped while the valid row is fully encrypted.
+        """
+        engine = _make_nullable_engine()
+        module = _import_migration_007()
+
+        with engine.connect() as conn:
+            null_id = _insert_null_row(conn)
+            valid_id = _insert_row(
+                conn,
+                host="db.internal",
+                database="prod_db",
+                schema_name="public",
+            )
+
+        mock_op = MagicMock()
+        with engine.connect() as bind:
+            mock_op.get_bind.return_value = bind
+            with (
+                patch.object(module, "op", mock_op),
+                patch.object(module, "_get_fernet", return_value=fernet_instance),
+            ):
+                module.upgrade()
+            bind.commit()
+
+        with engine.connect() as conn:
+            null_row = _fetch_row(conn, null_id)
+            valid_row = _fetch_row(conn, valid_id)
+
+        assert null_row is not None
+        assert null_row.host is None, (
+            f"upgrade() must leave NULL host untouched, got: {null_row.host!r}"
+        )
+        assert null_row.database is None, (
+            f"upgrade() must leave NULL database untouched, got: {null_row.database!r}"
+        )
+        assert null_row.schema_name is None, (
+            f"upgrade() must leave NULL schema_name untouched, got: {null_row.schema_name!r}"
+        )
+
+        assert valid_row is not None
+        assert _is_fernet_token(valid_row.host), (
+            f"upgrade() must encrypt non-NULL host, got: {valid_row.host!r}"
+        )
+        assert _is_fernet_token(valid_row.database), (
+            f"upgrade() must encrypt non-NULL database, got: {valid_row.database!r}"
+        )
+        assert _is_fernet_token(valid_row.schema_name), (
+            f"upgrade() must encrypt non-NULL schema_name, got: {valid_row.schema_name!r}"
         )
