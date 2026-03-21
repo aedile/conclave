@@ -71,7 +71,7 @@ model. Proxy-model fallback (`_activate_opacus_proxy`) is available for environm
 Opacus cannot instrument the Discriminator. See ADR-0036 for discriminator-level DP rationale
 and ADR-0025 for the historical proxy-model approach.
 
-**Privacy Budget Accounting** — `EpsilonAccountant` tracks epsilon/delta consumption per
+**Privacy Budget Accounting** — the privacy accountant module (`spend_budget()`/`reset_budget()`) tracks epsilon/delta consumption per
 table per run. Any job that would exceed the configured budget is blocked before training starts.
 
 **Saga-Pattern Egress** — Writes to the target database transactionally. If anything fails
@@ -182,7 +182,7 @@ honest analysis of the epsilon calibration, and recommended epsilon ranges by us
 | Privacy guarantee | Mathematically rigorous end-to-end differential privacy (standard DP-GAN threat model; Generator does not directly see real data) | Practical approximation — meaningful epsilon bound, but does not account for Discriminator gradient updates |
 | Reference | ADR-0036 — Discriminator-Level DP-SGD Architecture | ADR-0025 — Custom CTGAN Training Loop (proxy-model rationale and limitations) |
 
-The masking pipeline, `EpsilonAccountant`, HMAC-sealed model artifacts, and the WORM audit log
+The masking pipeline, the privacy budget accountant, HMAC-sealed model artifacts, and the WORM audit log
 are not affected by this distinction — they provide independent, fully realized security controls.
 
 ---
