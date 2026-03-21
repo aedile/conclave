@@ -71,7 +71,10 @@ def periodic_cleanup_expired_jobs() -> int:
     from synth_engine.shared.settings import get_settings
 
     settings = get_settings()
-    database_url = settings.database_url or "sqlite:///:memory:"
+    database_url = settings.database_url
+    if not database_url:
+        _logger.error("Retention task: DATABASE_URL not configured — aborting.")
+        return 0
     db_engine = get_engine(database_url)
 
     cleanup = RetentionCleanup(
@@ -107,7 +110,10 @@ def periodic_cleanup_expired_artifacts() -> int:
     from synth_engine.shared.settings import get_settings
 
     settings = get_settings()
-    database_url = settings.database_url or "sqlite:///:memory:"
+    database_url = settings.database_url
+    if not database_url:
+        _logger.error("Retention task: DATABASE_URL not configured — aborting.")
+        return 0
     db_engine = get_engine(database_url)
 
     cleanup = RetentionCleanup(

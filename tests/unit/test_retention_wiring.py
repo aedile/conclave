@@ -718,3 +718,85 @@ class TestBootstrapperWiring:
 
         source = inspect.getsource(boot)
         assert "retention_tasks" in source
+
+
+# ---------------------------------------------------------------------------
+# QA-F1: Missing edge-case tests
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupExpiredArtifactsRaisesWithoutConfig:
+    """cleanup_expired_artifacts raises RuntimeError when not configured."""
+
+    def test_cleanup_expired_artifacts_raises_when_artifact_retention_days_not_set(
+        self,
+    ) -> None:
+        """Call cleanup_expired_artifacts() without artifact_retention_days → RuntimeError.
+
+        RetentionCleanup constructed with only job_retention_days (no
+        artifact_retention_days) must raise RuntimeError when
+        cleanup_expired_artifacts() is called, not silently succeed.
+        """
+        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+
+        engine = _make_engine()
+        # NOTE: artifact_retention_days intentionally omitted.
+        cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
+
+        with pytest.raises(RuntimeError, match="artifact_retention_days"):
+            cleanup.cleanup_expired_artifacts()
+
+
+class TestDeleteArtifactOSErrorIsSuppressed:
+    """OSError in _delete_artifact must be logged and suppressed, not abort job DB deletion."""
+
+    def test_delete_artifact_os_error_is_logged_and_suppressed(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """PermissionError in Path.unlink is logged as WARNING and job is still DB-deleted.
+
+        Verifies two invariants:
+        1. The job IS deleted from the database (OSError in artifact deletion
+           must not prevent the DB record from being removed).
+        2. A WARNING log entry is emitted containing the exception class name.
+        """
+        import logging
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from sqlmodel import select
+
+        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+
+        engine = _make_engine()
+        with Session(engine) as session:
+            job = _make_job(
+                session,
+                status="COMPLETE",
+                output_path="/tmp/unremovable_artifact.parquet",
+            )
+            _backdate(session, job.id, 100)
+
+        audit_mock = MagicMock()
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.retention.get_audit_logger",
+                return_value=audit_mock,
+            ),
+            patch.object(Path, "unlink", side_effect=PermissionError("access denied")),
+            caplog.at_level(logging.WARNING, logger="synth_engine.modules.synthesizer.retention"),
+        ):
+            cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
+            deleted = cleanup.cleanup_expired_jobs()
+
+        # Invariant 1: job is deleted from DB despite OSError in artifact removal.
+        assert deleted == 1
+        with Session(engine) as session:
+            remaining = session.exec(select(SynthesisJob)).all()
+            assert len(remaining) == 0
+
+        # Invariant 2: WARNING log was emitted.
+        assert any(record.levelno == logging.WARNING for record in caplog.records), (
+            f"Expected WARNING log, got: {[r.message for r in caplog.records]}"
+        )
