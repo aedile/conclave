@@ -171,3 +171,23 @@ is tracked as an advisory — no action required for the current single-operator
 - `src/synth_engine/bootstrapper/schemas/connections.py` — `Connection.owner_id`
 - `src/synth_engine/modules/synthesizer/job_models.py` — `SynthesisJob.owner_id`
 - `alembic/versions/007_add_owner_id_columns.py` — migration with explicit index DDL
+
+---
+
+### Amendment (Advisory Drain, 2026-03-21) — owner_id visibility in API responses
+
+The `owner_id` field is included in API response bodies (`ConnectionResponse`,
+`JobResponse`). This was evaluated for exclusion.
+
+**Decision: Retain `owner_id` in responses.**
+
+1. `owner_id` is the JWT `sub` claim, which the operator already knows
+   (it is their own identity).
+2. Filtering excludes other operators' records entirely — an operator
+   never sees another operator's `owner_id`.
+3. Including `owner_id` aids debugging and audit log correlation.
+4. If multi-tenant isolation requires hiding operator identity from
+   shared views, a `ReadSchema` without `owner_id` can be introduced
+   at that time.
+
+No code changes required.

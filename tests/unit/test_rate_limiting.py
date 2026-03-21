@@ -537,3 +537,60 @@ async def test_download_exceeds_limit_returns_429() -> None:
     assert second.status_code == 429, (
         f"Second download request must be rate limited (429); got {second.status_code}"
     )
+
+
+# ---------------------------------------------------------------------------
+# ADV-T39.3-01: Fallback path must not log raw key (security fix)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_retry_after_fallback_logs_hashed_key_not_raw(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """_compute_retry_after fallback path must log a hashed key, not the raw key.
+
+    The fallback branch fires when get_window_stats raises. It must hash the
+    key via sha256 before logging to prevent raw client IPs or operator IDs
+    from appearing in log files (CONSTITUTION Priority 0: security).
+
+    Arrange: patch get_window_stats to raise RuntimeError.
+    Act: call _compute_retry_after directly.
+    Assert: the raw key string does not appear in the warning log.
+    Assert: a 12-character hex substring (the hash prefix) appears in the log.
+    """
+    import hashlib
+    import logging
+    from unittest.mock import MagicMock, patch
+
+    from limits import parse
+
+    from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
+
+    raw_key = "ip:203.0.113.99"
+    expected_hash_prefix = hashlib.sha256(raw_key.encode()).hexdigest()[:12]
+
+    middleware = RateLimitGateMiddleware(
+        app=MagicMock(),
+        unseal_limit=5,
+        auth_limit=10,
+        general_limit=60,
+        download_limit=10,
+    )
+    limit_item = parse("5/minute")
+
+    rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit"
+    with patch.object(
+        middleware._limiter,
+        "get_window_stats",
+        side_effect=RuntimeError("storage error"),
+    ):
+        with caplog.at_level(logging.WARNING, logger=rate_limit_logger):
+            result = middleware._compute_retry_after(limit_item, raw_key)
+
+    assert result == 60, f"Fallback must return 60; got {result}"
+    assert raw_key not in caplog.text, (
+        f"Raw key '{raw_key}' must NOT appear in warning log; got: {caplog.text!r}"
+    )
+    assert expected_hash_prefix in caplog.text, (
+        f"Hashed key prefix '{expected_hash_prefix}' must appear in log; got: {caplog.text!r}"
+    )

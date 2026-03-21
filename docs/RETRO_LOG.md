@@ -12,11 +12,23 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-T39.1-01 | T39.1 Arch Review | TBD | ADVISORY | EXEMPT_PATHS duplication across 3 middleware files (vault.py, licensing.py, auth.py). Extract to shared `bootstrapper/dependencies/_exempt_paths.py`. |
-| ADV-T39.2-01 | T39.2 Arch Review | TBD | ADVISORY | SynthesisJob lives in modules/synthesizer/job_models.py but ADR-0021 rules it belongs in bootstrapper/schemas/. Pre-existing placement debt. |
-| ADV-T39.2-02 | T39.2 DevOps Review | TBD | ADVISORY | owner_id visible in API response bodies. Evaluate for exclusion before multi-tenant rollout. |
-| ADV-T39.4-01 | T39.4 Arch Review | TBD | ADVISORY | ADR-0006 scope expansion undocumented: ALE now covers infrastructure-sensitive fields (host, database, schema_name) beyond original GDPR/HIPAA PII scope. Amend ADR-0006. |
-| ADV-T39.3-01 | T39.3 DevOps Review | TBD | ADVISORY | _compute_retry_after fallback path logs raw key (potentially IP). Fix before non-MemoryStorage backend deployment. |
+
+---
+
+### [2026-03-21] Advisory Drain — Pre-Phase 40 Gate
+
+**Branch**: `fix/advisory-drain-pre-p40`
+
+**Advisories drained**:
+- ADV-T39.1-01: Extracted EXEMPT_PATHS to `_exempt_paths.py`, eliminated 3-file duplication
+- ADV-T39.2-01: Amended ADR-0021 — accepted SynthesisJob placement in synthesizer module
+- ADV-T39.2-02: Amended ADR-0040 — owner_id retention in API responses evaluated and accepted
+- ADV-T39.3-01: Fixed raw key logging in rate limit fallback path
+- ADV-T39.4-01: Amended ADR-0006 — documented infrastructure-sensitive field scope expansion
+
+**Review agents**: QA (PASS), DevOps (PASS), Architecture (PASS)
+
+**Review summary**: No findings across all three reviewers. Clean drain — all advisory resolutions verified.
 
 ---
 

@@ -306,10 +306,13 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
             reset_time: float = float(stats.reset_time)
             seconds = math.ceil(reset_time - time.time())
             return max(0, seconds)
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             # Defensive fallback: MemoryStorage is documented not to raise, but
             # this guard protects against future storage backend substitutions.
-            _logger.warning("rate_limit: window stats unavailable for key=%s: %s", key, e)
+            # Hash the key before logging to prevent raw client IPs or operator
+            # identifiers from appearing in log files (CONSTITUTION Priority 0).
+            hashed_key = hashlib.sha256(key.encode()).hexdigest()[:12]
+            _logger.warning("rate_limit: window stats unavailable for key=%s: %s", hashed_key, e)
             return 60
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
