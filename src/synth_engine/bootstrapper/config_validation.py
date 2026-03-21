@@ -15,6 +15,11 @@ Required additionally in production mode (``ENV=production`` or
     this, production masking falls back to a hardcoded development salt, making
     masked values reversible by anyone with access to the source code.
 
+Multi-key signing consistency (T42.1):
+  When ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE`` must
+  be set and must exist as a key within the map.  This is validated in all deployment
+  modes to prevent silent misconfiguration during rotation.
+
 Design rationale (ADV-077):
   Without a startup check, a misconfigured production instance will start
   silently and then fail at runtime — potentially mid-synthesis, after PII
@@ -33,6 +38,7 @@ Task: P20-T20.4 — Architecture Tightening (ADV-020: SSL override warning)
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: P36 review — Delegate _is_production() to get_settings().is_production() (QA Finding 1)
 Task: T37.2 — Drain ADV-P36-01: replace remaining os.environ.get() with get_settings()
+Task: T42.1 — Artifact Signing Key Versioning (multi-key consistency validation)
 """
 
 from __future__ import annotations
@@ -75,7 +81,12 @@ def validate_config() -> None:
     In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
     also validates that ``ARTIFACT_SIGNING_KEY`` and ``MASKING_SALT`` are present.
 
-    Additionally, emits a security warning when ``CONCLAVE_SSL_REQUIRED=false``
+    Additionally, validates multi-key signing consistency (T42.1): if
+    ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE``
+    must be set and present as a key within the map.  This check applies in
+    all deployment modes.
+
+    Also emits a security warning when ``CONCLAVE_SSL_REQUIRED=false``
     is detected in production mode, as this disables SSL enforcement for
     PostgreSQL connections.
 
@@ -88,11 +99,12 @@ def validate_config() -> None:
     of truth consistent with the T36.1 centralization goal (ADV-P36-01).
 
     Returns:
-        ``None`` when all required variables are present.
+        ``None`` when all required variables are present and consistent.
 
     Raises:
-        SystemExit: If any required environment variable is missing.  The
-            exit message lists every missing variable by name.
+        SystemExit: If any required environment variable is missing or if the
+            multi-key signing configuration is inconsistent.  The exit message
+            lists every error.
 
     Example::
 
@@ -108,13 +120,27 @@ def validate_config() -> None:
     # Access each required variable via the settings model rather than os.environ.
     # Settings field names are the lowercase equivalents of the env var names
     # (e.g. DATABASE_URL -> settings.database_url).
-    missing = [var for var in required if not getattr(settings, var.lower(), None)]
+    errors: list[str] = [var for var in required if not getattr(settings, var.lower(), None)]
 
-    if missing:
-        missing_list = ", ".join(missing)
+    # T42.1: validate multi-key signing consistency in all deployment modes.
+    # If artifact_signing_keys is non-empty, artifact_signing_key_active must be
+    # set and present as a key in the map.
+    if settings.artifact_signing_keys:
+        if not settings.artifact_signing_key_active:
+            errors.append(
+                "ARTIFACT_SIGNING_KEY_ACTIVE must be set when ARTIFACT_SIGNING_KEYS is non-empty"
+            )
+        elif settings.artifact_signing_key_active not in settings.artifact_signing_keys:
+            errors.append(
+                f"ARTIFACT_SIGNING_KEY_ACTIVE '{settings.artifact_signing_key_active}' "
+                f"is not present in ARTIFACT_SIGNING_KEYS"
+            )
+
+    if errors:
+        error_list = ", ".join(errors)
         raise SystemExit(
             f"Startup configuration error: the following required environment "
-            f"variable(s) are not set: {missing_list}. "
+            f"variable(s) are not set or are misconfigured: {error_list}. "
             f"Set them before starting the Conclave Engine."
         )
 
