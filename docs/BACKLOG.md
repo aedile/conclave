@@ -46,7 +46,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 36: Configuration Centralization, Documentation Pruning & Hygiene](backlog/phase-36.md) ✅
 *   [Phase 37: Advisory Drain, CHANGELOG Currency & E2E Demo Capstone](backlog/phase-37.md) ✅
 *   [Phase 38: Audit Integrity, Timing Side-Channel Fix & Pre-Commit Hardening](backlog/phase-38.md) ✅
-*   [Phase 39: Authentication, Authorization & Rate Limiting](backlog/phase-39.md)
+*   [Phase 39: Authentication, Authorization & Rate Limiting](backlog/phase-39.md) ✅
 *   [Phase 40: Test Suite Quality Overhaul](backlog/phase-40.md)
 *   [Phase 41: Data Compliance, Retention Policy & GDPR/CCPA Readiness](backlog/phase-41.md)
 *   [Phase 42: Security Hardening, Key Rotation & Deployment Safety](backlog/phase-42.md)
