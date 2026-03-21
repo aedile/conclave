@@ -22,6 +22,8 @@ Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 
 from __future__ import annotations
 
+import base64
+import os
 import time
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -42,6 +44,35 @@ _TEST_SECRET = (  # pragma: allowlist secret
 )
 _OPERATOR_A_SUB = "operator-alpha"
 _OPERATOR_B_SUB = "operator-beta"
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Unseal the vault so EncryptedString columns can encrypt/decrypt.
+
+    Connection.host, .database, and .schema_name use the EncryptedString
+    TypeDecorator (T39.4), which calls get_fernet() on every INSERT/SELECT.
+    When the vault is unsealed, get_fernet() derives the ALE key from the
+    vault KEK via HKDF, avoiding the ALE_KEY env var requirement.
+
+    This fixture mirrors the pattern in test_connections_router.py and
+    test_connection_encryption.py and must run for every test in this module
+    so that Connection seeding inside _make_connections_app() succeeds.
+
+    Resets (re-seals) the vault after each test for isolation.
+    """
+    from synth_engine.shared.security.vault import VaultState
+
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+    VaultState.unseal("test-authorization-passphrase")
+    yield
+    VaultState.reset()
 
 
 # ---------------------------------------------------------------------------
