@@ -180,9 +180,7 @@ class TestErasureServiceDeletesCorrectRecords:
             "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            manifest = service.execute_erasure(
-                subject_id="subject-1", actor="operator-admin"
-            )
+            manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
 
         assert manifest.deleted_jobs == 1
 
@@ -204,14 +202,12 @@ class TestErasureServiceDeletesCorrectRecords:
             session.commit()
 
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
+        service = ErasureService(session_factory=engine, connection_model=Connection)
         with patch(
             "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            manifest = service.execute_erasure(
-                subject_id="subject-1", actor="operator-admin"
-            )
+            manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
 
         assert manifest.deleted_connections == 1
 
@@ -252,14 +248,12 @@ class TestErasureServiceDeletesCorrectRecords:
             session.commit()
 
         audit_mock = MagicMock()
-        service = ErasureService(session_factory=engine)
+        service = ErasureService(session_factory=engine, connection_model=Connection)
         with patch(
             "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            manifest = service.execute_erasure(
-                subject_id="subject-1", actor="operator-admin"
-            )
+            manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
 
         assert manifest.deleted_jobs == 1
         assert manifest.deleted_connections == 1
@@ -287,9 +281,7 @@ class TestErasureServicePreservation:
             "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            manifest = service.execute_erasure(
-                subject_id="any-subject", actor="operator-admin"
-            )
+            manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
 
         assert manifest.retained_synthesized_output is True
 
@@ -304,9 +296,7 @@ class TestErasureServicePreservation:
             "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            manifest = service.execute_erasure(
-                subject_id="any-subject", actor="operator-admin"
-            )
+            manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
 
         assert manifest.retained_audit_trail is True
 
@@ -316,10 +306,15 @@ class TestErasureServicePreservation:
 
         from synth_engine.modules.synthesizer.erasure import ErasureService
 
-        # Inspect ErasureService to ensure it does NOT delete files (no Path.unlink or os.remove)
-        source = inspect.getsource(ErasureService)
-        assert "output_path" not in source or "unlink" not in source, (
-            "ErasureService must not delete synthesized output files."
+        # Inspect ErasureService to ensure it does NOT delete files.
+        # The service must not call unlink or os.remove on output_path.
+        source = inspect.getsource(ErasureService.execute_erasure)
+        assert "unlink" not in source, (
+            "ErasureService.execute_erasure must not call unlink (synthesized output is preserved)."
+        )
+        assert "os.remove" not in source, (
+            "ErasureService.execute_erasure must not call os.remove"
+            " (synthesized output is preserved)."
         )
 
     def test_manifest_justifications_are_non_empty(self) -> None:
@@ -333,9 +328,7 @@ class TestErasureServicePreservation:
             "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            manifest = service.execute_erasure(
-                subject_id="any-subject", actor="operator-admin"
-            )
+            manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
 
         assert len(manifest.retained_synthesized_output_justification) > 0
         assert len(manifest.retained_audit_trail_justification) > 0
@@ -433,6 +426,18 @@ class TestErasureServiceAuditLogging:
 class TestComplianceEndpointHappy:
     """Tests for DELETE /compliance/erasure success paths."""
 
+    def setup_method(self) -> None:
+        """Unseal the vault before each happy-path test."""
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState._is_sealed = False
+
+    def teardown_method(self) -> None:
+        """Re-seal the vault after each happy-path test to restore isolation."""
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState.reset()
+
     def _build_app(self, engine: Any) -> Any:
         """Build a minimal FastAPI app with the compliance router wired.
 
@@ -473,10 +478,11 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            response = client.delete(
+            response = client.request(
+                "DELETE",
                 "/compliance/erasure",
                 json={"subject_id": "sub-001"},
             )
@@ -504,10 +510,11 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            response = client.delete(
+            response = client.request(
+                "DELETE",
                 "/compliance/erasure",
                 json={"subject_id": "sub-001"},
             )
@@ -531,10 +538,10 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            client.delete("/compliance/erasure", json={"subject_id": "sub-001"})
+            client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-001"})
 
         audit_mock.log_event.assert_called_once()
         assert audit_mock.log_event.call_args.kwargs["event_type"] == "GDPR_ERASURE"
@@ -549,10 +556,11 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            response = client.delete(
+            response = client.request(
+                "DELETE",
                 "/compliance/erasure",
                 json={"subject_id": "no-such-subject"},
             )
@@ -573,10 +581,11 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            response = client.delete(
+            response = client.request(
+                "DELETE",
                 "/compliance/erasure",
                 json={"subject_id": "sub-001"},
             )
@@ -617,7 +626,8 @@ class TestComplianceEndpointVaultSealed:
         assert VaultState.is_sealed()
 
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.delete(
+        response = client.request(
+            "DELETE",
             "/compliance/erasure",
             json={"subject_id": "sub-001"},
         )
@@ -652,7 +662,8 @@ class TestComplianceEndpointVaultSealed:
         VaultState.reset()
 
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.delete(
+        response = client.request(
+            "DELETE",
             "/compliance/erasure",
             json={"subject_id": "sub-001"},
         )
@@ -692,10 +703,11 @@ class TestComplianceEndpointVaultSealed:
         audit_mock = MagicMock()
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            response = client.delete(
+            response = client.request(
+                "DELETE",
                 "/compliance/erasure",
                 json={"subject_id": "sub-001"},
             )

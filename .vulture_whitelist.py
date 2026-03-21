@@ -48,6 +48,7 @@ get_budget  # unused function — FastAPI route handler (routers/privacy.py)
 refresh_budget  # unused function — FastAPI route handler (routers/privacy.py)
 post_auth_token  # unused function — FastAPI route handler (routers/auth.py)
 set_legal_hold  # unused function — FastAPI route handler (routers/admin.py)
+erasure  # unused function — FastAPI route handler (routers/compliance.py)
 
 # ---------------------------------------------------------------------------
 # Category B — Starlette middleware dispatch() methods

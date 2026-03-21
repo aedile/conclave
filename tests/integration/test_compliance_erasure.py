@@ -10,6 +10,17 @@ SQLite database. They verify:
 - Vault-sealed state returns 423.
 - Erasure request is logged to audit trail.
 
+ALE / Vault setup note
+----------------------
+The ``Connection`` model uses ``EncryptedString`` (ALE) for the ``host``,
+``database``, and ``schema_name`` columns.  Tests that write and read
+``Connection`` records require a consistent ALE key across write and read
+operations.  We achieve this by properly unsealing the vault with a fixed
+test salt and passphrase before creating any connection records.
+
+The ``TestErasureVaultSealedGate`` tests call ``VaultState.reset()``
+explicitly to restore the sealed state for their assertions.
+
 CONSTITUTION Priority 0: Security — PII-free audit, no data leakage
 CONSTITUTION Priority 3: TDD
 Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
@@ -17,6 +28,8 @@ Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
 
 from __future__ import annotations
 
+import base64
+import os
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -28,6 +41,30 @@ from synth_engine.bootstrapper.schemas.connections import Connection
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 
 pytestmark = pytest.mark.integration
+
+# ---------------------------------------------------------------------------
+# Module-level vault setup for ALE-encrypted Connection tests
+# ---------------------------------------------------------------------------
+
+#: Fixed test salt — 16 bytes, base64url-encoded.
+_TEST_VAULT_SALT: str = base64.urlsafe_b64encode(b"synth-test-salt!").decode()
+
+#: Fixed test passphrase. Not a real secret — test isolation only.
+_TEST_VAULT_PASSPHRASE: str = "erasure-test-passphrase"  # nosec B105 # pragma: allowlist secret
+
+
+def _ensure_vault_unsealed() -> None:
+    """Unseal the vault with a fixed test passphrase if currently sealed.
+
+    Used in test helpers that create or read ALE-encrypted Connection records.
+    Tests in ``TestErasureVaultSealedGate`` call ``VaultState.reset()`` to
+    restore the sealed state for their own assertions.
+    """
+    from synth_engine.shared.security.vault import VaultState
+
+    if VaultState.is_sealed():
+        os.environ["VAULT_SEAL_SALT"] = _TEST_VAULT_SALT
+        VaultState.unseal(_TEST_VAULT_PASSPHRASE)
 
 
 # ---------------------------------------------------------------------------
@@ -104,14 +141,16 @@ def _make_connection(*, name: str = "conn", owner_id: str = "op1") -> Connection
 def _build_app(engine: Any) -> Any:
     """Build a test FastAPI app with compliance router and DB override.
 
+    Unseals the vault before building the app so ALE-encrypted Connection
+    fields can be read. Tests in ``TestErasureVaultSealedGate`` reset the
+    vault themselves.
+
     Args:
         engine: SQLAlchemy engine to use for dependency override.
 
     Returns:
         Configured FastAPI app instance.
     """
-    import os
-
     os.environ.setdefault("AUDIT_KEY", "aa" * 32)
     os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
@@ -120,6 +159,8 @@ def _build_app(engine: Any) -> Any:
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.compliance import router as compliance_router
+
+    _ensure_vault_unsealed()
 
     app = FastAPI()
     app.include_router(compliance_router)
@@ -140,6 +181,16 @@ def _build_app(engine: Any) -> Any:
 class TestErasureEndpointCascadeDeletion:
     """End-to-end tests for cascade deletion through connections and jobs."""
 
+    def setup_method(self) -> None:
+        """Unseal the vault before each test so ALE operations succeed."""
+        _ensure_vault_unsealed()
+
+    def teardown_method(self) -> None:
+        """Re-seal the vault after each test to restore isolation."""
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState.reset()
+
     def test_cascade_deletes_all_connections_for_subject(self) -> None:
         """All connections owned by the subject are deleted; others survive."""
         from fastapi.testclient import TestClient
@@ -157,10 +208,11 @@ class TestErasureEndpointCascadeDeletion:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            response = client.delete(
+            response = client.request(
+                "DELETE",
                 "/compliance/erasure",
                 json={"subject_id": "subject-A"},
             )
@@ -190,10 +242,11 @@ class TestErasureEndpointCascadeDeletion:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            response = client.delete(
+            response = client.request(
+                "DELETE",
                 "/compliance/erasure",
                 json={"subject_id": "subject-A"},
             )
@@ -226,10 +279,11 @@ class TestErasureEndpointCascadeDeletion:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            response = client.delete(
+            response = client.request(
+                "DELETE",
                 "/compliance/erasure",
                 json={"subject_id": "subject-A"},
             )
@@ -245,6 +299,16 @@ class TestErasureEndpointCascadeDeletion:
 class TestErasureAuditTrailPreservation:
     """Tests verifying audit trail is preserved and erasure is logged."""
 
+    def setup_method(self) -> None:
+        """Unseal the vault before each test so ALE operations succeed."""
+        _ensure_vault_unsealed()
+
+    def teardown_method(self) -> None:
+        """Re-seal the vault after each test to restore isolation."""
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState.reset()
+
     def test_audit_event_emitted_for_erasure(self) -> None:
         """GDPR_ERASURE audit event is emitted for every erasure request."""
         from fastapi.testclient import TestClient
@@ -255,10 +319,10 @@ class TestErasureAuditTrailPreservation:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            client.delete("/compliance/erasure", json={"subject_id": "sub-E2E"})
+            client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-E2E"})
 
         audit_mock.log_event.assert_called_once()
         call_kwargs = audit_mock.log_event.call_args.kwargs
@@ -280,10 +344,10 @@ class TestErasureAuditTrailPreservation:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            client.delete("/compliance/erasure", json={"subject_id": "sub-E2E"})
+            client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-E2E"})
 
         call_kwargs = audit_mock.log_event.call_args.kwargs
         details: dict[str, str] = call_kwargs["details"]
@@ -303,10 +367,10 @@ class TestErasureAuditTrailPreservation:
         subject_id = "pii-user@example.com"
         client = TestClient(app)
         with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            client.delete("/compliance/erasure", json={"subject_id": subject_id})
+            client.request("DELETE", "/compliance/erasure", json={"subject_id": subject_id})
 
         call_kwargs = audit_mock.log_event.call_args.kwargs
         details: dict[str, str] = call_kwargs["details"]
@@ -343,7 +407,8 @@ class TestErasureVaultSealedGate:
         assert VaultState.is_sealed()
 
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.delete(
+        response = client.request(
+            "DELETE",
             "/compliance/erasure",
             json={"subject_id": "sub-sealed"},
         )
@@ -373,7 +438,8 @@ class TestErasureVaultSealedGate:
         VaultState.reset()
 
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.delete(
+        response = client.request(
+            "DELETE",
             "/compliance/erasure",
             json={"subject_id": "sub-sealed"},
         )
@@ -409,7 +475,8 @@ class TestErasureVaultSealedGate:
         VaultState.reset()
 
         client = TestClient(app, raise_server_exceptions=False)
-        client.delete(
+        client.request(
+            "DELETE",
             "/compliance/erasure",
             json={"subject_id": "sub-sealed"},
         )
