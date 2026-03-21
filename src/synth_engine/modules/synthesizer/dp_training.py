@@ -14,13 +14,25 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from synth_engine.modules.synthesizer._optional_deps import (
+    DataLoader,
+    TensorDataset,
+    nn,
+    require_synthesizer,
+    torch,
+)
+from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size, parse_gan_hyperparams
+from synth_engine.modules.synthesizer.dp_discriminator import OpacusCompatibleDiscriminator
+from synth_engine.modules.synthesizer.training_strategies import (
+    DpCtganStrategy,
+    Optimizers,
+    TrainingConfig,
+    VanillaCtganStrategy,
+    build_proxy_dataloader,
+)
 from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.exceptions import BudgetExhaustionError
 from synth_engine.shared.protocols import DPWrapperProtocol
-
-_logger = logging.getLogger(__name__)
-_OPACUS_SECURE_RNG_PATTERN = ".*Secure RNG turned off.*"
-_OPACUS_BATCH_PATTERN = ".*Expected.*batch.*"
 
 try:
     from ctgan.synthesizers.ctgan import CTGAN, Generator
@@ -32,25 +44,9 @@ except ImportError:  # pragma: no cover
     CTGAN = None  # ctgan not installed; synthesis unavailable
     Generator = None  # ctgan not installed; synthesis unavailable
 
-try:
-    import torch
-    import torch.nn as nn
-    from torch.utils.data import DataLoader, TensorDataset
-except ImportError:  # pragma: no cover
-    torch: Any = None  # type: ignore[no-redef]
-    nn: Any = None  # type: ignore[no-redef]
-    DataLoader: Any = None  # type: ignore[no-redef]
-    TensorDataset: Any = None  # type: ignore[no-redef]
-
-from synth_engine.modules.synthesizer.dp_discriminator import OpacusCompatibleDiscriminator  # noqa: E402,I001
-from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size, parse_gan_hyperparams  # noqa: E402
-from synth_engine.modules.synthesizer.training_strategies import (  # noqa: E402
-    DpCtganStrategy,
-    Optimizers,
-    TrainingConfig,
-    VanillaCtganStrategy,
-    build_proxy_dataloader,
-)
+_logger = logging.getLogger(__name__)
+_OPACUS_SECURE_RNG_PATTERN = ".*Secure RNG turned off.*"
+_OPACUS_BATCH_PATTERN = ".*Expected.*batch.*"
 
 
 class DPCompatibleCTGAN:
@@ -316,15 +312,14 @@ class DPCompatibleCTGAN:
     def _activate_opacus_proxy(self, processed_df: pd.DataFrame) -> None:
         """Activate Opacus on a proxy linear model. Fallback from T7.3/T30.3.
 
+        Calls ``require_synthesizer()`` which raises ``ImportError`` when
+        PyTorch is not installed.
+
         Args:
             processed_df: VGM-normalized DataFrame.
-
-        Raises:
-            ImportError: If PyTorch is not installed.
         """
         assert self._dp_wrapper is not None
-        if torch is None or nn is None:  # pragma: no cover
-            raise ImportError("PyTorch required; install with: poetry install --with synthesizer")
+        require_synthesizer()
         dataloader, n_features = self._build_proxy_dataloader(processed_df)
         proxy_model = nn.Linear(n_features, 1)
         optimizer = torch.optim.Adam(proxy_model.parameters(), lr=1e-3)
