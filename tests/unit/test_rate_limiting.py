@@ -497,3 +497,43 @@ def test_extract_operator_id_returns_none_for_malformed_token() -> None:
 
     result = _extract_operator_id(request)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Download tier: per-operator limit enforced on /jobs/{job_id}/download
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_download_exceeds_limit_returns_429() -> None:
+    """Exceeding the download limit returns 429 Too Many Requests.
+
+    The download tier is a lower bucket than the general tier, enforcing
+    stricter throttling on bulk export paths.
+
+    Arrange: build the app with download_limit=1.
+    Act: GET /jobs/abc123/download twice from the same operator.
+    Assert: First request succeeds (200); second is rejected (429).
+    """
+    import time
+
+    import jwt as pyjwt
+
+    secret = "test-secret-key-long-enough-32ch"  # pragma: allowlist secret
+    now = int(time.time())
+    token = pyjwt.encode(
+        {"sub": "op-download-test", "iat": now, "exp": now + 3600, "scope": []},
+        secret,
+        algorithm="HS256",
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    app = _build_isolated_app(download_limit=1)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.get("/jobs/abc123/download", headers=headers)
+        second = await client.get("/jobs/abc123/download", headers=headers)
+
+    assert first.status_code == 200, f"First download request must succeed; got {first.status_code}"
+    assert second.status_code == 429, (
+        f"Second download request must be rate limited (429); got {second.status_code}"
+    )
