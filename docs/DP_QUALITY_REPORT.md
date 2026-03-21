@@ -50,6 +50,8 @@ benchmark now tests three configurations:
 > deployments. The proxy-model section is retained for historical comparison only.
 > See ADR-0036 for the full rationale.
 
+<!-- -->
+
 > **Proxy-model historical note**: The proxy-model measurements use
 > `_activate_opacus_proxy()` (the renamed T7.3 approach). Epsilon values reflect
 > gradient steps on a linear proxy model trained on the same preprocessed data — not
