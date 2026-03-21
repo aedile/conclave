@@ -118,7 +118,8 @@ class TestJobOrchestrationExceptionComments:
 
         assert _has_comment_in_window(lines, epsilon_except_idx, window=5), (
             f"No inline justification comment found within 5 lines of the except Exception "
-            f"block for epsilon_spent() (line {epsilon_except_idx + 1}) in job_orchestration.py.\n"
+            f"block for epsilon_spent() "
+            f"(line {epsilon_except_idx + 1}) in job_orchestration.py.\n"
             f"Context:\n"
             + textwrap.indent(
                 "\n".join(lines[max(0, epsilon_except_idx - 5) : epsilon_except_idx + 3]),
@@ -144,7 +145,9 @@ class TestJobOrchestrationExceptionComments:
         audit_except_idx: int | None = None
         for idx in except_indices:
             context = "\n".join(lines[max(0, idx - 10) : idx + 2])
-            if "log_event" in context or ("audit" in context.lower() and "AuditWriteError" in context):
+            has_audit = "log_event" in context
+            has_audit_write_error = "audit" in context.lower() and "AuditWriteError" in context
+            if has_audit or has_audit_write_error:
                 audit_except_idx = idx
                 break
 
@@ -155,7 +158,8 @@ class TestJobOrchestrationExceptionComments:
 
         assert _has_comment_in_window(lines, audit_except_idx, window=5), (
             f"No inline justification comment found within 5 lines of the except Exception "
-            f"block for audit.log_event() (line {audit_except_idx + 1}) in job_orchestration.py.\n"
+            f"block for audit.log_event() "
+            f"(line {audit_except_idx + 1}) in job_orchestration.py.\n"
             f"Context:\n"
             + textwrap.indent(
                 "\n".join(lines[max(0, audit_except_idx - 5) : audit_except_idx + 3]),
