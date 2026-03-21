@@ -264,6 +264,75 @@ class TestHandleDpAccountingBehaviour:
         ):
             _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
 
+    def test_early_return_when_actual_epsilon_is_none_after_measurement(self) -> None:
+        """_handle_dp_accounting must skip budget spend when job.actual_epsilon is None.
+
+        This guards the early-return branch: if epsilon_spent() returns None
+        (e.g. via a custom dp_wrapper), the function must return without calling
+        spend_budget_fn.
+        """
+        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+
+        job = _make_synthesis_job(id=1)
+        mock_wrapper = MagicMock()
+        # epsilon_spent() returns None, so job.actual_epsilon will be None after assignment
+        mock_wrapper.epsilon_spent.return_value = None
+        mock_budget_fn = MagicMock()
+
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                mock_budget_fn,
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
+
+        # spend_budget_fn must NOT have been called when actual_epsilon is None
+        mock_budget_fn.assert_not_called()
+
+    def test_raises_audit_write_error_when_spend_budget_fn_raises_connection_error(
+        self,
+    ) -> None:
+        """_handle_dp_accounting must raise AuditWriteError when spend_budget_fn raises.
+
+        Covers the ``except Exception`` path (ADV-P38-01): unexpected errors from
+        spend_budget_fn (e.g. ConnectionError) must be wrapped as AuditWriteError
+        so the job is marked FAILED with a sentinel message — not a raw exc string.
+        """
+        from synth_engine.modules.synthesizer.dp_accounting import (
+            _BUDGET_SPEND_FAILED_MSG,
+            _handle_dp_accounting,
+        )
+        from synth_engine.shared.exceptions import AuditWriteError
+
+        job = _make_synthesis_job(id=1)
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.return_value = 0.8
+        mock_budget_fn = MagicMock(side_effect=ConnectionError("DB unreachable"))
+
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                mock_budget_fn,
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+            pytest.raises(AuditWriteError) as excinfo,
+        ):
+            _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
+
+        raised_msg = str(excinfo.value)
+        # Raw exception detail must not appear in the AuditWriteError message
+        assert "DB unreachable" not in raised_msg
+        # The error message must be the fixed sentinel constant
+        assert raised_msg == _BUDGET_SPEND_FAILED_MSG
+
 
 # ---------------------------------------------------------------------------
 # Behaviour: DpAccountingStep imported from dp_accounting works end-to-end

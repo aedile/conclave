@@ -54,6 +54,10 @@ _AUDIT_RECONCILIATION_MSG: str = (
     "Budget deducted but audit trail write failed — manual reconciliation required"
 )
 
+_BUDGET_SPEND_FAILED_MSG: str = (
+    "Budget spend failed with unexpected error — manual reconciliation required"
+)
+
 
 # ---------------------------------------------------------------------------
 # Core DP accounting function
@@ -117,7 +121,6 @@ def _handle_dp_accounting(
     if spend_budget_fn is None or job.actual_epsilon is None:
         return
 
-    budget_spent = False
     try:
         spend_budget_fn(
             amount=job.actual_epsilon,
@@ -125,7 +128,6 @@ def _handle_dp_accounting(
             ledger_id=_DEFAULT_LEDGER_ID,
             note=f"DP synthesis job {job_id}",
         )
-        budget_spent = True
         _logger.info(
             "Job %d: budget deducted (epsilon=%.4f, ledger_id=%d).",
             job_id,
@@ -135,36 +137,34 @@ def _handle_dp_accounting(
     except BudgetExhaustionError:
         _logger.error("Job %d: Privacy budget exhausted — marking FAILED.", job_id)
         raise  # Re-raise: orchestrator (not step) sets job.status (AC4).
-    except Exception as exc:  # ADV-P38-01: broad catch — any unexpected error from spend_budget_fn
+    except Exception:  # ADV-P38-01: broad catch — any unexpected error from spend_budget_fn
         # ADV-P38-01: Non-BudgetExhaustionError exceptions (e.g. ConnectionError, RuntimeError)
         # from spend_budget_fn must not propagate uncaught. We log at ERROR and surface as
         # AuditWriteError so DpAccountingStep marks the job FAILED with a meaningful message.
+        # Raw exception detail is intentionally withheld from the sentinel message (logged above).
         _logger.error(
             "Job %d: Unexpected error from spend_budget_fn — budget spend status unknown.",
             job_id,
             exc_info=True,
         )
-        raise AuditWriteError(
-            f"Budget spend failed with unexpected error: {exc!s} — manual reconciliation required"
-        ) from exc
+        raise AuditWriteError(_BUDGET_SPEND_FAILED_MSG) from None
 
-    if budget_spent:
-        try:
-            audit = _orch.get_audit_logger()
-            audit.log_event(
-                event_type="PRIVACY_BUDGET_SPEND",
-                actor="system/huey-worker",
-                resource=f"privacy_ledger/{_DEFAULT_LEDGER_ID}",
-                action="spend_budget",
-                details={"job_id": str(job_id), "epsilon_spent": str(job.actual_epsilon)},
-            )
-        except Exception as exc:
-            _logger.error(
-                "Job %d: Audit log failed after budget deduction — reconciliation required.",
-                job_id,
-                exc_info=True,
-            )
-            raise AuditWriteError(_AUDIT_RECONCILIATION_MSG) from exc
+    try:
+        audit = _orch.get_audit_logger()
+        audit.log_event(
+            event_type="PRIVACY_BUDGET_SPEND",
+            actor="system/huey-worker",
+            resource=f"privacy_ledger/{_DEFAULT_LEDGER_ID}",
+            action="spend_budget",
+            details={"job_id": str(job_id), "epsilon_spent": str(job.actual_epsilon)},
+        )
+    except Exception as exc:
+        _logger.error(
+            "Job %d: Audit log failed after budget deduction — reconciliation required.",
+            job_id,
+            exc_info=True,
+        )
+        raise AuditWriteError(_AUDIT_RECONCILIATION_MSG) from exc
 
 
 # ---------------------------------------------------------------------------
