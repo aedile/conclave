@@ -33,34 +33,6 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 
 
-def _make_job(
-    *,
-    days_old: int = 0,
-    status: str = "COMPLETE",
-    legal_hold: bool = False,
-) -> SynthesisJob:
-    """Return a SynthesisJob instance with created_at set ``days_old`` days ago.
-
-    Args:
-        days_old: How many days before "now" the job was created.
-        status: Job status string.
-        legal_hold: Whether the job is under legal hold.
-
-    Returns:
-        A :class:`SynthesisJob` with the specified attributes.
-    """
-    job = SynthesisJob(
-        table_name="test_table",
-        parquet_path="/tmp/test.parquet",
-        total_epochs=5,
-        num_rows=10,
-        status=status,
-        legal_hold=legal_hold,
-    )
-    job.created_at = datetime.now(UTC) - timedelta(days=days_old)
-    return job
-
-
 def _make_engine() -> Any:
     """Create an in-memory SQLite engine for testing.
 
@@ -453,6 +425,65 @@ class TestRetentionCleanupExpiredJobs:
             remaining_ids = {j.legal_hold for j in remaining}
             # One held, one fresh (not held) remain
             assert True in remaining_ids
+            assert False in remaining_ids
+
+
+# ---------------------------------------------------------------------------
+# _delete_artifact OSError path tests
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteArtifactOSError:
+    """Tests for RetentionCleanup._delete_artifact() OSError handling."""
+
+    def test_oserror_does_not_raise(self) -> None:
+        """_delete_artifact does not raise when Path.unlink raises PermissionError."""
+        from pathlib import Path
+
+        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+
+        engine = MagicMock()
+        cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
+
+        job = SynthesisJob(
+            table_name="t",
+            parquet_path="/tmp/some_artifact.parquet",
+            output_path="/tmp/some_artifact.parquet",
+            total_epochs=1,
+            num_rows=1,
+        )
+
+        with patch.object(Path, "unlink", side_effect=PermissionError("access denied")):
+            # Must not raise — best-effort deletion
+            cleanup._delete_artifact(job)
+
+    def test_oserror_logs_correct_exception_type_name(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_delete_artifact logs a WARNING with the correct exception class name."""
+        import logging
+        from pathlib import Path
+
+        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+
+        engine = MagicMock()
+        cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
+
+        job = SynthesisJob(
+            table_name="t",
+            parquet_path="/tmp/some_artifact.parquet",
+            output_path="/tmp/some_artifact.parquet",
+            total_epochs=1,
+            num_rows=1,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="synth_engine.modules.synthesizer.retention"):
+            with patch.object(Path, "unlink", side_effect=PermissionError("access denied")):
+                cleanup._delete_artifact(job)
+
+        assert any("PermissionError" in record.message for record in caplog.records), (
+            f"Expected 'PermissionError' in warning log, got: {[r.message for r in caplog.records]}"
+        )
 
 
 # ---------------------------------------------------------------------------

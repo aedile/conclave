@@ -324,6 +324,7 @@ class ConclaveSettings(BaseSettings):
 
     job_retention_days: int = Field(
         default=90,
+        ge=1,
         description=(
             "Number of days to retain synthesis_job records before they are "
             "eligible for routine purge.  Jobs with legal_hold=True are exempt "
@@ -332,6 +333,7 @@ class ConclaveSettings(BaseSettings):
     )
     audit_retention_days: int = Field(
         default=1095,
+        ge=1,
         description=(
             "Number of days to retain audit events before they may be archived "
             "to cold storage.  Audit events are NEVER deleted during the retention "
@@ -341,6 +343,7 @@ class ConclaveSettings(BaseSettings):
     )
     artifact_retention_days: int = Field(
         default=30,
+        ge=1,
         description=(
             "Number of days to retain generated Parquet artifact files before "
             "they are eligible for deletion by the retention cleanup task. "
