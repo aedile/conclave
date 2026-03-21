@@ -7,19 +7,34 @@ or more modules, currently:
   (Fernet-based ``EncryptedString`` SQLAlchemy TypeDecorator).
 - :mod:`synth_engine.shared.security.hmac_signing` — Generic HMAC-SHA256
   signing primitives: :exc:`SecurityError`, :func:`compute_hmac`,
-  :func:`verify_hmac`, and :data:`HMAC_DIGEST_SIZE`.
+  :func:`verify_hmac`, :data:`HMAC_DIGEST_SIZE`,
+  :data:`KEY_ID_SIZE`, :data:`LEGACY_KEY_ID`,
+  :func:`sign_versioned`, :func:`verify_versioned`,
+  :func:`log_key_rotation_event`.
 """
 
 from synth_engine.shared.security.hmac_signing import (
     HMAC_DIGEST_SIZE,
+    KEY_ID_SIZE,
+    LEGACY_KEY_ID,
+    VERSIONED_SIGNATURE_SIZE,
     SecurityError,
     compute_hmac,
+    log_key_rotation_event,
+    sign_versioned,
     verify_hmac,
+    verify_versioned,
 )
 
 __all__ = [
     "HMAC_DIGEST_SIZE",
+    "KEY_ID_SIZE",
+    "LEGACY_KEY_ID",
+    "VERSIONED_SIGNATURE_SIZE",
     "SecurityError",
     "compute_hmac",
+    "log_key_rotation_event",
+    "sign_versioned",
     "verify_hmac",
+    "verify_versioned",
 ]

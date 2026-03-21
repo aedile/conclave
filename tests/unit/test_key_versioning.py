@@ -5,7 +5,7 @@ Acceptance Criteria verified here:
   AC2: Multiple signing keys supported concurrently.
   AC3: Active key used for new signatures; any key verifies old signatures.
   AC4: Legacy (pre-versioning) artifacts remain verifiable.
-  AC5: Key rotation logged to audit trail.
+  AC5: Key rotation event logged to WORM audit trail.
   AC6: sign with key A → verify with key A, rotate to key B → old artifact
        still verifiable, new artifact signed with key B.
 
@@ -19,14 +19,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# Imports under test — these will fail until the implementation exists.
-# ---------------------------------------------------------------------------
 
 from synth_engine.shared.security.hmac_signing import (
     HMAC_DIGEST_SIZE,
@@ -161,8 +156,8 @@ class TestLegacyBackwardCompatibility:
 
     def test_verify_versioned_handles_legacy_32_byte_signature(self) -> None:
         """A 32-byte legacy signature (no key ID prefix) must verify with LEGACY_KEY_ID key."""
-        import hmac as _hmac
         import hashlib
+        import hmac as _hmac
 
         legacy_key = b"\xde" * 32
         data = b"legacy artifact data"
@@ -176,8 +171,8 @@ class TestLegacyBackwardCompatibility:
 
     def test_verify_versioned_legacy_signature_with_wrong_key_returns_false(self) -> None:
         """Legacy signature with wrong key returns False, not raise."""
-        import hmac as _hmac
         import hashlib
+        import hmac as _hmac
 
         legacy_key = b"\xde" * 32
         wrong_key = b"\xef" * 32
@@ -284,6 +279,7 @@ class TestConclaveSettingsMultiKey:
     def test_settings_accepts_artifact_signing_keys_dict(self) -> None:
         """ConclaveSettings must accept artifact_signing_keys as a JSON-encoded dict."""
         import json
+
         from synth_engine.shared.settings import ConclaveSettings, get_settings
 
         keys_dict = {"00000001": "ab" * 32, "00000002": "cd" * 32}
@@ -333,6 +329,7 @@ class TestJobFinalizationVersionedSigning:
         """_write_parquet_with_signing writes a KEY_ID_SIZE+HMAC_DIGEST_SIZE sig file."""
         import json
         from unittest.mock import MagicMock
+
         from synth_engine.modules.synthesizer.job_finalization import (
             _write_parquet_with_signing,
         )
@@ -343,9 +340,7 @@ class TestJobFinalizationVersionedSigning:
 
         # Create a mock DataFrame
         mock_df = MagicMock()
-        mock_df.to_parquet.side_effect = lambda path, **kw: Path(path).write_bytes(
-            parquet_bytes
-        )
+        mock_df.to_parquet.side_effect = lambda path, **kw: Path(path).write_bytes(parquet_bytes)
 
         key_bytes = b"\xab" * 32
         key_id = "00000001"
@@ -374,6 +369,7 @@ class TestJobFinalizationVersionedSigning:
     ) -> None:
         """Falls back to legacy single-key signing when only ARTIFACT_SIGNING_KEY is set."""
         from unittest.mock import MagicMock
+
         from synth_engine.modules.synthesizer.job_finalization import (
             _write_parquet_with_signing,
         )
@@ -383,9 +379,7 @@ class TestJobFinalizationVersionedSigning:
         parquet_bytes = b"PAR1\x00legacy parquet bytes"
 
         mock_df = MagicMock()
-        mock_df.to_parquet.side_effect = lambda path, **kw: Path(path).write_bytes(
-            parquet_bytes
-        )
+        mock_df.to_parquet.side_effect = lambda path, **kw: Path(path).write_bytes(parquet_bytes)
 
         legacy_key = b"\xcd" * 32
         remove_keys = ["ARTIFACT_SIGNING_KEYS", "ARTIFACT_SIGNING_KEY_ACTIVE"]
@@ -416,11 +410,12 @@ class TestJobsStreamingVersionedVerification:
     def test_verify_accepts_versioned_signature(self, tmp_path: Path) -> None:
         """_verify_artifact_signature returns True for a valid versioned signature."""
         import json
+
         from synth_engine.bootstrapper.routers.jobs_streaming import (
             _verify_artifact_signature,
         )
-        from synth_engine.shared.settings import get_settings
         from synth_engine.shared.security.hmac_signing import sign_versioned
+        from synth_engine.shared.settings import get_settings
 
         parquet_bytes = b"PAR1\x00versioned artifact"
         parquet_path = tmp_path / "versioned.parquet"
@@ -447,8 +442,9 @@ class TestJobsStreamingVersionedVerification:
 
     def test_verify_accepts_legacy_signature(self, tmp_path: Path) -> None:
         """_verify_artifact_signature returns True for a valid legacy 32-byte signature."""
-        import hmac as _hmac
         import hashlib
+        import hmac as _hmac
+
         from synth_engine.bootstrapper.routers.jobs_streaming import (
             _verify_artifact_signature,
         )
@@ -475,16 +471,15 @@ class TestJobsStreamingVersionedVerification:
         assert result is True
         get_settings.cache_clear()
 
-    def test_verify_returns_false_for_tampered_versioned_artifact(
-        self, tmp_path: Path
-    ) -> None:
+    def test_verify_returns_false_for_tampered_versioned_artifact(self, tmp_path: Path) -> None:
         """_verify_artifact_signature returns False when versioned signature doesn't match."""
         import json
+
         from synth_engine.bootstrapper.routers.jobs_streaming import (
             _verify_artifact_signature,
         )
-        from synth_engine.shared.settings import get_settings
         from synth_engine.shared.security.hmac_signing import sign_versioned
+        from synth_engine.shared.settings import get_settings
 
         parquet_bytes = b"PAR1\x00original content"
         tampered_bytes = b"PAR1\x00tampered content"

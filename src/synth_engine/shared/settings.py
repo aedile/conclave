@@ -41,6 +41,7 @@ Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T39.3 — Add Rate Limiting Middleware
 Task: T41.1 — Implement Data Retention Policy
+Task: T42.1 — Artifact Signing Key Versioning (multi-key support)
 """
 
 from __future__ import annotations
@@ -69,8 +70,19 @@ class ConclaveSettings(BaseSettings):
             Required in all deployment modes.
         ale_key: Fernet key for Application-Level Encryption.
             Optional — vault KEK path is preferred in production.
-        artifact_signing_key: Hex-encoded HMAC key for Parquet artifact signing.
-            Required in production mode only.
+        artifact_signing_key: Hex-encoded HMAC key for Parquet artifact
+            signing (legacy single-key mode).  Deprecated in favour of
+            ``artifact_signing_keys`` but retained for backward
+            compatibility.  Required in production mode only when
+            ``artifact_signing_keys`` is absent.
+        artifact_signing_keys: JSON-encoded dict mapping hex key ID strings
+            to hex key strings.  Enables multi-key rotation.  When set,
+            takes precedence over ``artifact_signing_key``.
+            Example: ``'{"00000001": "abcd...ef", "00000002": "1234...56"}'``.
+        artifact_signing_key_active: Hex key ID string identifying the
+            currently active signing key in ``artifact_signing_keys``.
+            New artifacts are signed with this key; old artifacts signed
+            with any key in the map remain verifiable.
         masking_salt: Secret salt for deterministic HMAC masking.
             Required in production mode only.
         conclave_env: Deployment environment name (e.g. ``"production"``).
@@ -150,7 +162,27 @@ class ConclaveSettings(BaseSettings):
     artifact_signing_key: str | None = Field(
         default=None,
         description=(
-            "Hex-encoded HMAC key for Parquet artifact signing. Required in production mode."
+            "Hex-encoded HMAC key for Parquet artifact signing. "
+            "Legacy single-key mode — deprecated in favour of "
+            "ARTIFACT_SIGNING_KEYS.  Required in production mode only "
+            "when ARTIFACT_SIGNING_KEYS is absent."
+        ),
+    )
+    artifact_signing_keys: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "JSON-encoded dict mapping hex key ID strings to hex key strings. "
+            "Enables multi-key rotation.  Example: "
+            '\'{"00000001": "abcd...ef", "00000002": "1234...56"}\'. '
+            "When set, takes precedence over ARTIFACT_SIGNING_KEY."
+        ),
+    )
+    artifact_signing_key_active: str | None = Field(
+        default=None,
+        description=(
+            "Hex key ID string identifying the currently active signing key "
+            "in ARTIFACT_SIGNING_KEYS.  New artifacts are signed with this key. "
+            "Old artifacts signed with any key in the map remain verifiable."
         ),
     )
     masking_salt: str | None = Field(
