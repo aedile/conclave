@@ -112,9 +112,11 @@ requests before they reach route handlers:
 | Body size | 1 MiB (`MAX_BODY_BYTES`) | 413 Payload Too Large | Prevent memory exhaustion from large payloads |
 | JSON nesting depth | 100 levels (`MAX_JSON_DEPTH`) | 400 Bad Request | Prevent recursive-parser stack overflows (CVE-2020-36327-style) |
 
-This middleware is the **outermost** layer in the ASGI stack (registered last in
-LIFO order), so size and depth checks fire before the vault gate, license gate,
-or any route handler.
+This middleware is the **second** layer in the ASGI stack (registered second-to-last
+in LIFO order). `RateLimitGateMiddleware` is the **outermost** layer (registered
+last in LIFO order) and fires first on every request — before size and depth
+checks, vault gate, license gate, or any route handler. This ensures brute-force
+and DoS protection activates before any expensive downstream work.
 
 ### 2.2 Application Layer — Rate Limiting
 
@@ -296,9 +298,13 @@ ssl_protocols TLSv1.2 TLSv1.3;
 
 # Cipher suite order: prefer AEAD ciphers; disable 3DES, RC4, export ciphers
 ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
-ssl_prefer_server_ciphers off;  # Let TLS 1.3 negotiate freely
+ssl_prefer_server_ciphers off;  # TLS 1.3 ignores this; TLS 1.2 clients may reorder — all listed suites are AEAD so client preference is acceptable
 
 # HSTS — instruct browsers to always use HTTPS for this domain
+# Note: consider adding the `preload` directive (e.g. "max-age=63072000; includeSubDomains; preload")
+# for internet-facing deployments to be included in browser preload lists.
+# Tradeoff: once submitted to preload lists, removing HSTS requires a multi-month waiting period.
+# Do NOT add `preload` for internal or air-gapped deployments.
 add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
 
 # OCSP stapling — cache certificate status checks at the server
@@ -347,6 +353,8 @@ The engine enforces SSL for PostgreSQL connections by default
 (`CONCLAVE_SSL_REQUIRED=true` in `ConclaveSettings`). In Docker bridge network
 deployments, internal PostgreSQL traffic flows over an isolated network that
 does not reach the host interface, and SSL may be relaxed to `false`:
+
+**Docker bridge deployments only — never use for cross-host configurations.**
 
 ```bash
 # .env — Docker bridge network (internal traffic only)
@@ -409,21 +417,33 @@ paths now incur the full PBKDF2 cost before any error is raised.
 
 ### 4.4 Seal Before Maintenance
 
-Always re-seal the vault before performing maintenance operations that require
-elevated system access:
+Always seal the vault before performing maintenance operations that require
+elevated system access. The only way to seal the vault is `POST /security/shred`:
+
+> **WARNING: `POST /security/shred` is a destructive operation.** It zeroizes
+> the in-memory vault KEK, rendering all ALE-encrypted database ciphertext
+> permanently unrecoverable until the vault is re-unsealed with the original
+> passphrase. Ensure you have the original passphrase available before proceeding.
 
 ```bash
-curl -X POST http://localhost:8000/unseal/seal
+curl -X POST http://localhost:8000/security/shred \
+  -H "Authorization: Bearer ${TOKEN}"
 ```
 
-After sealing, all non-exempt routes return `423 Locked`. The passphrase is
-**not** required to re-seal; any authenticated operator can seal the vault.
+After sealing, all non-exempt routes return `423 Locked`. The operator must
+re-unseal with the original passphrase to restore access to encrypted data:
+
+```bash
+curl -X POST http://localhost:8000/unseal \
+  -H "Content-Type: application/json" \
+  -d "{\"passphrase\": \"<original-passphrase>\"}"
+```
 
 ### 4.5 Emergency Re-Seal
 
 If an operator suspects the KEK has been compromised:
 
-1. Seal the vault immediately (`POST /unseal/seal`).
+1. Seal the vault immediately (`POST /security/shred` — see Section 4.4 warning above).
 2. Restart the `app` container to force a fresh process (the KEK is never
    written to disk; the in-memory copy is zeroed by `VaultState.seal()`).
 3. Rotate the ALE encryption key (see Section 5).
@@ -449,22 +469,34 @@ HMAC-SHA256). Key rotation is implemented in
 - Scheduled rotation policy (recommended: every 90 days in production).
 - After a staff change that involved access to key material.
 
+**How rotation works:**
+
+The operator does **not** generate a new Fernet key and pass it to the API.
+The server generates the new key internally. The operator only supplies a
+`new_passphrase` string, which is recorded in the audit trail to document
+operator intent. The actual rotation flow is:
+
+1. The operator sends `POST /security/keys/rotate` with `{"new_passphrase": "<new-passphrase>"}`.
+2. The server verifies the vault is unsealed (rotation requires the current KEK).
+3. The server calls `Fernet.generate_key()` internally to produce a fresh random ALE key.
+4. The new Fernet key is wrapped (encrypted) with the current vault KEK so it
+   is never stored in the Huey/Redis broker in plaintext.
+5. A Huey background task (`rotate_ale_keys_task`) is enqueued and returns `202 Accepted` immediately.
+6. The worker unwraps the new key using the vault KEK and re-encrypts all
+   ALE-protected columns.
+
 **Rotation procedure:**
 
 ```bash
 # 1. Ensure the vault is unsealed
 curl http://localhost:8000/health
 
-# 2. Generate a new Fernet key
-NEW_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-
-# 3. Trigger the rotation via the API (the API handler wraps the new key
-#    with the vault Fernet before enqueuing it in Huey, so the raw key
-#    never appears in Redis in plaintext)
+# 2. Trigger the rotation via the API — the server generates the new Fernet
+#    key internally; new_passphrase is recorded in the audit trail only
 curl -X POST http://localhost:8000/security/keys/rotate \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
-  -d "{\"new_key\": \"${NEW_KEY}\"}"
+  -d "{\"new_passphrase\": \"<new-operator-passphrase>\"}"
 ```
 
 The rotation task runs asynchronously in the Huey worker process.
@@ -480,9 +512,13 @@ The rotation task runs asynchronously in the Huey worker process.
 
 **After rotation:**
 
-1. Update `ALE_KEY` in your secrets store with the new Fernet key.
-2. Restart the `app` and Huey worker services so they pick up the new key.
-3. Verify the audit log for the rotation event.
+1. The new `ALE_KEY` is generated and managed internally by the server during
+   rotation. Update your secrets store only if you need to record the new key
+   for disaster recovery purposes (retrieve it from the Huey task result or
+   audit log).
+2. Restart the `app` and Huey worker services so they pick up the new key from
+   the vault.
+3. Verify the audit log for the `KEY_ROTATION_REQUESTED` event.
 
 ### 5.2 Model Artifact Signing Key Rotation
 
