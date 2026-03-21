@@ -1222,3 +1222,125 @@ class TestPrivacyAuditUsesJwtSub:
         assert call_kwargs["actor"] == "jwt-sub-operator"
         assert call_kwargs["actor"] != "header-operator-different"
         assert call_kwargs["actor"] != "unknown-operator"
+
+
+# ---------------------------------------------------------------------------
+# QA-R2-002: shred_job audit event actor must be current_operator (JWT sub)
+# ---------------------------------------------------------------------------
+
+
+def _make_jobs_app_with_owned_job(
+    monkeypatch: pytest.MonkeyPatch,
+    owner_sub: str,
+) -> tuple[Any, Any]:
+    """Build a test FastAPI app with the jobs router and a job owned by ``owner_sub``.
+
+    Args:
+        monkeypatch: pytest monkeypatch for env var injection.
+        owner_sub: JWT sub claim used as the job's owner_id.
+
+    Returns:
+        Tuple of (app, job_id) for use in test assertions.
+    """
+    from sqlalchemy.pool import StaticPool
+    from sqlmodel import Session, SQLModel, create_engine
+
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.errors import register_error_handlers
+    from synth_engine.bootstrapper.main import create_app
+    from synth_engine.bootstrapper.routers.jobs import router as jobs_router
+    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+    monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+    from synth_engine.shared.settings import get_settings
+
+    get_settings.cache_clear()
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        job = SynthesisJob(
+            table_name="customers",
+            parquet_path="/tmp/customers.parquet",
+            total_epochs=10,
+            num_rows=100,
+            status="COMPLETE",
+            owner_id=owner_sub,
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        job_id = job.id
+
+    app = create_app()
+    register_error_handlers(app)
+    app.include_router(jobs_router)
+
+    def _override_session() -> Any:
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db_session] = _override_session
+    # Real get_current_operator — JWT verification enforced
+    app.dependency_overrides.pop(get_current_operator, None)
+    return app, job_id
+
+
+class TestJobsShredAuditUsesCurrentOperator:
+    """DELETE /jobs/{id}/shred audit event actor must equal the JWT sub claim.
+
+    Covers the RT-001 fix that changed ``actor="system/api"`` to
+    ``actor=current_operator`` in ``shred_job`` (jobs.py).  The existing test
+    only checked ``event_type``; this class also asserts the ``actor`` field.
+    """
+
+    @pytest.mark.asyncio
+    async def test_shred_job_audit_actor_is_jwt_sub(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DELETE /jobs/{id}/shred must emit ARTIFACT_SHREDDED with actor=JWT sub.
+
+        Calls the shred endpoint with a valid JWT whose sub is
+        ``"shred-operator-r2"``.  The job's owner_id is pre-set to the same
+        value so the ownership check passes.  Asserts that the ``actor`` field
+        in the emitted ``ARTIFACT_SHREDDED`` audit event equals the JWT sub,
+        not a hardcoded string like ``"system/api"``.
+        """
+        shred_sub = "shred-operator-r2"
+        app, job_id = _make_jobs_app_with_owned_job(monkeypatch, owner_sub=shred_sub)
+        token = _make_token(sub=shred_sub)
+        patches = _common_patches()
+
+        mock_audit = MagicMock()
+        mock_audit.log_event = MagicMock()
+
+        with (
+            patches[0],
+            patches[1],
+            patch("synth_engine.bootstrapper.routers.jobs.shred_artifacts"),
+            patch(
+                "synth_engine.bootstrapper.routers.jobs.get_audit_logger",
+                return_value=mock_audit,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    f"/jobs/{job_id}/shred",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+        assert response.status_code == 200
+        mock_audit.log_event.assert_called_once()
+        call_kwargs = mock_audit.log_event.call_args.kwargs
+        assert call_kwargs["event_type"] == "ARTIFACT_SHREDDED"
+        # Actor MUST be the JWT sub claim, not a hardcoded value like "system/api"
+        assert call_kwargs["actor"] == shred_sub
+        assert call_kwargs["actor"] != "system/api"

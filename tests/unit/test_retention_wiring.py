@@ -800,3 +800,114 @@ class TestDeleteArtifactOSErrorIsSuppressed:
         assert any(record.levelno == logging.WARNING for record in caplog.records), (
             f"Expected WARNING log, got: {[r.message for r in caplog.records]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# QA-R2-001: Early-return when database_url is empty
+# ---------------------------------------------------------------------------
+
+
+class TestPeriodicTasksEarlyReturnWhenNoDatabaseUrl:
+    """Periodic tasks must log an error and return 0 when database_url is falsy.
+
+    Covers the R1 fix in retention_tasks.py: when ``get_settings()`` returns a
+    settings object with an empty ``database_url``, neither periodic task should
+    attempt to construct a DB engine.  Both must log a ``_logger.error`` call and
+    return 0 immediately.
+
+    Tests call ``task.func.__wrapped__`` — the raw inner function before the
+    ``@huey.lock_task()`` decorator — to bypass both the Redis lock and the
+    Huey queue.  The ``@huey.lock_task`` decorator sets ``__wrapped__`` per
+    Python\'s functools.wraps convention, so this is stable across Huey
+    versions used in the project.
+    """
+
+    def test_periodic_cleanup_expired_jobs_returns_zero_when_database_url_empty(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """periodic_cleanup_expired_jobs inner function returns 0 when database_url is \'\'.
+
+        Patches ``get_settings`` at the shared settings module level so the
+        lazy import inside the task body picks up a stub with
+        ``database_url=""``.  Bypasses the Huey Redis lock by calling the
+        underlying function via ``task.func.__wrapped__``.
+        Asserts the return value is 0 and that an ERROR log containing
+        \'DATABASE_URL\' was emitted.
+        """
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from synth_engine.modules.synthesizer.retention_tasks import (
+            periodic_cleanup_expired_jobs,
+        )
+
+        # Access the raw inner function before @huey.lock_task() wrapping.
+        inner_fn = periodic_cleanup_expired_jobs.func.__wrapped__
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = ""
+
+        with (
+            patch(
+                "synth_engine.shared.settings.get_settings",
+                return_value=mock_settings,
+            ),
+            caplog.at_level(
+                logging.ERROR,
+                logger="synth_engine.modules.synthesizer.retention_tasks",
+            ),
+        ):
+            result = inner_fn()
+
+        assert result == 0
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert error_records, "Expected at least one ERROR log record"
+        assert any("DATABASE_URL" in r.message for r in error_records), (
+            f"Expected ERROR log mentioning DATABASE_URL, got: {[r.message for r in error_records]}"
+        )
+
+    def test_periodic_cleanup_expired_artifacts_returns_zero_when_database_url_empty(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """periodic_cleanup_expired_artifacts inner function returns 0 when database_url is \'\'.
+
+        Patches ``get_settings`` at the shared settings module level so the
+        lazy import inside the task body picks up a stub with
+        ``database_url=""``.  Bypasses the Huey Redis lock by calling the
+        underlying function via ``task.func.__wrapped__``.
+        Asserts the return value is 0 and that an ERROR log containing
+        \'DATABASE_URL\' was emitted.
+        """
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        from synth_engine.modules.synthesizer.retention_tasks import (
+            periodic_cleanup_expired_artifacts,
+        )
+
+        # Access the raw inner function before @huey.lock_task() wrapping.
+        inner_fn = periodic_cleanup_expired_artifacts.func.__wrapped__
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = ""
+
+        with (
+            patch(
+                "synth_engine.shared.settings.get_settings",
+                return_value=mock_settings,
+            ),
+            caplog.at_level(
+                logging.ERROR,
+                logger="synth_engine.modules.synthesizer.retention_tasks",
+            ),
+        ):
+            result = inner_fn()
+
+        assert result == 0
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert error_records, "Expected at least one ERROR log record"
+        assert any("DATABASE_URL" in r.message for r in error_records), (
+            f"Expected ERROR log mentioning DATABASE_URL, got: {[r.message for r in error_records]}"
+        )
