@@ -113,18 +113,11 @@ def set_dp_wrapper_factory(
 def set_spend_budget_fn(fn: SpendBudgetProtocol) -> None:
     """Register the sync spend_budget callable (called by bootstrapper at startup).
 
-    Also writes ``fn`` to ``job_steps._spend_budget_fn`` so the step module
-    sees the live value (ADR-0029, Rule 8).
-
     Args:
         fn: Sync ``SpendBudgetProtocol`` callable wrapping async ``spend_budget()``.
     """
     global _spend_budget_fn
     _spend_budget_fn = fn
-    # Late import avoids circular dependency (job_steps re-exports from here).
-    import synth_engine.modules.synthesizer.job_steps as _steps_mod
-
-    _steps_mod._spend_budget_fn = fn
 
 
 # ---------------------------------------------------------------------------
