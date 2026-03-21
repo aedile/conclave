@@ -123,7 +123,7 @@ graph TD
 - The bootstrapper is the sole composition root. Business logic has no knowledge of the
   framework.
 
-Detailed rationale is captured across 36 Architecture Decision Records in
+Detailed rationale is captured across 44 Architecture Decision Records in
 [`docs/adr/`](docs/adr/). The full architecture specification is in
 [`docs/ARCHITECTURAL_REQUIREMENTS.md`](docs/ARCHITECTURAL_REQUIREMENTS.md).
 
@@ -259,7 +259,7 @@ poetry install --with dev,integration,synthesizer
 
 ```bash
 docker compose up -d
-# Starts PostgreSQL, Redis, MinIO, pgbouncer, Jaeger, Grafana
+# Starts PostgreSQL, Redis, minio-ephemeral, pgbouncer, Prometheus, Alertmanager, Grafana
 ```
 
 ### 3. Apply migrations and configure
@@ -275,7 +275,7 @@ poetry run alembic upgrade head
 ### 4. Run the backend
 
 ```bash
-poetry run uvicorn synth_engine.bootstrapper.app:create_app --factory --reload
+poetry run uvicorn synth_engine.bootstrapper.main:create_app --factory --reload
 # API available at http://localhost:8000
 ```
 
@@ -374,8 +374,9 @@ Coverage is enforced at 95% minimum. Integration tests are a separate gate — u
 mocks do not substitute for tests against real infrastructure (pytest-postgresql).
 
 The development workflow is TDD (Red → Green → Refactor) enforced by convention and
-by the review process. Every task is reviewed in parallel by four specialized agents:
-QA, DevOps, Architecture, and UI/UX — before any merge. Review findings are tracked
+by the review process. Every task is reviewed in parallel by specialized agents:
+QA, DevOps, and Red-Team (always); Architecture (when source changes); UI/UX (when frontend
+changes) — before any merge. Review findings are tracked
 as open advisories in a living retrospective log. The full workflow is documented in
 [`CLAUDE.md`](CLAUDE.md) and governed by [`CONSTITUTION.md`](CONSTITUTION.md).
 
@@ -390,7 +391,7 @@ executed every development task: writing failing tests first, implementing the m
 to pass them, running all quality gates, and submitting work for multi-agent review before
 merge. No code was written outside this process.
 
-**Timeline**: March 9–18, 2026 — 9 calendar days from first commit to Phase 32.
+**Timeline**: March 9–18, 2026 — 10 calendar days from first commit to Phase 32.
 
 **By the numbers** (at Phase 32 completion, commit `3fa02cd`; verifiable from `git log`):
 
@@ -398,7 +399,7 @@ merge. No code was written outside this process.
 |--------|-------|
 | Commits | 523 |
 | Pull requests merged | 127 |
-| Architecture Decision Records | 36 |
+| Architecture Decision Records | 44 |
 | Production source lines | ~15,500 |
 | Test lines | ~45,700 |
 | Reported test coverage | 98% integration |
@@ -406,7 +407,7 @@ merge. No code was written outside this process.
 Every architectural decision was documented in an ADR before implementation. Every
 non-trivial design choice — library selection, DP threat model, module boundary exceptions —
 required written rationale. The retrospective log records every review finding and advisory
-raised across all 32 phases.
+raised across all 32 phases (at Phase 32 completion).
 
 The full account of how this project was structured, what worked, and what the process
 looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STORY.md).
@@ -427,11 +428,11 @@ looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STO
 | [Dependency Audit](docs/DEPENDENCY_AUDIT.md) | Supply chain audit and dependency provenance |
 | [Business Requirements](docs/BUSINESS_REQUIREMENTS.md) | Full product BRD — the "why" behind every capability |
 | [Architectural Requirements](docs/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification and module boundary contracts |
-| [Architecture Decision Records](docs/adr/) | 36 ADRs covering every significant design decision |
+| [Architecture Decision Records](docs/adr/) | 44 ADRs covering every significant design decision |
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, and development history |
 | [Development Story](docs/DEVELOPMENT_STORY.md) | How this codebase was built — methodology, process, and retrospective |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
-| [Changelog](CHANGELOG.md) | Phase-by-phase release notes from Phase 1 through Phase 32 |
+| [Changelog](CHANGELOG.md) | Phase-by-phase release notes from Phase 1 through Phase 43 |
 | [API Reference](docs/api/API_REFERENCE.md) | REST API endpoint reference (static export from OpenAPI schema) |
 
 ---
