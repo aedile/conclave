@@ -169,8 +169,11 @@ Production-scale epsilon results from the 1M-row load test (2026-03-20, CPU-only
 | payments | 175,000 | N/A | N/A | No DP (enable_dp=False) |
 
 Higher σ → lower ε → stronger privacy guarantee. All three DP-enabled jobs trained to COMPLETE
-with correct end-to-end DP accounting. See [docs/DP_QUALITY_REPORT.md](docs/DP_QUALITY_REPORT.md)
-for the full analysis and recommended epsilon ranges by use case.
+with correct end-to-end DP accounting. The micro-benchmark script
+(`poetry run python3 scripts/benchmark_dp_quality.py`) was executed on 2026-03-21 and the
+discriminator-level DP acceptance criterion PASSED at all five noise levels tested.
+See [docs/DP_QUALITY_REPORT.md](docs/DP_QUALITY_REPORT.md) for full micro-benchmark results,
+honest analysis of the epsilon calibration, and recommended epsilon ranges by use case.
 
 | Aspect | Phase 30 Implementation | Proxy-model Fallback |
 |--------|------------------------|---------------------|
@@ -416,7 +419,7 @@ looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STO
 |----------|----------|
 | [Operator Manual](docs/OPERATOR_MANUAL.md) | Production deployment, hardware requirements, service configuration |
 | [Data Compliance](docs/DATA_COMPLIANCE.md) | Retention policy, GDPR/CCPA/HIPAA guidance, erasure procedure, audit trail guarantees |
-| [DP Quality Report](docs/DP_QUALITY_REPORT.md) | Epsilon vs. quality degradation curves; recommended epsilon ranges by use case |
+| [DP Quality Report](docs/DP_QUALITY_REPORT.md) | Micro-benchmark results (T42.3, 2026-03-21); epsilon vs. quality curves; recommended epsilon ranges by use case |
 | [E2E Validation](docs/E2E_VALIDATION.md) | Full end-to-end pipeline validation evidence |
 | [Disaster Recovery](docs/DISASTER_RECOVERY.md) | Incident response and recovery procedures |
 | [Licensing](docs/LICENSING.md) | Offline license activation and hardware binding guide |
