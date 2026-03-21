@@ -63,59 +63,73 @@ def _make_synthesis_job(**kwargs: Any) -> Any:
 class TestSynthesisJobModel:
     """Tests that SynthesisJob SQLModel defines all required fields."""
 
-    def test_synthesis_job_has_id_field(self) -> None:
-        """SynthesisJob must have an integer id field."""
+    @pytest.mark.parametrize(
+        ("field", "kwargs", "expected"),
+        [
+            ("id", {"id": 42}, 42),
+            ("current_epoch", {"current_epoch": 3}, 3),
+            ("total_epochs", {"total_epochs": 300}, 300),
+            ("table_name", {"table_name": "orders"}, "orders"),
+            ("parquet_path", {"parquet_path": "/data/orders.parquet"}, "/data/orders.parquet"),
+            (
+                "artifact_path",
+                {"artifact_path": "/artifacts/persons.pkl"},
+                "/artifacts/persons.pkl",
+            ),
+            (
+                "error_msg",
+                {"error_msg": "OOM: 6.8 GiB estimated, 4.0 GiB available"},
+                "OOM: 6.8 GiB estimated, 4.0 GiB available",
+            ),
+        ],
+        ids=[
+            "id",
+            "current_epoch",
+            "total_epochs",
+            "table_name",
+            "parquet_path",
+            "artifact_path",
+            "error_msg",
+        ],
+    )
+    def test_synthesis_job_scalar_field_round_trips(
+        self, field: str, kwargs: dict, expected: object
+    ) -> None:
+        """SynthesisJob persists each scalar field at the value it was constructed with.
 
-        job = _make_synthesis_job(id=42)
-        assert job.id == 42
+        This parameterized test replaces 7 individual field-setter tests.  Each
+        case sets one field to a known value and asserts the model stores it
+        exactly — proving the column exists AND the assignment is not silently
+        discarded.
+        """
+        job = _make_synthesis_job(**kwargs)
+        actual = getattr(job, field)
+        assert actual == expected, (
+            f"SynthesisJob.{field} must equal {expected!r} after construction, got {actual!r}"
+        )
 
-    def test_synthesis_job_has_status_field(self) -> None:
-        """SynthesisJob must have a status field."""
+    @pytest.mark.parametrize(
+        "field",
+        ["artifact_path", "error_msg"],
+        ids=["artifact_path", "error_msg"],
+    )
+    def test_synthesis_job_optional_field_accepts_none(self, field: str) -> None:
+        """Optional fields artifact_path and error_msg must accept None."""
+        job = _make_synthesis_job(**{field: None})
+        assert getattr(job, field) is None, (
+            f"SynthesisJob.{field} must accept None, got {getattr(job, field)!r}"
+        )
 
-        job = _make_synthesis_job(status="QUEUED")
-        assert job.status == "QUEUED"
-
-    def test_synthesis_job_has_current_epoch_field(self) -> None:
-        """SynthesisJob must have a current_epoch integer field."""
-
-        job = _make_synthesis_job(current_epoch=3)
-        assert job.current_epoch == 3
-
-    def test_synthesis_job_has_total_epochs_field(self) -> None:
-        """SynthesisJob must have a total_epochs integer field."""
-
-        job = _make_synthesis_job(total_epochs=300)
-        assert job.total_epochs == 300
-
-    def test_synthesis_job_has_artifact_path_field(self) -> None:
-        """SynthesisJob must have an optional artifact_path string field."""
-
-        job = _make_synthesis_job(artifact_path=None)
-        assert job.artifact_path is None
-
-        job2 = _make_synthesis_job(artifact_path="/artifacts/persons.pkl")
-        assert job2.artifact_path == "/artifacts/persons.pkl"
-
-    def test_synthesis_job_has_error_msg_field(self) -> None:
-        """SynthesisJob must have an optional error_msg string field."""
-
-        job = _make_synthesis_job(error_msg=None)
-        assert job.error_msg is None
-
-        job2 = _make_synthesis_job(error_msg="OOM: 6.8 GiB estimated, 4.0 GiB available")
-        assert job2.error_msg == "OOM: 6.8 GiB estimated, 4.0 GiB available"
-
-    def test_synthesis_job_has_table_name_field(self) -> None:
-        """SynthesisJob must have a table_name field for the target table."""
-
-        job = _make_synthesis_job(table_name="orders")
-        assert job.table_name == "orders"
-
-    def test_synthesis_job_has_parquet_path_field(self) -> None:
-        """SynthesisJob must have a parquet_path field for the source data."""
-
-        job = _make_synthesis_job(parquet_path="/data/orders.parquet")
-        assert job.parquet_path == "/data/orders.parquet"
+    @pytest.mark.parametrize(
+        "status",
+        ["QUEUED", "TRAINING", "COMPLETE", "FAILED"],
+    )
+    def test_synthesis_job_valid_status_values(self, status: str) -> None:
+        """SynthesisJob must accept all four lifecycle status strings."""
+        job = _make_synthesis_job(status=status)
+        assert job.status == status, (
+            f"SynthesisJob.status must equal {status!r}, got {job.status!r}"
+        )
 
     def test_synthesis_job_has_checkpoint_every_n_field(self) -> None:
         """SynthesisJob must have a checkpoint_every_n field defaulting to 5."""
@@ -129,26 +143,6 @@ class TestSynthesisJobModel:
             parquet_path="/data/persons.parquet",
         )
         assert job.checkpoint_every_n == 5
-
-    def test_synthesis_job_status_queued_is_valid(self) -> None:
-        """SynthesisJob status QUEUED must be accepted."""
-        job = _make_synthesis_job(status="QUEUED")
-        assert job.status == "QUEUED"
-
-    def test_synthesis_job_status_training_is_valid(self) -> None:
-        """SynthesisJob status TRAINING must be accepted."""
-        job = _make_synthesis_job(status="TRAINING")
-        assert job.status == "TRAINING"
-
-    def test_synthesis_job_status_complete_is_valid(self) -> None:
-        """SynthesisJob status COMPLETE must be accepted."""
-        job = _make_synthesis_job(status="COMPLETE")
-        assert job.status == "COMPLETE"
-
-    def test_synthesis_job_status_failed_is_valid(self) -> None:
-        """SynthesisJob status FAILED must be accepted."""
-        job = _make_synthesis_job(status="FAILED")
-        assert job.status == "FAILED"
 
     def test_synthesis_job_checkpoint_every_n_zero_raises(self) -> None:
         """SynthesisJob must reject checkpoint_every_n=0 with ValueError.
@@ -321,11 +315,19 @@ class TestSynthesisJobModel:
 class TestHueyTaskRegistration:
     """Verify that run_synthesis_job is registered as a Huey task."""
 
-    def test_run_synthesis_job_is_callable(self) -> None:
-        """run_synthesis_job must be importable and callable."""
+    def test_run_synthesis_job_has_huey_interface(self) -> None:
+        """run_synthesis_job must be importable and expose the Huey task interface.
+
+        An import-and-callable check proves nothing about the task being correctly
+        registered with Huey.  This test asserts that the function exposes the
+        .call_local attribute that Huey tasks carry, which is the actual behavioral
+        requirement.
+        """
         from synth_engine.modules.synthesizer.tasks import run_synthesis_job
 
-        assert callable(run_synthesis_job)
+        assert hasattr(run_synthesis_job, "call_local"), (
+            "run_synthesis_job must be a Huey task with a .call_local attribute"
+        )
 
     def test_run_synthesis_job_is_huey_task(self) -> None:
         """run_synthesis_job must be a Huey task (has .call_local attribute)."""
@@ -1520,12 +1522,29 @@ class TestSpendBudgetFactoryBootstrapper:
     without violating import boundaries.
     """
 
-    def test_build_spend_budget_fn_returns_callable(self) -> None:
-        """build_spend_budget_fn must return a callable (sync wrapper)."""
+    def test_build_spend_budget_fn_returns_callable_with_expected_signature(self) -> None:
+        """build_spend_budget_fn must return a callable with the spend_budget signature.
+
+        A plain callable() check proves nothing about the wrapper being correct.
+        This test asserts the returned function accepts the expected parameters:
+        amount, job_id, and ledger_id.
+        """
+        import inspect
+
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         fn = build_spend_budget_fn()
-        assert callable(fn)
+        sig = inspect.signature(fn)
+        param_names = set(sig.parameters.keys())
+        assert "amount" in param_names, (
+            f"spend_budget wrapper must accept 'amount', got params: {param_names}"
+        )
+        assert "job_id" in param_names, (
+            f"spend_budget wrapper must accept 'job_id', got params: {param_names}"
+        )
+        assert "ledger_id" in param_names, (
+            f"spend_budget wrapper must accept 'ledger_id', got params: {param_names}"
+        )
 
     def test_build_spend_budget_fn_does_not_corrupt_async_url(self) -> None:
         """build_spend_budget_fn must not double-substitute async driver prefixes.

@@ -1,6 +1,8 @@
 """Unit tests for per-type masking algorithms.
 
 RED phase: these tests must fail before implementation exists.
+
+Task: T40.1 — Replace Shallow Assertions With Value-Checking Tests
 """
 
 import re
@@ -36,11 +38,20 @@ def test_mask_name_respects_max_length() -> None:
     assert len(result) <= 5
 
 
-def test_mask_name_returns_string() -> None:
-    """mask_name returns a non-empty string."""
-    result = mask_name("Alice Smith", _SALT)
+def test_mask_name_returns_non_empty_string_differing_from_input() -> None:
+    """mask_name returns a non-empty string that differs from the original input.
+
+    A type-only check (isinstance) does not verify masking actually occurred.
+    This test asserts the result is a non-empty string AND is not identical
+    to the plaintext input, proving the masking function transforms the value.
+    """
+    original = "Alice Smith"
+    result = mask_name(original, _SALT)
     assert isinstance(result, str)
     assert len(result) > 0
+    assert result != original, (
+        f"mask_name must not return the original input verbatim: got {result!r}"
+    )
 
 
 def test_mask_name_max_length_zero_returns_empty_string() -> None:
@@ -84,13 +95,21 @@ def test_mask_first_name_respects_max_length() -> None:
     assert len(result) <= 3
 
 
-def test_mask_first_name_returns_non_empty_string() -> None:
-    """mask_first_name returns a non-empty string for a normal input."""
+def test_mask_first_name_returns_non_empty_string_differing_from_input() -> None:
+    """mask_first_name returns a non-empty string that differs from the original input.
+
+    A type-only check does not verify masking occurred.  This test asserts
+    the result is non-empty AND not identical to the plaintext first name.
+    """
     from synth_engine.modules.masking.algorithms import mask_first_name
 
-    result = mask_first_name("Alice", _SALT)
+    original = "Alice"
+    result = mask_first_name(original, _SALT)
     assert isinstance(result, str)
     assert len(result) > 0
+    assert result != original, (
+        f"mask_first_name must not return the original input verbatim: got {result!r}"
+    )
 
 
 def test_mask_first_name_empty_input_is_deterministic() -> None:
@@ -135,13 +154,21 @@ def test_mask_last_name_respects_max_length() -> None:
     assert len(result) <= 4
 
 
-def test_mask_last_name_returns_non_empty_string() -> None:
-    """mask_last_name returns a non-empty string for a normal input."""
+def test_mask_last_name_returns_non_empty_string_differing_from_input() -> None:
+    """mask_last_name returns a non-empty string that differs from the original input.
+
+    A type-only check does not verify masking occurred.  This test asserts
+    the result is non-empty AND not identical to the plaintext last name.
+    """
     from synth_engine.modules.masking.algorithms import mask_last_name
 
-    result = mask_last_name("Smith", _SALT)
+    original = "Smith"
+    result = mask_last_name(original, _SALT)
     assert isinstance(result, str)
     assert len(result) > 0
+    assert result != original, (
+        f"mask_last_name must not return the original input verbatim: got {result!r}"
+    )
 
 
 def test_mask_last_name_empty_input_is_deterministic() -> None:
@@ -164,13 +191,21 @@ def test_mask_address_is_deterministic() -> None:
     assert mask_address(original, _SALT) == mask_address(original, _SALT)
 
 
-def test_mask_address_returns_non_empty_string() -> None:
-    """mask_address returns a non-empty string."""
+def test_mask_address_returns_non_empty_string_differing_from_input() -> None:
+    """mask_address returns a non-empty string that differs from the original address.
+
+    A type-only check does not verify masking occurred.  This test asserts
+    the result is non-empty AND not identical to the plaintext address.
+    """
     from synth_engine.modules.masking.algorithms import mask_address
 
-    result = mask_address("79402 Peterson Drives Apt. 511, Davisstad, PA 35172", _SALT)
+    original = "79402 Peterson Drives Apt. 511, Davisstad, PA 35172"
+    result = mask_address(original, _SALT)
     assert isinstance(result, str)
     assert len(result) > 0
+    assert result != original, (
+        f"mask_address must not return the original input verbatim: got {result!r}"
+    )
 
 
 def test_mask_address_respects_max_length() -> None:
@@ -313,11 +348,19 @@ def test_mask_phone_is_deterministic() -> None:
     assert mask_phone("555-867-5309", _SALT) == mask_phone("555-867-5309", _SALT)
 
 
-def test_mask_phone_returns_string() -> None:
-    """mask_phone returns a non-empty string."""
-    result = mask_phone("555-867-5309", _SALT)
+def test_mask_phone_returns_non_empty_string_differing_from_input() -> None:
+    """mask_phone returns a non-empty string that differs from the original phone number.
+
+    A type-only check does not verify masking occurred.  This test asserts
+    the result is non-empty AND not identical to the plaintext phone number.
+    """
+    original = "555-867-5309"
+    result = mask_phone(original, _SALT)
     assert isinstance(result, str)
     assert len(result) > 0
+    assert result != original, (
+        f"mask_phone must not return the original input verbatim: got {result!r}"
+    )
 
 
 def test_mask_phone_respects_max_length() -> None:
@@ -342,15 +385,17 @@ def test_deterministic_hash_length_exceeds_32_raises_value_error() -> None:
 
 
 def test_deterministic_hash_max_length_truncates_deterministically() -> None:
-    """deterministic_hash with max_length=10 returns a string of length <= 10.
+    """deterministic_hash with max_length=10 returns a str of exactly the truncated length.
 
     The truncation must be deterministic: calling with the same arguments
-    a second time must return the identical string.
+    a second time must return the identical string.  The return type must be
+    str, and the length must be at most max_length.
     """
     result_a = deterministic_hash("x", "y", max_length=10)
     result_b = deterministic_hash("x", "y", max_length=10)
     assert isinstance(result_a, str), "max_length variant must return str"
     assert len(result_a) <= 10
+    assert len(result_a) > 0, "max_length variant must not produce an empty string"
     assert result_a == result_b, "max_length variant must be deterministic"
 
 

@@ -115,16 +115,30 @@ class TestBuildSpendBudgetFn:
     when called from a plain synchronous thread (simulating a Huey worker).
     """
 
-    def test_build_spend_budget_fn_returns_callable(self) -> None:
-        """build_spend_budget_fn() must return a callable object.
+    def test_build_spend_budget_fn_returns_object_with_spend_budget_signature(self) -> None:
+        """build_spend_budget_fn() must return callable with SpendBudgetProtocol signature.
 
         The returned object must satisfy the ``SpendBudgetProtocol`` callable
-        signature so it can be passed to ``set_spend_budget_fn()``.
+        signature so it can be passed to ``set_spend_budget_fn()``.  A plain
+        callable() check does not verify the signature; this test inspects the
+        parameters to verify the contract.
         """
+        import inspect
+
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         fn = build_spend_budget_fn()
-        assert callable(fn)
+        sig = inspect.signature(fn)
+        param_names = set(sig.parameters.keys())
+        assert "amount" in param_names, (
+            f"spend_budget wrapper must accept 'amount', got: {param_names}"
+        )
+        assert "job_id" in param_names, (
+            f"spend_budget wrapper must accept 'job_id', got: {param_names}"
+        )
+        assert "ledger_id" in param_names, (
+            f"spend_budget wrapper must accept 'ledger_id', got: {param_names}"
+        )
 
     def test_sync_wrapper_uses_sync_engine_not_asyncio_run(self) -> None:
         """The sync wrapper must use a sync SQLAlchemy session, not asyncio.run().

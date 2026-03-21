@@ -90,7 +90,11 @@ def test_privacy_ledger_table_fields() -> None:
     assert isinstance(ledger.total_allocated_epsilon, Decimal)
     assert ledger.total_spent_epsilon == Decimal("0.0")
     assert isinstance(ledger.total_spent_epsilon, Decimal)
-    assert ledger.last_updated is not None
+    from datetime import datetime
+
+    assert isinstance(ledger.last_updated, datetime), (
+        f"last_updated must be a datetime instance, got {type(ledger.last_updated).__name__}"
+    )
 
 
 def test_privacy_transaction_table_fields() -> None:
@@ -113,7 +117,11 @@ def test_privacy_transaction_table_fields() -> None:
     assert tx.epsilon_spent == Decimal("0.5")
     assert isinstance(tx.epsilon_spent, Decimal)
     assert tx.note == "test run"
-    assert tx.timestamp is not None
+    from datetime import datetime
+
+    assert isinstance(tx.timestamp, datetime), (
+        f"timestamp must be a datetime instance, got {type(tx.timestamp).__name__}"
+    )
 
 
 def test_privacy_transaction_note_is_optional() -> None:

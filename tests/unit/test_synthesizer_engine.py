@@ -79,7 +79,12 @@ class TestModelArtifactRoundTrip:
             save_path = Path(tmpdir) / "artifact.pkl"
             artifact.save(str(save_path))
             loaded = ModelArtifact.load(str(save_path))
-            assert isinstance(loaded, ModelArtifact)
+            assert isinstance(loaded, ModelArtifact), (
+                f"load() must return ModelArtifact instance, got {type(loaded).__name__}"
+            )
+            assert loaded.table_name == "persons", (
+                f"Loaded artifact must have table_name='persons', got {loaded.table_name!r}"
+            )
 
     def test_round_trip_preserves_table_name(self) -> None:
         """load(save(artifact)) must preserve the table_name field."""
@@ -312,7 +317,12 @@ class TestSynthesisEngineTrain:
             engine = SynthesisEngine()
             result = engine.train(table_name="persons", parquet_path=parquet_path)
 
-            assert isinstance(result, ModelArtifact)
+            assert isinstance(result, ModelArtifact), (
+                f"train() must return ModelArtifact instance, got {type(result).__name__}"
+            )
+            assert result.table_name == "persons", (
+                f"Returned artifact must have table_name='persons', got {result.table_name!r}"
+            )
 
     def test_train_calls_fit_on_model(self) -> None:
         """train() must call fit() on the CTGANSynthesizer with the loaded DataFrame."""
@@ -507,7 +517,12 @@ class TestModelArtifactPickleFormat:
             # Verify the file can be read as valid pickle
             with open(save_path, "rb") as f:
                 loaded = pickle.load(f)  # noqa: S301 — test-only deserialization of self-produced artifact
-            assert isinstance(loaded, ModelArtifact)
+            assert isinstance(loaded, ModelArtifact), (
+                f"Pickle file must deserialize to ModelArtifact, got {type(loaded).__name__}"
+            )
+            assert loaded.table_name == "test", (
+                f"Deserialized artifact must have table_name='test', got {loaded.table_name!r}"
+            )
 
 
 class TestSynthesisEngineWithDPWrapper:
@@ -566,7 +581,12 @@ class TestSynthesisEngineWithDPWrapper:
                 dp_wrapper=mock_dp_wrapper,
             )
 
-        assert isinstance(result, ModelArtifact)
+        assert isinstance(result, ModelArtifact), (
+            f"train() with dp_wrapper must return ModelArtifact, got {type(result).__name__}"
+        )
+        assert result.table_name == "persons", (
+            f"Returned artifact must have table_name='persons', got {result.table_name!r}"
+        )
         assert mock_dp_ctgan.called, "DPCompatibleCTGAN must be used when dp_wrapper is provided."
 
     def test_train_without_dp_wrapper_still_works(self) -> None:
@@ -588,7 +608,12 @@ class TestSynthesisEngineWithDPWrapper:
             engine = SynthesisEngine()
             result = engine.train(table_name="persons", parquet_path=parquet_path)
 
-        assert isinstance(result, ModelArtifact)
+        assert isinstance(result, ModelArtifact), (
+            f"train() without dp_wrapper must return ModelArtifact, got {type(result).__name__}"
+        )
+        assert result.table_name == "persons", (
+            f"Returned artifact must have table_name='persons', got {result.table_name!r}"
+        )
 
     def test_train_with_dp_wrapper_routes_to_dp_compatible_ctgan(
         self, caplog: pytest.LogCaptureFixture
@@ -636,7 +661,12 @@ class TestSynthesisEngineWithDPWrapper:
                 dp_wrapper=mock_dp_wrapper,
             )
 
-        assert isinstance(result, ModelArtifact)
+        assert isinstance(result, ModelArtifact), (
+            f"train() with dp_wrapper must return ModelArtifact, got {type(result).__name__}"
+        )
+        assert result.table_name == "persons", (
+            f"Returned artifact must have table_name='persons', got {result.table_name!r}"
+        )
         # T7.3: DPCompatibleCTGAN must be called when dp_wrapper is provided
         assert mock_dp_ctgan.called, "DPCompatibleCTGAN must be used when dp_wrapper is not None."
         # T7.3: CTGANSynthesizer must NOT be called in the DP path
