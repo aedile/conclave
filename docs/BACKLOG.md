@@ -54,6 +54,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 44: Comprehensive Documentation Audit & Cleanup](backlog/phase-44.md)
 *   [Phase 45: Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper](backlog/phase-45.md)
 *   [Phase 46: mTLS Inter-Container Communication](backlog/phase-46.md)
+*   [Phase 47: Auth Gap Remediation, Safety Hardening & Operational Fixes](backlog/phase-47.md)
 
 ---
 
@@ -326,3 +327,15 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 46.2:** Wire mTLS on All Container-to-Container Connections.
 *   **Task 46.3:** Certificate Rotation Without Downtime.
 *   **Task 46.4:** Network Policy Enforcement & Documentation.
+
+### [Phase 47: Auth Gap Remediation, Safety Hardening & Operational Fixes](backlog/phase-47.md)
+*   **Task 47.1:** Add Authentication to `/security` Endpoints.
+*   **Task 47.2:** Add Authentication to `/privacy/budget` Endpoints.
+*   **Task 47.3:** Add Authentication to All `/settings` CRUD Endpoints.
+*   **Task 47.4:** Fail-Fast on Empty `JWT_SECRET_KEY`.
+*   **Task 47.5:** Validate `OPERATOR_CREDENTIALS_HASH` at Startup.
+*   **Task 47.6:** Harden Model Artifact Signature Verification.
+*   **Task 47.7:** Add Memory Bounds to Parquet Loading.
+*   **Task 47.8:** Add Shutdown Cleanup to Lifespan Hook.
+*   **Task 47.9:** Scrub Budget Values From Exception Messages.
+*   **Task 47.10:** Add Redis Health Check to Docker Compose.
