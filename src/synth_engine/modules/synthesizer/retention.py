@@ -134,9 +134,9 @@ class RetentionCleanup:
         try:
             artifact.unlink(missing_ok=True)
             _logger.debug("Deleted artifact: %s", artifact.name)
-        except OSError:
+        except OSError as e:
             _logger.warning(
                 "Could not delete artifact for job id=%s: %s",
                 job.id,
-                type(OSError).__name__,
+                type(e).__name__,
             )
