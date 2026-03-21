@@ -326,12 +326,6 @@ class SynthesisEngine:
 
         if dp_wrapper is not None:
             # DP path — use DPCompatibleCTGAN with Opacus wrapping (T7.3)
-            if DPCompatibleCTGAN is None:  # pragma: no cover — synthesizer group absent
-                raise ImportError(
-                    "The 'sdv' package is required for DP synthesis. "
-                    "Install it with: poetry install --with synthesizer"
-                )
-
             _logger.info(
                 "Training DPCompatibleCTGAN on table '%s' (%d rows, %d cols, epochs=%d) "
                 "with DP wrapper (max_grad_norm=%.2f, noise_multiplier=%.2f).",

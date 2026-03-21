@@ -31,28 +31,56 @@ class TestOptionalDepsExports:
         assert m is not None
 
     def test_exports_torch(self) -> None:
-        """Module exports 'torch' at module scope (may be None)."""
+        """Module exports 'torch' at module scope; is the real module when installed."""
+        import types
+
         import synth_engine.modules.synthesizer._optional_deps as m
 
         assert hasattr(m, "torch")
+        if m.TORCH_AVAILABLE:
+            assert isinstance(m.torch, types.ModuleType), (
+                "torch should be the real torch module when synthesizer group is installed"
+            )
+        else:
+            assert m.torch is None
 
     def test_exports_nn(self) -> None:
-        """Module exports 'nn' at module scope (may be None)."""
+        """Module exports 'nn' at module scope; is the real module when installed."""
+        import types
+
         import synth_engine.modules.synthesizer._optional_deps as m
 
         assert hasattr(m, "nn")
+        if m.TORCH_AVAILABLE:
+            assert isinstance(m.nn, types.ModuleType), (
+                "nn should be torch.nn module when synthesizer group is installed"
+            )
+        else:
+            assert m.nn is None
 
     def test_exports_dataloader(self) -> None:
-        """Module exports 'DataLoader' at module scope (may be None)."""
+        """Module exports 'DataLoader' class when synthesizer group is installed."""
         import synth_engine.modules.synthesizer._optional_deps as m
 
         assert hasattr(m, "DataLoader")
+        if m.TORCH_AVAILABLE:
+            assert isinstance(m.DataLoader, type), (
+                "DataLoader should be a class when synthesizer group is installed"
+            )
+        else:
+            assert m.DataLoader is None
 
     def test_exports_tensordataset(self) -> None:
-        """Module exports 'TensorDataset' at module scope (may be None)."""
+        """Module exports 'TensorDataset' class when synthesizer group is installed."""
         import synth_engine.modules.synthesizer._optional_deps as m
 
         assert hasattr(m, "TensorDataset")
+        if m.TORCH_AVAILABLE:
+            assert isinstance(m.TensorDataset, type), (
+                "TensorDataset should be a class when synthesizer group is installed"
+            )
+        else:
+            assert m.TensorDataset is None
 
     def test_exports_torch_available_bool(self) -> None:
         """Module exports TORCH_AVAILABLE as a bool sentinel."""
@@ -102,45 +130,36 @@ class TestRequireSynthesizerMissing:
         import synth_engine.modules.synthesizer._optional_deps as m
 
         original_available = m.TORCH_AVAILABLE
-        original_torch = m.torch
         try:
             m.TORCH_AVAILABLE = False  # type: ignore[assignment]
-            m.torch = None
             with pytest.raises(ImportError):
                 m.require_synthesizer()
         finally:
             m.TORCH_AVAILABLE = original_available  # type: ignore[assignment]
-            m.torch = original_torch
 
     def test_require_synthesizer_error_message_mentions_poetry_install(self) -> None:
         """ImportError message includes actionable install instructions."""
         import synth_engine.modules.synthesizer._optional_deps as m
 
         original_available = m.TORCH_AVAILABLE
-        original_torch = m.torch
         try:
             m.TORCH_AVAILABLE = False  # type: ignore[assignment]
-            m.torch = None
             with pytest.raises(ImportError, match="poetry install --with synthesizer"):
                 m.require_synthesizer()
         finally:
             m.TORCH_AVAILABLE = original_available  # type: ignore[assignment]
-            m.torch = original_torch
 
     def test_require_synthesizer_error_message_mentions_torch(self) -> None:
         """ImportError message names 'torch' so the user knows what's missing."""
         import synth_engine.modules.synthesizer._optional_deps as m
 
         original_available = m.TORCH_AVAILABLE
-        original_torch = m.torch
         try:
             m.TORCH_AVAILABLE = False  # type: ignore[assignment]
-            m.torch = None
             with pytest.raises(ImportError, match="(?i)torch"):
                 m.require_synthesizer()
         finally:
             m.TORCH_AVAILABLE = original_available  # type: ignore[assignment]
-            m.torch = original_torch
 
 
 # ---------------------------------------------------------------------------

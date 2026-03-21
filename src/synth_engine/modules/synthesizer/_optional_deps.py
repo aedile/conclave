@@ -87,12 +87,15 @@ def require_synthesizer() -> None:
 
     Example::
 
-        from synth_engine.modules.synthesizer._optional_deps import require_synthesizer
+        from synth_engine.modules.synthesizer._optional_deps import (
+            require_synthesizer,
+            torch,
+        )
 
         def my_function() -> None:
             require_synthesizer()
-            # torch is available from this point onwards
-            import torch
+            # torch is available from this point onwards — use the module-level name
+            assert torch is not None
             ...
     """
     if not TORCH_AVAILABLE:

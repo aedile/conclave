@@ -14,7 +14,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from synth_engine.modules.synthesizer._optional_deps import DataLoader, TensorDataset, nn, torch
+from synth_engine.modules.synthesizer._optional_deps import (
+    DataLoader,
+    TensorDataset,
+    nn,
+    require_synthesizer,
+    torch,
+)
 from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size, parse_gan_hyperparams
 from synth_engine.modules.synthesizer.dp_discriminator import OpacusCompatibleDiscriminator
 from synth_engine.modules.synthesizer.training_strategies import (
@@ -306,15 +312,14 @@ class DPCompatibleCTGAN:
     def _activate_opacus_proxy(self, processed_df: pd.DataFrame) -> None:
         """Activate Opacus on a proxy linear model. Fallback from T7.3/T30.3.
 
+        Calls ``require_synthesizer()`` which raises ``ImportError`` when
+        PyTorch is not installed.
+
         Args:
             processed_df: VGM-normalized DataFrame.
-
-        Raises:
-            ImportError: If PyTorch is not installed.
         """
         assert self._dp_wrapper is not None
-        if torch is None or nn is None:  # pragma: no cover
-            raise ImportError("PyTorch required; install with: poetry install --with synthesizer")
+        require_synthesizer()
         dataloader, n_features = self._build_proxy_dataloader(processed_df)
         proxy_model = nn.Linear(n_features, 1)
         optimizer = torch.optim.Adam(proxy_model.parameters(), lr=1e-3)
