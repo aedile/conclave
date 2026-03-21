@@ -41,6 +41,7 @@ Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T39.3 — Add Rate Limiting Middleware
 Task: T41.1 — Implement Data Retention Policy
+Task: T42.2 — Add HTTPS Enforcement & Deployment Safety Checks
 """
 
 from __future__ import annotations
@@ -69,7 +70,7 @@ class ConclaveSettings(BaseSettings):
             Required in all deployment modes.
         ale_key: Fernet key for Application-Level Encryption.
             Optional — vault KEK path is preferred in production.
-        artifact_signing_key: Hex-encoded HMAC key for Parquet artifact signing.
+        artifact_signing_key: Hex-encoded HMAC key for ModelArtifact pickle signing.
             Required in production mode only.
         masking_salt: Secret salt for deterministic HMAC masking.
             Required in production mode only.
@@ -79,6 +80,10 @@ class ConclaveSettings(BaseSettings):
             :meth:`is_production` for backward compatibility.
         conclave_ssl_required: Whether to enforce SSL for PostgreSQL connections.
             Defaults to ``True``.
+        conclave_tls_cert_path: Path to a TLS certificate file used by the
+            reverse proxy.  When set, the T42.2 startup health check treats TLS
+            as configured and suppresses the misconfiguration warning.  Maps to
+            the ``CONCLAVE_TLS_CERT_PATH`` environment variable.
         force_cpu: Force CPU device selection regardless of CUDA availability.
             Defaults to ``False``.
         otel_exporter_otlp_endpoint: OTLP gRPC endpoint URL for OpenTelemetry.
@@ -200,6 +205,15 @@ class ConclaveSettings(BaseSettings):
         description=(
             "Enforce sslmode=require for PostgreSQL connections. "
             "Defaults to True.  Set to false only on Docker bridge networks."
+        ),
+    )
+    conclave_tls_cert_path: str | None = Field(
+        default=None,
+        description=(
+            "Path to a TLS certificate file used by the TLS-terminating reverse proxy "
+            "(nginx, Caddy, or HAProxy).  When set, the T42.2 startup health check treats "
+            "TLS as configured and suppresses the CONCLAVE_SSL_REQUIRED misconfiguration "
+            "warning.  Maps to the CONCLAVE_TLS_CERT_PATH environment variable."
         ),
     )
 

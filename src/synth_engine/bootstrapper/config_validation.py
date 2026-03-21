@@ -39,7 +39,6 @@ Task: T42.2 — Add HTTPS Enforcement & Deployment Safety Checks
 from __future__ import annotations
 
 import logging
-import os
 
 from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
 from synth_engine.shared.settings import get_settings
@@ -135,15 +134,10 @@ def validate_config() -> None:
 
     # TLS cert misconfiguration check (T42.2): warn if ssl_required=True but no
     # TLS certificate path is configured.  A TLS cert path is considered
-    # "configured" when any of the conventional certificate environment variables
-    # are set and non-empty.  This is a heuristic advisory — the definitive TLS
-    # enforcement is handled by the reverse proxy (nginx/Caddy) per
-    # docs/PRODUCTION_DEPLOYMENT.md §2.1.
-    tls_cert_configured: bool = bool(
-        os.environ.get("SSL_CERTFILE")
-        or os.environ.get("TLS_CERT_PATH")
-        or os.environ.get("CONCLAVE_TLS_CERT_PATH")
-    )
+    # "configured" when CONCLAVE_TLS_CERT_PATH is set and non-empty.  This is a
+    # heuristic advisory — the definitive TLS enforcement is handled by the
+    # reverse proxy (nginx/Caddy) per docs/PRODUCTION_DEPLOYMENT.md §2.1.
+    tls_cert_configured: bool = bool(settings.conclave_tls_cert_path)
     warn_if_ssl_misconfigured(
         ssl_required=settings.conclave_ssl_required,
         tls_cert_configured=tls_cert_configured,
