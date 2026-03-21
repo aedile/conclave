@@ -18,6 +18,8 @@ Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 
 from __future__ import annotations
 
+import base64
+import os
 import time
 from collections.abc import Generator
 from typing import Any
@@ -68,6 +70,36 @@ def clear_settings_cache() -> Generator[None]:
         get_settings.cache_clear()
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Unseal the vault so EncryptedString columns can encrypt/decrypt.
+
+    Connection.host, .database, and .schema_name use the EncryptedString
+    TypeDecorator (T39.4), which calls get_fernet() on every INSERT/SELECT.
+    When the vault is unsealed, get_fernet() derives the ALE key from the
+    vault KEK via HKDF, avoiding the ALE_KEY env var requirement.
+
+    This fixture mirrors the pattern in test_authorization.py and must run
+    for every test in this module so that Connection seeding inside
+    _make_full_app() succeeds.
+
+    Resets (re-seals) the vault after each test for isolation.
+
+    Args:
+        monkeypatch: pytest monkeypatch for env var injection.
+
+    Yields:
+        None — setup and teardown only.
+    """
+    from synth_engine.shared.security.vault import VaultState
+
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+    VaultState.unseal("test-idor-integration-passphrase")
+    yield
+    VaultState.reset()
 
 
 # ---------------------------------------------------------------------------
