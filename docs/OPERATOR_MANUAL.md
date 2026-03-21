@@ -474,6 +474,10 @@ Flatten the request payload.
 
 ## 8. Security Considerations
 
+For comprehensive guidance on CORS policy, DDoS mitigation, TLS hardening,
+vault passphrase management, and key rotation procedures, see
+[docs/SECURITY_HARDENING.md](SECURITY_HARDENING.md).
+
 ### 8.1 TLS Termination
 
 The engine's `app` service does **not** terminate TLS directly. In production,

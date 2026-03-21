@@ -19,6 +19,97 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] P42-T42.3 — Run and Document DP Quality Benchmarks
+
+**Branch**: `feat/P42-T42.3-dp-quality-benchmarks` (3 commits + 1 stray RETRO_LOG commit)
+**Changes**: Executed `benchmark_dp_quality.py`, updated `docs/DP_QUALITY_REPORT.md` with actual
+benchmark results (replacing all placeholders), updated `README.md` with benchmark reference.
+Four honest findings documented: epsilon calibration mismatch at micro-benchmark scale,
+identical drift across DP configs at 10 epochs, proxy-model Python 3.14 regression, vanilla
+baseline variance.
+
+**Quality Gates**: Docs-only task. pre-commit: PASS. No Python code changes.
+
+**QA** (FINDING — 1 item fixed):
+- MD028 markdownlint violation at `DP_QUALITY_REPORT.md:52` (blank line between adjacent
+  blockquotes). Fixed with `<!-- -->` separator in commit `0f9364b`. Re-review skipped —
+  mechanical single-line fix; disproportionate to re-review. Content quality checks all PASS.
+
+**DevOps** (PASS): gitleaks clean. No secrets or PII. docs-gate satisfied.
+
+**Judgment call — re-review skip**: The MD028 fix is a single HTML comment insertion (`<!-- -->`)
+between two blockquotes. Re-reviewing a mechanical formatting fix would not produce meaningful
+signal. This is a Rule 16 materiality decision, not a quality compromise.
+
+**Retrospective Note**:
+The benchmark's epsilon target labels (~0.1-~10) were calibrated against the pre-Phase-30
+proxy-model path and produce substantially different actual values under discriminator-level
+DP-SGD at micro-benchmark scale. The report documents this honestly. Future work should
+recalibrate noise_multiplier constants or rename the misleading eps~X labels.
+
+---
+
+### [2026-03-21] Phase 41 Closure — Judgment Call: Exit Criterion 7
+
+**Decision**: Closed Phase 41 with 4 open advisories despite exit criterion 7 requiring "zero open advisories."
+
+**Reasoning**:
+- ADV-019/ADV-020 (BLOCKER): Created by Rule 8 compliance ("if wiring cannot be done in the same task, log as BLOCKER advisory"). No Phase 41 task specifies scheduler infrastructure work. Blocking Phase 41 on advisories that Rule 8 mandated creating — but gave no task to resolve — produces a deadlock.
+- ADV-017/ADV-018 (ADVISORY): Explicitly batched per Rule 16 (cosmetic findings go to a polish task). Rule 16 itself defers these by design.
+- Rule 11 sets the hard-stop threshold at 8 open advisories. We are at 4.
+- The exit criterion's "zero" conflicts with Rule 16's batching mechanism and Rule 8's deferred-wiring pattern. Treated Rule 11 + Rule 16 as the operational controls; exit criterion "zero" as aspirational for the phase.
+
+**Disposition**: Advisories carried forward. Phase 41 marked functionally complete. User reviewed and approved this judgment call.
+---
+
+### [2026-03-21] P42-T42.4 Post-Merge Finding — Section 5.1 Factual Error
+
+**Judgment call**: T42.4 was merged via PR #158 based on QA R2 PASS + DevOps R2 PASS from
+the first pair of re-review agents. A redundant second QA re-review agent (launched after
+context loss recovery) found a factual error in Section 5.1 that the first agent missed:
+the doc claims operators can "retrieve [the new ALE key] from the Huey task result or audit
+log" — neither contains key material. `rotate_ale_keys_task` returns `dict[str, int]` (row
+counts) and the audit event only logs `passphrase_provided: bool`. The new Fernet key is
+ephemeral by design.
+
+**Action**: Fix as a hotfix on main. This is a security-documentation factual error that
+could mislead operators into believing a disaster recovery path exists when it does not.
+
+---
+
+### [2026-03-21] P42-T42.4 — Document CORS Policy & Add DDoS Mitigation Notes
+
+**Branch**: `feat/P42-T42.4-cors-ddos-docs` (2 commits)
+**Changes**: Created `docs/SECURITY_HARDENING.md` (594 lines) covering CORS policy,
+DDoS mitigation stack, TLS configuration, vault passphrase management, and key rotation
+procedures. Updated `docs/OPERATOR_MANUAL.md` with cross-reference.
+
+**Quality Gates**: Docs-only task. pre-commit: PASS. No Python code changes.
+
+**QA R1** (FINDING — 3 blockers):
+- `POST /unseal/seal` endpoint does not exist → Fixed: replaced with `POST /security/shred` + destructive warning.
+- Rotation workflow used wrong field name `new_key` (actual: `new_passphrase`) and described
+  fictitious workflow → Fixed: rewritten to match actual server-generates-key-internally behavior.
+- Wrong middleware ordering claim → Fixed: `RateLimitGateMiddleware` correctly identified as outermost.
+All 3 fixed in commit `6c6599e`.
+
+**DevOps R1** (ADVISORY — 3 improvements):
+- `ssl_prefer_server_ciphers` inline comment about TLS 1.3 behavior.
+- HSTS `preload` tradeoff documentation needed.
+- Bold warning above `CONCLAVE_SSL_REQUIRED=false` for Docker bridge only.
+All 3 addressed in commit `6c6599e`.
+
+**QA R2** (PASS): All 3 R1 blockers verified fixed. No new factual errors.
+
+**DevOps R2** (PASS): All 3 R1 advisories resolved. gitleaks clean. No secrets or PII.
+
+**Retrospective Note**:
+Security-facing operational docs (shred, rotation, vault) carry higher factual-error risk than
+feature docs because the procedures are destructive and the APIs are non-obvious. Any doc section
+covering a destructive operation should be cross-referenced against source at PR creation time.
+
+---
+
 ### [2026-03-21] P41-T41.2 — GDPR Right-to-Erasure & CCPA Deletion Endpoint
 
 **Branch**: `feat/P41-T41.2-gdpr-erasure-endpoint` (7 commits)
