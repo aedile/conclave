@@ -164,18 +164,21 @@ class TestProfileKnownCategoricalColumns:
 
     def test_categorical_column_category_value_counts_a(self) -> None:
         col = self.result.columns["category"]
-        assert col.value_counts is not None
-        assert col.value_counts["A"] == 5
+        assert col.value_counts["A"] == 5, (
+            "Expected category A count=5 in value_counts, got: " + repr(col.value_counts)
+        )
 
     def test_categorical_column_category_value_counts_b(self) -> None:
         col = self.result.columns["category"]
-        assert col.value_counts is not None
-        assert col.value_counts["B"] == 3
+        assert col.value_counts["B"] == 3, (
+            "Expected category B count=3 in value_counts, got: " + repr(col.value_counts)
+        )
 
     def test_categorical_column_category_value_counts_c(self) -> None:
         col = self.result.columns["category"]
-        assert col.value_counts is not None
-        assert col.value_counts["C"] == 2
+        assert col.value_counts["C"] == 2, (
+            "Expected category C count=2 in value_counts, got: " + repr(col.value_counts)
+        )
 
     def test_categorical_column_label_cardinality(self) -> None:
         col = self.result.columns["label"]
@@ -204,7 +207,9 @@ class TestProfileCovarianceMatrix:
         self.result = self.profiler.profile("test_table", self.df)
 
     def test_covariance_matrix_present(self) -> None:
-        assert self.result.covariance_matrix is not None
+        assert isinstance(self.result.covariance_matrix, dict), (
+            "covariance_matrix must be a dict, not just truthy"
+        )
 
     def test_covariance_matrix_contains_numeric_columns(self) -> None:
         assert set(self.result.covariance_matrix.keys()) == {"age", "score", "weight"}
@@ -457,8 +462,9 @@ class TestSerialisation:
         d = col.to_dict()
         restored = ColumnProfile.from_dict(d)
         assert restored.cardinality == 3
-        assert restored.value_counts is not None
-        assert restored.value_counts["A"] == 5
+        assert restored.value_counts["A"] == 5, (
+            "After round-trip, expected value_counts[A]=5, got: " + repr(restored.value_counts)
+        )
 
 
 # ---------------------------------------------------------------------------

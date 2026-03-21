@@ -44,12 +44,21 @@ class TestBuildMaskingTransformer:
     - Unknown tables ('persons', 'transactions') pass through unchanged.
     """
 
-    def test_build_masking_transformer_returns_callable(self) -> None:
-        """_build_masking_transformer() returns a callable."""
+    def test_build_masking_transformer_transforms_unknown_table_to_passthrough(self) -> None:
+        """_build_masking_transformer() returns a transformer that passes unknown tables through.
+
+        A callable() check proves nothing about the transformer behaviour.
+        This test asserts the transformer is a working function: calling it with
+        an unknown table name must return the row unchanged.
+        """
         from synth_engine.bootstrapper.cli import _build_masking_transformer
 
         transformer = _build_masking_transformer()
-        assert callable(transformer)
+        row = {"id": 1, "amount": 100}
+        result = transformer("nonexistent_table", row)
+        assert result == row, (
+            f"Transformer must pass unknown tables through unchanged, got {result!r}"
+        )
 
     def test_masking_transformer_passthrough_for_unknown_table(self) -> None:
         """Transformer returns row unchanged for tables not in masking config."""
