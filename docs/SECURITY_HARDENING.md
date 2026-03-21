@@ -512,10 +512,13 @@ The rotation task runs asynchronously in the Huey worker process.
 
 **After rotation:**
 
-1. The new `ALE_KEY` is generated and managed internally by the server during
-   rotation. Update your secrets store only if you need to record the new key
-   for disaster recovery purposes (retrieve it from the Huey task result or
-   audit log).
+1. The new `ALE_KEY` is generated ephemerally inside the Huey worker and is
+   never written to any log, task result, or externally readable store. It is
+   accessible only via KEK derivation from the vault passphrase. **The vault
+   passphrase is the sole recovery mechanism.** If the vault passphrase is lost,
+   all ALE-encrypted data is permanently unrecoverable. Ensure the passphrase is
+   stored in a separate, durable secrets store (e.g., a hardware security module
+   or an offline password manager) before triggering rotation.
 2. Restart the `app` and Huey worker services so they pick up the new key from
    the vault.
 3. Verify the audit log for the `KEY_ROTATION_REQUESTED` event.
