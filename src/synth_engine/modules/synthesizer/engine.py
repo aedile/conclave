@@ -39,7 +39,16 @@ import numpy as np
 import pandas as pd
 from prometheus_client import Histogram
 
+from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
 from synth_engine.shared.protocols import DPWrapperProtocol
+
+# CTGANSynthesizer: deferred import — bound at module scope for unit-test patching.
+# Absent when the synthesizer dependency group is not installed; checked at call time.
+# SDV 1.x requires SingleTableMetadata; auto-detected via detect_from_dataframe().
+try:
+    from sdv.single_table import CTGANSynthesizer
+except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
+    CTGANSynthesizer = None  # SDV not installed; synthesis unavailable
 
 if TYPE_CHECKING:
     from sdv.metadata import SingleTableMetadata
@@ -51,39 +60,6 @@ _logger = logging.getLogger(__name__)
 #: Default number of training epochs.  300 is the SDV default for
 #: CTGANSynthesizer; callers can override via SynthesisEngine(epochs=...).
 _DEFAULT_EPOCHS: int = 300
-
-# ---------------------------------------------------------------------------
-# CTGANSynthesizer import — deferred to module-level try/except so that
-# environments installing only the default dependency group do not encounter
-# ModuleNotFoundError at import time.  The synthesizer group must be
-# installed (`poetry install --with synthesizer`) for training.
-#
-# The name CTGANSynthesizer is bound at module scope so that unit tests can
-# patch it with: patch('synth_engine.modules.synthesizer.engine.CTGANSynthesizer')
-#
-# SDV 1.x API change: CTGANSynthesizer(metadata, epochs=...) requires a
-# SingleTableMetadata object.  _build_metadata() auto-detects schema from
-# the training DataFrame using detect_from_dataframe().
-# ---------------------------------------------------------------------------
-try:
-    from sdv.single_table import CTGANSynthesizer
-except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
-    CTGANSynthesizer = None  # SDV not installed; synthesis unavailable
-
-# ---------------------------------------------------------------------------
-# DPCompatibleCTGAN import — intra-module import (modules/synthesizer/ only).
-# Bound at module scope for unit-test patching:
-#   patch('synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN')
-#
-# When dp_wrapper is provided to SynthesisEngine.train(), DPCompatibleCTGAN
-# is used instead of vanilla CTGANSynthesizer.  The dp_wrapper is passed
-# through as a Protocol-typed argument — engine.py never imports from
-# modules/privacy/; the DPWrapperProtocol from shared/ provides the contract.
-# ---------------------------------------------------------------------------
-try:
-    from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
-except ImportError:  # pragma: no cover — only triggered if synthesizer group is absent
-    DPCompatibleCTGAN: Any = None  # type: ignore[no-redef]  # SDV not installed
 
 
 # ---------------------------------------------------------------------------
@@ -350,12 +326,6 @@ class SynthesisEngine:
 
         if dp_wrapper is not None:
             # DP path — use DPCompatibleCTGAN with Opacus wrapping (T7.3)
-            if DPCompatibleCTGAN is None:  # pragma: no cover — synthesizer group absent
-                raise ImportError(
-                    "The 'sdv' package is required for DP synthesis. "
-                    "Install it with: poetry install --with synthesizer"
-                )
-
             _logger.info(
                 "Training DPCompatibleCTGAN on table '%s' (%d rows, %d cols, epochs=%d) "
                 "with DP wrapper (max_grad_norm=%.2f, noise_multiplier=%.2f).",

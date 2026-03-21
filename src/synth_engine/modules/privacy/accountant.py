@@ -75,9 +75,17 @@ _logger = logging.getLogger(__name__)
 # T25.1 — Custom Prometheus business metric: epsilon_spent_total Counter.
 #
 # Defined at module scope (Prometheus best practice: one singleton per process).
-# Labels:
-#   job_id     — str(job_id) from the spend_budget() call site
-#   dataset_id — str(ledger_id); ledger_id is the dataset-level budget identifier
+#
+# Label strategy and cardinality:
+#   job_id     — str(int) synthesis job identifier from the spend_budget() call site.
+#                Cardinality: one time-series per completed synthesis job.  In a
+#                deployment with O(10^3) jobs/day the label set grows ~1k series/day
+#                and should be pruned by the Prometheus retention policy (default 15d).
+#                Do NOT use a high-cardinality free-text field here.
+#   dataset_id — str(int) ledger_id; the dataset-level privacy budget identifier.
+#                Cardinality: bounded by the number of PrivacyLedger rows (typically
+#                single digits to low hundreds). This is the stable low-cardinality
+#                dimension and is safe to use as a label.
 #
 # Incremented AFTER the successful commit inside spend_budget().
 # NOT incremented on BudgetExhaustionError (the transaction never commits).
