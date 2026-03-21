@@ -91,10 +91,15 @@ server {
 
         # Strip any X-Forwarded-For the client may inject, then set to real IP.
         # See OPERATOR_MANUAL.md Section 8.8 — this is a security requirement.
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Real-IP       $remote_addr;
-        proxy_set_header Host            $host;
-        proxy_set_header Forwarded       "";
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header Host              $host;
+        proxy_set_header Forwarded         "";
+        # Required for HTTPSEnforcementMiddleware (T42.2): tells the app the
+        # real client scheme so it can reject plain-HTTP requests with 421.
+        # The proxy strips any client-supplied X-Forwarded-Proto before setting
+        # this header — see OPERATOR_MANUAL.md §8.8.
+        proxy_set_header X-Forwarded-Proto https;
     }
 }
 
@@ -571,6 +576,68 @@ After completing the walkthrough, verify:
 - [ ] All `secrets/` files have `600` permissions
 
 ---
+
+---
+
+## Appendix A — HTTPS Enforcement (T42.2)
+
+### A.1 How It Works
+
+The Conclave Engine enforces HTTPS in production mode via
+``HTTPSEnforcementMiddleware``.  On every inbound request, the middleware
+inspects the ``X-Forwarded-Proto`` header (set by the reverse proxy) and the
+raw ASGI request scheme.  Any request arriving over plain ``http`` in
+production mode is rejected immediately with HTTP **421 Misdirected Request**
+(RFC 7231 §6.5.11) and an RFC 7807 Problem Details body — no downstream
+processing occurs.
+
+This prevents cleartext transmission of synthetic Parquet files that are
+streamed over the download endpoint.
+
+### A.2 Why 421 Instead of 301
+
+A 301/302 redirect to HTTPS would allow the request line, headers, and any
+request body to be transmitted in cleartext before the redirect fires — a
+classic SSL-stripping attack surface.  421 forces the operator to fix their
+deployment rather than silently degrading to plain HTTP.
+
+### A.3 Reverse Proxy Requirement
+
+The Conclave Engine does **not** terminate TLS directly.  All production
+deployments must front the ``app`` service with a TLS-terminating reverse proxy
+(nginx, Caddy, or HAProxy) that:
+
+1. Terminates TLS on port 443.
+2. Sets ``proxy_set_header X-Forwarded-Proto https;`` on every forwarded request.
+3. Strips any ``X-Forwarded-Proto`` header the client supplies before setting
+   its own — ensuring the middleware cannot be bypassed by a client that crafts
+   a spoofed header.
+
+The nginx configuration template in §2.1 satisfies all three requirements when
+deployed as written.
+
+### A.4 Development Mode
+
+In development mode (``CONCLAVE_ENV`` is anything other than ``"production"``),
+the middleware passes all requests through unchanged.  Operators can run the
+application over plain HTTP during local development and integration testing.
+
+### A.5 Startup Misconfiguration Warning
+
+At startup, ``validate_config()`` calls ``warn_if_ssl_misconfigured()``.  When
+``CONCLAVE_SSL_REQUIRED=true`` (the default) but no TLS certificate path is
+set in ``SSL_CERTFILE``, ``TLS_CERT_PATH``, or ``CONCLAVE_TLS_CERT_PATH``, a
+``WARNING`` log is emitted:
+
+```
+WARNING  synth_engine.bootstrapper.dependencies.https_enforcement:
+CONCLAVE_SSL_REQUIRED=true but no TLS certificate is configured. Ensure a
+TLS-terminating reverse proxy is in place and sets X-Forwarded-Proto: https.
+```
+
+This warning is advisory — the application starts regardless.  Operators
+should review their deployment if this warning appears in production logs.
+
 
 ## References
 
