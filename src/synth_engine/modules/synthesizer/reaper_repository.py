@@ -23,6 +23,16 @@ Repository query
   - ``legal_hold = False``
   - ``created_at < :cutoff`` (strict less-than — ``>`` from reaper perspective)
 
+SQLite timezone note
+--------------------
+SQLite stores ``datetime`` values as plain strings without timezone information.
+SQLModel's ``created_at = Field(default_factory=lambda: datetime.now(UTC))``
+produces a naive datetime in SQLite (the TZ is stripped on storage).  This
+repository normalises the ``older_than`` cutoff to naive UTC before the
+SQLAlchemy comparison so that string-based SQLite comparisons work correctly.
+PostgreSQL stores timezone information natively and handles both aware and naive
+comparisons without issue.
+
 Boundary constraints (import-linter enforced):
     - Must NOT import from ``modules/ingestion/``, ``modules/masking/``,
       ``modules/subsetting/``, ``modules/profiler/``, or ``modules/privacy/``.
@@ -48,6 +58,23 @@ from synth_engine.shared.tasks.repository import StaleTask, TaskRepository
 _IN_PROGRESS: str = "IN_PROGRESS"
 
 
+def _naive_utc(dt: datetime) -> datetime:
+    """Return *dt* as a timezone-naive datetime (UTC implied).
+
+    SQLite stores datetimes as plain strings without timezone info.
+    Stripping the tzinfo from a UTC-aware datetime allows SQLAlchemy's
+    string-based comparison to work correctly against SQLite-stored values.
+    PostgreSQL handles both aware and naive comparisons natively.
+
+    Args:
+        dt: A timezone-aware or naive UTC :class:`datetime`.
+
+    Returns:
+        The same instant as a timezone-naive :class:`datetime`.
+    """
+    return dt.replace(tzinfo=None)
+
+
 class SQLAlchemyTaskRepository(TaskRepository):
     """Concrete :class:`~synth_engine.shared.tasks.repository.TaskRepository`.
 
@@ -70,18 +97,23 @@ class SQLAlchemyTaskRepository(TaskRepository):
         are returned.  QUEUED, FAILED, COMPLETE, and legal-hold jobs are
         excluded at the query level.
 
+        The ``older_than`` cutoff is normalised to a naive datetime before the
+        SQLAlchemy comparison to ensure correct string-based ordering in SQLite.
+        PostgreSQL handles timezone-aware comparisons natively.
+
         Args:
-            older_than: UTC cutoff.  Jobs created at this exact instant are
-                NOT included (strict ``<`` comparison).
+            older_than: UTC cutoff (aware or naive).  Jobs created at this
+                exact instant are NOT included (strict ``<`` comparison).
 
         Returns:
             List of :class:`~synth_engine.shared.tasks.repository.StaleTask`
             value objects, one per qualifying row.
         """
+        naive_cutoff = _naive_utc(older_than)
         stmt = select(SynthesisJob).where(
             SynthesisJob.status == _IN_PROGRESS,
             col(SynthesisJob.legal_hold).is_(False),
-            col(SynthesisJob.created_at) < older_than,
+            col(SynthesisJob.created_at) < naive_cutoff,
         )
         with Session(self._engine) as session:
             rows = session.exec(stmt).all()

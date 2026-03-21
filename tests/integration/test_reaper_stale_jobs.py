@@ -5,6 +5,19 @@ Exercises the full reaper pipeline with a real in-memory SQLite database:
   - Verifies legal-hold jobs survive.
   - Verifies jobs that complete between query and update are not double-marked.
 
+SQLite datetime note
+--------------------
+SQLite stores ``datetime`` values as plain strings without timezone information.
+SQLAlchemy serialises Python ``datetime`` objects using the space-separated
+``str()`` representation (``'2026-03-21 22:22:21.123456'``).
+
+The ``_backdate()`` helper stores timestamps using the same ``str()`` format to
+keep string-based ``<`` comparisons correct.  Using ``.isoformat()`` (which
+produces a ``T`` separator) would break comparisons because ASCII space (32)
+sorts before ``T`` (84) — a ``T``-formatted stored value would appear to be
+lexicographically *greater than* a space-formatted cutoff even when the instant
+is in the past.
+
 CONSTITUTION Priority 0: Security
 CONSTITUTION Priority 3: TDD
 Task: T45.2 — Reintroduce Orphan Task Reaper (TBD-08)
@@ -76,12 +89,28 @@ def _make_job(
 def _backdate(session: Session, job_id: int, minutes: int) -> None:
     """Move a job's created_at back by ``minutes`` minutes.
 
+    Stores the backdated timestamp as a **space-separated string**
+    (``'2026-03-21 22:10:05.123456'``) — the same format SQLAlchemy uses
+    internally when binding Python ``datetime`` objects for SQLite.
+
+    Using ``.isoformat()`` (``T``-separator format) would break SQLite string
+    comparisons because the repository's cutoff is bound via SQLAlchemy as a
+    space-separated value.  ASCII space (32) < ``T`` (84), so a ``T``-stored
+    value would sort *after* a space-format cutoff even when the datetime is
+    in the past.
+
+    The deprecated Python 3.12+ sqlite3 datetime adapter is deliberately
+    avoided here to prevent ``DeprecationWarning`` → ``error`` conversion under
+    ``-W error`` in test mode.
+
     Args:
         session: Active database session.
         job_id: Primary key of the job.
         minutes: Number of minutes to subtract.
     """
-    new_ts = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
+    new_dt = (datetime.now(UTC) - timedelta(minutes=minutes)).replace(tzinfo=None)
+    # str(datetime) produces '2026-03-21 22:10:05.123456' (space-separated, no TZ)
+    new_ts = str(new_dt)
     session.execute(
         text("UPDATE synthesis_job SET created_at = :ts WHERE id = :id"),
         {"ts": new_ts, "id": job_id},
@@ -101,6 +130,7 @@ class TestStaleJobMarkedFailed:
         """A job older than the threshold must be set to FAILED after reap()."""
         engine = _make_engine()
         threshold_minutes = 30
+        job_id: int
 
         with Session(engine) as session:
             job = _make_job(status="IN_PROGRESS")
@@ -108,7 +138,8 @@ class TestStaleJobMarkedFailed:
             session.commit()
             session.refresh(job)
             assert job.id is not None
-            _backdate(session, job.id, minutes=threshold_minutes + 10)
+            job_id = job.id
+            _backdate(session, job_id, minutes=threshold_minutes + 10)
 
         repo = SQLAlchemyTaskRepository(engine=engine)
         reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=threshold_minutes)
@@ -119,7 +150,7 @@ class TestStaleJobMarkedFailed:
         assert reaped == 1
 
         with Session(engine) as session:
-            updated = session.get(SynthesisJob, job.id)
+            updated = session.get(SynthesisJob, job_id)
             assert updated is not None
             assert updated.status == "FAILED"
             assert updated.error_msg == (
@@ -130,12 +161,15 @@ class TestStaleJobMarkedFailed:
         """A job younger than the threshold must NOT be reaped."""
         engine = _make_engine()
         threshold_minutes = 60
+        job_id: int
 
         with Session(engine) as session:
             job = _make_job(status="IN_PROGRESS")
             session.add(job)
             session.commit()
             session.refresh(job)
+            assert job.id is not None
+            job_id = job.id
             # Job is brand new — no backdate applied
 
         repo = SQLAlchemyTaskRepository(engine=engine)
@@ -147,7 +181,7 @@ class TestStaleJobMarkedFailed:
         assert reaped == 0
 
         with Session(engine) as session:
-            unchanged = session.get(SynthesisJob, job.id)
+            unchanged = session.get(SynthesisJob, job_id)
             assert unchanged is not None
             assert unchanged.status == "IN_PROGRESS"
 
@@ -158,6 +192,7 @@ class TestLegalHoldSurvivesReap:
     def test_legal_hold_job_is_not_marked_failed(self) -> None:
         """A stale IN_PROGRESS job with legal_hold=True must remain IN_PROGRESS."""
         engine = _make_engine()
+        job_id: int
 
         with Session(engine) as session:
             job = _make_job(status="IN_PROGRESS", legal_hold=True)
@@ -165,7 +200,8 @@ class TestLegalHoldSurvivesReap:
             session.commit()
             session.refresh(job)
             assert job.id is not None
-            _backdate(session, job.id, minutes=120)
+            job_id = job.id
+            _backdate(session, job_id, minutes=120)
 
         repo = SQLAlchemyTaskRepository(engine=engine)
         reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=30)
@@ -176,7 +212,7 @@ class TestLegalHoldSurvivesReap:
         assert reaped == 0
 
         with Session(engine) as session:
-            unchanged = session.get(SynthesisJob, job.id)
+            unchanged = session.get(SynthesisJob, job_id)
             assert unchanged is not None
             assert unchanged.status == "IN_PROGRESS"
 
@@ -187,6 +223,7 @@ class TestConditionalUpdateRaceCondition:
     def test_mark_failed_on_already_completed_job_returns_false(self) -> None:
         """If a job was updated to COMPLETE before mark_failed runs, it returns False."""
         engine = _make_engine()
+        job_id: int
 
         with Session(engine) as session:
             job = _make_job(status="COMPLETE")
