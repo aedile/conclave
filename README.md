@@ -184,6 +184,28 @@ are not affected by this distinction — they provide independent, fully realize
 
 ---
 
+## Compliance
+
+Conclave is designed for regulated environments. The engine implements configurable data
+retention TTLs, a GDPR Article 17 / CCPA erasure endpoint, a legal hold mechanism for
+e-discovery, and a cryptographically immutable audit trail.
+
+| Compliance property | Mechanism |
+|---------------------|-----------|
+| Data minimization | Read-only ingestion; PII never written to disk in raw form |
+| Storage limitation | Configurable TTLs: job records (90 days default), artifacts (30 days default) |
+| Audit trail retention | WORM audit log retained 3 years (1,095 days) by default; never deleted within retention period |
+| Right to erasure (GDPR Art. 17 / CCPA § 1798.105) | `DELETE /compliance/erasure` endpoint with cascade deletion and compliance receipt |
+| Legal hold | `legal_hold` flag on job records; prevents purge regardless of TTL |
+| Formal privacy guarantee | (ε, δ)-DP on synthesized output — synthesized data is not PII under GDPR Recital 26 |
+
+Retention periods are configurable via `JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, and
+`ARTIFACT_RETENTION_DAYS` environment variables. See
+[`docs/DATA_COMPLIANCE.md`](docs/DATA_COMPLIANCE.md) for the full compliance policy,
+GDPR/CCPA/HIPAA retention guidance, data flow description, and operator responsibilities.
+
+---
+
 ## The Interface
 
 The React SPA provides real-time monitoring of synthesis jobs via Server-Sent Events.
@@ -393,6 +415,7 @@ looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STO
 | Document | Contents |
 |----------|----------|
 | [Operator Manual](docs/OPERATOR_MANUAL.md) | Production deployment, hardware requirements, service configuration |
+| [Data Compliance](docs/DATA_COMPLIANCE.md) | Retention policy, GDPR/CCPA/HIPAA guidance, erasure procedure, audit trail guarantees |
 | [DP Quality Report](docs/DP_QUALITY_REPORT.md) | Epsilon vs. quality degradation curves; recommended epsilon ranges by use case |
 | [E2E Validation](docs/E2E_VALIDATION.md) | Full end-to-end pipeline validation evidence |
 | [Disaster Recovery](docs/DISASTER_RECOVERY.md) | Incident response and recovery procedures |
