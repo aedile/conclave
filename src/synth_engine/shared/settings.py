@@ -40,6 +40,7 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T39.3 — Add Rate Limiting Middleware
+Task: T41.1 — Implement Data Retention Policy
 """
 
 from __future__ import annotations
@@ -314,6 +315,36 @@ class ConclaveSettings(BaseSettings):
             "Maximum download requests per authenticated operator per minute. "
             "Bandwidth protection for /jobs/{id}/download. "
             "Defaults to 10 per the T39.3 security specification."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Data Retention Policy (T41.1)
+    # -----------------------------------------------------------------------
+
+    job_retention_days: int = Field(
+        default=90,
+        description=(
+            "Number of days to retain synthesis_job records before they are "
+            "eligible for routine purge.  Jobs with legal_hold=True are exempt "
+            "from purge regardless of this TTL.  Defaults to 90 days."
+        ),
+    )
+    audit_retention_days: int = Field(
+        default=1095,
+        description=(
+            "Number of days to retain audit events before they may be archived "
+            "to cold storage.  Audit events are NEVER deleted during the retention "
+            "period — only archived.  Defaults to 1095 (3 years, GDPR minimum). "
+            "Set to 2555 (7 years) for financial-services deployments."
+        ),
+    )
+    artifact_retention_days: int = Field(
+        default=30,
+        description=(
+            "Number of days to retain generated Parquet artifact files before "
+            "they are eligible for deletion by the retention cleanup task. "
+            "Defaults to 30 days."
         ),
     )
 

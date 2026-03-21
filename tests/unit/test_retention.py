@@ -16,10 +16,9 @@ Task: T41.1 — Implement Data Retention Policy
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.pool import StaticPool
@@ -75,6 +74,25 @@ def _make_engine() -> Any:
     )
     SQLModel.metadata.create_all(engine)
     return engine
+
+
+def _backdate(session: Session, job_id: int, days: int) -> None:
+    """Backdate a job's created_at by ``days`` days using a bound parameter.
+
+    Args:
+        session: Active SQLModel session.
+        job_id: Primary key of the job to backdate.
+        days: Number of days to subtract from now.
+    """
+    from sqlalchemy import text
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    session.exec(  # type: ignore[call-overload]
+        text("UPDATE synthesis_job SET created_at = :ts WHERE id = :id").bindparams(
+            ts=cutoff.isoformat(), id=job_id
+        )
+    )
+    session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -230,15 +248,7 @@ class TestRetentionCleanupExpiredJobs:
             session.add(job)
             session.commit()
             session.refresh(job)
-            job_id = job.id
-
-            # Manually backdate created_at to simulate an old record
-            from sqlalchemy import text
-
-            session.exec(  # type: ignore[call-overload]
-                text(f"UPDATE synthesis_job SET created_at = datetime('now', '-100 days') WHERE id = {job_id}")
-            )
-            session.commit()
+            _backdate(session, job.id, 100)
 
         audit_mock = MagicMock()
         with patch(
@@ -307,14 +317,7 @@ class TestRetentionCleanupExpiredJobs:
             session.add(job)
             session.commit()
             session.refresh(job)
-            job_id = job.id
-
-            from sqlalchemy import text
-
-            session.exec(  # type: ignore[call-overload]
-                text(f"UPDATE synthesis_job SET created_at = datetime('now', '-200 days') WHERE id = {job_id}")
-            )
-            session.commit()
+            _backdate(session, job.id, 200)
 
         audit_mock = MagicMock()
         with patch(
@@ -354,8 +357,9 @@ class TestRetentionCleanupExpiredJobs:
             # Backdate both jobs
             from sqlalchemy import text
 
+            cutoff = datetime.now(UTC) - timedelta(days=100)
             session.exec(  # type: ignore[call-overload]
-                text("UPDATE synthesis_job SET created_at = datetime('now', '-100 days')")
+                text("UPDATE synthesis_job SET created_at = :ts").bindparams(ts=cutoff.isoformat())
             )
             session.commit()
 
@@ -426,17 +430,10 @@ class TestRetentionCleanupExpiredJobs:
             session.add_all([expired_free, expired_held, fresh])
             session.commit()
 
-            from sqlalchemy import text
-
             # Backdate only the two expired jobs
             for job_ref in [expired_free, expired_held]:
                 session.refresh(job_ref)
-                session.exec(  # type: ignore[call-overload]
-                    text(
-                        f"UPDATE synthesis_job SET created_at = datetime('now', '-150 days') WHERE id = {job_ref.id}"
-                    )
-                )
-            session.commit()
+                _backdate(session, job_ref.id, 150)
 
         audit_mock = MagicMock()
         with patch(
@@ -473,14 +470,13 @@ class TestLegalHoldEndpoint:
         os.environ.setdefault("AUDIT_KEY", "aa" * 32)
         os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
+        from fastapi import FastAPI
         from fastapi.testclient import TestClient
         from sqlalchemy.pool import StaticPool
         from sqlmodel import Session, SQLModel, create_engine
 
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.routers.admin import router as admin_router
-
-        from fastapi import FastAPI
 
         app = FastAPI()
         app.include_router(admin_router)
@@ -616,14 +612,14 @@ class TestAuditRetentionGuard:
         not in a database table. This test verifies that the cleanup task only
         targets synthesis_job and artifact records — not any audit log records.
         """
+        import inspect
+
         from synth_engine.modules.synthesizer.retention import RetentionCleanup
 
         # RetentionCleanup must have no method that touches an audit events table.
         # Validate via inspection: cleanup_expired_jobs must not reference any
         # audit-deletion query.
         cleanup = RetentionCleanup(engine=MagicMock(), job_retention_days=90)
-        import inspect
-
         source = inspect.getsource(type(cleanup))
         # The cleanup must never execute a DELETE on audit-related tables.
         assert "audit_event" not in source.lower()
@@ -631,8 +627,9 @@ class TestAuditRetentionGuard:
 
     def test_retention_cleanup_only_targets_synthesis_job(self) -> None:
         """RetentionCleanup.cleanup_expired_jobs operates only on synthesis_job table."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
         import inspect
+
+        from synth_engine.modules.synthesizer.retention import RetentionCleanup
 
         source = inspect.getsource(RetentionCleanup.cleanup_expired_jobs)
         # Must reference SynthesisJob (the target table)

@@ -50,10 +50,12 @@ Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 Task: P22-T22.1 — Job Schema DP Parameters
 Task: P23-T23.1 — Generation Step in Huey Task
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
+Task: T41.1 — Implement Data Retention Policy
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import Field, SQLModel
@@ -151,6 +153,10 @@ class SynthesisJob(SQLModel, table=True):
     actual_epsilon: float | None = Field(default=None)
     #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
     owner_id: str = Field(default="", index=True)
+    #: Legal hold flag — prevents routine retention purge (T41.1).
+    legal_hold: bool = Field(default=False)
+    #: UTC creation timestamp for retention TTL calculations (T41.1).
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Defense-in-depth: these guards duplicate the Pydantic Field constraints in
     # bootstrapper/schemas/jobs.py.  Both must be updated together.

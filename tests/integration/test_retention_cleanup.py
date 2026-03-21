@@ -16,6 +16,7 @@ Task: T41.1 — Implement Data Retention Policy
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -52,6 +53,8 @@ def _make_engine() -> Any:
 def _backdate_job(session: Session, job_id: int, days: int) -> None:
     """Move a job's created_at timestamp backward by ``days`` days.
 
+    Uses a bound parameter to avoid SQL injection (S608).
+
     Args:
         session: Active database session.
         job_id: Primary key of the job to backdate.
@@ -59,9 +62,10 @@ def _backdate_job(session: Session, job_id: int, days: int) -> None:
     """
     from sqlalchemy import text
 
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     session.exec(  # type: ignore[call-overload]
-        text(
-            f"UPDATE synthesis_job SET created_at = datetime('now', '-{days} days') WHERE id = {job_id}"
+        text("UPDATE synthesis_job SET created_at = :ts WHERE id = :id").bindparams(
+            ts=cutoff.isoformat(), id=job_id
         )
     )
     session.commit()
