@@ -55,11 +55,15 @@ def _set_audit_key(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
 def _make_test_app() -> tuple[Any, Any]:
     """Build a test FastAPI app with an in-memory SQLite database and seeded ledger.
 
+    Overrides ``get_current_operator`` to bypass JWT auth in functional tests
+    that are not testing authentication itself (ADV-024).
+
     Returns:
         A 2-tuple of ``(app, engine)`` ready for use in HTTP tests.
     """
     from sqlalchemy.pool import StaticPool
 
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
@@ -91,17 +95,23 @@ def _make_test_app() -> tuple[Any, Any]:
             yield session
 
     app.dependency_overrides[get_db_session] = _override_session
+    # Override auth for non-auth-focused tests — they test budget logic, not authn
+    app.dependency_overrides[get_current_operator] = lambda: "test-operator"
     return app, engine
 
 
 def _make_empty_app() -> tuple[Any, Any]:
     """Build a test FastAPI app with an in-memory SQLite database and NO ledger row.
 
+    Overrides ``get_current_operator`` to bypass JWT auth in functional tests
+    that are not testing authentication itself (ADV-024).
+
     Returns:
         A 2-tuple of ``(app, engine)`` for testing missing-ledger error paths.
     """
     from sqlalchemy.pool import StaticPool
 
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
@@ -123,6 +133,8 @@ def _make_empty_app() -> tuple[Any, Any]:
             yield session
 
     app.dependency_overrides[get_db_session] = _override_session
+    # Override auth for non-auth-focused tests
+    app.dependency_overrides[get_current_operator] = lambda: "test-operator"
     return app, engine
 
 
@@ -250,6 +262,7 @@ class TestBudgetQueryEndpoint:
         """GET /privacy/budget must set is_exhausted=True when spent >= allocated."""
         from sqlalchemy.pool import StaticPool
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
@@ -280,6 +293,7 @@ class TestBudgetQueryEndpoint:
                 yield s
 
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_operator] = lambda: "test-operator"
 
         patches = _common_patches()
         with patches[0], patches[1]:
@@ -299,6 +313,7 @@ class TestBudgetQueryEndpoint:
         """GET /privacy/budget must set is_exhausted=True when spent > allocated (overspend)."""
         from sqlalchemy.pool import StaticPool
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
@@ -329,6 +344,7 @@ class TestBudgetQueryEndpoint:
                 yield s
 
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_operator] = lambda: "test-operator"
 
         patches = _common_patches()
         with patches[0], patches[1]:
@@ -556,16 +572,55 @@ class TestBudgetRefreshEndpoint:
         assert call_kwargs["resource"].startswith("privacy_ledger/")
 
     @pytest.mark.asyncio
-    async def test_refresh_budget_audit_event_includes_actor_from_header(
+    async def test_refresh_budget_audit_event_uses_current_operator_as_actor(
         self,
     ) -> None:
-        """Refresh audit event must capture the X-Operator-Id header as actor."""
-        app, engine = _make_test_app()
-        patches = _common_patches()
+        """Refresh audit event must capture current_operator (JWT sub) as actor.
+
+        The privacy router was updated (ADV-024) to use the JWT sub via
+        get_current_operator rather than the X-Operator-Id header.  This test
+        verifies the dependency-overridden operator identity is used.
+        """
+        from sqlalchemy.pool import StaticPool
+
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.errors import register_error_handlers
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.bootstrapper.routers.privacy import router as privacy_router
+        from synth_engine.modules.privacy.ledger import PrivacyLedger
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+
+        with Session(engine) as session:
+            ledger = PrivacyLedger(
+                total_allocated_epsilon=Decimal("10.0"),
+                total_spent_epsilon=Decimal("3.5"),
+            )
+            session.add(ledger)
+            session.commit()
+
+        app = create_app()
+        register_error_handlers(app)
+        app.include_router(privacy_router)
+
+        def _override_session() -> Any:
+            with Session(engine) as s:
+                yield s
+
+        app.dependency_overrides[get_db_session] = _override_session
+        # Inject a specific operator identity via dependency override
+        app.dependency_overrides[get_current_operator] = lambda: "specific-operator-id"
 
         mock_audit = MagicMock()
         mock_audit.log_event = MagicMock()
 
+        patches = _common_patches()
         with (
             patches[0],
             patches[1],
@@ -581,43 +636,10 @@ class TestBudgetRefreshEndpoint:
                 await client.post(
                     "/privacy/budget/refresh",
                     json={"justification": "Operator identity test"},
-                    headers={"X-Operator-Id": "admin-user-42"},
                 )
 
         call_kwargs = mock_audit.log_event.call_args.kwargs
-        assert call_kwargs["actor"] == "admin-user-42"
-
-    @pytest.mark.asyncio
-    async def test_refresh_budget_audit_event_defaults_actor_when_no_header(
-        self,
-    ) -> None:
-        """Refresh audit event must use a fallback actor when X-Operator-Id is absent."""
-        app, engine = _make_test_app()
-        patches = _common_patches()
-
-        mock_audit = MagicMock()
-        mock_audit.log_event = MagicMock()
-
-        with (
-            patches[0],
-            patches[1],
-            _make_reset_budget_patch(engine),
-            patch(
-                "synth_engine.bootstrapper.routers.privacy.get_audit_logger",
-                return_value=mock_audit,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                await client.post(
-                    "/privacy/budget/refresh",
-                    json={"justification": "No-header actor fallback test"},
-                )
-
-        call_kwargs = mock_audit.log_event.call_args.kwargs
-        # Actor must be the well-known fallback constant — not empty.
-        assert call_kwargs["actor"] == "unknown-operator"
+        assert call_kwargs["actor"] == "specific-operator-id"
 
     @pytest.mark.asyncio
     async def test_refresh_budget_returns_404_when_no_ledger(self) -> None:

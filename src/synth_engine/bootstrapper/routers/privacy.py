@@ -15,12 +15,17 @@ provides visibility and the administrative refresh workflow.
 All error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
 
+Authentication: Both endpoints require a valid JWT Bearer token via the
+:func:`~synth_engine.bootstrapper.dependencies.auth.get_current_operator`
+dependency (ADV-024).  The authenticated operator's JWT sub claim is used
+as the audit actor identity — replacing the previous ``X-Operator-Id``
+header fallback.
+
 WORM audit logging:
     Every refresh call MUST emit a signed :class:`~synth_engine.shared.security.audit.AuditEvent`
     via :func:`~synth_engine.shared.security.audit.get_audit_logger`.
-    The event type is ``"PRIVACY_BUDGET_REFRESH"`` and the actor is read from
-    the ``X-Operator-Id`` request header (falling back to ``"unknown-operator"``
-    when absent).
+    The event type is ``"PRIVACY_BUDGET_REFRESH"`` and the actor is the
+    authenticated operator's JWT sub claim.
 
 Domain delegation:
     Budget mutation is delegated to
@@ -47,10 +52,11 @@ import logging
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
+from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.schemas.privacy import BudgetRefreshRequest, BudgetResponse
@@ -59,9 +65,6 @@ from synth_engine.modules.privacy.ledger import PrivacyLedger
 from synth_engine.shared.security.audit import get_audit_logger
 
 _logger = logging.getLogger(__name__)
-
-#: Fallback actor identity when the request carries no X-Operator-Id header.
-_UNKNOWN_OPERATOR: str = "unknown-operator"
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
 
@@ -104,7 +107,7 @@ def _emit_refresh_audit(
     by the audit logger (callers must handle to return a 500 response).
 
     Args:
-        actor: Operator identity (from ``X-Operator-Id`` header or fallback).
+        actor: Operator identity from the JWT sub claim.
         ledger_id: Primary key of the refreshed ``PrivacyLedger`` row.
         justification: Human-readable reason for the refresh.
         prev_allocated: Pre-refresh ``total_allocated_epsilon`` as string.
@@ -183,6 +186,7 @@ def _run_reset_budget(
 @router.get("/budget", response_model=BudgetResponse)
 def get_budget(
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> BudgetResponse | JSONResponse:
     """Return the current privacy budget ledger state.
 
@@ -192,6 +196,7 @@ def get_budget(
 
     Args:
         session: Database session injected by FastAPI DI.
+        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
         :class:`BudgetResponse` on success, or RFC 7807 404
@@ -213,8 +218,8 @@ def get_budget(
 @router.post("/budget/refresh", response_model=BudgetResponse)
 def refresh_budget(
     body: BudgetRefreshRequest,
-    request: Request,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> BudgetResponse | JSONResponse:
     """Reset the privacy budget and emit a WORM audit event.
 
@@ -225,7 +230,7 @@ def refresh_budget(
 
     A HMAC-signed WORM audit event (``PRIVACY_BUDGET_REFRESH``) is emitted via
     :func:`~synth_engine.shared.security.audit.get_audit_logger` capturing the
-    operator identity (``X-Operator-Id`` header) and the justification text.
+    authenticated operator's JWT sub claim as the actor identity.
 
     The DB write (via :func:`reset_budget`) occurs BEFORE the audit emit so
     that a DB failure does not produce an orphaned audit record.  If the audit
@@ -234,9 +239,8 @@ def refresh_budget(
     Args:
         body: Refresh request containing justification and optional new
             allocation ceiling.
-        request: The raw Starlette request (used to read the ``X-Operator-Id``
-            header for the audit event actor identity).
         session: Database session injected by FastAPI DI.
+        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
         :class:`BudgetResponse` reflecting the post-refresh state on success,
@@ -261,9 +265,6 @@ def refresh_budget(
     prev_allocated = str(ledger.total_allocated_epsilon)
     prev_spent = str(ledger.total_spent_epsilon)
 
-    # Resolve the operator identity from the request header.
-    actor: str = request.headers.get("X-Operator-Id", _UNKNOWN_OPERATOR)
-
     # Delegate mutation to reset_budget() via asyncio.run() bridge.
     # reset_budget() uses SELECT ... FOR UPDATE — safe against concurrent spends.
     new_alloc: Decimal | None = (
@@ -280,7 +281,7 @@ def refresh_budget(
     # does not produce an orphaned audit record.  If audit fails, return 500.
     try:
         _emit_refresh_audit(
-            actor=actor,
+            actor=current_operator,
             ledger_id=ledger_id,
             justification=body.justification,
             prev_allocated=prev_allocated,

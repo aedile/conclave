@@ -252,7 +252,6 @@ def test_rotate_audit_failure_does_not_block(
 def test_rotate_empty_database_url_returns_202_and_enqueues_task(
     security_client: TestClient,
     unsealed_vault: None,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /security/keys/rotate with DATABASE_URL="" must still return 202.
 
@@ -266,10 +265,19 @@ def test_rotate_empty_database_url_returns_202_and_enqueues_task(
 
     ADV-055 drain: exercises the DATABASE_URL="" branch in security.py.
     """
-    # Ensure DATABASE_URL is absent from the environment
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    # Patch get_settings at the source to return a mock with database_url="".
+    # Using monkeypatch.delenv is insufficient because pydantic-settings also
+    # reads from the .env file; patching the function bypasses both sources.
+    mock_settings = MagicMock()
+    mock_settings.database_url = ""
 
-    with patch("synth_engine.bootstrapper.routers.security.rotate_ale_keys_task") as mock_task:
+    with (
+        patch(
+            "synth_engine.shared.settings.get_settings",
+            return_value=mock_settings,
+        ),
+        patch("synth_engine.bootstrapper.routers.security.rotate_ale_keys_task") as mock_task,
+    ):
         response = security_client.post(
             "/security/keys/rotate",
             json={"new_passphrase": "new-secure-passphrase"},

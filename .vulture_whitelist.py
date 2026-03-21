@@ -170,6 +170,9 @@ verify_event  # unused method — AuditLogger.verify_event used in audit chain v
 deactivate  # unused method — LicenseManager.deactivate (shared/security/licensing.py)
 RetentionCleanup  # unused class — called by Huey scheduled tasks / CLI (modules/synthesizer/retention.py)
 cleanup_expired_jobs  # unused method — RetentionCleanup.cleanup_expired_jobs (retention.py)
+cleanup_expired_artifacts  # unused method — RetentionCleanup.cleanup_expired_artifacts (retention.py)
+periodic_cleanup_expired_jobs  # unused function — Huey periodic task, registered at 02:00 UTC (retention_tasks.py)
+periodic_cleanup_expired_artifacts  # unused function — Huey periodic task, registered at 03:00 UTC (retention_tasks.py)
 get_claims  # unused method — LicenseManager.get_claims (shared/security/licensing.py)
 
 # ---------------------------------------------------------------------------

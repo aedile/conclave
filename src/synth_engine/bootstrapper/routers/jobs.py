@@ -295,7 +295,7 @@ def shred_job(
         audit = get_audit_logger()
         audit.log_event(
             event_type="ARTIFACT_SHREDDED",
-            actor="system/api",
+            actor=current_operator,
             resource=f"synthesis_job/{job_id}",
             action="shred",
             details={

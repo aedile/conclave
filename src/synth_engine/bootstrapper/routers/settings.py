@@ -5,6 +5,10 @@ Settings use ``key`` as the primary key; PUT performs an upsert.
 
 All 404 responses use RFC 7807 Problem Details format.
 
+Authentication: All endpoints require a valid JWT Bearer token via the
+:func:`~synth_engine.bootstrapper.dependencies.auth.get_current_operator`
+dependency (ADV-021).
+
 Task: P5-T5.1 — Task Orchestration API Core
 """
 
@@ -16,6 +20,7 @@ from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
+from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.schemas.settings import (
@@ -31,11 +36,13 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 @router.get("", response_model=SettingListResponse)
 def list_settings(
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> SettingListResponse:
     """List all application settings.
 
     Args:
         session: Database session (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
         :class:`SettingListResponse` with all stored key-value pairs.
@@ -51,6 +58,7 @@ def upsert_setting(
     key: str,
     body: SettingUpsertRequest,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> SettingResponse:
     """Create or update a setting by key.
 
@@ -61,6 +69,7 @@ def upsert_setting(
         key: The setting key (URL path parameter).
         body: Request body containing the new value.
         session: Database session (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
         The upserted :class:`SettingResponse`.
@@ -80,12 +89,14 @@ def upsert_setting(
 def get_setting(
     key: str,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> SettingResponse | JSONResponse:
     """Get a setting by key.
 
     Args:
         key: The setting key to look up.
         session: Database session (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
         :class:`SettingResponse` on success, or RFC 7807 404 on not found.
@@ -107,12 +118,14 @@ def get_setting(
 def delete_setting(
     key: str,
     session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> Response:
     """Delete a setting by key.
 
     Args:
         key: The setting key to delete.
         session: Database session (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
         HTTP 204 No Content on success, or RFC 7807 404 on not found.
