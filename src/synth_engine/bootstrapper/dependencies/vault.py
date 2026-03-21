@@ -21,28 +21,10 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
-from synth_engine.shared.security.vault import VaultState
-
-#: Routes that are accessible even when the vault is sealed.
-#: License endpoints are included so that operators can activate the software
-#: without first unsealing the vault (challenge/response is a pre-boot flow).
-EXEMPT_PATHS: frozenset[str] = frozenset(
-    {
-        "/unseal",
-        "/health",
-        "/metrics",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
-        "/license/challenge",
-        "/license/activate",
-        # Security ops endpoints — shred must be reachable even when sealed
-        # (to support emergency key destruction); rotate checks vault state
-        # internally and returns 423 if sealed.
-        "/security/shred",
-        "/security/keys/rotate",
-    }
+from synth_engine.bootstrapper.dependencies._exempt_paths import (
+    COMMON_INFRA_EXEMPT_PATHS as EXEMPT_PATHS,
 )
+from synth_engine.shared.security.vault import VaultState
 
 
 class SealGateMiddleware(BaseHTTPMiddleware):

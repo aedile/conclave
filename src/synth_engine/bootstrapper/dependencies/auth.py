@@ -40,13 +40,9 @@ Middleware ordering
 Exempt paths
 ------------
 :data:`AUTH_EXEMPT_PATHS` lists all paths that must remain unauthenticated
-by definition (pre-auth bootstrapping endpoints).
-
-TODO [CONCLAVE-ADV-EXEMPT]: Three middleware files (vault.py, licensing.py,
-auth.py) maintain independent frozensets of exempt paths. Extract a
-``COMMON_INFRA_EXEMPT_PATHS`` constant to
-``bootstrapper/dependencies/_exempt_paths.py`` and compose from it to
-eliminate the maintenance debt. Tracked as ARCH-ADV-1 from T39.1 review.
+by definition (pre-auth bootstrapping endpoints).  It is composed from
+:data:`~synth_engine.bootstrapper.dependencies._exempt_paths.COMMON_INFRA_EXEMPT_PATHS`
+plus the ``/auth/token`` endpoint (resolved: ADV-T39.1-01).
 
 CONSTITUTION Priority 0: Security — algorithm pinning, no alg:none
 CONSTITUTION Priority 3: TDD
@@ -67,6 +63,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
 from synth_engine.shared.settings import get_settings
 
 _logger = logging.getLogger(__name__)
@@ -74,22 +71,9 @@ _logger = logging.getLogger(__name__)
 #: Routes that bypass authentication entirely.
 #: These are pre-auth by definition — they must be reachable before any
 #: credential is issued or the vault is unsealed.
-AUTH_EXEMPT_PATHS: frozenset[str] = frozenset(
-    {
-        "/unseal",
-        "/health",
-        "/metrics",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
-        "/license/challenge",
-        "/license/activate",
-        "/security/shred",
-        "/security/keys/rotate",
-        # Token issuance endpoint — must be pre-auth so operators can log in.
-        "/auth/token",
-    }
-)
+#: Composed from COMMON_INFRA_EXEMPT_PATHS plus the token issuance endpoint
+#: so operators can log in before any token is available (ADV-T39.1-01).
+AUTH_EXEMPT_PATHS: frozenset[str] = COMMON_INFRA_EXEMPT_PATHS | frozenset({"/auth/token"})
 
 
 class AuthenticationError(Exception):

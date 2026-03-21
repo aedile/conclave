@@ -578,12 +578,13 @@ def test_compute_retry_after_fallback_logs_hashed_key_not_raw(
     )
     limit_item = parse("5/minute")
 
+    rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit"
     with patch.object(
         middleware._limiter,
         "get_window_stats",
         side_effect=RuntimeError("storage error"),
     ):
-        with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.dependencies.rate_limit"):
+        with caplog.at_level(logging.WARNING, logger=rate_limit_logger):
             result = middleware._compute_retry_after(limit_item, raw_key)
 
     assert result == 60, f"Fallback must return 60; got {result}"
@@ -591,5 +592,5 @@ def test_compute_retry_after_fallback_logs_hashed_key_not_raw(
         f"Raw key '{raw_key}' must NOT appear in warning log; got: {caplog.text!r}"
     )
     assert expected_hash_prefix in caplog.text, (
-        f"Hashed key prefix '{expected_hash_prefix}' must appear in warning log; got: {caplog.text!r}"
+        f"Hashed key prefix '{expected_hash_prefix}' must appear in log; got: {caplog.text!r}"
     )

@@ -19,28 +19,11 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from synth_engine.bootstrapper.dependencies._exempt_paths import (
+    COMMON_INFRA_EXEMPT_PATHS as LICENSE_EXEMPT_PATHS,
+)
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.shared.security.licensing import LicenseState
-
-#: Routes that are accessible even when the software is not licensed.
-#: This set mirrors the SealGateMiddleware exempt paths and extends it with
-#: the license-specific endpoints.
-LICENSE_EXEMPT_PATHS: frozenset[str] = frozenset(
-    {
-        "/health",
-        "/unseal",
-        "/metrics",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
-        "/license/challenge",
-        "/license/activate",
-        # Security ops endpoints — must be reachable for emergency protocols
-        # regardless of license state.
-        "/security/shred",
-        "/security/keys/rotate",
-    }
-)
 
 
 class LicenseGateMiddleware(BaseHTTPMiddleware):
