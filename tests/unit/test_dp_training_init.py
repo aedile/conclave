@@ -1,26 +1,30 @@
 """Unit tests for DPCompatibleCTGAN.__init__ and fit() core behaviour.
 
-Tests follow TDD Red/Green/Refactor.  All tests are isolated — SDV internals
-are mocked so these tests run without a GPU and without a full CTGAN training
-run.  Every test asserts on the *return value* of the function under test, not
-merely on the absence of an exception.
+Tests follow TDD Red/Green/Refactor.
 
-Covers:
-  - __init__ signature and parameter defaults
-  - __init__ stores epochs, metadata, dp_wrapper, _fitted attributes
-  - fit() returns self (method chaining)
-  - fit() marks instance as fitted
-  - fit() calls preprocess, stores data processor, calls CTGAN.fit
-  - fit() passes discrete_columns to CTGAN.fit
+Classes:
+  TestDPCompatibleCTGANInit — Behavioral tests for __init__ (no external patches;
+    only boundary mocks for metadata and dp_wrapper, which are injected dependencies).
+
+  TestDPCompatibleCTGANFitWiring — Wiring tests for fit().  These tests patch
+    CTGANSynthesizer, CTGAN, and detect_discrete_columns to verify that fit()
+    calls the correct SDV/CTGAN interfaces in the correct order.  They do NOT
+    test that SDV or CTGAN work correctly — they test that DPCompatibleCTGAN
+    wires them together correctly.  Named *Wiring per T40.2 AC4.
+
+Background (T40.2): Wiring tests (3+ patches on the module under test) are
+legitimate but MUST be labeled *Wiring so reviewers understand the scope.
+Behavioral correctness of SDV/CTGAN is delegated to @pytest.mark.synthesizer
+tests in test_dp_training_behavioral.py.
 
 CONSTITUTION Priority 3: TDD Red/Green/Refactor.
 Task: P7-T7.2 — Custom CTGAN Training Loop
 Task: P26-T26.6 — Split from test_dp_training.py for maintainability
+Task: P40-T40.2 — Replace Mock-Heavy Tests With Behavioral Tests (wiring labeling)
 """
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -59,6 +63,9 @@ def _make_training_df(n: int = 50) -> pd.DataFrame:
 def _make_mock_sdv_synthesizer(processed_df: pd.DataFrame | None = None) -> MagicMock:
     """Return a mock CTGANSynthesizer with realistic preprocess / _data_processor.
 
+    Boundary mock: replaces the external SDV library at its interface boundary.
+    Used only in *Wiring tests that verify wiring, not SDV correctness.
+
     Args:
         processed_df: The DataFrame that synth.preprocess() will return.
             Defaults to a 50-row DataFrame with columns ['age', 'dept'].
@@ -95,7 +102,6 @@ def _make_mock_sdv_synthesizer(processed_df: pd.DataFrame | None = None) -> Magi
         "pac": 10,
         "enable_gpu": True,
     }
-    # _data_processor for reverse_transform
     mock_proc = MagicMock()
     mock_proc._hyper_transformer.field_transformers = {}
     mock_synth._data_processor = mock_proc
@@ -105,6 +111,8 @@ def _make_mock_sdv_synthesizer(processed_df: pd.DataFrame | None = None) -> Magi
 
 def _make_mock_ctgan_model(n_rows: int = 50) -> MagicMock:
     """Return a mock CTGAN model that produces a known sample DataFrame.
+
+    Boundary mock: replaces the external ctgan library at its interface boundary.
 
     Args:
         n_rows: Number of rows CTGAN.sample() will return.
@@ -123,12 +131,19 @@ def _make_mock_ctgan_model(n_rows: int = 50) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# Tests for __init__
+# Behavioral tests for __init__
 # ---------------------------------------------------------------------------
 
 
 class TestDPCompatibleCTGANInit:
-    """Unit tests for DPCompatibleCTGAN.__init__ signature and defaults."""
+    """Behavioral tests for DPCompatibleCTGAN.__init__ signature and defaults.
+
+    These tests use real Python objects — MagicMock is used only for injected
+    dependencies (metadata, dp_wrapper) which are boundary objects, not the
+    code under test.  No external library patching is performed.
+
+    Setup-to-assertion ratio: 1:1 for each test.
+    """
 
     def test_init_accepts_metadata_epochs_dp_wrapper(self) -> None:
         """__init__ must accept metadata, epochs, and dp_wrapper parameters."""
@@ -137,7 +152,6 @@ class TestDPCompatibleCTGANInit:
         mock_metadata = MagicMock()
         mock_dp_wrapper = MagicMock()
 
-        # Should not raise
         instance = DPCompatibleCTGAN(
             metadata=mock_metadata,
             epochs=5,
@@ -198,24 +212,24 @@ class TestDPCompatibleCTGANInit:
 
 
 # ---------------------------------------------------------------------------
-# Tests for fit() — with mocked SDV and CTGAN internals
+# Wiring tests for fit() — verify SDV/CTGAN interface wiring
 # ---------------------------------------------------------------------------
 
 
-class TestDPCompatibleCTGANFit:
-    """Unit tests for DPCompatibleCTGAN.fit() with mocked SDV internals."""
+class TestDPCompatibleCTGANFitWiring:
+    """Wiring tests for DPCompatibleCTGAN.fit().
 
-    def _patch_sdv_and_ctgan(self, mock_sdv_synth: MagicMock, mock_ctgan_cls: MagicMock) -> Any:
-        """Return the combined patch context manager for SDV and CTGAN.
+    SCOPE: These tests verify that fit() wires SDV and CTGAN together correctly:
+    - Calls CTGANSynthesizer.preprocess()
+    - Stores _data_processor
+    - Calls CTGAN.fit()
+    - Passes discrete_columns to CTGAN.fit()
 
-        Args:
-            mock_sdv_synth: Pre-configured CTGANSynthesizer mock instance.
-            mock_ctgan_cls: Mock for ctgan.synthesizers.ctgan.CTGAN class.
-
-        Returns:
-            A context manager string for use in with-statement patching.
-        """
-        return mock_sdv_synth
+    They do NOT test SDV correctness or CTGAN correctness — those are external
+    libraries tested by their own suites.  Named *Wiring per T40.2 AC4 because
+    each test patches 3 things in the module under test:
+    CTGANSynthesizer, CTGAN, detect_discrete_columns.
+    """
 
     def test_fit_returns_self(self) -> None:
         """fit() must return self to allow method chaining."""
@@ -383,5 +397,4 @@ class TestDPCompatibleCTGANFit:
 
         _call_args = mock_ctgan_instance.fit.call_args
         assert _call_args is not None
-        # discrete_columns must be passed as keyword arg
         assert _call_args.kwargs.get("discrete_columns") == detected_discrete
