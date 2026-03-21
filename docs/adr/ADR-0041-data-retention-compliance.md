@@ -74,9 +74,9 @@ The cleanup algorithm:
 2. Query `synthesis_job` WHERE `created_at < cutoff AND legal_hold = FALSE`.
 3. For each expired job: attempt to delete the artifact file, then delete the DB row.
 4. Emit one structured audit event per deleted job (see audit event format below).
-5. Suppress `FileNotFoundError` on artifact deletion — artifact may have already been
-   purged by a prior run or an external process. This is logged at DEBUG level; it is
-   not an error condition.
+5. Suppress missing-file errors on artifact deletion — artifact may have already been
+   purged by a prior run or an external process. Missing files are silently ignored via
+   `missing_ok=True`; this is not an error condition.
 
 Audit events are emitted only when at least one row is deleted, avoiding noise in the
 audit log during routine runs when no jobs have expired.

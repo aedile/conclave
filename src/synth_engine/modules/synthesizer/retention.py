@@ -120,9 +120,10 @@ class RetentionCleanup:
     def _delete_artifact(self, job: SynthesisJob) -> None:
         """Remove a job's output artifact file from the filesystem.
 
-        This is a best-effort operation.  If the file does not exist or
-        cannot be removed due to a permissions error, a WARNING is logged
-        but no exception is raised.
+        This is a best-effort operation.  If the file does not exist it is
+        silently ignored (missing_ok=True).  If the file cannot be removed
+        due to an OS error (e.g. permissions), a WARNING is logged but no
+        exception is raised.
 
         Args:
             job: The :class:`SynthesisJob` whose artifact should be removed.

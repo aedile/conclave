@@ -141,6 +141,30 @@ class TestRetentionSettings:
         s = ConclaveSettings()
         assert s.artifact_retention_days == 60
 
+    def test_job_retention_days_rejects_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Setting JOB_RETENTION_DAYS=0 raises ValidationError."""
+        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+        monkeypatch.setenv("JOB_RETENTION_DAYS", "0")
+        from pydantic import ValidationError
+
+        from synth_engine.shared.settings import ConclaveSettings
+
+        with pytest.raises(ValidationError):
+            ConclaveSettings()
+
+    def test_retention_days_rejects_negative(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Setting AUDIT_RETENTION_DAYS to a negative value raises ValidationError."""
+        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+        monkeypatch.setenv("AUDIT_RETENTION_DAYS", "-1")
+        from pydantic import ValidationError
+
+        from synth_engine.shared.settings import ConclaveSettings
+
+        with pytest.raises(ValidationError):
+            ConclaveSettings()
+
 
 # ---------------------------------------------------------------------------
 # SynthesisJob model tests
@@ -422,10 +446,10 @@ class TestRetentionCleanupExpiredJobs:
 
             remaining = session.exec(select(SynthesisJob)).all()
             assert len(remaining) == 2
-            remaining_ids = {j.legal_hold for j in remaining}
+            remaining_hold_flags = {j.legal_hold for j in remaining}
             # One held, one fresh (not held) remain
-            assert True in remaining_ids
-            assert False in remaining_ids
+            assert True in remaining_hold_flags
+            assert False in remaining_hold_flags
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +650,64 @@ class TestLegalHoldEndpoint:
         client = TestClient(app)
         response = client.patch("/admin/jobs/9999/legal-hold", json={"enable": True})
         assert response.status_code == 404
+
+    def test_set_legal_hold_succeeds_when_audit_fails(self) -> None:
+        """Endpoint returns 200 even if audit logging raises — graceful degradation."""
+        import os
+        from unittest.mock import MagicMock, patch
+
+        os.environ.setdefault("AUDIT_KEY", "aa" * 32)
+        os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from sqlalchemy.pool import StaticPool
+        from sqlmodel import Session, SQLModel, create_engine
+
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.routers.admin import router as admin_router
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        app = FastAPI()
+        app.include_router(admin_router)
+
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+
+        def _override() -> Any:
+            with Session(engine) as session:
+                yield session
+
+        app.dependency_overrides[get_db_session] = _override
+
+        with Session(engine) as session:
+            job = SynthesisJob(
+                table_name="t",
+                parquet_path="/tmp/p.parquet",
+                total_epochs=1,
+                num_rows=1,
+            )
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            job_id = job.id
+
+        audit_mock = MagicMock()
+        audit_mock.log_event.side_effect = RuntimeError("audit service down")
+
+        client = TestClient(app)
+        with patch(
+            "synth_engine.bootstrapper.routers.admin.get_audit_logger",
+            return_value=audit_mock,
+        ):
+            response = client.patch(f"/admin/jobs/{job_id}/legal-hold", json={"enable": True})
+
+        assert response.status_code == 200
+        assert response.json()["legal_hold"] is True
 
 
 # ---------------------------------------------------------------------------
