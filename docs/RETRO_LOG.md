@@ -13,6 +13,25 @@ Drain (delete) rows when their target task is completed.
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
 | ADV-T39.1-01 | T39.1 Arch Review | TBD | ADVISORY | EXEMPT_PATHS duplication across 3 middleware files (vault.py, licensing.py, auth.py). Extract to shared `bootstrapper/dependencies/_exempt_paths.py`. |
+| ADV-T39.4-01 | T39.4 Arch Review | TBD | ADVISORY | ADR-0006 scope expansion undocumented: ALE now covers infrastructure-sensitive fields (host, database, schema_name) beyond original GDPR/HIPAA PII scope. Amend ADR-0006. |
+
+---
+
+### [2026-03-20] P39-T39.4 — Encrypt Connection Metadata with ALE
+
+**Branch**: `feat/P39-T39.4-connection-encryption` (5 commits)
+
+**Review agents**: QA (FINDING — 2 rounds, 4 findings fixed), DevOps (FINDING — 1 round, 2 findings fixed), Architecture (FINDING — 1 round, 2 findings fixed)
+
+**Findings fixed (review commits)**:
+- QA-B1: Migration test gap — no test exercised upgrade()/downgrade(). Fixed: 491-line test file with 23 tests.
+- QA-B2: NULL guard missing in migration. Fixed: added None guards in upgrade() and downgrade().
+- QA-B3: NULL guard skip path untested. Fixed: added TestMigration007NullGuard tests.
+- QA-ADV: schema_name default path untested. Fixed: added default encryption round-trip test.
+- DEVOPS-B1: server_default="public" on EncryptedString bypasses TypeDecorator. Fixed: removed server_default.
+- ARCH-B1: Migration imports synth_engine breaking clean pattern. Fixed: documented with inline comment.
+
+**New advisory**: ADV-T39.4-01 (ADR-0006 scope expansion).
 
 ---
 
