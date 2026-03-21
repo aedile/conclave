@@ -154,7 +154,7 @@ class SynthesisJob(SQLModel, table=True):
     #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
     owner_id: str = Field(default="", index=True)
     #: Legal hold flag — prevents routine retention purge (T41.1).
-    legal_hold: bool = Field(default=False)
+    legal_hold: bool = Field(default=False, index=True)
     #: UTC creation timestamp for retention TTL calculations (T41.1).
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
