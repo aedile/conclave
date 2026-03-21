@@ -12,6 +12,24 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
+| ADV-017 | P41-T41.3 QA R5 | Polish task | ADVISORY | Pre-existing `EpsilonAccountant` references in README.md (lines ~74, ~182) — stale class name, actual interface is `spend_budget`/`reset_budget` functions |
+
+---
+
+### [2026-03-21] P41-T41.3 — Document Data Retention & Compliance Policies
+
+**Branch**: `feat/P41-T41.3-compliance-docs` (8 commits) — PR #153
+
+**Review agents**: QA (FINDING — 5 rounds, 4 findings fixed), DevOps (FINDING — 1 round + 4 re-review PASS)
+
+**Findings fixed (fix commits)**:
+- QA-R1: `WORMAuditLogger` class doesn't exist — actual class is `AuditLogger`. Wrong file path `shared/audit_logger.py` should be `shared/security/audit.py`. Fixed: `b4a4411`.
+- DEVOPS-R1: Forward-reference sections documented env vars and features not yet implemented. Fixed: added "Planned — T41.1" / "Planned — T41.2" notices throughout. Fixed: `969ec25`.
+- QA-R3a: `EpsilonAccountant` class doesn't exist — actual interface is `spend_budget`/`reset_budget` functions in `modules/privacy/accountant.py`. Fixed: `b74bceb`.
+- QA-R3b: `log()` method doesn't exist on `AuditLogger` — actual method is `log_event()`. Fixed: `3c4bba8`.
+- QA-R4: Purge query field `completed_at` incorrect — actual field is `created_at`. Fixed: `9288a03`.
+
+**Advisory**: ADV-017 — pre-existing `EpsilonAccountant` references in README.md (out-of-scope, batched per Rule 16).
 
 ---
 
