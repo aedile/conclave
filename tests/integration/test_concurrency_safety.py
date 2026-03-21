@@ -192,7 +192,7 @@ def test_concurrent_masking_is_deterministic() -> None:
             masked_email = mask_email(value_email, salt_email)
             results[index] = (masked_name, masked_email)
         except Exception as exc:
-            _logger.exception("Thread %d mask_values error", index)
+            _logger.debug("Thread %d mask error: %s", index, type(exc).__name__)
             errors.append(exc)
 
     threads = [threading.Thread(target=_mask_values, args=(i,)) for i in range(2)]
@@ -382,7 +382,7 @@ def test_concurrent_masking_emoji_values_are_thread_safe() -> None:
             barrier.wait()
             results[index] = mask_name(emoji_value, salt)
         except Exception as exc:
-            _logger.exception("Thread %d worker error", index)
+            _logger.debug("Thread %d mask error: %s", index, type(exc).__name__)
             errors.append(exc)
 
     threads = [threading.Thread(target=_worker, args=(i,)) for i in range(2)]
