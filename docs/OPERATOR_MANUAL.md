@@ -775,3 +775,130 @@ This policy means: **any new unhandled `DeprecationWarning` or `UserWarning`
 from the application code will fail the unit test suite**. If you add a new
 dependency that emits warnings, add a scoped suppression entry to
 `pyproject.toml` with a written justification comment.
+
+---
+
+## 11. Data Retention and Compliance Configuration
+
+Conclave enforces configurable data retention TTLs across three data categories.
+Configure retention periods before going to production to satisfy your
+regulatory obligations. The full compliance policy — including GDPR/CCPA/HIPAA
+guidance, erasure procedures, and audit trail guarantees — is in
+[docs/DATA_COMPLIANCE.md](DATA_COMPLIANCE.md).
+
+### 11.1 Retention Environment Variables
+
+> **Planned — T41.1**: The retention environment variables in this section
+> (`JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, `ARTIFACT_RETENTION_DAYS`)
+> and the corresponding `ConclaveSettings` fields are not yet implemented.
+> They are scheduled for delivery in task T41.1. Do not set these variables
+> in `.env` on the current release — they will have no effect. The table
+> below documents the intended interface once T41.1 is merged.
+
+Add these to `.env` to override the defaults:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JOB_RETENTION_DAYS` | `90` | Days before completed/failed synthesis jobs are eligible for purge. Jobs on legal hold are exempt. |
+| `AUDIT_RETENTION_DAYS` | `1095` | Days audit events are retained. Audit events are never deleted within this period. |
+| `ARTIFACT_RETENTION_DAYS` | `30` | Days Parquet output files and model checkpoints are retained on MinIO before purge. |
+
+**Example: financial-sector configuration (7-year audit retention):**
+
+```bash
+# .env
+JOB_RETENTION_DAYS=180
+AUDIT_RETENTION_DAYS=2555
+ARTIFACT_RETENTION_DAYS=14
+```
+
+**Example: GDPR minimum configuration (3-year audit retention):**
+
+```bash
+# .env
+JOB_RETENTION_DAYS=90
+AUDIT_RETENTION_DAYS=1095
+ARTIFACT_RETENTION_DAYS=30
+```
+
+### 11.2 Legal Hold
+
+> **Planned — T41.1**: The `legal_hold` field on `SynthesisJob` records and
+> the admin API endpoints below are not yet implemented. They are scheduled
+> for delivery in task T41.1.
+
+Place a synthesis job on legal hold to prevent it from being deleted regardless
+of TTL. This satisfies e-discovery obligations and regulatory hold requirements.
+
+```bash
+# Authenticate (required)
+TOKEN=$(curl -s -X POST http://<host>:8000/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"password": "<operator-passphrase>"}' | jq -r .access_token)
+
+# Place a job on legal hold
+curl -X POST http://<host>:8000/admin/jobs/<job-id>/legal-hold \
+  -H "Authorization: Bearer ${TOKEN}"
+
+# Release a legal hold
+curl -X DELETE http://<host>:8000/admin/jobs/<job-id>/legal-hold \
+  -H "Authorization: Bearer ${TOKEN}"
+```
+
+Every hold and release is logged to the WORM audit trail.
+
+### 11.3 Manual Purge
+
+> **Planned — T41.1**: The manual purge endpoint (`POST /admin/retention/purge`)
+> and the automated purge task are not yet implemented. They are scheduled for
+> delivery in task T41.1.
+
+The purge task runs automatically on its configured schedule. To trigger a
+manual purge immediately:
+
+```bash
+curl -X POST http://<host>:8000/admin/retention/purge \
+  -H "Authorization: Bearer ${TOKEN}"
+```
+
+The response includes counts of jobs deleted and artifacts shredded. All
+deletions are logged to the audit trail.
+
+### 11.4 GDPR / CCPA Erasure Requests
+
+> **Planned — T41.2**: The `DELETE /compliance/erasure` endpoint is not yet
+> implemented. It is scheduled for delivery in task T41.2.
+
+To process a right-to-erasure request for a specific data subject:
+
+```bash
+curl -X DELETE http://<host>:8000/compliance/erasure \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"subject_id": "<source-record-id-or-email-hash>"}'
+```
+
+The response is a compliance receipt documenting every record deleted and every
+record preserved (with written justification). Preserve this receipt as
+compliance evidence.
+
+**Notes:**
+
+- The vault must be unsealed. Erasure returns `423 Locked` if sealed.
+- Erasure requests are rate-limited to 1 per minute per operator.
+- The erasure request itself is logged to the WORM audit trail and cannot
+  be deleted.
+- Synthesized output and audit trail entries are preserved — see
+  [docs/DATA_COMPLIANCE.md Section 3](DATA_COMPLIANCE.md) for the
+  preservation justifications.
+
+### 11.5 Regulatory Retention Guidance
+
+| Regulatory context | Recommended `AUDIT_RETENTION_DAYS` | Basis |
+|--------------------|------------------------------------|-------|
+| GDPR (EU) | 1,095 (3 years) | GDPR Article 5(1)(e); legal claims limitation period |
+| CCPA (California) | 1,095 (3 years) | CCPA § 1798.100(e) |
+| HIPAA (US healthcare) | 2,190 (6 years) | 45 CFR § 164.530(j) |
+| Financial services (SEC Rule 17a-4) | 2,555 (7 years) | SEC Rule 17a-4(b)(1) |
+
+Consult your legal counsel for your specific jurisdiction and data category.
