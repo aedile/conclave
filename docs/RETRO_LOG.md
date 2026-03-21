@@ -19,6 +19,28 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] P41-T41.2 — GDPR Right-to-Erasure & CCPA Deletion Endpoint
+
+**Branch**: `feat/P41-T41.2-gdpr-erasure-endpoint` (7 commits)
+
+**Review agents**: Architecture (FINDING → PASS, 2 rounds), DevOps (FINDING → PASS, 2 rounds), QA (FINDING → PASS, 2 rounds)
+
+**Findings fixed (fix commits)**:
+- QA-B1 + DEVOPS-B1 (BLOCKER): Empty `subject_id=""` would bulk-delete all pre-JWT records (`owner_id` defaults to `""`). Fixed: `Field(min_length=1, max_length=255)` on `ErasureRequest.subject_id` + 2 validation tests. Fixed: `57164c5`.
+- QA-B3: Auth guard on erasure endpoint untested under configured JWT. Fixed: `TestComplianceEndpointAuthGuard` added. Fixed: `57164c5`.
+- ARCH-F6: `connection_model: Any | None` without Protocol — `mypy --strict` escape hatch. Fixed: `OwnedRecordModel` Protocol added to `shared/protocols.py`. Fixed: `57164c5`.
+- ARCH-F7: `session.get_bind()` leaky abstraction — DI session discarded, engine extracted, new session opened. Fixed: `ErasureService` refactored to accept `Session` directly. Fixed: `57164c5`.
+- QA-B2: HTTP 500 engine-misconfiguration branch untested. Superseded: ARCH-F7 refactor eliminated the branch entirely.
+- QA-ADV: Weak key-existence assertions in `test_erasure_returns_200_with_compliance_receipt`. Fixed: value checks. Fixed: `57164c5`.
+- QA-R2-ADV: Misleading test name `test_whitespace_only_subject_id_returns_422` asserts 200. Fixed: renamed to `test_whitespace_only_subject_id_returns_200_safe_noop`. Fixed: `e2e69a1`.
+
+**Dismissed findings (with justification)**:
+- ARCH-F1/F2/F3 (file placement): Moving `erasure.py` to `shared/` would create `shared/ → modules/` dependency violation (reviewer acknowledged in F3). Current placement in `modules/synthesizer/` is correct with `Connection` injected via constructor.
+- ARCH-F4/F5 (async): Factually incorrect — all other routers (connections, jobs, admin) use sync `def`. Compliance router is consistent.
+- ARCH-F8 (missing ADR): Rule 6 applies to technology substitution, not implementation patterns. Constructor injection is an established codebase pattern.
+
+---
+
 ### [2026-03-21] P41-T41.1 — Implement Data Retention Policy
 
 **Branch**: `feat/P41-T41.1-data-retention-policy` (9 commits) — PR #155
