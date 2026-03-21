@@ -15,6 +15,42 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-21] P40-T40.3 — Add Missing Test Categories: Concurrency, Boundary, Performance
+
+**Branch**: `feat/P40-T40.3-missing-test-categories` (4 commits) — PR #152
+
+**Review agents**: QA (FINDING — 1 round, 3 findings fixed), DevOps (FINDING — 1 round, 1 finding fixed)
+
+**Findings fixed (fix commits)**:
+- QA-B1: `pytest.raises((ValueError, RuntimeError, Exception))` rubber-stamp. Fixed: narrowed to `pytest.raises(ValueError, match="fit dataframe is empty")`.
+- QA-B2: Docstring contradicted test behavior (claimed ValueError raised, test asserts no exception). Fixed: removed contradictory paragraph.
+- QA-B3: `tmp_path: pytest.TempPathFactory` wrong type annotation. Fixed: corrected to `pathlib.Path`, removed `# type: ignore` suppressions.
+- DEVOPS-B1: `_logger.exception()` in masking worker threads risked PII traceback exposure outside PIIFilter scope. Fixed: replaced with `_logger.debug()` using type-only format.
+
+---
+
+### [2026-03-21] P40-T40.2 — Replace Mock-Heavy Tests With Behavioral Tests
+
+**Branch**: `feat/P40-T40.2-mock-heavy-rewrite` (3 commits) — PR #151
+
+**Review agents**: QA (FINDING — advisory, 1 finding fixed), DevOps (PASS)
+
+**Findings fixed (fix commit)**:
+- QA-ADV: Spy in `test_padding_guard_not_invoked_when_shapes_match` too broad — intercepted all 2-tensor `torch.cat` calls. Fixed: tightened predicate to check `dim==1`, 2D shape, all-zeros content.
+
+---
+
+### [2026-03-21] P40-T40.1 — Replace Shallow Assertions With Value-Checking Tests
+
+**Branch**: `feat/P40-T40.1-shallow-assertion-rewrite` (3 commits) — PR #150
+
+**Review agents**: QA (FINDING — 1 round, 1 finding fixed), DevOps (PASS)
+
+**Findings fixed (fix commit)**:
+- QA-B1: Tautological assertion `assert inspect.isfunction(detect_fn) or callable(detect_fn)` — `callable()` subsumes `isfunction()`. Fixed: removed `or callable()` fallback.
+
+---
+
 ### [2026-03-21] Advisory Drain — Pre-Phase 40 Gate
 
 **Branch**: `fix/advisory-drain-pre-p40`
