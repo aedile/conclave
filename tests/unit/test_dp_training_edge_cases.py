@@ -8,8 +8,19 @@ Covers four previously untested guard branches:
   Guard 3: real_data.shape[1] < data_dim → pad batch tensor before Discriminator forward.
   Guard 4: n_samples == 0 in discriminator step → skip (continue) when pac > batch rows.
 
+Class naming (T40.2 AC4):
+  All four classes end in *Wiring because each test patches 3+ targets in the
+  module under test (OpacusCompatibleDiscriminator, Generator, torch).  These
+  tests verify that guard logic wires the correct paths — they do NOT test that
+  PyTorch or Opacus work correctly.
+
+  For behavioral tests that exercise real tensor arithmetic without mocking
+  torch, see test_dp_training_behavioral.py (cap_batch_size, parse_gan_hyperparams)
+  and the @pytest.mark.synthesizer suite.
+
 CONSTITUTION Priority 3: TDD Red/Green/Refactor.
 Task: P30 review follow-up — edge case branch coverage
+Task: P40-T40.2 — Replace Mock-Heavy Tests With Behavioral Tests (wiring labeling)
 ADR: ADR-0036 (Discriminator-Level DP-SGD Architecture)
 """
 
@@ -33,6 +44,9 @@ pytestmark = pytest.mark.unit
 
 def _make_mock_dp_wrapper() -> MagicMock:
     """Return a MagicMock DP wrapper with standard attributes.
+
+    Boundary mock: replaces the external Opacus/privacy wrapper at the
+    dp_wrapper interface.  Used in all *Wiring tests in this module.
 
     Returns:
         MagicMock with max_grad_norm, noise_multiplier, wrap, epsilon_spent,
@@ -88,7 +102,10 @@ def _minimal_model_kwargs(
 
 
 def _make_one_batch_dataloader(n_rows: int, n_cols: int) -> MagicMock:
-    """Return a mock DataLoader that yields a single batch of zeros.
+    """Return a mock DataLoader that yields a single batch of real tensors.
+
+    Uses real torch.zeros() for the tensor so tensor operations in the training
+    loop work without mocking torch.
 
     Args:
         n_rows: Number of rows in the single batch tensor.
@@ -104,58 +121,17 @@ def _make_one_batch_dataloader(n_rows: int, n_cols: int) -> MagicMock:
     return mock_dl
 
 
-def _make_fully_mocked_training_env(
-    instance: Any,
-    *,
-    dataloader: Any,
-    n_data_cols: int,
-    pac: int,
-    embedding_dim: int = 4,
-) -> tuple[MagicMock, MagicMock]:
-    """Patch OpacusCompatibleDiscriminator and Generator for training loop tests.
-
-    Returns the mocked discriminator and generator instances so callers can
-    assert on their call counts.
-
-    Args:
-        instance: DPCompatibleCTGAN instance to configure.
-        dataloader: Pre-built mock DataLoader to inject.
-        n_data_cols: Expected data_dim (columns) the Discriminator receives.
-        pac: PacGAN factor (used to compute output shape from mock Discriminator).
-        embedding_dim: Generator noise embedding dimension.
-
-    Returns:
-        Tuple of (mock_discriminator_instance, mock_generator_instance).
-    """
-    mock_disc = MagicMock()
-    mock_disc.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
-    mock_disc.train = MagicMock()
-
-    def disc_forward(x: Any) -> Any:
-        n = x.shape[0] if hasattr(x, "shape") else pac
-        return torch.zeros(n // pac, 1)
-
-    mock_disc.side_effect = disc_forward
-
-    mock_gen = MagicMock()
-    mock_gen.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
-    mock_gen.train = MagicMock()
-    mock_gen.return_value = torch.zeros(pac * 2, n_data_cols)
-
-    instance._build_dp_dataloader = MagicMock(  # type: ignore[method-assign]
-        return_value=dataloader
-    )
-
-    return mock_disc, mock_gen
-
-
 # ---------------------------------------------------------------------------
 # Guard 1: batch_size == 0 after pac alignment → reset to pac
 # ---------------------------------------------------------------------------
 
 
-class TestBatchSizeZeroGuard:
-    """Guard 1 — when pac alignment produces batch_size == 0 it is reset to pac.
+class TestBatchSizeZeroGuardWiring:
+    """Guard 1 — wiring tests: when pac alignment produces batch_size == 0 it is reset to pac.
+
+    SCOPE (T40.2 AC4): These are *Wiring tests because they patch
+    OpacusCompatibleDiscriminator, Generator, and torch in the module under
+    test to isolate the batch_size alignment guard path.
 
     The guard at line ~474:
         ``if batch_size == 0: batch_size = pac``
@@ -308,8 +284,11 @@ class TestBatchSizeZeroGuard:
 # ---------------------------------------------------------------------------
 
 
-class TestNFeatureZeroGuard:
-    """Guard 2 — when processed_df has no numeric columns, n_features is set to 1.
+class TestNFeatureZeroGuardWiring:
+    """Guard 2 — wiring tests: all-categorical input triggers n_features=1 guard.
+
+    SCOPE (T40.2 AC4): *Wiring because patches OpacusCompatibleDiscriminator,
+    Generator, and torch.  Verifies guard routing, not PyTorch correctness.
 
     All-categorical data (no float/int columns) produces n_features=0 from
     ``select_dtypes(include=[float, int])``.  The guard sets n_features=1 to
@@ -455,8 +434,12 @@ class TestNFeatureZeroGuard:
 # ---------------------------------------------------------------------------
 
 
-class TestRealDataPaddingGuard:
-    """Guard 3 — when a training batch has fewer features than data_dim, it is padded.
+class TestRealDataPaddingGuardWiring:
+    """Guard 3 — wiring tests: narrow batch is padded before Discriminator forward pass.
+
+    SCOPE (T40.2 AC4): *Wiring because patches OpacusCompatibleDiscriminator,
+    Generator, and torch.  Uses real torch.cat/torch.zeros for the padding spy
+    so that shape assertions are real, not mocked.
 
     ``data_dim`` is computed from ``processed_df``'s numeric column count.
     Normally the DataLoader batch has the same number of columns.  When a narrower
@@ -572,8 +555,20 @@ class TestRealDataPaddingGuard:
         padding_cat_calls: list[bool] = []
 
         def spy_cat_check(tensors: Any, *, dim: int = 0, **kwargs: Any) -> Any:
-            # Check if this call looks like it's doing padding (concatenating zeros)
-            if isinstance(tensors, list | tuple) and len(tensors) == 2:
+            # Discriminate padding cats from any other 2-tensor cat (e.g., pac grouping).
+            # The padding guard in the production code always:
+            #   (1) concatenates along dim=1 (column-wise),
+            #   (2) uses a second operand that is a 2D all-zeros tensor with shape[1] > 0.
+            # Only record the call when ALL three conditions hold.
+            if (
+                dim == 1
+                and isinstance(tensors, list | tuple)
+                and len(tensors) == 2
+                and hasattr(tensors[1], "shape")
+                and tensors[1].ndim == 2
+                and tensors[1].shape[1] > 0
+                and torch.allclose(tensors[1], torch.zeros_like(tensors[1]))
+            ):
                 padding_cat_calls.append(True)
             return torch.cat(tensors, dim=dim, **kwargs)
 
@@ -618,8 +613,12 @@ class TestRealDataPaddingGuard:
 # ---------------------------------------------------------------------------
 
 
-class TestNSamplesZeroSkipGuard:
-    """Guard 4 — when pac > batch rows, n_samples == 0 and the discriminator step is skipped.
+class TestNSamplesZeroSkipGuardWiring:
+    """Guard 4 — wiring tests: n_samples == 0 triggers continue (skip discriminator step).
+
+    SCOPE (T40.2 AC4): *Wiring because patches OpacusCompatibleDiscriminator,
+    Generator, and torch.  Uses a spy on the discriminator forward call to
+    verify the skip guard fires.
 
     ``n_samples = (len(real_data_padded) // pac) * pac`` is 0 when the batch
     has fewer rows than pac.  The ``if n_samples == 0: continue`` guard skips

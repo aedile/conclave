@@ -26,10 +26,23 @@ shared across tests (``create_app()`` re-registers telemetry per call; the
 ``configure_telemetry`` call is idempotent in test mode because OTEL is
 configured with a no-op tracer provider).
 
+Mock scope (T40.2 review)
+--------------------------
+T40.2 reviewed this file.  Each test uses exactly 2 ``patch()`` calls —
+both target external process-state singletons (VaultState.is_sealed,
+LicenseState.is_licensed) that cannot be reset between tests by other means.
+These are correct boundary mocks.  The tests exercise:
+  - Real FastAPI app (full middleware stack via ``create_app()``)
+  - Real in-memory SQLite database (via SQLModel + StaticPool)
+  - Real HTTP client (httpx.AsyncClient + ASGITransport)
+No rename to ``test_api_routing_wiring.py`` is required — this file IS a
+genuine integration test, not a wiring test.
+
 CONSTITUTION Priority 0: Security — no PII, no real credentials.
 CONSTITUTION Priority 3: TDD — tests written before implementation.
 
 Task: P26-T26.4 — HTTP Round-Trip Integration Tests
+Task: P40-T40.2 — Replace Mock-Heavy Tests (reviewed; no changes required)
 """
 
 from __future__ import annotations
