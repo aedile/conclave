@@ -8,7 +8,7 @@ artefacts of the CI environment, not real vulnerabilities:
 
 | Rule | Status | Justification |
 |------|--------|---------------|
-| 10035 — HSTS Header Not Set | IGNORED | Production is served over TLS via a reverse proxy (nginx/Caddy). Raw uvicorn in CI does not terminate TLS; HSTS is set by the proxy. |
+| 10035 — HSTS Header Not Set | IGNORED | Production is served over TLS via a reverse proxy (nginx/Caddy). Raw uvicorn in CI does not terminate TLS; HSTS is set by the proxy. Application-layer HTTP rejection is enforced by `HTTPSEnforcementMiddleware` (T42.2). |
 | 10038 — CSP Header Not Found | WARN | `CSPMiddleware` is implemented and tested; ZAP may flag non-HTML API responses where CSP is optional. |
 | 10096 — Timestamp Disclosure | IGNORED | Timestamps in JSON API responses are intentional (`created_at`, `updated_at` fields). |
 | 10054 — Cookie Without SameSite | IGNORED | The engine uses token-based authentication. Cookies are not part of the auth flow. |
