@@ -45,7 +45,8 @@ def test_missing_database_url_raises_system_exit(monkeypatch: pytest.MonkeyPatch
     from synth_engine.bootstrapper.config_validation import validate_config
 
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    # Set to empty string (not delenv) so OS env overrides .env file value
+    monkeypatch.setenv("DATABASE_URL", "")
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
@@ -64,7 +65,8 @@ def test_missing_audit_key_raises_system_exit(monkeypatch: pytest.MonkeyPatch) -
     from synth_engine.bootstrapper.config_validation import validate_config
 
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.delenv("AUDIT_KEY", raising=False)
+    # Set to empty string (not delenv) so OS env overrides .env file value
+    monkeypatch.setenv("AUDIT_KEY", "")
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
@@ -84,8 +86,9 @@ def test_missing_multiple_vars_lists_all_in_error_message(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.delenv("AUDIT_KEY", raising=False)
+    # Set to empty string (not delenv) so OS env overrides .env file value
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("AUDIT_KEY", "")
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
