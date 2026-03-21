@@ -328,9 +328,11 @@ def test_mask_name_max_length_one_shorter_truncates() -> None:
 
     full_output = mask_name(value, salt)
 
-    if len(full_output) > 1:
-        truncated = mask_name(value, salt, max_length=len(full_output) - 1)
-        assert truncated == full_output[: len(full_output) - 1]
+    assert len(full_output) > 1, (
+        "Precondition: mask_name output must exceed 1 character for truncation test"
+    )
+    truncated = mask_name(value, salt, max_length=len(full_output) - 1)
+    assert truncated == full_output[: len(full_output) - 1]
 
 
 def test_mask_name_max_length_zero_returns_empty_string() -> None:
@@ -347,17 +349,13 @@ def test_mask_name_max_length_zero_returns_empty_string() -> None:
 
 
 @pytest.mark.asyncio
-async def test_spend_budget_numeric_precision_rounds_to_zero() -> None:
-    """NUMERIC(20,10) precision boundary: 1e-11 rounds to zero in SQLite.
+async def test_spend_budget_sub_scale_decimal_does_not_raise() -> None:
+    """spend_budget() accepts a sub-scale Decimal amount without raising ValueError.
 
-    SQLite stores NUMERIC as floating-point.  A value smaller than the
-    NUMERIC(20,10) scale (1e-10) may round to zero after storage.
-
-    Note: Decimal("1e-11") is positive, so it passes the positivity check
-    in spend_budget().  This test verifies that the call completes without
-    raising ValueError — the amount is positive and the ledger has sufficient
-    budget.  The assertion guards that the positive-amount guard does not
-    incorrectly reject sub-scale Decimal values.
+    Decimal("1e-11") is positive and therefore passes the positivity guard in
+    spend_budget().  This test verifies that a value smaller than the
+    NUMERIC(20,10) scale boundary is accepted without error — the positivity
+    check does not incorrectly reject sub-scale Decimal values.
     """
     from sqlalchemy import select as sa_select
     from sqlmodel import SQLModel

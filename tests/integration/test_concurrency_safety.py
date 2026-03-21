@@ -142,6 +142,8 @@ def test_concurrent_job_starts_produce_independent_job_ids() -> None:
         t.start()
     for t in threads:
         t.join(timeout=10.0)
+    for t in threads:
+        assert not t.is_alive(), f"Thread {t.name} did not complete within timeout"
 
     assert not errors, f"Thread errors: {errors}"
     assert job_ids[0] is not None, "Thread 0 must have received a job ID"
@@ -200,6 +202,8 @@ def test_concurrent_masking_is_deterministic() -> None:
         t.start()
     for t in threads:
         t.join(timeout=10.0)
+    for t in threads:
+        assert not t.is_alive(), f"Thread {t.name} did not complete within timeout"
 
     assert not errors, f"Thread errors: {errors}"
 
@@ -272,6 +276,8 @@ def test_vault_state_no_partial_kek_after_concurrent_transitions(
         t_seal.start()
         t_unseal.join(timeout=15.0)
         t_seal.join(timeout=15.0)
+        for t in [t_unseal, t_seal]:
+            assert not t.is_alive(), f"Thread {t.name} did not complete within timeout"
 
     # Inspect for consistency — no partial state
     is_sealed = VaultState.is_sealed()
@@ -340,6 +346,8 @@ def test_parallel_artifact_downloads_produce_correct_chunks() -> None:
         t.start()
     for t in threads:
         t.join(timeout=10.0)
+    for t in threads:
+        assert not t.is_alive(), f"Thread {t.name} did not complete within timeout"
 
     assert not errors, f"Thread errors: {errors}"
 
@@ -390,6 +398,8 @@ def test_concurrent_masking_emoji_values_are_thread_safe() -> None:
         t.start()
     for t in threads:
         t.join(timeout=10.0)
+    for t in threads:
+        assert not t.is_alive(), f"Thread {t.name} did not complete within timeout"
 
     assert not errors, f"Thread errors: {errors}"
     for index, result in enumerate(results):
