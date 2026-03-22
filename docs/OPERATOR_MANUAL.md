@@ -518,12 +518,11 @@ No service other than `app` (port 8000) and `grafana` (port 3000) is accessible
 from outside the Docker host. Do not bind these ports to public interfaces in
 production.
 
-### 8.3 mTLS (Future)
+### 8.3 mTLS
 
-The current architecture uses network-level isolation rather than mutual TLS
-between services. If inter-service mTLS is required, configure it at the
-Docker network layer or use a service mesh (Envoy, Linkerd). No code changes
-are required in the engine itself.
+Native mTLS for all inter-container data-plane connections is implemented as
+an opt-in Docker Compose overlay. See **Section 12** for setup and activation
+instructions, and **Section 13** for certificate rotation procedures.
 
 ### 8.4 Secret Management
 

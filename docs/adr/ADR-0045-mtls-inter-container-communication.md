@@ -226,7 +226,7 @@ policies are active.
 ### Certificate Layout
 
 ```
-certs/
+secrets/mtls/
 ├── ca.crt          # Root CA certificate (shared by all services for verification)
 ├── ca.key          # Root CA private key (keep offline after issuance)
 ├── app.crt         # App service leaf certificate
