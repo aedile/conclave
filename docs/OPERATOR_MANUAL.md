@@ -979,3 +979,99 @@ compliance evidence.
 | Financial services (SEC Rule 17a-4) | 2,555 (7 years) | SEC Rule 17a-4(b)(1) |
 
 Consult your legal counsel for your specific jurisdiction and data category.
+
+---
+
+## 12. mTLS Inter-Container Communication (T46.1)
+
+This section covers certificate management for mTLS inter-container
+communication in multi-host deployments.
+
+### 12.1 Overview
+
+The Conclave Engine uses an internal Certificate Authority (CA) to issue leaf
+certificates for each service that participates in mTLS. The CA is operator-
+provisioned and never leaves the operator host.
+
+**Services with mTLS certificates:**
+- `app` — Conclave Engine API server + Huey workers
+- `postgres` — PostgreSQL database
+- `pgbouncer` — PgBouncer connection pooler
+- `redis` — Redis task queue
+
+**Services exempt from mTLS** (ADR-0029 Gap 7):
+- `prometheus`, `alertmanager`, `grafana`, `minio` — monitoring/ephemeral
+  services do not receive leaf certificates.
+
+### 12.2 Generating Certificates
+
+Prerequisites: `openssl` 1.1.1+ on the operator host.
+
+```bash
+# First-time setup — generates CA + all leaf certificates
+./scripts/generate-mtls-certs.sh
+
+# Help and options
+./scripts/generate-mtls-certs.sh --help
+```
+
+Key options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--ca-days N` | 3650 | CA certificate validity in days |
+| `--leaf-days N` | 90 | Leaf certificate validity in days |
+| `--output-dir DIR` | `secrets/mtls` | Output directory |
+| `--force` | (off) | Regenerate CA even if `ca.key` exists |
+
+### 12.3 Certificate Storage
+
+Certificates are stored in `secrets/mtls/` (gitignored):
+
+```
+secrets/mtls/ca.crt      — CA trust anchor  (distribute to all containers)
+secrets/mtls/ca.key      — CA private key   (0400 — operator host ONLY)
+secrets/mtls/<svc>.crt   — Leaf certificate (0644)
+secrets/mtls/<svc>.key   — Leaf private key (0600)
+```
+
+CRITICAL: The CA private key (`ca.key`) must never be mounted into any
+container. Only the leaf `.crt`, `.key`, and `ca.crt` are distributed.
+
+### 12.4 Certificate Expiry Monitoring
+
+Check expiry from the command line:
+
+```bash
+openssl x509 -noout -enddate -in secrets/mtls/app.crt
+```
+
+Or from Python (e.g. in a health-check script):
+
+```python
+from pathlib import Path
+from synth_engine.shared.tls import TLSConfig
+
+for service in ("app", "postgres", "pgbouncer", "redis"):
+    days = TLSConfig.days_until_expiry(Path(f"secrets/mtls/{service}.crt"))
+    status = "OK" if days > 14 else "EXPIRING SOON" if days > 0 else "EXPIRED"
+    print(f"{service}: {days} days remaining — {status}")
+```
+
+### 12.5 Certificate Rotation
+
+Leaf certificates default to 90-day validity. Re-run the script to rotate
+(CA is preserved unless `--force` is specified):
+
+```bash
+./scripts/generate-mtls-certs.sh
+docker compose restart app postgres pgbouncer redis
+```
+
+After rotation, verify the new chain:
+
+```bash
+openssl verify -CAfile secrets/mtls/ca.crt secrets/mtls/app.crt
+```
+
+See `docs/PRODUCTION_DEPLOYMENT.md` Step 2.5 for full provisioning details.
