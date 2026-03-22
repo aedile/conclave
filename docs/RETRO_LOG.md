@@ -13,12 +13,45 @@ Drain (delete) rows when their target task is completed.
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
 | ADV-P46-01 | Red-Team T46.2 | — | ADVISORY | asyncpg SSLContext should pin minimum TLS version to TLSv1.3 (defense-in-depth) |
-| ADV-P46-03 | DevOps T46.2 | — | ADVISORY | `_validate_mtls_cert_files` checks existence but not readability (docstring/impl mismatch) |
 | ADV-P46-04 | DevOps T46.3 | — | ADVISORY | `rotate-mtls-certs.sh` LibreSSL detection gap — macOS operators may hit incompatible OpenSSL flags |
 | ADV-P46-05 | Arch T46.3 | — | ADVISORY | Prometheus metrics naming convention (conclave_* prefix) not captured in ADR — risk of label drift |
 | ADV-P46-06 | Red-Team T46.4 | — | ADVISORY | MinIO has no K8s NetworkPolicy — relies on default-deny, intentional for ephemeral storage |
 
 ---
+
+### [2026-03-22] T47.4 + T47.5 + ADV-P46-03 — Config Validation Hardening
+
+**Branch**: `feat/P47-auth-safety-ops`
+
+**What was implemented**:
+- `JWT_SECRET_KEY` added to production-required validation (T47.4): empty or whitespace-only
+  values raise `SystemExit` in production; emit `WARNING` in development. Whitespace-only
+  keys treated as empty (strip before truthiness check).
+- `OPERATOR_CREDENTIALS_HASH` added to production-required validation with two-step check (T47.5):
+  1. Presence check: empty → SystemExit in production, WARNING in development.
+  2. Format check: must start with `$2b$` and be >= 59 chars (fast structural check, no
+     `bcrypt.checkpw()` call to avoid intentional slowness). Invalid format → SystemExit in
+     production, WARNING in development.
+  - Error messages name the variable only — hash value is NEVER included (hash oracle prevention).
+- `_validate_mtls_cert_files()` now attempts `open(path, 'rb')` after `Path.exists()`, making
+  it an atomic existence+readability check. Eliminates the TOCTOU race that a separate
+  `os.access()` call would introduce (ADV-P46-03 DRAINED).
+- Existing production test fixtures updated to include the two new required auth vars
+  (`test_all_vars_present_production_passes`, `test_production_ssl_required_*`).
+
+**Tests added**: 16 new tests across 2 files (9 attack/negative + 7 feature).
+All 68 targeted tests pass. Full suite: 2200 passed / 10 pre-existing failures / 97.03% coverage.
+
+**Quality gates**: ruff ✓ | ruff format ✓ | mypy ✓ | bandit ✓ | vulture ✓ | coverage 97.03% ✓
+
+**Advisory drained**: ADV-P46-03 (cert readability check — DELIVERED T47.4+T47.5 branch).
+
+**Lessons learned**:
+- Existing production tests must be updated when new production-required vars are added.
+  Grepping for `ENV=production` + `monkeypatch.setenv` is the right audit pattern.
+- Hash oracle prevention: error messages for credential config must name only the variable,
+  never the value — even a bcrypt hash can be exploited offline if leaked into logs.
+- TOCTOU races in cert validation: open() is always preferable to os.access() for atomicity.
 
 ### [2026-03-22] T46.4 — Network Policy Enforcement & Documentation
 
