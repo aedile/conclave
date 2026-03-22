@@ -20,7 +20,6 @@ Task: ADV-P46-03 — Fix cert readability check (existence + open())
 
 from __future__ import annotations
 
-import logging
 import os
 import stat
 from pathlib import Path
@@ -189,7 +188,9 @@ def test_both_missing_production_collects_all(monkeypatch: pytest.MonkeyPatch) -
 
     error_message = str(exc_info.value)
     assert "JWT_SECRET_KEY" in error_message, "Must name JWT_SECRET_KEY in error"
-    assert "OPERATOR_CREDENTIALS_HASH" in error_message, "Must name OPERATOR_CREDENTIALS_HASH in error"
+    assert "OPERATOR_CREDENTIALS_HASH" in error_message, (
+        "Must name OPERATOR_CREDENTIALS_HASH in error"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -276,10 +277,9 @@ def test_mtls_cert_unreadable_appends_error(
             "Error must name the unreadable cert path variable"
         )
         # Must mention readability/permission, not just existence
-        assert any(
-            word in error_message.lower()
-            for word in ("read", "permission", "access")
-        ), f"Error must mention readability issue, got: {error_message}"
+        assert any(word in error_message.lower() for word in ("read", "permission", "access")), (
+            f"Error must mention readability issue, got: {error_message}"
+        )
     finally:
         # Restore permissions so tmp_path cleanup can remove the file
         ca.chmod(stat.S_IRUSR | stat.S_IWUSR)

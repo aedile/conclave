@@ -219,7 +219,9 @@ def test_mtls_cert_readable_passes(
 
 
 def test_jwt_and_hash_valid_with_other_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    """JWT_SECRET_KEY + OPERATOR_CREDENTIALS_HASH valid but other vars missing → other errors collected.
+    """JWT_SECRET_KEY and OPERATOR_CREDENTIALS_HASH valid but other vars missing.
+
+    Other errors must still be collected alongside the auth var checks.
 
     Validating the new auth vars must integrate cleanly with the existing
     collect-all pattern.  Other errors must still appear in the SystemExit

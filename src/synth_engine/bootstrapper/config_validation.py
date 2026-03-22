@@ -182,7 +182,9 @@ def _validate_operator_credentials_hash(errors: list[str]) -> None:
             errors.append(
                 "OPERATOR_CREDENTIALS_HASH is not set — "
                 "a bcrypt hash of the operator passphrase is required in production. "
-                "Generate one with: python -c \"import bcrypt; print(bcrypt.hashpw(b'<passphrase>', bcrypt.gensalt()).decode())\""
+                "Generate one with: python -c "
+                '\'import bcrypt; print(bcrypt.hashpw(b"<passphrase>", '
+                "bcrypt.gensalt()).decode())' "
             )
         else:
             _logger.warning(
