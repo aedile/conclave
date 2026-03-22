@@ -349,6 +349,7 @@ jobs:
         # with real values. Dummy random values are sufficient — the smoke test
         # only validates HTTP reachability and security headers, not data integrity.
         run: |
+          touch .env
           mkdir -p secrets
           openssl rand -hex 32 > secrets/app_secret_key.txt
           openssl rand -hex 32 > secrets/postgres_password.txt
