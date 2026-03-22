@@ -268,6 +268,71 @@ secrets/mtls/
 
 ---
 
+## Amendment: Prometheus Metrics Naming Convention (ADV-P46-05)
+
+**Added:** 2026-03-22 (P47 advisory drain)
+
+### Rationale
+
+As Phase 46 introduced the first application-defined Prometheus metric
+(`conclave_mtls_cert_expiry_days` in `src/synth_engine/shared/tls.py`), a
+naming and labelling convention is required to prevent drift across future
+phases. This amendment documents the binding convention for all Conclave Engine
+Prometheus metrics.
+
+### Metric Naming Rules
+
+1. **Prefix**: All metrics MUST use the `conclave_` prefix.
+
+   Correct: `conclave_synthesis_jobs_total`
+   Incorrect: `synth_jobs_total`, `engine_synthesis_jobs_total`
+
+2. **Snake case**: Metric names use lowercase `snake_case` after the prefix.
+
+3. **Unit suffix**: Metrics that measure a specific unit MUST include the unit
+   as a suffix, using Prometheus base units:
+   - `_seconds` — durations
+   - `_bytes` — sizes
+   - `_total` — monotonically increasing counters (use `Counter` type)
+   - `_days` — calendar-day gauges (e.g. cert expiry)
+   - `_ratio` — dimensionless ratios between 0 and 1
+
+4. **No double-underscore in name**: The `conclave_` prefix already acts as
+   the namespace separator. Service sub-namespaces go before the measurement
+   noun: `conclave_mtls_cert_expiry_days`, not `conclave__mtls__cert_expiry_days`.
+
+### Label Conventions
+
+| Label key | Usage | Example values |
+|-----------|-------|----------------|
+| `service` | Identifies the source service or module | `app`, `redis`, `pgbouncer`, `postgres` |
+| `path` | HTTP path for request-scoped metrics | `/api/v1/synthesize`, `/health` |
+| `status` | HTTP status class or outcome | `2xx`, `4xx`, `5xx`, `success`, `failure` |
+| `job_id` | Synthesis job identifier (use sparingly — high cardinality) | UUID string |
+
+**High-cardinality warning:** Labels whose value space is unbounded (e.g. raw
+user IDs, full file paths, synthesis row counts) MUST NOT be used as label
+values. High-cardinality labels cause Prometheus TSDB to generate a separate
+time series per unique label combination, leading to memory exhaustion.
+
+### Existing Metrics Inventory
+
+| Metric | Type | Labels | Module | Introduced |
+|--------|------|--------|--------|------------|
+| `conclave_mtls_cert_expiry_days` | Gauge | `service` | `shared/tls.py` | T46.3 |
+
+Future phases MUST add new metrics to this table when introducing them.
+
+### Enforcement
+
+This convention is enforced by code review. A future task should add a
+`pytest` fixture that scans all registered Prometheus collectors and asserts:
+- Every metric name starts with `conclave_`.
+- No metric uses a forbidden high-cardinality label (e.g. raw UUIDs as label
+  values without cardinality bounding).
+
+---
+
 ## Status
 
 **Implemented (Phase 46, T46.1–T46.4)**
