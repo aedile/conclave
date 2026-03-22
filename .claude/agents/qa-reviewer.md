@@ -74,6 +74,8 @@ backlog-compliance:     PASS/BLOCKER — <list each section's items and whether 
 
 **meaningful-asserts**: Do assertions check specific behavior (correct value, correct type, correct exception message) rather than just `assert result is not None`? Rubber-stamp asserts are a finding.
 
+**test-consolidation**: Are there tests that assert the same invariant from multiple angles (e.g., testing the same validation rule with 5 slightly different inputs when 2 would suffice)? Are there tests with setup blocks longer than 20 lines that could share a fixture? Flag consolidation opportunities as ADVISORY — not every instance needs fixing, but patterns of test bloat should be noted.
+
 ### Documentation
 
 **docstring-accuracy**: Do docstrings in changed files accurately describe what the function actually does — including its actual return type, arguments, and exceptions raised?
@@ -124,6 +126,7 @@ public-api-coverage:    PASS/FINDING — <detail if finding>
 meaningful-asserts:     PASS/FINDING — <detail if finding>
 docstring-accuracy:     PASS/FINDING — <detail if finding>
 type-annotation-accuracy: PASS/FINDING — <detail if finding>
+test-consolidation:       PASS/ADVISORY — <detail if advisory>
 
 Overall: PASS  (or FINDING — <brief summary of what must be fixed>)
 ```

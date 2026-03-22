@@ -50,7 +50,7 @@ These checks apply to the ENTIRE codebase, not just changed files:
 
 9. **Infrastructure contract alignment**: Do Docker Compose services, environment variables, secrets, and health checks align with what the code expects? If code reads `REDIS_URL` but docker-compose provides `REDIS_HOST`, that's a FINDING.
 
-10. **Scalability assumptions**: Does the architecture assume single-instance deployment? Are there in-memory caches, module-level singletons, or thread-local storage that would break in a multi-instance deployment? Document these assumptions explicitly.
+10. **Scalability assumptions**: Does the architecture assume single-instance deployment? Are there in-memory caches, module-level singletons, or thread-local storage that would break in a multi-instance deployment? Document these assumptions explicitly. For every module-level singleton or in-process state, verify that it either: (a) uses a shared backing store (Redis, PostgreSQL) that survives horizontal scaling, or (b) is explicitly documented as a single-instance constraint with an ADR. Cross-domain check: If the state has security implications (e.g., rate limit counters, auth caches, nonce stores), flag it for the red-team reviewer.
 
 ## Scope Gate — Answer This First
 
@@ -104,6 +104,12 @@ Work through every applicable item. For each: PASS | FINDING | SKIP (with reason
 
 **adr-amendment**: If this diff removes, replaces, or supersedes code or behaviour that is documented in an existing ADR, is the ADR amended or marked superseded? An ADR whose subject code has been deleted but whose status is still `Accepted` is misleading institutional memory. Check: scan the diff for deleted classes, removed integrations, and changed patterns — for each, check whether a corresponding ADR exists in `docs/adr/` and whether its status reflects the change. If the ADR has not been updated, this is a FINDING.
 
+### Complexity & Simplicity
+
+- **single-call-site-abstractions**: Are there abstraction layers (classes, factories, registries) that serve only one call site? If an abstraction has exactly one consumer and no planned second consumer, it should be inlined. FINDING.
+- **over-parameterized-functions**: Functions with >5 parameters where most callers pass the same defaults? ADVISORY — consider a config object or builder.
+- **phase-complexity-ratio**: For this phase, what is the ratio of production LOC added to test LOC added? Report it. If test LOC exceeds production LOC by more than 2.5x for this phase, the reviewer must justify why (legitimate justification: security-critical code with many attack vectors; illegitimate: verbose setup in tests).
+
 ## Output Format
 
 **If out of scope:**
@@ -127,6 +133,9 @@ bootstrapper-wiring:       PASS/FINDING/SKIP — <detail>
 model-integrity:           PASS/FINDING/SKIP — <detail>
 adr-compliance:            PASS/FINDING — <detail>
 adr-amendment:             PASS/FINDING/SKIP — <detail>
+single-call-site-abstractions: PASS/FINDING — <detail>
+over-parameterized-functions:  PASS/ADVISORY — <detail>
+phase-complexity-ratio:        <ratio> — <justification if >1:2.5>
 
 Overall: PASS/FINDING — <brief summary>
 ```
