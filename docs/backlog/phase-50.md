@@ -1,234 +1,238 @@
-# Phase 50 — Test Quality Hardening
+# Phase 50 — Production Security Fixes
 
-**Goal**: Systematically remediate test suite quality issues identified in the
-architecture review. The test suite is 74,290 LOC with ~30% of tests that would
-pass even if the implementation were broken. This phase fixes the tests, not the
-production code.
+**Goal**: Fix five critical production defects identified in the architecture
+review that will cause failures, compliance violations, or security bypasses in
+production deployments.
 
-**Prerequisite**: Phase 49 merged (framework amendments establishing assertion
-quality gate and mutation testing requirement).
+**Prerequisite**: Phase 48 merged (infrastructure fixes). Phase 49 preferred but
+not blocking — these are production code fixes with their own test requirements.
 
-**ADR**: ADR-0047 (Mutation Testing Gate) governs T50.5.
+**ADR**: T50.1 and T50.2 require new ADRs. T50.5 may require an ADR if
+serialization format changes.
 
-**Source**: Staff-level architecture review, 2026-03-22 — test efficacy analysis.
+**Source**: Staff-level architecture review, 2026-03-22 — penetration test
+findings and production readiness audit.
 
 ---
 
-## T50.1 — Assertion Hardening: Security-Critical Tests
+## T50.1 — DP Budget Deduction: Fail Closed
 
-**Priority**: P0 — Security. Shallow assertions on security features mean defects
-go undetected.
+**Priority**: P0 — Security/Compliance. Silent budget failure means privacy
+guarantee is violated.
 
 ### Context & Constraints
 
-1. `test_download_hmac_signing.py` has only 4 tests for a security-critical
-   feature. Missing: signature forgery, replay attacks, key rotation, wrong
-   algorithm.
-2. `test_audit.py:138-161` uses `assert field in parsed` — only checks key
-   presence, not value validity. An audit event with `timestamp: null` passes.
-3. `test_dp_accounting.py` logs budget deduction failures but tests don't verify
-   the failure propagates correctly.
-4. `test_ale.py` asserts `ciphertext is not None` — would pass if encryption
-   returns empty bytes.
+1. `dp_accounting.py:140` catches `Exception` broadly when calling
+   `spend_budget_fn`. If the budget deduction fails for any reason, the job
+   continues. The epsilon ledger is now wrong.
+2. The system's value proposition is (epsilon, delta)-DP guarantees. A failed budget
+   deduction means the reported epsilon is lower than the actual privacy cost. This
+   is a compliance-critical defect.
+3. `BudgetExhaustionError` and `EpsilonMeasurementError` already exist in the
+   exception hierarchy.
+4. The fix is narrow: catch only the expected exceptions, let everything else
+   propagate and abort the job.
 
 ### Acceptance Criteria
 
-1. `test_download_hmac_signing.py` expanded to >=12 tests: add forgery (tampered
-   signature), replay (old sig on new data), key rotation handling, wrong hash
-   algorithm (SHA1 vs SHA256), empty payload, oversized payload.
-2. `test_audit.py` field-presence assertions replaced with value validity: type
-   check + non-empty + format validation for timestamp, event_type, actor.
-3. `test_dp_accounting.py` gains tests verifying that unknown exceptions from
-   `spend_budget_fn` propagate (not just log). At least 3 negative test cases for
-   budget failure paths.
-4. `test_ale.py` assertions replaced: `assert len(ciphertext) > 0`, round-trip
-   decrypt equals original plaintext, different plaintexts produce different
-   ciphertexts.
-5. All amended tests pass. No coverage regression.
+1. `dp_accounting.py` broad `except Exception` replaced with specific catches:
+   `BudgetExhaustionError`, `EpsilonMeasurementError`.
+2. Any other exception from `spend_budget_fn` propagates, marking the job FAILED.
+3. New test: inject an unexpected exception into `spend_budget_fn` -> verify job
+   status is FAILED (not COMPLETE).
+4. New test: `BudgetExhaustionError` from `spend_budget_fn` -> verify budget
+   exhaustion is handled gracefully (existing behavior preserved).
+5. ADR documenting the fail-closed decision and compliance rationale.
+6. Full gate suite passes.
 
 ### Files to Create/Modify
 
-- Modify: `tests/unit/test_download_hmac_signing.py`
-- Modify: `tests/unit/test_audit.py`
+- Modify: `src/synth_engine/modules/synthesizer/dp_accounting.py`
+- Create: `docs/adr/ADR-0048-dp-budget-fail-closed.md`
 - Modify: `tests/unit/test_dp_accounting.py`
-- Modify: `tests/unit/test_application_level_encryption.py`
 
 ---
 
-## T50.2 — Assertion Hardening: Masking & Subsetting Tests
+## T50.2 — Multi-Pod Audit Chain Integrity
 
-**Priority**: P1 — Quality. Determinism tests would pass if salt parameter is
-completely ignored.
+**Priority**: P0 — Security. WORM audit trail tamper-evidence broken in multi-pod
+deployment.
 
 ### Context & Constraints
 
-1. 8+ masking determinism tests repeat the same pattern:
-   `assert mask_X(val, salt) == mask_X(val, salt)`. This would pass if the
-   function ignores the salt and returns a constant.
-2. These 8 tests should be parametrized into 1 test with
-   `@pytest.mark.parametrize`.
-3. `test_subsetting_core.py` mocks 100% of SQLAlchemy. Missing negative cases:
-   circular FK reference during traversal, egress writer mid-stream failure, DB
-   disconnect.
-4. `test_settings_router.py` — 5 tests in 266 lines, assertions are exclusively
-   `isinstance()`. No field value assertions.
+1. `shared/security/audit.py` uses `threading.Lock` for hash chain integrity.
+   This is process-scoped.
+2. In Kubernetes (2+ pods), each pod independently computes chain hashes. Two pods
+   writing audit entries produce independent chains with potentially overlapping
+   sequence numbers.
+3. The tamper-evident property (hash chain) is the core security guarantee of WORM
+   logging.
+4. Options: (a) Database-backed sequence (PostgreSQL SERIAL + advisory lock),
+   (b) Singleton audit writer sidecar, (c) Per-pod chain prefix with centralized
+   verification.
+5. Option (a) is simplest and aligns with existing PostgreSQL infrastructure.
 
 ### Acceptance Criteria
 
-1. Every masking determinism test also asserts:
-   `mask_X(val, salt_a) != mask_X(val, salt_b)` — different salt produces
-   different output.
-2. 8 duplicate determinism functions parametrized into 1
-   `@pytest.mark.parametrize` test.
-3. `test_subsetting_core.py` gains >=3 negative test cases: circular FK,
-   mid-stream egress failure, connection loss.
-4. `test_settings_router.py` assertions replaced with specific field value checks.
-5. Net test function count may decrease (parametrization). Coverage must not
-   regress.
+1. Audit chain sequence numbers are globally unique across pods (not just
+   per-process).
+2. Hash chain integrity is verifiable across entries from multiple pods.
+3. Audit write performance does not degrade by more than 2x (database round-trip
+   acceptable, but not blocking).
+4. New integration test: simulate 2 concurrent "pods" (2 threads with separate
+   AuditLogger instances) writing interleaved entries. Verify combined chain is
+   valid.
+5. ADR documenting chosen approach and trade-offs.
+6. Full gate suite passes.
 
 ### Files to Create/Modify
 
-- Modify: `tests/unit/test_masking_determinism.py` (or whichever files contain
-  the determinism tests)
-- Modify: `tests/unit/test_masking_algorithms.py`
-- Modify: `tests/unit/test_subsetting_core.py` (or equivalent test file for
-  subsetting)
-- Modify: `tests/unit/test_settings_router.py`
+- Modify: `src/synth_engine/shared/security/audit.py`
+- Create: `docs/adr/ADR-0049-multi-pod-audit-chain.md`
+- Modify: `tests/unit/test_audit_logger.py`
+- Create: `tests/integration/test_audit_chain_concurrency.py`
 
 ---
 
-## T50.3 — Mock Reduction Pass
+## T50.3 — Default to Production Mode
 
-**Priority**: P2 — Reliability. 100% mocked tests won't catch API version drift.
+**Priority**: P0 — Security. Missing env var silently disables authentication.
 
 ### Context & Constraints
 
-1. `test_dp_engine.py` mocks 100% of Opacus. Zero actual Opacus invocations.
-   Would not detect Opacus API version break.
-2. `test_synthesizer_guardrails.py` mocks `psutil.virtual_memory()` and
-   `torch.cuda` completely. Missing: psutil raising exception, torch.cuda failure,
-   memory=0 edge case.
-3. Mock helpers (`_make_engine()`, `_make_topology()`, `_mock_vmem()`) are
-   duplicated across 4+ test files.
-4. monkeypatch environment variable boilerplate repeated across 10+ files (3-5
-   lines of identical setup per test).
+1. Empty `JWT_SECRET_KEY` disables authentication entirely (dev convenience).
+2. Production mode check depends on `CONCLAVE_ENV=production`. If this env var is
+   missing, the system defaults to dev mode.
+3. A fresh deployment with no `.env` boots with no auth — the exact opposite of
+   secure-by-default.
+4. Fix: default `CONCLAVE_ENV` to `production`. Dev mode must be explicitly opted
+   into.
 
 ### Acceptance Criteria
 
-1. `test_dp_engine.py` gains >=1 integration-style test using real Opacus (tiny
-   model, 10 rows) to verify API compatibility. Mark with
-   `@pytest.mark.synthesizer` for optional CI.
-2. `test_synthesizer_guardrails.py` gains 3 edge case tests: psutil exception,
-   torch.cuda exception, available memory = 0.
-3. Shared mock helpers moved to `tests/unit/conftest.py` or `tests/fixtures/`.
-   Duplicates removed from individual test files.
-4. Shared environment variable fixture created for JWT/auth test setup.
-   Deduplicate across 10+ files.
-5. No coverage regression. Mock count may decrease.
+1. `CONCLAVE_ENV` defaults to `"production"` when not set (not `"development"`).
+2. Dev mode requires explicit `CONCLAVE_ENV=development`.
+3. Startup logs WARNING when running in dev mode: "Authentication disabled —
+   development mode active. Set CONCLAVE_ENV=production for production use."
+4. Missing `JWT_SECRET_KEY` in production mode -> startup fails with clear error
+   (existing behavior, just verify).
+5. New test: no `CONCLAVE_ENV` set -> production mode enforced, auth required.
+6. New test: `CONCLAVE_ENV=development` -> dev mode, auth disabled with warning.
+7. Full gate suite passes.
 
 ### Files to Create/Modify
 
-- Modify: `tests/unit/test_dp_engine.py`
-- Modify: `tests/unit/test_synthesizer_guardrails.py`
-- Modify: `tests/unit/conftest.py` (add shared fixtures)
-- Modify: Multiple test files (deduplicate env var setup)
-- Create: `tests/fixtures/mock_helpers.py` (if not using conftest)
+- Modify: `src/synth_engine/shared/settings.py` (default CONCLAVE_ENV)
+- Modify: `src/synth_engine/bootstrapper/config_validation.py`
+- Modify: `tests/unit/test_startup_validate_config.py`
+- Modify: `tests/unit/test_missing_env_var_startup_check.py`
 
 ---
 
-## T50.4 — Test Organization Cleanup
+## T50.4 — Pickle TOCTOU Mitigation
 
-**Priority**: P3 — Maintainability. Large files and missing docs increase
-cognitive load.
+**Priority**: P1 — Security. Time-of-check-to-time-of-use gap in artifact
+verification.
 
 ### Context & Constraints
 
-1. `test_synthesizer_tasks.py` is 2,738 lines — largest test file, hard to
-   navigate, mixes unit and integration patterns.
-2. 30+ test files lack module docstrings explaining what they test.
-3. Copy-paste test patterns identified across masking, auth, and subsetting tests.
+1. `modules/synthesizer/models.py`: Model artifacts are HMAC-signed at creation
+   and verified at load. The verification and deserialization are separate
+   operations.
+2. If ephemeral storage (MinIO) is compromised between sign-time and load-time, a
+   malicious pickle can be substituted.
+3. MinIO is on tmpfs (good), but any pod with network access to
+   `minio-ephemeral:9000` can write to it.
+4. Fix: Verify HMAC immediately before `pickle.loads()` in the same atomic
+   function call — no window between verify and load.
+5. Longer-term: evaluate migration to safetensors or ONNX (may warrant separate
+   ADR).
 
 ### Acceptance Criteria
 
-1. `test_synthesizer_tasks.py` split into <=3 focused files (by concern: task
-   lifecycle, error handling, integration).
-2. Module docstrings added to all test files that lack them (brief: one line
-   stating what module/feature is under test).
-3. No copy-paste test blocks (>5 lines identical) across files. Shared patterns
-   extracted to fixtures or parametrized.
-4. All tests pass. No coverage regression.
+1. HMAC verification and `pickle.loads()` occur in the same function, with no
+   external calls between them.
+2. The bytes verified by HMAC are the exact same bytes passed to `pickle.loads()`
+   (read once, verify, then deserialize from the same buffer).
+3. New test: tamper with artifact bytes after signing -> verify load rejects with
+   `ArtifactTamperingError`.
+4. Close ADV-P47-07.
+5. Full gate suite passes.
 
 ### Files to Create/Modify
 
-- Split: `tests/unit/test_synthesizer_tasks.py` -> multiple files
-- Modify: 30+ test files (add docstrings)
-- Modify: Various test files (deduplicate patterns)
+- Modify: `src/synth_engine/modules/synthesizer/models.py`
+- Modify: `tests/unit/test_artfact_signing.py` (note: existing typo in filename)
 
 ---
 
-## T50.5 — Mutation Testing Baseline
+## T50.5 — Centralize Remaining Hardcodes
 
-**Priority**: P1 — Quality. Establish the mutation testing gate required by
-ADR-0047.
+**Priority**: P2 — Maintainability. Hardcoded values require code changes for
+environment-specific configuration.
 
 ### Context & Constraints
 
-1. ADR-0047 mandates mutation testing on `shared/security/` and
-   `modules/privacy/`.
-2. `mutmut` must be added to dev dependencies.
-3. Initial threshold: 60% mutation score.
-4. Surviving mutants in security-critical code must be fixed (new tests or
-   hardened assertions).
+1. Phase 36 centralized 14 env vars into `ConclaveSettings`. These were missed:
+   - `_MINIO_ENDPOINT = "http://minio-ephemeral:9000"` (main.py:86)
+   - `_EPHEMERAL_BUCKET = "synth-ephemeral"` (main.py:92)
+   - `_SECRETS_DIR = Path("/run/secrets")` (main.py:92)
+   - Service hostname allowlist in tls/config.py:74-90 (10 hardcoded hostnames)
+   - OOM calculation params in job_orchestration.py:91-94 (overhead factor, min
+     samples, chunk size, max retries)
+2. The pattern exists — just extend `ConclaveSettings` with new fields and replace
+   hardcodes with settings reads.
+3. Defaults should match current hardcoded values (no behavior change without
+   explicit configuration).
 
 ### Acceptance Criteria
 
-1. `mutmut` added to `pyproject.toml` dev dependencies.
-2. Mutation testing configured in `pyproject.toml` for `shared/security/` and
-   `modules/privacy/`.
-3. Baseline mutation score documented.
-4. Surviving mutants in `shared/security/vault.py`,
-   `shared/security/hmac_signing.py`, and `modules/privacy/accountant.py` killed
-   (new tests written).
-5. Mutation score >=60% on target modules.
-6. CI gate configured (can be advisory-only initially if full enforcement blocks).
+1. All 5 hardcoded value groups moved to `ConclaveSettings` with sensible defaults
+   matching current values.
+2. Each new setting is readable from environment variables.
+3. `config_validation.py` validates new settings where appropriate (e.g.,
+   MINIO_ENDPOINT must be a valid URL).
+4. Tests: verify each setting is read from env, defaults match previous hardcoded
+   values.
+5. Full gate suite passes.
 
 ### Files to Create/Modify
 
-- Modify: `pyproject.toml` (add mutmut dependency + config)
-- Create: Tests to kill surviving mutants (locations TBD after baseline run)
-- Modify: CI config if applicable
+- Modify: `src/synth_engine/shared/settings.py`
+- Modify: `src/synth_engine/bootstrapper/main.py`
+- Modify: `src/synth_engine/shared/tls/config.py`
+- Modify: `src/synth_engine/modules/synthesizer/job_orchestration.py`
+- Modify: `src/synth_engine/bootstrapper/config_validation.py`
+- Modify: `tests/unit/test_startup_validate_config.py`
 
 ---
 
 ## Task Execution Order
 
 ```
-T50.1 (Security assertion hardening) ──┐
-T50.2 (Masking assertion hardening) ───┼──> parallel (assertion hardening)
+T50.1 (DP budget fail-closed) ─────────┐
+T50.2 (Multi-pod audit chain) ─────────┼──> parallel (P0 security fixes)
+T50.3 (Default to production mode) ────┘
+                                          ↓ P0 fixes complete
+T50.4 (Pickle TOCTOU mitigation) ──────┐
+T50.5 (Centralize remaining hardcodes) ┼──> parallel (P1/P2 hardening)
                                         ┘
-                                          ↓ assertion tasks complete
-T50.3 (Mock reduction) ────────────────┐
-T50.4 (Test organization cleanup) ─────┼──> parallel (structural cleanup)
-                                        ┘
-                                          ↓ structural cleanup complete
-T50.5 (Mutation testing baseline) ─────> sequential (requires hardened tests)
 ```
 
-T50.1 and T50.2 are independent assertion hardening tasks that can run in
-parallel. T50.3 and T50.4 are structural cleanup tasks that can run in parallel
-but benefit from hardened assertions being in place first. T50.5 runs last because
-mutation scores are more meaningful after assertions are hardened.
+T50.1, T50.2, and T50.3 are independent P0 security fixes that can run in
+parallel. T50.4 and T50.5 are lower-priority hardening tasks that can also run in
+parallel with each other but should follow the P0 fixes.
 
 ---
 
 ## Phase 50 Exit Criteria
 
-1. Security-critical tests have deep assertions (not just existence/type checks).
-2. Masking determinism tests verify salt sensitivity, not just self-equality.
-3. Shared mock helpers deduplicated into conftest or fixtures.
-4. Largest test file split into focused modules.
-5. All test files have module docstrings.
-6. Mutation testing baseline established at >=60% on target modules.
+1. DP budget deduction fails closed on unexpected exceptions.
+2. Audit chain integrity maintained across multiple pods.
+3. Missing `CONCLAVE_ENV` defaults to production mode (secure-by-default).
+4. Pickle deserialization is atomic with HMAC verification (no TOCTOU window).
+5. All remaining hardcoded values centralized in `ConclaveSettings`.
+6. ADRs written for fail-closed budget (ADR-0048) and multi-pod audit (ADR-0049).
 7. All quality gates pass.
 8. Zero open advisories in RETRO_LOG.
 9. Review agents pass for all tasks.
