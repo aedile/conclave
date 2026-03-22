@@ -195,7 +195,7 @@ log ""
 log "Step 1/4: Backing up current certs to $BACKUP_DIR ..."
 # Use 0700 (owner-only) so private key copies in the backup are not
 # world-readable regardless of the operator's umask (Finding 2: T46.3 review).
-mkdir -m 0700 -p "$BACKUP_DIR"
+mkdir -p "$BACKUP_DIR" && chmod 0700 "$BACKUP_DIR"
 
 for SERVICE in "${SERVICES[@]}"; do
     for EXT in crt key; do
