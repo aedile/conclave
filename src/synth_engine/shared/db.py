@@ -92,6 +92,7 @@ Task: P4-T4.4 — Privacy Accountant (async engine + session)
 Task: P5-T5.1 — Task Orchestration API Core (SessionFactory type alias)
 Task: T19.1 — Engine singleton caching (dispose_engines)
 Task: T46.2 — Wire mTLS on All Container-to-Container Connections
+Task: T47.8 — ADV-P46-01 TLS 1.3 minimum version pin for asyncpg
 """
 
 from __future__ import annotations
@@ -192,6 +193,7 @@ def _build_asyncpg_ssl_context() -> ssl.SSLContext:
     """Build an ssl.SSLContext for asyncpg mTLS connections.
 
     Creates a client-side TLS context that:
+    - Pins the minimum TLS version to TLSv1.3 (ADV-P46-01).
     - Verifies the server certificate against the configured CA cert.
     - Loads the client certificate and key for mutual authentication.
 
@@ -207,6 +209,7 @@ def _build_asyncpg_ssl_context() -> ssl.SSLContext:
         certfile=settings.mtls_client_cert_path,
         keyfile=settings.mtls_client_key_path,
     )
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_3
     ctx.verify_mode = ssl.CERT_REQUIRED
     return ctx
 

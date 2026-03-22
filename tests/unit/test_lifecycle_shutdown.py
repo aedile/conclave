@@ -15,9 +15,6 @@ from __future__ import annotations
 import ssl
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Negative / attack tests (committed first per Rule 22)
 # ---------------------------------------------------------------------------
@@ -53,14 +50,13 @@ def test_shutdown_audit_failure_does_not_block() -> None:
             side_effect=RuntimeError("audit unavailable"),
         ),
         patch("synth_engine.bootstrapper.lifecycle.dispose_engines") as mock_dispose,
-        patch(
-            "synth_engine.bootstrapper.lifecycle.close_redis_client"
-        ) as mock_redis_close,
+        patch("synth_engine.bootstrapper.lifecycle.close_redis_client") as mock_redis_close,
     ):
         import asyncio
 
-        from synth_engine.bootstrapper.lifecycle import _lifespan
         from fastapi import FastAPI
+
+        from synth_engine.bootstrapper.lifecycle import _lifespan
 
         app = FastAPI()
 
@@ -88,16 +84,15 @@ def test_dispose_engines_failure_does_not_skip_redis() -> None:
             "synth_engine.bootstrapper.lifecycle.dispose_engines",
             side_effect=RuntimeError("db pool exploded"),
         ),
-        patch(
-            "synth_engine.bootstrapper.lifecycle.close_redis_client"
-        ) as mock_redis_close,
+        patch("synth_engine.bootstrapper.lifecycle.close_redis_client") as mock_redis_close,
     ):
         mock_get_audit.return_value = MagicMock()
 
         import asyncio
 
-        from synth_engine.bootstrapper.lifecycle import _lifespan
         from fastapi import FastAPI
+
+        from synth_engine.bootstrapper.lifecycle import _lifespan
 
         app = FastAPI()
 
@@ -126,8 +121,9 @@ def test_shutdown_cleanup_idempotent() -> None:
 
         import asyncio
 
-        from synth_engine.bootstrapper.lifecycle import _lifespan
         from fastapi import FastAPI
+
+        from synth_engine.bootstrapper.lifecycle import _lifespan
 
         app = FastAPI()
 
@@ -177,8 +173,9 @@ def test_shutdown_dispose_engines_called() -> None:
 
         import asyncio
 
-        from synth_engine.bootstrapper.lifecycle import _lifespan
         from fastapi import FastAPI
+
+        from synth_engine.bootstrapper.lifecycle import _lifespan
 
         app = FastAPI()
 
@@ -198,16 +195,15 @@ def test_shutdown_redis_close_called() -> None:
             "synth_engine.bootstrapper.lifecycle.get_audit_logger",
         ) as mock_get_audit,
         patch("synth_engine.bootstrapper.lifecycle.dispose_engines"),
-        patch(
-            "synth_engine.bootstrapper.lifecycle.close_redis_client"
-        ) as mock_redis_close,
+        patch("synth_engine.bootstrapper.lifecycle.close_redis_client") as mock_redis_close,
     ):
         mock_get_audit.return_value = MagicMock()
 
         import asyncio
 
-        from synth_engine.bootstrapper.lifecycle import _lifespan
         from fastapi import FastAPI
+
+        from synth_engine.bootstrapper.lifecycle import _lifespan
 
         app = FastAPI()
 
@@ -234,8 +230,9 @@ def test_shutdown_audit_event_emitted() -> None:
 
         import asyncio
 
-        from synth_engine.bootstrapper.lifecycle import _lifespan
         from fastapi import FastAPI
+
+        from synth_engine.bootstrapper.lifecycle import _lifespan
 
         app = FastAPI()
 
@@ -294,9 +291,12 @@ def test_tls_minimum_version_is_tls_1_3() -> None:
 
     ADV-P46-01: Pinning TLS 1.3 ensures legacy TLS is rejected even if
     OpenSSL defaults change.
+
+    Note: get_settings is a *deferred* import inside _build_asyncpg_ssl_context;
+    we must patch its origin module, not the db module attribute.
     """
     with patch(
-        "synth_engine.shared.db.get_settings",
+        "synth_engine.shared.settings.get_settings",
     ) as mock_settings:
         settings = MagicMock()
         settings.mtls_ca_cert_path = "/dev/null"

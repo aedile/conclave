@@ -17,6 +17,14 @@ Task: T46.3 — Certificate Rotation Without Downtime
     the Prometheus gauge is populated on the first scrape.  The call is
     dispatched via ``asyncio.to_thread`` to avoid blocking the event loop
     during synchronous file I/O (Finding 3: T46.3 review).
+
+Task: T47.8 — Add Shutdown Cleanup to Lifespan Hook
+    ``_lifespan`` now includes a ``finally`` block that:
+    1. Emits a SERVER_SHUTDOWN audit event (best-effort).
+    2. Calls ``dispose_engines()`` to release DB connection pools.
+    3. Calls ``close_redis_client()`` to release Redis connections.
+    Each step is isolated in its own ``try/except`` so a failure in one
+    step does not prevent the remaining steps from running.
 """
 
 from __future__ import annotations
@@ -31,8 +39,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from synth_engine.bootstrapper.config_validation import validate_config
+from synth_engine.bootstrapper.dependencies.redis import close_redis_client
 from synth_engine.bootstrapper.errors import operator_error_response
 from synth_engine.shared.cert_metrics import update_cert_expiry_metrics
+from synth_engine.shared.db import dispose_engines
+from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.security.vault import (
     VaultAlreadyUnsealedError,
     VaultConfigError,
@@ -67,6 +78,20 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     dispatched via ``asyncio.to_thread`` so that synchronous file I/O does not
     block the event loop during startup.
 
+    On shutdown (post-yield), a ``finally`` block runs cleanup steps in order:
+
+    1. Emit a ``SERVER_SHUTDOWN`` audit event (best-effort — a failure here
+       is logged as WARNING but does not abort the remaining steps).
+    2. Call :func:`~synth_engine.shared.db.dispose_engines` to release all
+       DB connection pool resources.
+    3. Call :func:`~synth_engine.bootstrapper.dependencies.redis.close_redis_client`
+       to release Redis connection pool resources.
+
+    Each cleanup step is wrapped in its own ``try/except`` so that a failure
+    in one step cannot prevent subsequent steps from running.  The outer
+    ``finally`` block guarantees cleanup runs even on SIGTERM or
+    ``KeyboardInterrupt``.
+
     This hook is executed by the ASGI server (uvicorn) when the process
     starts -- not at import time -- so unit tests that call
     :func:`create_app` without a live ASGI server are unaffected.
@@ -84,7 +109,35 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # loop on synchronous file I/O.  Failures are logged (not raised) inside
     # update_cert_expiry_metrics.
     await asyncio.to_thread(update_cert_expiry_metrics)
-    yield
+    try:
+        yield
+    finally:
+        # Step 1 — Audit event (best-effort; must not block remaining cleanup)
+        try:
+            audit = get_audit_logger()
+            audit.log_event(
+                event_type="SERVER_SHUTDOWN",
+                actor="system",
+                resource="server",
+                action="shutdown",
+                details={},
+            )
+        except Exception:
+            _logger.warning("Shutdown audit event could not be recorded.", exc_info=True)
+
+        # Step 2 — Dispose DB engine connection pools
+        try:
+            dispose_engines()
+        except Exception:
+            _logger.warning("dispose_engines() failed during shutdown.", exc_info=True)
+
+        # Step 3 — Close Redis connection pool
+        try:
+            close_redis_client()
+        except Exception:
+            _logger.warning("close_redis_client() failed during shutdown.", exc_info=True)
+
+        _logger.info("Shutdown cleanup complete.")
 
 
 def _register_routes(app: FastAPI) -> None:
@@ -149,8 +202,6 @@ def _register_routes(app: FastAPI) -> None:
 
         # Emit audit event -- best-effort; failure must not prevent unsealing
         try:
-            from synth_engine.shared.security.audit import get_audit_logger
-
             audit = get_audit_logger()
             audit.log_event(
                 event_type="VAULT_UNSEAL",
