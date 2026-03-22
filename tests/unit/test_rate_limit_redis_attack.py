@@ -294,8 +294,7 @@ async def test_graceful_degradation_does_not_log_raw_ip(
             await client.post("/unseal", headers={"X-Forwarded-For": raw_ip})
 
     assert raw_ip not in caplog.text, (
-        f"Raw IP '{raw_ip}' must NOT appear in warning log (CONSTITUTION P0); "
-        f"got: {caplog.text!r}"
+        f"Raw IP '{raw_ip}' must NOT appear in warning log (CONSTITUTION P0); got: {caplog.text!r}"
     )
 
 

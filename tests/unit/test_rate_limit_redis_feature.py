@@ -254,9 +254,7 @@ async def test_redis_key_includes_operator_sub_for_authenticated_endpoint() -> N
         await client.get("/jobs", headers={"Authorization": f"Bearer {token}"})
 
     key_arg = mock_pipeline.incr.call_args[0][0]
-    assert "op-test-unique" in key_arg, (
-        f"Redis key must contain operator sub; key={key_arg!r}"
-    )
+    assert "op-test-unique" in key_arg, f"Redis key must contain operator sub; key={key_arg!r}"
 
 
 # ---------------------------------------------------------------------------

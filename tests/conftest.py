@@ -6,6 +6,7 @@ Task: P1-T1.2 — TDD Framework
 Task: T36.1 — Add settings cache-clear autouse fixture
 Task: T39.2 — Add logger-re-enable fixture to counter alembic fileConfig side-effect
 Fix: P47 — Document that .env file suppression is handled by tests/unit/conftest.py
+Fix: P48 — Add SDV FutureWarning suppression to conftest autouse fixture
 """
 
 from __future__ import annotations
@@ -181,6 +182,11 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
     * ``rdt`` / ``sdv`` import chain: ``rdt.transformers.utils`` imports ``sre_parse``,
       ``sre_constants``, and ``sre_compile`` at module scope.  These stdlib modules
       are deprecated in Python 3.14 (PEP 594) for removal in 3.16.
+    * ``sdv`` 1.x / ``SingleTableMetadata``: emits ``FutureWarning`` about the
+      deprecated ``SingleTableMetadata`` class when ``CTGANSynthesizer`` is
+      constructed. The fix is to use the new ``Metadata`` class, but our engine
+      currently uses ``SingleTableMetadata`` through the SDV public API.  The
+      warning is advisory-only; we cannot change third-party construction order.
     * ``chromadb`` telemetry: ``chromadb.telemetry.opentelemetry`` calls
       ``asyncio.iscoroutinefunction()`` at class-definition time.  This API is
       deprecated in Python 3.14 for removal in 3.16; the fix is
@@ -218,6 +224,29 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
             "ignore",
             message="module 'sre_compile' is deprecated",
             category=DeprecationWarning,
+        )
+
+        # -----------------------------------------------------------------------
+        # sdv 1.x: SingleTableMetadata FutureWarning from CTGANSynthesizer.__init__
+        # SDV emits this FutureWarning when constructing CTGANSynthesizer with
+        # SingleTableMetadata.  The pyproject.toml filter catches this without
+        # -W error, but the autouse fixture must also suppress it for -W error runs.
+        # -----------------------------------------------------------------------
+        warnings.filterwarnings(
+            "ignore",
+            message="The 'SingleTableMetadata' is deprecated",
+            category=FutureWarning,
+        )
+
+        # -----------------------------------------------------------------------
+        # sdv 1.x: 'save_to_json' replicability advisory UserWarning
+        # SDV emits this UserWarning after CTGANSynthesizer construction.
+        # Advisory only; our workflow auto-detects metadata per-run.
+        # -----------------------------------------------------------------------
+        warnings.filterwarnings(
+            "ignore",
+            message="We strongly recommend saving the metadata",
+            category=UserWarning,
         )
 
         # -----------------------------------------------------------------------
