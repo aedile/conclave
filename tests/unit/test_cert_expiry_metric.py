@@ -9,6 +9,7 @@ Task: T46.3 — Certificate Rotation Without Downtime
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import math
 from pathlib import Path
@@ -22,7 +23,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 from synth_engine.shared.settings import get_settings
-
 
 # ---------------------------------------------------------------------------
 # Helpers — build in-memory certs for test fixtures
@@ -44,9 +44,7 @@ def _make_cert(days_until_expiry: int) -> bytes:
         PEM-encoded certificate bytes.
     """
     private_key = ec.generate_private_key(ec.SECP256R1())
-    subject = issuer = x509.Name(
-        [x509.NameAttribute(NameOID.COMMON_NAME, "test")]
-    )
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test")])
     now = datetime.datetime.now(tz=datetime.UTC)
 
     if days_until_expiry >= 0:
@@ -89,12 +87,10 @@ def _clear_settings_cache() -> Any:
 def _reset_cert_expiry_gauge() -> Any:
     """Clear the CERT_EXPIRY_DAYS gauge between tests to avoid label cross-contamination."""
     yield
-    try:
+    with contextlib.suppress(Exception):
         from synth_engine.shared.cert_metrics import CERT_EXPIRY_DAYS
 
         CERT_EXPIRY_DAYS.clear()
-    except Exception:  # noqa: BLE001
-        pass
 
 
 # ===========================================================================
@@ -177,9 +173,7 @@ def test_mtls_disabled_sets_nan_not_crash() -> None:
 
     for service in ("ca", "app"):
         value = CERT_EXPIRY_DAYS.labels(service=service)._value.get()
-        assert math.isnan(value), (
-            f"Expected NaN for {service} when mTLS disabled, got {value}"
-        )
+        assert math.isnan(value), f"Expected NaN for {service} when mTLS disabled, got {value}"
 
 
 # ---------------------------------------------------------------------------
@@ -334,9 +328,7 @@ def test_corrupt_cert_emits_warning_log(tmp_path: Path, caplog: pytest.LogCaptur
             update_cert_expiry_metrics()
 
     assert len(caplog.records) > 0, "Expected at least one WARNING log for corrupt cert"
-    assert any(r.levelno >= logging.WARNING for r in caplog.records), (
-        "Expected WARNING level log"
-    )
+    assert any(r.levelno >= logging.WARNING for r in caplog.records), "Expected WARNING level log"
 
 
 # ===========================================================================
