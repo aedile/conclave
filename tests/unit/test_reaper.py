@@ -558,3 +558,286 @@ class TestSettingsField:
 
         settings = ConclaveSettings(reaper_stale_threshold_minutes=5)  # type: ignore[call-arg]
         assert settings.reaper_stale_threshold_minutes == 5
+
+
+# ---------------------------------------------------------------------------
+# REAPER REPOSITORY UNIT TESTS (F10 — previously 0% coverage)
+# ---------------------------------------------------------------------------
+
+
+class TestSQLAlchemyTaskRepository:
+    """Unit tests for SQLAlchemyTaskRepository using SQLite in-memory engine."""
+
+    def _make_engine(self) -> Any:
+        """Create a SQLite in-memory engine with the synthesis_job table.
+
+        Returns:
+            A synchronous SQLAlchemy Engine bound to an in-memory SQLite DB.
+        """
+        from sqlalchemy import create_engine
+
+        from synth_engine.shared.db import SQLModel
+
+        engine = create_engine("sqlite:///:memory:", echo=False)
+        SQLModel.metadata.create_all(engine)
+        return engine
+
+    def _insert_job(
+        self,
+        engine: Any,
+        *,
+        status: str = "IN_PROGRESS",
+        legal_hold: bool = False,
+        minutes_old: int = 120,
+        owner_id: str = "operator-1",
+    ) -> int:
+        """Insert a SynthesisJob row and return its primary key.
+
+        Args:
+            engine: SQLAlchemy engine.
+            status: Job status string.
+            legal_hold: Whether the job has a legal hold.
+            minutes_old: How many minutes ago the job was created.
+            owner_id: Owner identifier for the job.
+
+        Returns:
+            The integer primary key of the inserted job.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from sqlmodel import Session
+
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+
+        created_at = datetime.now(UTC) - timedelta(minutes=minutes_old)
+        job = SynthesisJob(
+            table_name="test_table",
+            parquet_path="/tmp/test.parquet",
+            total_epochs=5,
+            num_rows=100,
+            status=status,
+            legal_hold=legal_hold,
+            created_at=created_at,
+            owner_id=owner_id,
+        )
+        with Session(engine) as session:
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            return int(job.id)  # type: ignore[arg-type]
+
+    def test_find_stale_tasks_returns_in_progress_jobs(self) -> None:
+        """get_stale_in_progress must return IN_PROGRESS jobs older than cutoff.
+
+        Args: none.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from synth_engine.modules.synthesizer.reaper_repository import (
+            SQLAlchemyTaskRepository,
+        )
+
+        engine = self._make_engine()
+        job_id = self._insert_job(engine, status="IN_PROGRESS", minutes_old=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        cutoff = datetime.now(UTC) - timedelta(minutes=60)
+        stale = repo.get_stale_in_progress(older_than=cutoff)
+
+        assert len(stale) == 1
+        assert stale[0].task_id == job_id
+        assert stale[0].status == "IN_PROGRESS"
+
+    def test_find_stale_tasks_excludes_recently_created(self) -> None:
+        """Jobs created after the cutoff must not be returned.
+
+        Args: none.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from synth_engine.modules.synthesizer.reaper_repository import (
+            SQLAlchemyTaskRepository,
+        )
+
+        engine = self._make_engine()
+        # Created only 10 minutes ago — newer than 60-min threshold
+        self._insert_job(engine, status="IN_PROGRESS", minutes_old=10)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        cutoff = datetime.now(UTC) - timedelta(minutes=60)
+        stale = repo.get_stale_in_progress(older_than=cutoff)
+
+        assert stale == []
+
+    def test_find_stale_tasks_excludes_legal_hold(self) -> None:
+        """Jobs with legal_hold=True must not be returned.
+
+        Args: none.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from synth_engine.modules.synthesizer.reaper_repository import (
+            SQLAlchemyTaskRepository,
+        )
+
+        engine = self._make_engine()
+        self._insert_job(engine, status="IN_PROGRESS", legal_hold=True, minutes_old=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        cutoff = datetime.now(UTC) - timedelta(minutes=60)
+        stale = repo.get_stale_in_progress(older_than=cutoff)
+
+        assert stale == []
+
+    def test_find_stale_tasks_excludes_complete_jobs(self) -> None:
+        """COMPLETE jobs must not be returned even if old.
+
+        Args: none.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from synth_engine.modules.synthesizer.reaper_repository import (
+            SQLAlchemyTaskRepository,
+        )
+
+        engine = self._make_engine()
+        self._insert_job(engine, status="COMPLETE", minutes_old=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        cutoff = datetime.now(UTC) - timedelta(minutes=60)
+        stale = repo.get_stale_in_progress(older_than=cutoff)
+
+        assert stale == []
+
+    def test_mark_failed_updates_in_progress_job(self) -> None:
+        """mark_failed must update the job status to FAILED and return True.
+
+        Args: none.
+        """
+        from sqlmodel import Session
+
+        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.reaper_repository import (
+            SQLAlchemyTaskRepository,
+        )
+
+        engine = self._make_engine()
+        job_id = self._insert_job(engine, status="IN_PROGRESS", minutes_old=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        result = repo.mark_failed(job_id, "Reaped: test")
+
+        assert result is True
+        with Session(engine) as session:
+            job = session.get(SynthesisJob, job_id)
+            assert job is not None
+            assert job.status == "FAILED"
+            assert job.error_msg == "Reaped: test"
+
+    def test_mark_failed_returns_false_when_already_complete(self) -> None:
+        """mark_failed must return False when the job is not IN_PROGRESS.
+
+        This tests the race-condition guard (conditional UPDATE WHERE status='IN_PROGRESS').
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.reaper_repository import (
+            SQLAlchemyTaskRepository,
+        )
+
+        engine = self._make_engine()
+        job_id = self._insert_job(engine, status="COMPLETE", minutes_old=120)
+
+        repo = SQLAlchemyTaskRepository(engine=engine)
+        result = repo.mark_failed(job_id, "Reaped: test")
+
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# REAPER TASKS UNIT TESTS (F10 — previously 0% coverage)
+# ---------------------------------------------------------------------------
+
+
+class TestPeriodicReapOrphanTasks:
+    """Unit tests for periodic_reap_orphan_tasks Huey task function.
+
+    The Huey task is decorated with @huey.periodic_task and @huey.lock_task.
+    The @huey.lock_task decorator wraps the function body so that call_local()
+    attempts to acquire a Redis distributed lock.  Unit tests bypass the
+    decorator stack by calling periodic_reap_orphan_tasks.func.__wrapped__
+    directly — this is the bare task body without the lock context manager.
+    Using __wrapped__ (set by @functools.wraps inside the lock decorator)
+    is the correct, stable way to access the inner function for unit testing.
+    """
+
+    def _get_task_body(self) -> Any:
+        """Return the unwrapped task body function.
+
+        Returns:
+            The inner function of periodic_reap_orphan_tasks, bypassing the
+            @huey.lock_task Redis lock wrapper.
+        """
+        from synth_engine.modules.synthesizer.reaper_tasks import (
+            periodic_reap_orphan_tasks,
+        )
+
+        return periodic_reap_orphan_tasks.func.__wrapped__
+
+    def test_reaper_task_returns_zero_when_no_database_url(self) -> None:
+        """periodic_reap_orphan_tasks body must return 0 when DATABASE_URL is not set.
+
+        Calls the unwrapped task body (bypassing the Huey lock decorator) to
+        verify the early-exit path when DATABASE_URL is empty.
+
+        Args: none.
+        """
+        # Import must happen BEFORE the patch context — reaper_tasks triggers
+        # task_queue module-level code that calls get_settings() on first import.
+        task_body = self._get_task_body()
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = ""
+
+        with patch("synth_engine.shared.settings.get_settings", return_value=mock_settings):
+            result = task_body()
+
+        assert result == 0
+
+    def test_reaper_task_calls_reaper_reap(self) -> None:
+        """periodic_reap_orphan_tasks body must call OrphanTaskReaper.reap and return count.
+
+        Calls the unwrapped task body to verify the main execution path.
+
+        Args: none.
+        """
+        from unittest.mock import MagicMock
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = "sqlite:///:memory:"
+        mock_settings.reaper_stale_threshold_minutes = 60
+
+        mock_repo = MagicMock()
+        mock_reaper = MagicMock()
+        mock_reaper.reap.return_value = 3
+        mock_engine = MagicMock()
+
+        # Import must happen BEFORE the patch context (see test above).
+        task_body = self._get_task_body()
+
+        with (
+            patch("synth_engine.shared.settings.get_settings", return_value=mock_settings),
+            patch("synth_engine.shared.db.get_engine", return_value=mock_engine),
+            patch(
+                "synth_engine.modules.synthesizer.reaper_repository.SQLAlchemyTaskRepository",
+                return_value=mock_repo,
+            ),
+            patch(
+                "synth_engine.shared.tasks.reaper.OrphanTaskReaper",
+                return_value=mock_reaper,
+            ),
+        ):
+            result = task_body()
+
+        assert result == 3
+        mock_reaper.reap.assert_called_once()

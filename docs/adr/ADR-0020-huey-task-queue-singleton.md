@@ -165,3 +165,22 @@ Both patterns are first-class and correct:
 The explicit import is preferred as the canonical documentation point, even when
 transitive import would suffice, because it makes the registration visible in one
 place (`main.py`).
+
+---
+
+## Amendment — T45.2 (Phase 45)
+
+`shared/tasks/` was created in T45.2 for abstract task repository interfaces
+(`TaskRepository` ABC, `StaleTask` value object) and reaper business logic
+(`OrphanTaskReaper`).  The concrete `SQLAlchemyTaskRepository` implementation
+lives in `modules/synthesizer/reaper_repository.py` where it is free to import
+`SynthesisJob`.  The periodic `periodic_reap_orphan_tasks` Huey task is defined
+in `modules/synthesizer/reaper_tasks.py` and registered via a side-effect import
+in `bootstrapper/main.py`.
+
+| Path | Purpose |
+|------|---------|
+| `shared/tasks/repository.py` | `TaskRepository` ABC + `StaleTask` value object |
+| `shared/tasks/reaper.py` | `OrphanTaskReaper` business logic |
+| `modules/synthesizer/reaper_repository.py` | `SQLAlchemyTaskRepository` concrete impl |
+| `modules/synthesizer/reaper_tasks.py` | Huey periodic task registration |

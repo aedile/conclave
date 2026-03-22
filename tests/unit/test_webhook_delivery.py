@@ -9,22 +9,25 @@ Attack/negative tests:
 4.  Deactivated registration: no delivery attempt made
 5.  Delivery timeout: enforced per attempt
 6.  Retry exhaustion: after 3 failures, delivery marked FAILED in log
+7.  SSRF: IPv4-mapped IPv6 addresses are blocked (::ffff:127.0.0.1 etc.)
+8.  SSRF: delivery-time validation failure returns FAILED DeliveryResult
 
 Feature/positive tests:
-7.  HMAC-SHA256 signature format: "sha256=<hex_digest>"
-8.  Payload canonicalization: json.dumps sorted keys + compact separators
-9.  Retry with exponential backoff: delays are 1s, 4s, 16s
-10. Successful delivery: status=SUCCESS, attempt_number=1 in log
-11. Delivery ID (UUID) included in log entry
-12. Delivery engine does NOT import from bootstrapper (boundary constraint)
-13. X-Conclave-Signature header set on delivery attempt
-14. X-Conclave-Event header set to event type
-15. X-Conclave-Delivery-Id header is a valid UUID
-16. IoC callback pattern: set_webhook_delivery_fn registers callback
+9.  HMAC-SHA256 signature format: "sha256=<hex_digest>"
+10. Payload canonicalization: json.dumps sorted keys + compact separators
+11. Retry with exponential backoff: delays are 1s, 4s
+12. Successful delivery: status=SUCCESS, attempt_number=1 in log
+13. Delivery ID (UUID) included in log entry
+14. Delivery engine does NOT import from bootstrapper (boundary constraint)
+15. X-Conclave-Signature header set on delivery attempt
+16. X-Conclave-Event header set to event type
+17. X-Conclave-Delivery-Id header is a valid UUID
+18. IoC callback pattern: set_webhook_delivery_fn registers callback
 
 CONSTITUTION Priority 0: Security — no SSRF, correct HMAC, no redirect following
 CONSTITUTION Priority 3: TDD — RED phase
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
+Task: P45 review — F1, F8, F9, F12
 """
 
 from __future__ import annotations
@@ -75,26 +78,109 @@ class TestSSRFAtDelivery:
 
         DNS-rebinding protection: even if URL passed registration SSRF check,
         delivery must reject if the host now resolves to a private IP.
+
+        Args: none (no parameters).
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
-            _validate_callback_url,
-        )
+        from synth_engine.shared.ssrf import validate_callback_url
 
         # Direct private-IP URL must raise ValueError
         with pytest.raises(ValueError, match="private|reserved|forbidden"):
-            _validate_callback_url("http://10.0.0.1/hook")
+            validate_callback_url("http://10.0.0.1/hook")
 
     def test_delivery_rejects_localhost_at_send_time(self) -> None:
         """Delivery engine must reject localhost URLs at send time.
 
         Args: none (no parameters).
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
-            _validate_callback_url,
-        )
+        from synth_engine.shared.ssrf import validate_callback_url
 
         with pytest.raises(ValueError, match="private|reserved|forbidden"):
-            _validate_callback_url("http://127.0.0.1/hook")
+            validate_callback_url("http://127.0.0.1/hook")
+
+    def test_ipv4_mapped_ipv6_loopback_blocked(self) -> None:
+        """::ffff:127.0.0.1 must be blocked (IPv4-mapped IPv6 loopback bypass).
+
+        The IPv4-mapped form was previously not checked against IPv4 networks.
+        After F1 fix, the mapped address is unwrapped before the network test.
+
+        Args: none (no parameters).
+        """
+        # Simulate resolution returning ::ffff:127.0.0.1
+        import socket
+
+        from synth_engine.shared.ssrf import validate_callback_url
+
+        fake_addr = [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::ffff:127.0.0.1", 0, 0, 0))]
+        with patch("synth_engine.shared.ssrf.socket.getaddrinfo", return_value=fake_addr):
+            with pytest.raises(ValueError, match="private|reserved|forbidden"):
+                validate_callback_url("https://example.com/hook")
+
+    def test_ipv4_mapped_ipv6_private_blocked(self) -> None:
+        """::ffff:10.0.0.1 must be blocked (IPv4-mapped IPv6 private bypass).
+
+        Args: none (no parameters).
+        """
+        import socket
+
+        from synth_engine.shared.ssrf import validate_callback_url
+
+        fake_addr = [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::ffff:10.0.0.1", 0, 0, 0))]
+        with patch("synth_engine.shared.ssrf.socket.getaddrinfo", return_value=fake_addr):
+            with pytest.raises(ValueError, match="private|reserved|forbidden"):
+                validate_callback_url("https://example.com/hook")
+
+    def test_ipv4_mapped_ipv6_link_local_blocked(self) -> None:
+        """::ffff:169.254.169.254 (AWS metadata) must be blocked when mapped.
+
+        Args: none (no parameters).
+        """
+        import socket
+
+        from synth_engine.shared.ssrf import validate_callback_url
+
+        fake_addr = [
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                0,
+                "",
+                ("::ffff:169.254.169.254", 0, 0, 0),
+            )
+        ]
+        with patch("synth_engine.shared.ssrf.socket.getaddrinfo", return_value=fake_addr):
+            with pytest.raises(ValueError, match="private|reserved|forbidden"):
+                validate_callback_url("https://example.com/hook")
+
+    def test_ssrf_revalidation_at_delivery_returns_failed(self) -> None:
+        """deliver_webhook with SSRF failure at delivery time returns FAILED result.
+
+        Lines 302-309 of webhook_delivery.py: the SSRF re-validation block inside
+        the delivery loop.
+
+        Args: none (no parameters).
+        """
+        from synth_engine.modules.synthesizer.webhook_delivery import deliver_webhook
+
+        reg = MagicMock()
+        reg.active = True
+        reg.callback_url = "https://example.com/hook"
+        reg.signing_key = "a" * 32
+        reg.id = "reg-ssrf-fail"
+
+        with patch(
+            "synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url",
+            side_effect=ValueError("SSRF: resolves to private IP"),
+        ):
+            result = deliver_webhook(
+                registration=reg,
+                job_id=99,
+                event_type="job.completed",
+                payload={"job_id": "99", "status": "COMPLETE"},
+            )
+
+        assert result.status == "FAILED"
+        assert result.error_message is not None
+        assert "SSRF" in result.error_message or "private" in result.error_message.lower()
 
 
 class TestHMACTampering:
@@ -164,7 +250,7 @@ class TestRetryExhaustion:
         reg.id = "reg-001"
 
         with (
-            patch("synth_engine.modules.synthesizer.webhook_delivery._validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"),
             patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx,
             patch("synth_engine.modules.synthesizer.webhook_delivery.time.sleep"),
         ):
@@ -180,7 +266,7 @@ class TestRetryExhaustion:
         assert mock_httpx.post.call_count == 3
 
     def test_exponential_backoff_delays(self) -> None:
-        """Retry delays must be 1s, 4s, 16s (exponential backoff).
+        """Retry delays must be 1s, 4s (exponential backoff, no sleep after final attempt).
 
         Args: none.
         """
@@ -197,7 +283,7 @@ class TestRetryExhaustion:
         sleep_calls: list[float] = []
 
         with (
-            patch("synth_engine.modules.synthesizer.webhook_delivery._validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"),
             patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx,
             patch(
                 "synth_engine.modules.synthesizer.webhook_delivery.time.sleep",
@@ -302,7 +388,7 @@ class TestDeliveryHeaders:
         mock_response.raise_for_status.return_value = None
 
         with (
-            patch("synth_engine.modules.synthesizer.webhook_delivery._validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"),
             patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx,
         ):
 
@@ -370,7 +456,7 @@ class TestDeliveryResult:
         mock_response.raise_for_status.return_value = None
 
         with (
-            patch("synth_engine.modules.synthesizer.webhook_delivery._validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"),
             patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx,
         ):
             mock_httpx.post.return_value = mock_response
@@ -392,18 +478,22 @@ class TestBoundaryConstraint:
         """webhook_delivery module must have no bootstrapper imports.
 
         Enforces the architectural boundary: modules/synthesizer/ cannot
-        import from bootstrapper/.
+        import from bootstrapper/.  Uses importlib.util to locate the source
+        file portably (no hardcoded absolute paths — F12 fix).
 
         Args: none.
         """
         import ast
+        import importlib.util
+
+        spec = importlib.util.find_spec("synth_engine.modules.synthesizer.webhook_delivery")
+        assert spec is not None, "webhook_delivery module not found"
+        assert spec.origin is not None, "webhook_delivery module has no origin path"
+
         import pathlib
 
-        delivery_path = pathlib.Path(
-            "/Users/jessercastro/Projects/SYNTHETIC_DATA"
-            "/src/synth_engine/modules/synthesizer/webhook_delivery.py"
-        )
-        source = delivery_path.read_text()
+        delivery_path = pathlib.Path(spec.origin)
+        source = delivery_path.read_text(encoding="utf-8")
         tree = ast.parse(source)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import | ast.ImportFrom):
@@ -435,9 +525,13 @@ class TestIoCCallback:
     def test_webhook_delivery_fn_called_on_complete(self) -> None:
         """Job orchestration must call the registered webhook delivery fn on COMPLETE.
 
+        Invokes _fire_webhook_callback and verifies the registered callback
+        is actually called with the correct arguments.
+
         Args: none.
         """
         from synth_engine.modules.synthesizer.job_orchestration import (
+            _fire_webhook_callback,
             _reset_webhook_delivery_fn,
             set_webhook_delivery_fn,
         )
@@ -449,20 +543,21 @@ class TestIoCCallback:
 
         set_webhook_delivery_fn(_fake_deliver)
         try:
-            # We rely on the delivery fn being called. We test the contract here;
-            # the orchestrator integration test checks the full roundtrip.
-            from synth_engine.modules.synthesizer import job_orchestration
-
-            assert job_orchestration._webhook_delivery_fn is _fake_deliver
+            _fire_webhook_callback(job_id=1, status="COMPLETE")
+            assert called_with == [(1, "COMPLETE")]
         finally:
             _reset_webhook_delivery_fn()
 
     def test_webhook_delivery_fn_called_on_failed(self) -> None:
         """Job orchestration must call the registered webhook delivery fn on FAILED.
 
+        Invokes _fire_webhook_callback and verifies the registered callback
+        is actually called with the correct arguments.
+
         Args: none.
         """
         from synth_engine.modules.synthesizer.job_orchestration import (
+            _fire_webhook_callback,
             _reset_webhook_delivery_fn,
             set_webhook_delivery_fn,
         )
@@ -474,8 +569,7 @@ class TestIoCCallback:
 
         set_webhook_delivery_fn(_fake_deliver)
         try:
-            from synth_engine.modules.synthesizer import job_orchestration
-
-            assert job_orchestration._webhook_delivery_fn is _fake_deliver
+            _fire_webhook_callback(job_id=7, status="FAILED")
+            assert called_with == [(7, "FAILED")]
         finally:
             _reset_webhook_delivery_fn()

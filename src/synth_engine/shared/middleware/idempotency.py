@@ -162,7 +162,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             Injected from ``ConclaveSettings.idempotency_ttl_seconds``.
 
     Attributes:
-        _redis: Sync Redis client for SET NX EX and DELETE operations.
+        _redis: Sync :class: client for SET NX EX and DELETE operations.
         _exempt_paths: Paths that bypass idempotency checks.
         _ttl_seconds: Key TTL passed as the ``ex`` argument to Redis SET.
     """
@@ -171,12 +171,12 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         self,
         app: Any,
         *,
-        redis_client: Any,
+        redis_client: redis_lib.Redis,
         exempt_paths: frozenset[str],
         ttl_seconds: int,
     ) -> None:
         super().__init__(app)
-        self._redis: Any = redis_client
+        self._redis: redis_lib.Redis = redis_client
         self._exempt_paths: frozenset[str] = exempt_paths
         self._ttl_seconds: int = ttl_seconds
 
@@ -235,7 +235,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
 
         # Step 7: Attempt atomic SET NX EX.
         try:
-            result: bool | None = self._redis.set(redis_key, "1", nx=True, ex=self._ttl_seconds)
+            result: bool | None = self._redis.set(redis_key, "1", nx=True, ex=self._ttl_seconds)  # type: ignore[assignment]
         except redis_lib.RedisError as exc:
             _logger.warning(
                 "idempotency: Redis unavailable — degrading to pass-through. Error: %s",

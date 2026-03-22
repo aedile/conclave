@@ -69,7 +69,11 @@ from synth_engine.modules.synthesizer.job_finalization import (
 )
 from synth_engine.modules.synthesizer.job_models import SynthesisJob
 from synth_engine.shared.errors import safe_error_msg
-from synth_engine.shared.protocols import DPWrapperProtocol, SpendBudgetProtocol
+from synth_engine.shared.protocols import (
+    DPWrapperProtocol,
+    SpendBudgetProtocol,
+    WebhookDeliveryCallback,
+)
 from synth_engine.shared.security.audit import get_audit_logger as get_audit_logger
 
 if TYPE_CHECKING:
@@ -98,7 +102,7 @@ _dp_wrapper_factory: Callable[[float, float], DPWrapperProtocol] | None = None
 _spend_budget_fn: SpendBudgetProtocol | None = None
 #: IoC callback for webhook delivery — registered by bootstrapper at startup (T45.3).
 #: Signature: (job_id: int, status: str) -> None.
-_webhook_delivery_fn: Any | None = None
+_webhook_delivery_fn: WebhookDeliveryCallback | None = None
 
 
 def set_dp_wrapper_factory(
@@ -126,7 +130,7 @@ def set_spend_budget_fn(fn: SpendBudgetProtocol) -> None:
 # ---------------------------------------------------------------------------
 
 
-def set_webhook_delivery_fn(fn: Any) -> None:
+def set_webhook_delivery_fn(fn: WebhookDeliveryCallback) -> None:
     """Register the webhook delivery callback (called by bootstrapper at startup).
 
     The bootstrapper wires this at startup so that job_orchestration.py can

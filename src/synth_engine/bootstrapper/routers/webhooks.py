@@ -14,15 +14,18 @@ Security posture
 - SSRF validation on ``callback_url`` at registration time.
 - HTTPS-only in production mode (``settings.is_production()``).
 - Max 10 active registrations per operator.
+- Callback URL is sanitized (query string stripped) before logging to prevent
+  accidental exposure of embedded tokens in query parameters.
 
 RFC 7807 Problem Details format for all error responses.
 
 Boundary constraints (import-linter enforced):
     - bootstrapper/ may import from shared/ and modules/.
 
-CONSTITUTION Priority 0: Security — SSRF, IDOR, key write-only
+CONSTITUTION Priority 0: Security — SSRF, IDOR, key write-only, safe logging
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
+Task: P45 review — F2 (safe URL logging), F4 (import shared/ssrf), F11 (dead code)
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
@@ -44,8 +48,8 @@ from synth_engine.bootstrapper.schemas.webhooks import (
     WebhookRegistrationRequest,
     WebhookRegistrationResponse,
 )
-from synth_engine.modules.synthesizer.webhook_delivery import _validate_callback_url
 from synth_engine.shared.settings import get_settings
+from synth_engine.shared.ssrf import validate_callback_url
 
 _logger = logging.getLogger(__name__)
 
@@ -55,6 +59,21 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _safe_url_for_log(url: str) -> str:
+    """Strip query string and fragment from ``url`` before logging.
+
+    Prevents accidental exposure of embedded auth tokens (e.g. ``?token=…``)
+    in log output.
+
+    Args:
+        url: Raw callback URL from the request body.
+
+    Returns:
+        URL with query string and fragment removed, safe to include in logs.
+    """
+    return urlparse(url)._replace(query="", fragment="").geturl()
 
 
 def _count_active_registrations(session: Session, owner_id: str) -> int:
@@ -118,13 +137,12 @@ def register_webhook(
             ),
         )
 
-    # SSRF validation
+    # SSRF validation — log only the sanitized URL (no query string)
     try:
-        _validate_callback_url(body.callback_url)
+        validate_callback_url(body.callback_url)
     except ValueError as exc:
         _logger.warning(
-            "SSRF validation rejected callback URL %r for operator %s: %s",
-            body.callback_url,
+            "SSRF validation rejected callback URL for operator %s: %s",
             current_operator,
             exc,
         )
@@ -137,17 +155,6 @@ def register_webhook(
                     "The callback URL resolves to a private or reserved address "
                     "and cannot be registered."
                 ),
-            ),
-        )
-
-    # Validate URL scheme (http or https only)
-    if not (body.callback_url.startswith("http://") or body.callback_url.startswith("https://")):
-        return JSONResponse(
-            status_code=400,
-            content=problem_detail(
-                status=400,
-                title="Invalid Callback URL",
-                detail="Callback URL must use http:// or https:// scheme.",
             ),
         )
 
@@ -182,7 +189,7 @@ def register_webhook(
         "Webhook registered: id=%s owner=%s url=%s",
         reg.id,
         current_operator,
-        reg.callback_url,
+        _safe_url_for_log(reg.callback_url),
     )
     return WebhookRegistrationResponse.from_orm_model(reg)
 

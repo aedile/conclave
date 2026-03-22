@@ -15,10 +15,28 @@ The Docker-secrets cluster (``_read_secret``, ``_SECRETS_DIR``,
 ``_MINIO_ENDPOINT``, ``_EPHEMERAL_BUCKET``, ``MinioStorageBackend``, and
 ``build_ephemeral_storage_client``) remains in this module so that existing
 test patches against ``synth_engine.bootstrapper.main.*`` work unchanged.
+
+Webhook IoC wiring (Rule 8 — T45.3, P45 review F3)
+---------------------------------------------------
+``_build_webhook_delivery_fn`` constructs the concrete delivery callback that
+:func:`~synth_engine.modules.synthesizer.job_orchestration.set_webhook_delivery_fn`
+expects.  The callback is registered at module load time (after the imports
+block), not inside ``create_app()``, so the wiring fires regardless of whether
+``create_app()`` is called (e.g. in Huey worker processes).
+
+The callback:
+1. Opens a synchronous DB session.
+2. Looks up the ``SynthesisJob`` to retrieve ``owner_id``.
+3. Queries active ``WebhookRegistration`` rows for that owner.
+4. Calls :func:`~synth_engine.modules.synthesizer.webhook_delivery.deliver_webhook`
+   for each active registration.
+5. Saves the :class:`~synth_engine.bootstrapper.schemas.webhooks.WebhookDelivery`
+   delivery log rows.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
+from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.factories import (  # noqa: F401 — re-exported for test patches
     build_dp_wrapper,
@@ -42,6 +61,14 @@ from synth_engine.bootstrapper.router_registry import (
     _include_routers,
     _register_exception_handlers,
 )
+from synth_engine.bootstrapper.schemas.webhooks import (
+    WebhookDelivery,
+    WebhookRegistration,
+)
+from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.webhook_delivery import deliver_webhook
+from synth_engine.shared.db import get_engine
+from synth_engine.shared.settings import get_settings
 from synth_engine.shared.telemetry import configure_telemetry
 
 if TYPE_CHECKING:
@@ -125,6 +152,107 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
 
 
 # ---------------------------------------------------------------------------
+# Webhook delivery IoC callback — Rule 8 / T45.3 / P45 review F3
+# ---------------------------------------------------------------------------
+
+
+def _build_webhook_delivery_fn() -> Any:
+    """Build the concrete webhook delivery callback for IoC injection.
+
+    Returns a closure that, when called with ``(job_id, status)``:
+    1. Opens a synchronous DB session using the settings ``database_url``.
+    2. Looks up the ``SynthesisJob`` to resolve the ``owner_id``.
+    3. Queries all active ``WebhookRegistration`` rows for that owner.
+    4. Filters registrations by subscribed event type.
+    5. Calls :func:`deliver_webhook` for each qualifying registration.
+    6. Persists a :class:`WebhookDelivery` audit row for each attempt.
+
+    Errors are caught and logged so webhook delivery never affects the job
+    lifecycle outcome.
+
+    Returns:
+        A callable ``(job_id: int, status: str) -> None``.
+    """
+    settings = get_settings()
+    database_url = settings.database_url
+    timeout_seconds = settings.webhook_delivery_timeout_seconds
+
+    def _deliver(job_id: int, status: str) -> None:
+        """Deliver webhook events for ``job_id`` terminal status.
+
+        Args:
+            job_id: Integer PK of the synthesis job.
+            status: Terminal status string (``"COMPLETE"`` or ``"FAILED"``).
+        """
+        if not database_url:
+            _logger.warning(
+                "Webhook delivery skipped for job %d: DATABASE_URL not configured.", job_id
+            )
+            return
+
+        event_type = "job.completed" if status == "COMPLETE" else "job.failed"
+
+        try:
+            engine = get_engine(database_url)
+            with Session(engine) as session:
+                job = session.get(SynthesisJob, job_id)
+                if job is None:
+                    _logger.warning(
+                        "Webhook delivery: SynthesisJob %d not found — skipping.", job_id
+                    )
+                    return
+
+                owner_id = job.owner_id
+
+                # Query active registrations for this owner
+                stmt = select(WebhookRegistration).where(
+                    WebhookRegistration.owner_id == owner_id,
+                    WebhookRegistration.active.is_(True),  # type: ignore[attr-defined]
+                )
+                registrations = session.exec(stmt).all()
+
+                payload: dict[str, Any] = {"job_id": str(job_id), "status": status}
+
+                for reg in registrations:
+                    # Check if this registration subscribes to this event type
+                    subscribed_events: list[str] = (
+                        json.loads(reg.events) if isinstance(reg.events, str) else reg.events
+                    )
+                    if event_type not in subscribed_events:
+                        continue
+
+                    result = deliver_webhook(
+                        registration=reg,
+                        job_id=job_id,
+                        event_type=event_type,
+                        payload=payload,
+                        timeout_seconds=timeout_seconds,
+                    )
+
+                    # Persist delivery audit row
+                    delivery = WebhookDelivery(
+                        registration_id=reg.id,
+                        job_id=job_id,
+                        event_type=event_type,
+                        delivery_id=result.delivery_id,
+                        attempt_number=result.attempt_number,
+                        status=result.status,
+                        response_code=result.response_code,
+                        error_message=result.error_message,
+                    )
+                    session.add(delivery)
+
+                session.commit()
+
+        except Exception:
+            _logger.exception(
+                "Webhook delivery failed unexpectedly for job %d (%s).", job_id, status
+            )
+
+    return _deliver
+
+
+# ---------------------------------------------------------------------------
 # Rule 8 — Huey task wiring (T4.2c) + DI factory injection (ADR-0029)
 # Registers run_synthesis_job, rotate_ale_keys_task, periodic_cleanup_expired_jobs,
 # periodic_cleanup_expired_artifacts, and periodic_reap_orphan_tasks with the
@@ -135,14 +263,19 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
 # set_spend_budget_fn injects the async→sync spend_budget wrapper (T22.3).
 # retention_tasks import (ADR-D3) registers the nightly retention periodic tasks.
 # reaper_tasks import (T45.2) registers the 15-minute orphan task reaper.
+# set_webhook_delivery_fn wires the concrete delivery callback (T45.3, Rule 8).
 # ---------------------------------------------------------------------------
 from synth_engine.modules.synthesizer import reaper_tasks as _reaper_tasks  # noqa: F401, E402
 from synth_engine.modules.synthesizer import retention_tasks as _retention_tasks  # noqa: F401, E402
 from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: E402
+from synth_engine.modules.synthesizer.job_orchestration import (  # noqa: E402
+    set_webhook_delivery_fn as _set_webhook_delivery_fn,
+)
 from synth_engine.shared.security import rotation as _security_rotation  # noqa: F401, E402
 
 _synthesizer_tasks.set_dp_wrapper_factory(build_dp_wrapper)  # DI: ADR-0029
 _synthesizer_tasks.set_spend_budget_fn(build_spend_budget_fn())  # DI: T22.3
+_set_webhook_delivery_fn(_build_webhook_delivery_fn())  # DI: T45.3 Rule 8
 
 
 def create_app() -> FastAPI:

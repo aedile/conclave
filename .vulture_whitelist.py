@@ -236,3 +236,14 @@ set_webhook_delivery_fn  # unused function — IoC DI callback setter (job_orche
 _reset_webhook_delivery_fn  # unused function — test-isolation helper (job_orchestration.py, webhook_delivery.py)
 deliver_webhook  # unused function — called by IoC callback registered at startup (webhook_delivery.py)
 webhook_delivery_timeout_seconds  # unused variable — ConclaveSettings field read by delivery engine (shared/settings.py)
+
+# ---------------------------------------------------------------------------
+# Category K (continued) — P45 review fix additions
+# ---------------------------------------------------------------------------
+
+BLOCKED_NETWORKS  # unused variable — shared/ssrf.py; consumed at module load by validate_callback_url
+validate_callback_url  # unused function — shared/ssrf.py; called from webhook_delivery.py and bootstrapper/routers/webhooks.py
+WebhookDeliveryCallback  # unused variable — shared/protocols.py; type alias used by job_orchestration.py
+WebhookRegistrationProtocol  # unused class — shared/protocols.py; mypy structural typing for deliver_webhook parameter
+_safe_url_for_log  # unused function — bootstrapper/routers/webhooks.py; called for SSRF log sanitization
+_build_webhook_delivery_fn  # unused function — bootstrapper/main.py; called at module load time for IoC wiring
