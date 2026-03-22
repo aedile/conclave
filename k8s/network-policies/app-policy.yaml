@@ -1,0 +1,69 @@
+# NetworkPolicy for the Conclave Engine app pod.
+#
+# Ingress allowed from:
+#   - Kubernetes ingress controller pods (port 8000 HTTP API)
+#
+# Egress allowed to:
+#   - pgbouncer (port 6432)
+#   - redis (port 6379)
+#   - kube-dns (UDP/TCP port 53) — required for service discovery
+#
+# CNI requirement: Calico, Cilium, or Weave Net (NOT kubenet / VPC CNI).
+# Pod label expected: app.kubernetes.io/name: app
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-policy
+  namespace: conclave
+  labels:
+    app.kubernetes.io/part-of: conclave-engine
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: app
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow inbound traffic from ingress controller pods on the API port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # Allow outbound connections to pgbouncer.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pgbouncer
+      ports:
+        - protocol: TCP
+          port: 6432
+    # Allow outbound connections to redis.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow DNS resolution via kube-dns (UDP and TCP).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

@@ -86,11 +86,18 @@ high frequency.
 
 ---
 
-## TBD-03 — mTLS Inter-Container Communication
+## TBD-03 — mTLS Inter-Container Communication ~~DELIVERED (Phase 46)~~
 
 **Source**: ADR-0029 Gap 7
 **Phase**: 46 — mTLS Inter-Container Communication
 **Priority**: P1
+**Status**: DELIVERED — ECDSA P-256 internal CA and per-service leaf certs in
+`scripts/generate-mtls-certs.sh`; mTLS wired on all data-plane connections
+(`shared/db.py`, `bootstrapper/dependencies/redis.py`,
+`shared/task_queue.py`); Docker Compose overlay in
+`docker-compose.mtls.yml`; cert expiry Prometheus metric; Kubernetes
+NetworkPolicy manifests in `k8s/network-policies/`. ADR-0045 documents the
+architecture and threat model. All five original ACs met.
 
 ### Context
 
@@ -324,10 +331,11 @@ in a way that requires periodic sweeping.
 - ~~Items TBD-04 and TBD-05 should be implemented in the same phase~~ — DONE (Phase 25).
 - ~~Items TBD-01 through TBD-03 each require a distinct deployment trigger~~ —
   DELIVERED: TBD-01 → Phase 45 (T45.3), TBD-02 → Phase 39 (T39.3),
-  TBD-03 → Phase 46 (pending).
+  TBD-03 → Phase 46 (T46.1–T46.4).
 - ~~Items TBD-06 through TBD-08 were removed as unwired scaffolding in Phase 32~~ —
   DELIVERED: TBD-06 → Phase 39 (T39.1/T39.2), TBD-07 → Phase 45 (T45.1),
   TBD-08 → Phase 45 (T45.2).
 - ADR-0029 summary table updated in T45.4 to reflect Phase 39 and Phase 45
   assignments for all previously-TBD items.
 - ADR-0044 documents the Phase 45 webhook, idempotency, and reaper architecture.
+- ADR-0045 documents the Phase 46 mTLS inter-container communication architecture.

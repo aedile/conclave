@@ -1,0 +1,21 @@
+# Default deny all ingress and egress for the conclave namespace.
+# This baseline policy must be applied FIRST. It establishes a zero-trust
+# posture: all traffic is blocked until explicitly permitted by a subsequent
+# policy. Only apply after all allow policies are in place, otherwise all
+# pods will lose connectivity simultaneously.
+#
+# CNI requirement: Calico, Cilium, or Weave Net (NOT kubenet / VPC CNI).
+# See k8s/network-policies/README.md for full prerequisites.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: conclave
+  labels:
+    app.kubernetes.io/part-of: conclave-engine
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

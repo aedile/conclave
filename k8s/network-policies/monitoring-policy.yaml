@@ -1,0 +1,178 @@
+# NetworkPolicy for monitoring services: Prometheus, Grafana, and AlertManager.
+#
+# Monitoring services are exempt from the mTLS requirement (consistent with
+# the Docker Compose mTLS overlay exemption in docker-compose.mtls.yml).
+# Rationale: these are read-only observability consumers with no write path to
+# sensitive data. They do not process PII or participate in data-plane
+# operations. Requiring mTLS for monitoring scrape paths would complicate
+# cert distribution without a meaningful security gain.
+#
+# Ingress allowed:
+#   - Ingress controller -> grafana (port 3000) for the dashboard UI
+#
+# Egress allowed:
+#   - prometheus -> app (port 8000) for /metrics scraping
+#   - alertmanager -> prometheus (port 9090)
+#   - grafana -> prometheus (port 9090) as its data source
+#   - kube-dns for all monitoring pods
+#
+# CNI requirement: Calico, Cilium, or Weave Net (NOT kubenet / VPC CNI).
+# Pod labels expected:
+#   app.kubernetes.io/name: prometheus
+#   app.kubernetes.io/name: grafana
+#   app.kubernetes.io/name: alertmanager
+---
+# Prometheus: scrape app metrics, send alerts to alertmanager.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-policy
+  namespace: conclave
+  labels:
+    app.kubernetes.io/part-of: conclave-engine
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow grafana to query prometheus as its data source.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Allow alertmanager to communicate back to prometheus.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    # Scrape app /metrics endpoint.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: app
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Forward alerts to alertmanager.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - protocol: TCP
+          port: 9093
+    # DNS resolution.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Grafana: dashboard UI served to users via ingress controller.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-policy
+  namespace: conclave
+  labels:
+    app.kubernetes.io/part-of: conclave-engine
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow dashboard access from the ingress controller.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # Query prometheus as a data source.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    # DNS resolution.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# AlertManager: receive alerts from prometheus, send notifications.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alertmanager-policy
+  namespace: conclave
+  labels:
+    app.kubernetes.io/part-of: conclave-engine
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Receive alerts from prometheus.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9093
+  egress:
+    # DNS resolution (required for alertmanager notification routing).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

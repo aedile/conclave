@@ -1,0 +1,34 @@
+# NetworkPolicy for the Redis pod.
+#
+# Ingress allowed from:
+#   - app pod (port 6379) — task queue and idempotency key storage
+#
+# Egress: none. Redis does not initiate outbound connections.
+#
+# CNI requirement: Calico, Cilium, or Weave Net (NOT kubenet / VPC CNI).
+# Pod label expected: app.kubernetes.io/name: redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-policy
+  namespace: conclave
+  labels:
+    app.kubernetes.io/part-of: conclave-engine
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow inbound connections from the app pod (Huey task queue and
+    # idempotency middleware).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: app
+      ports:
+        - protocol: TCP
+          port: 6379
