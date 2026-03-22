@@ -22,9 +22,20 @@ passphrase.
 Future extension: replace with a multi-operator registry backed by the
 vault KEK-encrypted operator store (tracked as post-T39.1 backlog item).
 
+Token scopes
+------------
+The default scope list issued to any authenticated operator is:
+``["read", "write", "security:admin", "settings:write"]``.
+
+This is a single-operator system — the one configured operator receives all
+scopes unconditionally.  Future multi-operator support would require
+per-operator scope assignment at registration time.
+
 CONSTITUTION Priority 0: Security — credentials never logged, bcrypt verify
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
+Task: T47.1 — Scope-based auth for security endpoints
+Task: T47.3 — Scope-based auth for settings write endpoints
 """
 
 from __future__ import annotations
@@ -42,6 +53,20 @@ _logger = logging.getLogger(__name__)
 
 #: OAuth2 / RFC 6750 token scheme identifier.
 _TOKEN_SCHEME = "bearer"  # noqa: S105  # nosec B105 — token scheme identifier (RFC 6750), not a password
+
+#: All scopes issued to the single authenticated operator.
+#: Single-operator model: one operator gets every permission.
+#: Security-sensitive scopes (``security:admin``, ``settings:write``) are
+#: included here because scope-based authorization is enforced at the
+#: endpoint level — the operator MUST hold these scopes to call those
+#: endpoints, and the default issuance grants them so that a correctly
+#: configured operator can use all features without extra steps.
+_DEFAULT_OPERATOR_SCOPES: list[str] = [
+    "read",
+    "write",
+    "security:admin",
+    "settings:write",
+]
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -85,6 +110,10 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
     short-lived HS256 JWT containing ``sub``, ``exp``, ``iat``, and
     ``scope`` claims.
 
+    The issued token scope list is :data:`_DEFAULT_OPERATOR_SCOPES`, granting
+    all permissions to the single configured operator including
+    ``security:admin`` and ``settings:write`` for T47.1/T47.3 endpoints.
+
     The issued token can be used as ``Authorization: Bearer <token>`` on all
     subsequent requests to authenticated endpoints.
 
@@ -116,6 +145,6 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = create_token(sub=body.username, scope=["read", "write"])
+    token = create_token(sub=body.username, scope=_DEFAULT_OPERATOR_SCOPES)
     _logger.info("Issued JWT token for operator=%r", body.username)
     return TokenResponse(access_token=token, token_type=_TOKEN_SCHEME)

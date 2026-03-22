@@ -29,12 +29,9 @@ Task: T47.3 — Scope-based auth for settings write endpoints
 
 from __future__ import annotations
 
-import base64
-import os
 import time
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import patch
 
 import jwt as pyjwt
 import pytest
@@ -49,7 +46,7 @@ pytestmark = pytest.mark.unit
 # Constants
 # ---------------------------------------------------------------------------
 
-_JWT_SECRET = "test-secret-key-that-is-long-enough-for-hs256"  # noqa: S105 # nosec B105
+_JWT_SECRET = "test-secret-key-that-is-long-enough-for-hs256"  # nosec B105
 _JWT_ALGORITHM = "HS256"
 
 

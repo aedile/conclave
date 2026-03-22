@@ -67,7 +67,12 @@ def _make_token(
 
     now = int(time.time())
     return pyjwt.encode(
-        {"sub": sub, "iat": now, "exp": now + exp_offset, "scope": ["read", "write"]},
+        {
+            "sub": sub,
+            "iat": now,
+            "exp": now + exp_offset,
+            "scope": ["read", "write", "security:admin", "settings:write"],
+        },
         secret,
         algorithm="HS256",
     )
