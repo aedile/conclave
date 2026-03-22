@@ -80,7 +80,7 @@ Two similarly named locations exist in `shared/`:
 | Path | Purpose |
 |---|---|
 | `shared/task_queue.py` | Huey instance construction (infrastructure) |
-| `bootstrapper/` | Periodic task definitions (retention, etc.) |
+| `modules/synthesizer/` | Periodic task definitions (retention, etc.) |
 
 `shared/task_queue.py` is the **queue infrastructure module** — it constructs
 and configures the Huey instance. It contains no task definitions.
@@ -88,7 +88,7 @@ and configures the Huey instance. It contains no task definitions.
 **Note (Phase 41, T41.1):** The `shared/tasks/` directory described in the original
 ADR was never created (ADR-0005 orphan reaper was removed in T32.1). Periodic task
 definitions (e.g., `cleanup_expired_jobs`, `cleanup_expired_artifacts`) are in
-`bootstrapper/retention_tasks.py`, which imports the Huey instance from `shared/task_queue.py`.
+`modules/synthesizer/retention_tasks.py`, which imports the Huey instance from `shared/task_queue.py`.
 
 ---
 

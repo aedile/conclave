@@ -246,12 +246,12 @@ worker entry points need modification.
 | # | Requirement | Disposition | Target Phase |
 |---|-------------|-------------|--------------|
 | 1 | Internal Event Bus / Pub-Sub | Implemented Differently (IoC callbacks) | N/A — permanent |
-| 2 | Webhook callbacks | Deferred | Future integration phase |
+| 2 | Webhook callbacks | Implemented | Phase 45 (complete) |
 | 3 | `llms.txt` | Descoped — incompatible with air-gap mandate | Permanent |
 | 4 | Model Context Protocol (MCP) | Descoped — incompatible with air-gap mandate | Permanent |
 | 5 | `datamodel-code-generator` in CI | Implemented Differently (hand-written models) | N/A — permanent |
-| 6 | Rate limiting & circuit breakers | Deferred | Future multi-tenant phase |
-| 7 | mTLS inter-container | Deferred | Future multi-host/K8s phase |
+| 6 | Rate limiting & circuit breakers | Implemented | Phase 39 (complete) |
+| 7 | mTLS inter-container | Deferred | Phase 46 (pending) |
 | 8 | Custom Prometheus business metrics | Implemented | Phase 25 (complete) |
 | 9 | OTEL trace context into Huey workers | Implemented | Phase 25 (complete) |
 
@@ -269,12 +269,10 @@ worker entry points need modification.
   not omissions.
 
 **Negative / Constraints:**
-- The five deferred items remain open as technical debt. They must be addressed before
-  any multi-tenant, multi-host, or externally-connected deployment goes to production.
-- Deferred items 8 and 9 (custom metrics and OTEL propagation) share a natural
-  implementation phase and should be batched together.
-- Deferred item 7 (mTLS) requires a Kubernetes deployment topology to provide full value
-  and cannot be meaningfully implemented in a single-host Docker Compose environment.
+- Deferred item 7 (mTLS inter-container) remains open. It requires a Kubernetes deployment
+  topology to provide full value and cannot be meaningfully implemented in a single-host
+  Docker Compose environment. Scheduled for Phase 46.
+- All other deferred items (Gaps 2, 6, 8, 9) have been implemented and are complete.
 
 ---
 

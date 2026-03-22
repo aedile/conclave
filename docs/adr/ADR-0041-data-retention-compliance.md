@@ -124,7 +124,7 @@ teams a three-year window to retrieve deletion records.
 ### Scheduler wiring — Resolved (advisory-drain-pre-p44)
 
 `RetentionCleanup.cleanup_expired_jobs()` and `cleanup_expired_artifacts()` are wired
-to Huey `@periodic_task` cron jobs in `bootstrapper/retention_tasks.py`:
+to Huey `@periodic_task` cron jobs in `modules/synthesizer/retention_tasks.py`:
 
 - `cleanup_expired_jobs`: runs daily at 02:00 UTC
 - `cleanup_expired_artifacts`: runs daily at 03:00 UTC

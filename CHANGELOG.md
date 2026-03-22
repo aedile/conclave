@@ -424,5 +424,5 @@ For a narrative account of the project, see [`docs/DEVELOPMENT_STORY.md`](docs/D
 
 ---
 
-*This changelog covers Phase 0.8 through Phase 37 (at commit `72d3007`, 2026-03-19).*
+*This changelog covers Phase 0.8 through Phase 45 (as of 2026-03-21).*
 *For the most current state, refer to `git log` and the merged PR list.*
