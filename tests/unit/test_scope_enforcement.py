@@ -46,7 +46,7 @@ pytestmark = pytest.mark.unit
 # Constants
 # ---------------------------------------------------------------------------
 
-_JWT_SECRET = "test-secret-key-that-is-long-enough-for-hs256"  # nosec B105
+_JWT_SECRET = "test-secret-key-that-is-long-enough-for-hs256"  # nosec B105  # pragma: allowlist secret
 _JWT_ALGORITHM = "HS256"
 
 
