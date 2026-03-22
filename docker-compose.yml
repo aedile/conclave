@@ -76,6 +76,14 @@ services:
     secrets:
       - app_secret_key
 
+    # --- Application configuration (env_file) --------------------------------
+    # Pydantic Settings reads .env from the working directory at startup.
+    # docker-compose passes all variables from this file into the container so
+    # that validate_config() can find DATABASE_URL, AUDIT_KEY, JWT_SECRET_KEY,
+    # and OPERATOR_CREDENTIALS_HASH without baking secrets into the image.
+    env_file:
+      - .env
+
     # --- Persistent named volumes --------------------------------------------
     volumes:
       - chroma_data:/app/.chroma_data

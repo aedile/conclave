@@ -348,16 +348,41 @@ jobs:
         # These files are never committed (.gitignore) and must not exist in CI
         # with real values. Dummy random values are sufficient — the smoke test
         # only validates HTTP reachability and security headers, not data integrity.
+        #
+        # T47.4 / T47.5: Phase 47 added production config validation that
+        # requires JWT_SECRET_KEY and OPERATOR_CREDENTIALS_HASH. Without them,
+        # validate_config() raises SystemExit at startup, causing the health
+        # check to time out. The bcrypt hash below is a dummy CI-only value
+        # (hash of "ci-dummy-password", generated offline). The remaining
+        # production-required vars (ARTIFACT_SIGNING_KEY, MASKING_SALT,
+        # AUDIT_KEY) and DATABASE_URL are also provisioned here so the app
+        # passes the always-required startup check in all deployment modes.
+        # The postgres password is fixed (not random) so DATABASE_URL can be
+        # constructed deterministically.
         run: |
-          touch .env
+          CI_PG_PASSWORD="ci-dummy-postgres-password-for-smoke-test"
           mkdir -p secrets
           openssl rand -hex 32 > secrets/app_secret_key.txt
-          openssl rand -hex 32 > secrets/postgres_password.txt
+          echo "${CI_PG_PASSWORD}" > secrets/postgres_password.txt
           openssl rand -hex 32 > secrets/grafana_admin_password.txt
           echo "ci-admin" > secrets/grafana_admin_user.txt
           openssl rand -hex 16 > secrets/minio_ephemeral_access_key.txt
           openssl rand -hex 32 > secrets/minio_ephemeral_secret_key.txt
           chmod 600 secrets/*.txt
+          # Provision .env with all vars required by validate_config().
+          # env_file: .env in docker-compose.yml forwards these to the container.
+          {
+            echo "ENV=production"
+            echo "DATABASE_URL=postgresql+asyncpg://conclave:${CI_PG_PASSWORD}@pgbouncer:5432/conclave"
+            echo "AUDIT_KEY=$(openssl rand -hex 32)"
+            echo "ARTIFACT_SIGNING_KEY=$(openssl rand -hex 32)"
+            echo "MASKING_SALT=$(openssl rand -hex 32)"
+            echo "JWT_SECRET_KEY=$(openssl rand -hex 32)"
+            # Auth environment variables required by T47.4/T47.5 config validation.
+            # Bcrypt hash of "ci-dummy-password" — dummy value for CI only.
+            echo 'OPERATOR_CREDENTIALS_HASH=$2b$12$LJ3m4ys3Lk0TSwHil.mGF.UzMcMeBudDBLzSgIGKjCwBnEMNRKSoi'  # pragma: allowlist secret
+          } > .env
+          chmod 600 .env
 
       - name: Build Docker image
         run: docker build -t conclave-engine:smoke-test .
