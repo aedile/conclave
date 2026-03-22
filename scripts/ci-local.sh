@@ -26,6 +26,7 @@
 #   e2e           Playwright browser tests (requires node_modules)
 #   trivy         Trivy container image scan (requires docker + trivy)
 #   sbom          CycloneDX SBOM generation
+#   smoke-test    production Docker smoke test (requires docker)
 #   zap           OWASP ZAP baseline scan (complex setup, skipped by default)
 
 set -uo pipefail
@@ -115,7 +116,7 @@ cd "${REPO_ROOT}" || exit 1
 # Stage registry
 # ---------------------------------------------------------------------------
 ALL_CORE_STAGES=(security shell-lint docs-gate lint test frontend)
-ALL_OPTIONAL_STAGES=(integration synthesizer e2e trivy sbom zap)
+ALL_OPTIONAL_STAGES=(integration synthesizer e2e trivy sbom smoke-test zap)
 ALL_STAGES=("${ALL_CORE_STAGES[@]}" "${ALL_OPTIONAL_STAGES[@]}")
 
 # Determine which stages to run
@@ -426,6 +427,17 @@ stage_sbom() {
     print_info "SBOM written to sbom.json"
 }
 
+stage_smoke_test() {
+    if ! command -v docker > /dev/null 2>&1; then
+        print_warn "smoke-test: docker not available — skipping production smoke test"
+        mark_skip "smoke-test" "docker not available"
+        return 0
+    fi
+
+    print_info "Running production smoke test (scripts/smoke_test.sh)..."
+    bash scripts/smoke_test.sh
+}
+
 stage_zap() {
     print_warn "zap: OWASP ZAP requires a live server and Docker — skipping in local CI"
     print_warn "zap: To run manually, see .github/workflows/ci.yml (zap-baseline job)"
@@ -500,6 +512,7 @@ run_stage "synthesizer"  stage_synthesizer
 run_stage "e2e"          stage_e2e
 run_stage "trivy"        stage_trivy
 run_stage "sbom"         stage_sbom
+run_stage "smoke-test"   stage_smoke_test
 run_stage "zap"          stage_zap
 
 print_summary

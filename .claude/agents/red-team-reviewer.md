@@ -137,6 +137,12 @@ grep -rn "hashlib\.md5\|hashlib\.sha1" src/
 grep -rn "ECB" src/
 ```
 
+## Cross-Domain: Deployment-Aware Security
+
+For every security control evaluated, ask: does this control survive horizontal scaling? The assumed deployment topology is Uvicorn with N workers behind a reverse proxy, M pods in Kubernetes. If a security control relies on in-process state, it will be replicated across N×M processes and an attacker's effective limit is multiplied by the same factor.
+
+Check: rate limiters (in-memory vs shared store), idempotency keys, nonce/replay protection, auth caches. In-memory security controls = FINDING.
+
 ## Review Execution Protocol
 
 1. **Read the diff** to understand what changed and what new attack surface exists
@@ -162,6 +168,7 @@ dependency-chain-attacks:   PASS/FINDING — <detail dangerous imports>
 configuration-safety:       PASS/FINDING — <detail fail-open configs>
 race-conditions:            PASS/FINDING — <detail TOCTOU bugs>
 cryptographic-misuse:       PASS/FINDING — <detail weak crypto>
+deployment-security:        PASS/FINDING — <detail>
 
 Overall: PASS/BLOCKER/FINDING — <brief summary>
 ```

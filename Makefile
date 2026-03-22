@@ -43,6 +43,13 @@ build-airgap-bundle: build ## Build image then create the air-gap tar.gz bundle
 	bash scripts/build_airgap.sh
 
 # ---------------------------------------------------------------------------
+# smoke-test — run production smoke test via Docker
+# ---------------------------------------------------------------------------
+.PHONY: smoke-test
+smoke-test: ## Run production smoke test (requires Docker)
+	bash scripts/smoke_test.sh
+
+# ---------------------------------------------------------------------------
 # ci-local — run all local CI gates (mirrors GitHub Actions)
 # ---------------------------------------------------------------------------
 .PHONY: ci-local

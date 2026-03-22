@@ -95,6 +95,12 @@ The software-developer MUST write negative/attack tests (auth rejection, IDOR, i
 **Rule 23 — Full-system reviewer context.** [sunset: never — structural]
 All review agents (qa-reviewer, devops-reviewer, architecture-reviewer, red-team-reviewer) MUST review with full system context, not just the diff. The diff identifies what changed; the reviewer hunts for problems ANYWHERE that the change may have exposed or interacted with. Reviewers MUST read related files beyond the diff.
 
+**Rule 24 — Phase boundary audit.** [sunset: Phase 55]
+At the end of every phase, after all review commits and before creating the PR, the PM MUST spawn the `phase-boundary-auditor` agent. This agent: (1) audits documentation accuracy against current code, (2) audits test quality and flags bloat, (3) runs the E2E test suite, (4) cleans up merged branches and stale worktrees. Its FINDING-level issues must be resolved before the PR is created. ADVISORY items are logged to RETRO_LOG.
+
+**Rule 25 — Complexity budget.** [sunset: Phase 55]
+Each phase should target a production-to-test LOC ratio no worse than 1:2.5. If a phase exceeds this, the architecture reviewer must provide written justification in their review output. Legitimate exceptions: security-critical code, protocol implementations, state machines with many edge cases. Illegitimate: verbose test setup, redundant assertions, copy-paste test patterns.
+
 ---
 
 ## Core Philosophy
@@ -279,7 +285,7 @@ WHILE CODING:    Minimal impl → Pass tests → Refactor
 BEFORE COMMIT:   git status → git diff → ruff → mypy → pytest → vulture → pre-commit
 AFTER CODE:      Spawn reviewers (qa+devops always; ui-ux/arch conditional) → review commit → RETRO_LOG
 COMMIT TYPES:    test: feat: fix: refactor: review: docs: chore:
-REVIEWERS:       QA+DevOps+RedTeam always | UI/UX: frontend | Arch: src/synth_engine/ | SpecChallenger: before dev
+REVIEWERS:       QA+DevOps+RedTeam always | UI/UX: frontend | Arch: src/synth_engine/ | SpecChallenger: before dev | BoundaryAuditor: before PR
 NEVER:           --no-verify, skip hooks, commit PII, dead code, untyped code
 ALWAYS:          TDD, 95% coverage, type hints, clean workspace, review commit
 ```

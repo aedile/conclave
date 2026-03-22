@@ -320,6 +320,44 @@ jobs:
 
 
   # ---------------------------------------------------------------------------
+  # Smoke test — production Docker image build + basic HTTP assertions
+  #
+  # Builds the production image and starts the full stack via docker compose,
+  # then runs scripts/smoke_test.sh to verify health endpoint, security
+  # headers (CSP, X-Content-Type-Options), and basic connectivity.
+  #
+  # NOTE: This job requires Docker Compose with service dependencies
+  # (PostgreSQL, Redis) running in CI. Set continue-on-error: true until
+  # the infrastructure is validated. May need runs-on: ubuntu-latest with
+  # Docker Compose pre-installed.
+  # ---------------------------------------------------------------------------
+  smoke-test:
+    name: Production Smoke Test
+    runs-on: ubuntu-latest
+    needs: [test, frontend]
+    continue-on-error: true
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build Docker image
+        run: docker build -t conclave-engine:smoke-test .
+
+      - name: Start stack via docker compose
+        # Uses docker-compose.yml only — no CPU override in CI (Linux)
+        run: docker compose -f docker-compose.yml up -d
+
+      - name: Run smoke test script
+        run: bash scripts/smoke_test.sh
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
+
+  # ---------------------------------------------------------------------------
   # Frontend — Lint, Unit Tests (Vitest, 90% coverage), Build
   # Runs after security scan. SHA-pinned actions/setup-node@v6.3.0
   # SHA: 53b83947a5a98c8d113130e565377fae1a50d02f
