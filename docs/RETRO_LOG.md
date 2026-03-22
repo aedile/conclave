@@ -12,7 +12,82 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-*All 8 advisories drained in advisory-drain-pre-p44. Table is empty.*
+| ADV-P45-01 | Arch re-review | Polish task | ADVISORY | `deliver_webhook(registration: Any)` not updated to `WebhookRegistrationProtocol` |
+| ADV-P45-02 | Arch re-review | Polish task | ADVISORY | ADR-0003 header still says "Deferred" despite T45.1 amendment |
+
+---
+
+### [2026-03-22] Phase 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper
+
+**Branch**: `feat/P45-webhook-idempotency-reaper` (12 commits)
+
+**Tasks completed**: T45.1 (Idempotency Middleware), T45.2 (Orphan Task Reaper),
+T45.3 (Webhook Callbacks), T45.4 (Deferred Items & ADR Updates)
+
+**What went well**:
+- T45.1 and T45.2 ran in parallel with no cross-task conflicts
+- SSRF protection in T45.3 correctly identified by spec-challenger as P0 concern
+- IoC callback pattern (set_webhook_delivery_fn) follows established codebase pattern
+  (set_dp_wrapper_factory, set_spend_budget_fn)
+- SSRF validation extracted to `shared/ssrf.py` as canonical cross-cutting security utility
+- ADR-0044 created documenting webhook/idempotency/reaper architecture
+
+**What was challenging**:
+- IoC wiring gap: `set_webhook_delivery_fn` was declared but never wired in
+  bootstrapper/main.py — webhooks would have silently never fired. Caught by architecture
+  review. Rule 8 enforcement check (searching bootstrapper/ for setter call) was not
+  performed at GREEN gate.
+- IPv4-mapped IPv6 SSRF bypass: `::ffff:10.0.0.1` evaded block list because mapped
+  addresses are typed as IPv6 and only IPv4 networks were checked. Fixed with
+  `ip.ipv4_mapped` unwrap step.
+- Duplicate `set_webhook_delivery_fn` appeared in both `job_orchestration.py` and
+  `webhook_delivery.py` with separate globals — dead code confusion risk.
+- QA agent ran extremely long (~45 minutes) due to thorough Rule 23 full-system review
+  with multiple test suite runs.
+
+**Review results**:
+- Architecture: FINDING → 7 items fixed (IoC wiring, SSRF extraction, duplicate removal,
+  type annotations, ADR amendments)
+- DevOps: FINDING → 3 items fixed (IPv4-mapped SSRF, URL logging, .env.example)
+- QA: FINDING → 8 items fixed (rubber-stamp tests, coverage gaps, dead code, hardcoded
+  path, DNS gaierror logging, SSRF delivery path test)
+- Re-reviews: All PASS (QA found 3 additional ssrf.py edge-case tests needed → fixed)
+
+**Advisories raised**: 2 cosmetic (not blocking):
+- ADV-P45-01: `deliver_webhook(registration: Any)` not updated to use
+  `WebhookRegistrationProtocol` despite Protocol being defined
+- ADV-P45-02: ADR-0003 header still says "Deferred" despite amendment body superseding it
+
+**Lessons learned**:
+- IoC hooks need a bootstrapper wiring verification step at GREEN gate
+- SSRF implementations must include IPv4-mapped IPv6 handling as mandatory checklist item
+- When extracting code to new modules, run coverage on the new module in isolation
+- Callback URLs should never be logged raw — strip query params (token leakage risk)
+
+---
+
+### [2026-03-21] T45.1 — Reintroduce Idempotency Middleware (TBD-07)
+
+**Branch**: `feat/P45-webhook-idempotency-reaper`
+
+**What was implemented**:
+- `shared/middleware/idempotency.py`: IdempotencyMiddleware using Redis SET NX EX.
+  Per-operator key scoping (`idempotency:{operator_id}:{user_key}`), graceful Redis
+  degradation (WARNING + pass-through), key release on handler exception.
+- `bootstrapper/dependencies/redis.py`: singleton sync Redis client from settings.
+- `shared/settings.py`: adds `idempotency_ttl_seconds` field (default=300, ge=1).
+- `bootstrapper/middleware.py`: wires IdempotencyMiddleware as innermost layer.
+
+**Test coverage**: 32 unit tests (15 attack/boundary + 17 feature), 5 integration tests.
+Coverage: 97% (gate: 95%). All quality gates pass (ruff, mypy, bandit, vulture, pre-commit).
+
+**Known failure patterns addressed**:
+- Redis requirepass (AuthenticationError) caught in broad RedisError handler.
+- Sync redis-py used (not async) — BaseHTTPMiddleware runs in a thread pool.
+- EXEMPT_PATHS injected at registration time, not imported in shared/.
+- T32.1 scaffolding removal tests updated to reflect intentional re-introduction.
+
+**Advisories**: None.
 
 ---
 

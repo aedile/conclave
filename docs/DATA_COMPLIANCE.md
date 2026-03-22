@@ -321,7 +321,7 @@ No data leaves the network boundary at any stage.
 ## 8. Automated Purge Task
 
 The purge task is wired to Huey `@periodic_task` cron jobs in
-`bootstrapper/retention_tasks.py` (wired in advisory-drain-pre-p44). The retention
+`modules/synthesizer/retention_tasks.py` (wired in advisory-drain-pre-p44). The retention
 policy is fully operational. See ADR-0041 for implementation details.
 
 The purge task runs as a scheduled Huey job. It performs the following actions

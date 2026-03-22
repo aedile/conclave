@@ -98,6 +98,8 @@ repos:
           - sse-starlette>=2.1.0
           # T36.1 centralized settings — pydantic-settings (BaseSettings)
           - pydantic-settings>=2.0.0
+          # T45.3 webhook delivery HTTP client
+          - httpx>=0.27.0
         files: ^src/
 
   # ---------------------------------------------------------------------------

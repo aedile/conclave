@@ -4,7 +4,7 @@ This is the central navigation page for all Conclave Engine documentation.
 Documents are organized by primary audience. Many documents are relevant to
 multiple audiences; cross-references are noted.
 
-**Total documents indexed: 122**
+**Total documents indexed: 123**
 
 ---
 
@@ -58,7 +58,7 @@ Developers extend, maintain, and test the Conclave Engine codebase.
 | [DEPENDENCY_AUDIT.md](DEPENDENCY_AUDIT.md) | Full audit table of all direct dependencies with runtime usage, transitive counts, and group assignments |
 | [DEPENDENCY_AUDIT_POLICY.md](DEPENDENCY_AUDIT_POLICY.md) | pip-audit usage policy, severity tiers, exemption process, new-dependency checklist |
 | [RETRO_LOG.md](RETRO_LOG.md) | Living retrospective ledger: advisories, findings, phase exit criteria — read before starting any task |
-| [TEAM_BLUEPRINT.md](TEAM_BLUEPRINT.md) | Team roles, review agent responsibilities, PR process |
+| [TEAM_BLUEPRINT.md](archive/TEAM_BLUEPRINT.md) | Team roles, review agent responsibilities, PR process (archived) |
 
 ### Backlog Documents
 
@@ -206,6 +206,7 @@ are annotated with a status notice at the top.
 | [ADR-0041](adr/ADR-0041-data-retention-compliance.md) | Data Retention Compliance | Accepted |
 | [ADR-0042](adr/ADR-0042-artifact-signing-key-versioning.md) | Artifact Signing Key Versioning | Accepted |
 | [ADR-0043](adr/ADR-0043-https-enforcement-middleware.md) | HTTPS Enforcement Middleware | Accepted |
+| [ADR-0044](adr/ADR-0044-webhook-idempotency-reaper-architecture.md) | Webhook, Idempotency & Reaper Architecture | Accepted |
 | [ADR-template.md](adr/ADR-template.md) | Template for new ADRs | Template |
 
 ---
@@ -245,9 +246,9 @@ evidence.
 | Retrospective archives | 3 |
 | Review prompt templates | 8 |
 | Archived documents | 6 (not indexed — see `docs/archive/`) |
-| ADRs (including template) | 45 |
+| ADRs (including template) | 46 |
 | Security cross-references | (subset of above) |
-| **Total** | **122** |
+| **Total** | **123** |
 
 ---
 

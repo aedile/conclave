@@ -9,11 +9,16 @@ triggers the deferred requirement.
 
 ---
 
-## TBD-01 — Webhook Callbacks for Task Completion
+## TBD-01 — Webhook Callbacks for Task Completion ~~DELIVERED (Phase 45)~~
 
 **Source**: ADR-0029 Gap 2
-**Phase**: 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper
+**Phase**: 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper (T45.3)
 **Priority**: P1
+**Status**: DELIVERED — `POST /webhooks`, `GET /webhooks`, `DELETE /webhooks/{id}`
+endpoints in `bootstrapper/routers/webhooks.py`; delivery engine in
+`modules/synthesizer/webhook_delivery.py`; HMAC-SHA256 signing via
+`X-Conclave-Signature`; 3-retry exponential backoff; all deliveries logged to
+the WORM audit trail. ADR-0044 documents the architecture.
 
 ### Context
 
@@ -45,11 +50,15 @@ delivery budget and adds operational surface area.
 
 ---
 
-## TBD-02 — Rate Limiting and Circuit Breakers
+## TBD-02 — Rate Limiting and Circuit Breakers ~~DELIVERED (Phase 39)~~
 
 **Source**: ADR-0029 Gap 6
 **Phase**: 39 — Authentication, Authorization & Rate Limiting (T39.3)
 **Priority**: P0
+**Status**: DELIVERED — `RateLimitGateMiddleware` in
+`shared/middleware/rate_limit.py`; Redis sorted-set sliding window with
+in-process deque fallback; per-operator configurable limits; `429` responses
+with `Retry-After` header. Confirmed in RETRO_LOG Phase 39 entry.
 
 ### Context
 
@@ -173,11 +182,17 @@ observability improvements that share the same implementation phase.
 
 ---
 
-## TBD-06 — JWT Authentication & Route-Level Authorization
+## TBD-06 — JWT Authentication & Route-Level Authorization ~~DELIVERED (Phase 39)~~
 
 **Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
 **Phase**: 39 — Authentication, Authorization & Rate Limiting (T39.1, T39.2)
 **Priority**: P0
+**Status**: DELIVERED — `shared/auth/jwt.py` with `create_access_token()` /
+`verify_token()`; `shared/auth/scopes.py` with `Scope` StrEnum;
+`bootstrapper/dependencies/auth.py` with `get_current_operator()`;
+`Depends()` wired on all mutating routes; `/auth/token` OAuth2 endpoint;
+IDOR ownership scoping via ADR-0040. ADR-0039 documents the JWT decision.
+Confirmed in RETRO_LOG Phase 39 entry.
 
 ### Context
 
@@ -211,11 +226,17 @@ air-gapped deployments without a concrete user-story trigger.
 
 ---
 
-## TBD-07 — Idempotency Middleware
+## TBD-07 — Idempotency Middleware ~~DELIVERED (Phase 45)~~
 
 **Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
 **Phase**: 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper (T45.1)
 **Priority**: P1
+**Status**: DELIVERED — `shared/middleware/idempotency.py` with
+`IdempotencyMiddleware`; atomic Redis `SET NX EX` deduplication; wired in
+`bootstrapper/middleware.py`; configurable TTL via `ConclaveSettings`;
+HTTP 409 on duplicate, HTTP 400 on key length violation; graceful Redis-down
+pass-through; key release on handler exception. ADR-0044 documents the
+architecture.
 
 ### Context
 
@@ -249,11 +270,17 @@ Must not be scheduled without a concrete client use-case.
 
 ---
 
-## TBD-08 — Orphan Task Reaper
+## TBD-08 — Orphan Task Reaper ~~DELIVERED (Phase 45)~~
 
 **Source**: P32-T32.1 — Dead Module Cleanup (unwired scaffolding removal)
 **Phase**: 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper (T45.2)
 **Priority**: P1
+**Status**: DELIVERED — `shared/tasks/reaper.py` with `OrphanTaskReaper` and
+`TaskRepository` ABC; `shared/tasks/repository.py` with
+`SQLAlchemyTaskRepository`; registered as Huey `@periodic_task` (every 15
+minutes); configurable staleness threshold via `ConclaveSettings`; audit log
+entry for each reaped task; per-task error isolation. ADR-0044 documents the
+architecture.
 
 ### Context
 
@@ -296,11 +323,11 @@ in a way that requires periodic sweeping.
 
 - ~~Items TBD-04 and TBD-05 should be implemented in the same phase~~ — DONE (Phase 25).
 - ~~Items TBD-01 through TBD-03 each require a distinct deployment trigger~~ —
-  SCHEDULED: TBD-01 → Phase 45 (T45.3), TBD-02 → Phase 39 (T39.3),
-  TBD-03 → Phase 46.
+  DELIVERED: TBD-01 → Phase 45 (T45.3), TBD-02 → Phase 39 (T39.3),
+  TBD-03 → Phase 46 (pending).
 - ~~Items TBD-06 through TBD-08 were removed as unwired scaffolding in Phase 32~~ —
-  SCHEDULED: TBD-06 → Phase 39 (T39.1/T39.2), TBD-07 → Phase 45 (T45.1),
+  DELIVERED: TBD-06 → Phase 39 (T39.1/T39.2), TBD-07 → Phase 45 (T45.1),
   TBD-08 → Phase 45 (T45.2).
-- A phase assignment for any of these items requires an ADR update to ADR-0029
-  changing the `Target Phase` in the summary table from "TBD" to the assigned
-  phase number.
+- ADR-0029 summary table updated in T45.4 to reflect Phase 39 and Phase 45
+  assignments for all previously-TBD items.
+- ADR-0044 documents the Phase 45 webhook, idempotency, and reaper architecture.

@@ -173,6 +173,8 @@ cleanup_expired_jobs  # unused method — RetentionCleanup.cleanup_expired_jobs 
 cleanup_expired_artifacts  # unused method — RetentionCleanup.cleanup_expired_artifacts (retention.py)
 periodic_cleanup_expired_jobs  # unused function — Huey periodic task, registered at 02:00 UTC (retention_tasks.py)
 periodic_cleanup_expired_artifacts  # unused function — Huey periodic task, registered at 03:00 UTC (retention_tasks.py)
+periodic_reap_orphan_tasks  # unused function — Huey periodic task, registered every 15 min (reaper_tasks.py)
+idempotency_ttl_seconds  # unused variable — ConclaveSettings field read by IdempotencyMiddleware (shared/settings.py)
 get_claims  # unused method — LicenseManager.get_claims (shared/security/licensing.py)
 
 # ---------------------------------------------------------------------------
@@ -213,3 +215,35 @@ artifact_retention_days  # unused variable — ConclaveSettings field read by op
 # ---------------------------------------------------------------------------
 
 warn_if_ssl_misconfigured  # unused function — startup hook called by config_validation.validate_config() (bootstrapper/dependencies/https_enforcement.py)
+
+# ---------------------------------------------------------------------------
+# Category K — T45.3 Webhook Callbacks
+# Route handlers registered via @router decorators; ORM/Pydantic fields used
+# at runtime by the DB layer and FastAPI/Pydantic validation machinery;
+# IoC callback setters called by bootstrapper at startup.
+# ---------------------------------------------------------------------------
+
+register_webhook  # unused function — FastAPI route handler (routers/webhooks.py)
+list_webhooks  # unused function — FastAPI route handler (routers/webhooks.py)
+deactivate_webhook  # unused function — FastAPI route handler (routers/webhooks.py)
+WebhookDelivery  # unused class — SQLModel ORM table; delivery log written at runtime
+registration_id  # unused variable — WebhookDelivery ORM column (bootstrapper/schemas/webhooks.py)
+attempt_number  # unused variable — WebhookDelivery ORM column / DeliveryResult field
+response_code  # unused variable — WebhookDelivery ORM column / DeliveryResult field
+error_message  # unused variable — WebhookDelivery ORM column / DeliveryResult field
+validate_events  # unused method — Pydantic field_validator (bootstrapper/schemas/webhooks.py)
+set_webhook_delivery_fn  # unused function — IoC DI callback setter (job_orchestration.py, webhook_delivery.py)
+_reset_webhook_delivery_fn  # unused function — test-isolation helper (job_orchestration.py, webhook_delivery.py)
+deliver_webhook  # unused function — called by IoC callback registered at startup (webhook_delivery.py)
+webhook_delivery_timeout_seconds  # unused variable — ConclaveSettings field read by delivery engine (shared/settings.py)
+
+# ---------------------------------------------------------------------------
+# Category K (continued) — P45 review fix additions
+# ---------------------------------------------------------------------------
+
+BLOCKED_NETWORKS  # unused variable — shared/ssrf.py; consumed at module load by validate_callback_url
+validate_callback_url  # unused function — shared/ssrf.py; called from webhook_delivery.py and bootstrapper/routers/webhooks.py
+WebhookDeliveryCallback  # unused variable — shared/protocols.py; type alias used by job_orchestration.py
+WebhookRegistrationProtocol  # unused class — shared/protocols.py; mypy structural typing for deliver_webhook parameter
+_safe_url_for_log  # unused function — bootstrapper/routers/webhooks.py; called for SSRF log sanitization
+_build_webhook_delivery_fn  # unused function — bootstrapper/main.py; called at module load time for IoC wiring

@@ -68,3 +68,23 @@ wired into the application (zero call sites in `bootstrapper/`). The design deci
 sound and will be re-implemented when the trigger condition is met.
 
 See `docs/backlog/deferred-items.md` TBD-07 for acceptance criteria and trigger condition.
+
+---
+
+## Amendment — T45.1 (Phase 45)
+
+Idempotency middleware re-implemented in T45.1 (`shared/middleware/idempotency.py`)
+with the following enhancements over the original T32.1-deferred spec:
+
+- **Per-operator key scoping**: Redis key format is
+  `idempotency:{operator_id}:{user_key}`.  The operator ID is extracted from
+  the JWT `sub` claim (without signature verification — auth middleware performs
+  the authoritative check upstream).  When no JWT is present, defaults to
+  `"anonymous"`.
+- **Sync Redis client**: Uses the synchronous `redis.Redis` (not `redis.asyncio`)
+  because `BaseHTTPMiddleware` runs in a thread pool context.  The ADR-0003
+  "Async-only" constraint was superseded by this architecture constraint.
+- **Status**: The "Deferred" qualifier is removed — the implementation is now
+  active and wired in `bootstrapper/middleware.py`.
+- **Settings**: `ConclaveSettings.idempotency_ttl_seconds` (default 300) controls
+  the Redis key TTL.  See `.env.example` for documentation.

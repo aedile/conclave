@@ -12,13 +12,17 @@ the dead code from being silently re-introduced.
 Modules under test (expected ABSENT):
   - synth_engine.shared.auth.jwt
   - synth_engine.shared.auth.scopes
-  - synth_engine.shared.middleware.idempotency
-  - synth_engine.shared.tasks.reaper
 
-Note: synth_engine.bootstrapper.dependencies.auth was originally deleted in
-T32.1 as dead scaffolding. It has been re-created in T39.1 as the production
-JWT authentication middleware. Its absence guard has been removed here to
-reflect that intentional re-introduction.
+Modules that were originally absent guards but have been legitimately
+re-introduced and are now PRESENT:
+  - synth_engine.bootstrapper.dependencies.auth — re-created in T39.1
+    as the production JWT authentication middleware.
+  - synth_engine.shared.middleware.idempotency — re-created in T45.1
+    as the production Redis-backed idempotency middleware (TBD-07).
+  - synth_engine.shared.tasks.reaper — re-created in T45.2 as the
+    production orphan task reaper (TBD-08).
+  - synth_engine.shared.tasks — re-created in T45.2 as the tasks package
+    housing the production reaper.
 
 Also asserts no surviving import sites exist for any of these modules.
 """
@@ -109,27 +113,17 @@ def test_shared_auth_package_is_removed() -> None:
     )
 
 
-def test_shared_middleware_idempotency_is_removed() -> None:
-    """synth_engine.shared.middleware.idempotency must not exist after T32.1 cleanup."""
-    assert not _module_importable("synth_engine.shared.middleware.idempotency"), (
-        "synth_engine.shared.middleware.idempotency still exists — "
-        "remove shared/middleware/idempotency.py (T32.1)"
-    )
+# NOTE: test_shared_middleware_idempotency_is_removed was removed from this file
+# in T45.1 — synth_engine.shared.middleware.idempotency has been re-created as the
+# production Redis-backed idempotency middleware (TBD-07).
 
+# NOTE: test_shared_tasks_reaper_is_removed was removed from this file
+# in T45.2 — synth_engine.shared.tasks.reaper has been re-created as the
+# production orphan task reaper (TBD-08).
 
-def test_shared_tasks_reaper_is_removed() -> None:
-    """synth_engine.shared.tasks.reaper must not exist after T32.1 cleanup."""
-    assert not _module_importable("synth_engine.shared.tasks.reaper"), (
-        "synth_engine.shared.tasks.reaper still exists — remove shared/tasks/reaper.py (T32.1)"
-    )
-
-
-def test_shared_tasks_package_is_removed() -> None:
-    """synth_engine.shared.tasks package must not exist after T32.1 cleanup."""
-    assert not _module_importable("synth_engine.shared.tasks"), (
-        "synth_engine.shared.tasks package still exists — remove shared/tasks/__init__.py (T32.1)"
-    )
-
+# NOTE: test_shared_tasks_package_is_removed was removed from this file
+# in T45.2 — synth_engine.shared.tasks has been re-created as the tasks
+# package housing the orphan task reaper (TBD-08).
 
 # ---------------------------------------------------------------------------
 # Spec-level contract: find_spec returns None or raises for removed paths
@@ -142,11 +136,12 @@ def test_shared_tasks_package_is_removed() -> None:
         "synth_engine.shared.auth.jwt",
         "synth_engine.shared.auth.scopes",
         "synth_engine.shared.auth",
-        "synth_engine.shared.middleware.idempotency",
-        "synth_engine.shared.tasks.reaper",
-        "synth_engine.shared.tasks",
-        # NOTE: synth_engine.bootstrapper.dependencies.auth was removed from this list
-        # in T39.1 — the module is now legitimately present as production JWT auth middleware.
+        # NOTE: The following modules were originally in this list but have been
+        # legitimately re-introduced and removed from absence checks:
+        # - synth_engine.bootstrapper.dependencies.auth → T39.1 (JWT auth middleware)
+        # - synth_engine.shared.middleware.idempotency → T45.1 (idempotency middleware)
+        # - synth_engine.shared.tasks.reaper → T45.2 (orphan task reaper)
+        # - synth_engine.shared.tasks → T45.2 (tasks package)
     ],
 )
 def test_find_spec_cannot_resolve_removed_module(dotted_name: str) -> None:
