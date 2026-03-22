@@ -1,0 +1,62 @@
+# NetworkPolicy for the MinIO ephemeral storage pod.
+#
+# MinIO is ephemeral synthesis artifact storage per ADR-0029 and ADR-0045 §4.
+# It is intentionally NOT part of the mTLS data-plane (monitoring-plane exempt).
+#
+# Ingress allowed from:
+#   - app pod (port 9000) — S3 API (EphemeralStorageClient uploads/downloads)
+#   - app pod (port 9001) — MinIO console (operator access, internal-only)
+#
+# Egress: DNS only. MinIO does not initiate outbound connections; all
+# interactions are client-initiated from the app pod.
+#
+# CNI requirement: Calico, Cilium, or Weave Net (NOT kubenet / VPC CNI).
+# Pod label expected: app.kubernetes.io/name: minio-ephemeral
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-policy
+  namespace: conclave
+  labels:
+    app.kubernetes.io/part-of: conclave-engine
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: minio-ephemeral
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow inbound S3 API connections from the app pod (port 9000).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: app
+      ports:
+        - protocol: TCP
+          port: 9000
+    # Allow inbound MinIO console connections from the app pod (port 9001).
+    # The console port is 9001 to avoid collision with the Prometheus default.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: app
+      ports:
+        - protocol: TCP
+          port: 9001
+  egress:
+    # Allow DNS resolution via kube-dns (UDP and TCP).
+    # MinIO requires DNS to resolve its own advertised address on startup.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
