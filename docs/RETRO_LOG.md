@@ -26,6 +26,54 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-22] Phase 49 — Framework Amendments
+
+**Branch**: `docs/P49-framework-amendments`
+
+**Purpose**: Architecture review identified three systemic defects in the reusable AI
+development framework (Constitution + CLAUDE.md + agent definitions). This phase amends
+the governance framework to close those gaps.
+
+**Amendments delivered**:
+
+1. **T49.1 — Priority Sequencing Constraint** (CONSTITUTION.md Section 1a, Priority 2.5):
+   PM must verify all lower-priority Constitutional requirements are implemented or deferred
+   with ADR before approving a phase plan. Spec-challenger gains 8th challenge area (Priority
+   Compliance). ADR-0046 documents the decision.
+
+2. **T49.2 — Assertion Quality Gate** (CONSTITUTION.md Priority 4): Tests must contain at
+   least one specific value assertion per test function. Phase-boundary-auditor gains
+   assertion-specificity sweep.
+
+3. **T49.3 — Mutation Testing Gate** (CONSTITUTION.md Priority 4): mutmut must achieve
+   configured mutation score threshold on security-critical modules. ADR-0047 documents
+   decision: 60% initial threshold on shared/security/ and modules/privacy/, targeting 70%
+   by Phase 55. Tooling configuration deferred to Phase 50.
+
+4. **T49.4 — Security Advisory TTL** (CLAUDE.md Rule 26): Security/BLOCKER advisories must
+   be resolved within 2 phases of being raised. Expired advisories auto-promote to merge-
+   blocking gates.
+
+5. **T49.5 — Governance Pruning** (CLAUDE.md sunset evaluation):
+   - Extended to Phase 60: Rules 6, 8, 11, 12, 16 (all demonstrated value)
+   - Deleted per Rule 15: Rule 9 (docs commit gate — silent compliance, never triggered
+     correction; Priority 6 CI gate provides equivalent enforcement), Rule 17 (small-fix
+     batching — silent compliance, no evidence of value)
+
+**What went well**:
+- All amendments are governance-only — no production code or test files touched
+- Each amendment has a clear enforcement mechanism per Constitution Priority 0.5
+- Sunset evaluation had clear evidence trail from RETRO_LOG to support decisions
+
+**What could be improved**:
+- The priority sequencing defect (auth at Phase 39) should have been caught much earlier.
+  The fact that it took an architecture review at Phase 49 to identify it suggests the
+  retrospective process was not surfacing systemic issues effectively.
+
+**Open advisory count**: 6 (unchanged — no advisories raised or drained in this phase)
+
+---
+
 ### [2026-03-22] Phase 47 — Auth & Safety Ops Retrospective
 
 **Branch**: `feat/P47-auth-safety-ops` (29 commits)
