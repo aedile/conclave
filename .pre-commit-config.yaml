@@ -75,8 +75,7 @@ repos:
           - opentelemetry-exporter-otlp-proto-grpc>=1.28.0
           - sqlmodel>=0.0.21
           - sqlalchemy>=2.0.0
-          - cryptography>=43.0.0
-          - types-cryptography
+          - cryptography>=46.0.5
           - pydantic>=2.0.0
           - PyJWT>=2.10.0
           - passlib[bcrypt]>=1.7.4

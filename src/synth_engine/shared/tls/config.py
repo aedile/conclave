@@ -85,16 +85,14 @@ _VALID_HOSTNAME_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*
 class TLSCertificateError(Exception):
     """Raised when a TLS certificate fails a security or validity check.
 
+    Args:
+        message: Human-readable description of the certificate failure.
+
     Attributes:
         message: Human-readable description of the failure.
     """
 
     def __init__(self, message: str) -> None:
-        """Initialise TLSCertificateError.
-
-        Args:
-            message: Human-readable description of the certificate failure.
-        """
         super().__init__(message)
         self.message = message
 
@@ -157,14 +155,14 @@ class TLSConfig:
 
         Raises:
             FileNotFoundError: If the file does not exist at ``cert_path``.
-            PermissionError: If the process lacks read permission for the file.
             TLSCertificateError: If the file contents cannot be parsed as a
                 valid PEM certificate.
         """
         if not cert_path.exists():
             raise FileNotFoundError(f"Certificate file not found: {cert_path}")
 
-        pem_data = cert_path.read_bytes()  # raises PermissionError if unreadable
+        # read_bytes() propagates PermissionError if the file is not readable.
+        pem_data = cert_path.read_bytes()
 
         try:
             return x509.load_pem_x509_certificate(pem_data)
@@ -185,8 +183,6 @@ class TLSConfig:
             The ``not_valid_after`` datetime (UTC-aware) for the certificate.
 
         Raises:
-            FileNotFoundError: If the file does not exist.
-            PermissionError: If the file is not readable.
             TLSCertificateError: If the certificate is malformed, already
                 expired, or not yet valid.
         """
@@ -220,10 +216,8 @@ class TLSConfig:
             cert_path: Path to the PEM-encoded certificate file.
 
         Raises:
-            FileNotFoundError: If either file does not exist.
-            PermissionError: If either file is not readable.
             TLSCertificateError: If the private key does not correspond to
-                the certificate's public key.
+                the certificate's public key, or if either file is malformed.
         """
         cert = TLSConfig.load_certificate(cert_path)
         key_pem = key_path.read_bytes()
@@ -261,10 +255,9 @@ class TLSConfig:
             ca_cert_path: Path to the PEM-encoded CA certificate.
 
         Raises:
-            FileNotFoundError: If either file does not exist.
-            PermissionError: If either file is not readable.
             TLSCertificateError: If the leaf certificate was not signed by
-                the CA, or if either file is malformed.
+                the CA, if either file is malformed, or if the CA uses a
+                non-ECDSA key type.
         """
         leaf_cert = TLSConfig.load_certificate(leaf_cert_path)
         ca_cert = TLSConfig.load_certificate(ca_cert_path)
@@ -310,11 +303,6 @@ class TLSConfig:
         Returns:
             Integer number of days until (or since) expiry. Negative means
             already expired.
-
-        Raises:
-            FileNotFoundError: If the file does not exist.
-            PermissionError: If the file is not readable.
-            TLSCertificateError: If the certificate is malformed.
         """
         cert = TLSConfig.load_certificate(cert_path)
         now = datetime.datetime.now(tz=datetime.UTC)
