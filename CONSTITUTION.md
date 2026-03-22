@@ -96,6 +96,7 @@ This principle governs the Constitution itself and all future amendments.
 | Priority | Directive | Enforcement Mechanism |
 |----------|-----------|----------------------|
 | 0 | Security | `gitleaks`, `detect-secrets`, `bandit` in pre-commit + CI |
+| 0 | Security advisory TTL | PM phase-plan gate; spec-challenger verifies open advisory ages |
 | 0.5 | Programmatic Enforcement | This table — self-referential; PM verifies at phase kickoff |
 | 1 | Quality Gates unbreakable | `ruff`, `mypy`, `pytest --cov-fail-under=95`, `pre-commit` cannot be skipped |
 | 2 | Source control / PRs | Pre-commit `--no-verify` forbidden; branch protection on `main` |

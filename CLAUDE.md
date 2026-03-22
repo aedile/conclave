@@ -101,6 +101,13 @@ At the end of every phase, after all review commits and before creating the PR, 
 **Rule 25 — Complexity budget.** [sunset: Phase 55]
 Each phase should target a production-to-test LOC ratio no worse than 1:2.5. If a phase exceeds this, the architecture reviewer must provide written justification in their review output. Legitimate exceptions: security-critical code, protocol implementations, state machines with many edge cases. Illegitimate: verbose test setup, redundant assertions, copy-paste test patterns.
 
+**Rule 26 — Security advisory TTL.** [sunset: never — structural]
+Any advisory tagged BLOCKER or classified as security-related MUST be resolved within 2 phases
+of being raised. If an advisory survives past its TTL (phase_raised + 2), it auto-promotes to
+a merge-blocking gate on the next phase. The PM MUST NOT approve a new phase plan while any
+expired security advisory exists. Non-security advisories retain the existing Rule 11 drain
+cadence (max 8 open).
+
 ---
 
 ## Core Philosophy
