@@ -79,6 +79,10 @@ For each new operation that modifies shared state:
 - Can the operation be safely retried?
 - What happens on partial failure?
 
+### 8. Priority Compliance
+
+Verify that all Constitutional priorities with lower numbers than the current phase's work are fully implemented or have deferral ADRs. Flag any priority gap as SPEC INCOMPLETE.
+
 ### 7. Observability Gaps
 
 - Are error cases logged at the right level?

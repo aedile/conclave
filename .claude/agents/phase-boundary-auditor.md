@@ -42,6 +42,7 @@ Analyze test quality and flag bloat patterns:
 - **redundant-invariant-tests**: Multiple tests asserting the same invariant from different angles? ADVISORY — suggest consolidation.
 - **dead-fixtures**: Fixtures defined but never used (check `conftest.py` files for fixtures not referenced by any test)? FINDING.
 - **production-to-test-ratio**: Production-to-test LOC ratio for this phase: report it. If >1:2.5, justify.
+- **Assertion Specificity**: Scan test files changed in this phase. Flag any test function where the only assertions are `is not None`, `isinstance()`, or `field in dict` without a corresponding value assertion. Classification: FINDING.
 
 How to execute:
 ```bash
