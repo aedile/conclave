@@ -228,10 +228,10 @@ def test_audit_trail_emitted_on_hmac_verification_failure(
             with pytest.raises(SecurityError):
                 ModelArtifact.load(str(save_path), signing_key=_OTHER_KEY_32)
 
-        # The audit event must have been emitted to some logger
         audit_messages = [r.message for r in caplog.records]
         assert any("ARTIFACT_VERIFICATION_FAILURE" in msg for msg in audit_messages), (
-            f"Expected ARTIFACT_VERIFICATION_FAILURE audit event in log records; got: {audit_messages}"
+            "Expected ARTIFACT_VERIFICATION_FAILURE audit event in log records; "
+            f"got: {audit_messages}"
         )
 
 
@@ -272,8 +272,8 @@ def test_load_file_exceeding_size_limit_raises(tmp_path: Path) -> None:
     oversized_file.write_bytes(b"\x00" * 64)
 
     # Simulate a file that reports 3 GiB in size
-    _3_GIB = 3 * 1024 * 1024 * 1024
-    with unittest.mock.patch("os.path.getsize", return_value=_3_GIB):
+    three_gib = 3 * 1024 * 1024 * 1024
+    with unittest.mock.patch("os.path.getsize", return_value=three_gib):
         with pytest.raises(ValueError, match="[Ff]ile.*too large|size.*limit|2.*GiB|2.*GB"):
             ModelArtifact.load(str(oversized_file), signing_key=_VALID_KEY_32)
 
