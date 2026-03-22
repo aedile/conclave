@@ -204,9 +204,12 @@ def test_all_vars_present_production_passes(
     monkeypatch.setenv("ENV", "production")
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
     monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+    monkeypatch.setenv("JWT_SECRET_KEY", "supersecretkey-for-production")
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "$2b$12$" + "a" * 53)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
+    monkeypatch.delenv("MTLS_ENABLED", raising=False)
 
     result = validate_config()
     assert result is None
@@ -450,9 +453,12 @@ def test_production_ssl_required_false_emits_warning(
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
     monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
     monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
+    monkeypatch.setenv("JWT_SECRET_KEY", "supersecretkey-for-production")
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "$2b$12$" + "a" * 53)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
+    monkeypatch.delenv("MTLS_ENABLED", raising=False)
 
     with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.config_validation"):
         result = validate_config()
@@ -489,9 +495,12 @@ def test_production_ssl_required_true_does_not_warn(
     # does not emit a spurious warning during this test (T42.2 warns when
     # ssl_required=True but no cert path is set).
     monkeypatch.setenv("CONCLAVE_TLS_CERT_PATH", "/etc/ssl/conclave/conclave.crt")
+    monkeypatch.setenv("JWT_SECRET_KEY", "supersecretkey-for-production")
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "$2b$12$" + "a" * 53)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
+    monkeypatch.delenv("MTLS_ENABLED", raising=False)
 
     with caplog.at_level(logging.WARNING, logger="synth_engine.bootstrapper.config_validation"):
         validate_config()
