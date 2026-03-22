@@ -26,7 +26,6 @@ import pytest
 from synth_engine.shared.exceptions import DatasetTooLargeError, SynthEngineError
 from synth_engine.shared.settings import ConclaveSettings, get_settings
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -211,9 +210,7 @@ class TestReadParquetBoundedFilePath:
 
         try:
             # limit = 9 rows, file has 10 rows
-            settings = ConclaveSettings(
-                parquet_max_file_bytes=10 * 1024 * 1024, parquet_max_rows=9
-            )
+            settings = ConclaveSettings(parquet_max_file_bytes=10 * 1024 * 1024, parquet_max_rows=9)
             with patch(
                 "synth_engine.modules.synthesizer.engine.get_settings", return_value=settings
             ):
@@ -345,9 +342,7 @@ class TestReadParquetBoundedBytes:
         limit = payload_size - 1
 
         settings = ConclaveSettings(parquet_max_file_bytes=limit, parquet_max_rows=10_000_000)
-        with patch(
-            "synth_engine.modules.synthesizer.storage.get_settings", return_value=settings
-        ):
+        with patch("synth_engine.modules.synthesizer.storage.get_settings", return_value=settings):
             with pytest.raises(DatasetTooLargeError) as exc_info:
                 _read_parquet_bounded_bytes(data)
         assert exc_info.value.limit_type == "bytes"
@@ -364,9 +359,7 @@ class TestReadParquetBoundedBytes:
         settings = ConclaveSettings(
             parquet_max_file_bytes=payload_size, parquet_max_rows=10_000_000
         )
-        with patch(
-            "synth_engine.modules.synthesizer.storage.get_settings", return_value=settings
-        ):
+        with patch("synth_engine.modules.synthesizer.storage.get_settings", return_value=settings):
             df = _read_parquet_bounded_bytes(data)
         assert len(df) == 50
 
@@ -377,9 +370,7 @@ class TestReadParquetBoundedBytes:
         data = _make_parquet_bytes(10)
 
         settings = ConclaveSettings(parquet_max_file_bytes=10 * 1024 * 1024, parquet_max_rows=9)
-        with patch(
-            "synth_engine.modules.synthesizer.storage.get_settings", return_value=settings
-        ):
+        with patch("synth_engine.modules.synthesizer.storage.get_settings", return_value=settings):
             with pytest.raises(DatasetTooLargeError) as exc_info:
                 _read_parquet_bounded_bytes(data)
         assert exc_info.value.limit_type == "rows"
