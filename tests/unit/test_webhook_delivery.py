@@ -11,27 +11,32 @@ Attack/negative tests:
 6.  Retry exhaustion: after 3 failures, delivery marked FAILED in log
 7.  SSRF: IPv4-mapped IPv6 addresses are blocked (::ffff:127.0.0.1 etc.)
 8.  SSRF: delivery-time validation failure returns FAILED DeliveryResult
+9.  SSRF: URL with no hostname raises ValueError (line ~97)
+10. SSRF: DNS gaierror treated as safe / fail-open (lines ~102-109)
+11. SSRF: malformed IP string from getaddrinfo is skipped silently (lines ~116-117)
 
 Feature/positive tests:
-9.  HMAC-SHA256 signature format: "sha256=<hex_digest>"
-10. Payload canonicalization: json.dumps sorted keys + compact separators
-11. Retry with exponential backoff: delays are 1s, 4s
-12. Successful delivery: status=SUCCESS, attempt_number=1 in log
-13. Delivery ID (UUID) included in log entry
-14. Delivery engine does NOT import from bootstrapper (boundary constraint)
-15. X-Conclave-Signature header set on delivery attempt
-16. X-Conclave-Event header set to event type
-17. X-Conclave-Delivery-Id header is a valid UUID
-18. IoC callback pattern: set_webhook_delivery_fn registers callback
+12. HMAC-SHA256 signature format: "sha256=<hex_digest>"
+13. Payload canonicalization: json.dumps sorted keys + compact separators
+14. Retry with exponential backoff: delays are 1s, 4s
+15. Successful delivery: status=SUCCESS, attempt_number=1 in log
+16. Delivery ID (UUID) included in log entry
+17. Delivery engine does NOT import from bootstrapper (boundary constraint)
+18. X-Conclave-Signature header set on delivery attempt
+19. X-Conclave-Event header set to event type
+20. X-Conclave-Delivery-Id header is a valid UUID
+21. IoC callback pattern: set_webhook_delivery_fn registers callback
 
 CONSTITUTION Priority 0: Security — no SSRF, correct HMAC, no redirect following
 CONSTITUTION Priority 3: TDD — RED phase
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F1, F8, F9, F12
+Task: P45 QA re-review — ssrf.py edge-case coverage (lines 97, 102-109, 116-117)
 """
 
 from __future__ import annotations
 
+import socket
 import uuid
 from collections.abc import Generator
 from unittest.mock import MagicMock, patch
@@ -106,8 +111,6 @@ class TestSSRFAtDelivery:
         Args: none (no parameters).
         """
         # Simulate resolution returning ::ffff:127.0.0.1
-        import socket
-
         from synth_engine.shared.ssrf import validate_callback_url
 
         fake_addr = [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::ffff:127.0.0.1", 0, 0, 0))]
@@ -120,8 +123,6 @@ class TestSSRFAtDelivery:
 
         Args: none (no parameters).
         """
-        import socket
-
         from synth_engine.shared.ssrf import validate_callback_url
 
         fake_addr = [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", ("::ffff:10.0.0.1", 0, 0, 0))]
@@ -134,8 +135,6 @@ class TestSSRFAtDelivery:
 
         Args: none (no parameters).
         """
-        import socket
-
         from synth_engine.shared.ssrf import validate_callback_url
 
         fake_addr = [
@@ -181,6 +180,57 @@ class TestSSRFAtDelivery:
         assert result.status == "FAILED"
         assert result.error_message is not None
         assert "SSRF" in result.error_message or "private" in result.error_message.lower()
+
+    def test_validate_callback_url_rejects_no_hostname(self) -> None:
+        """URL with no hostname must raise ValueError.
+
+        ``urlparse("https:///path").hostname`` is ``None`` / empty string.
+        The guard at ssrf.py line ~97 must raise before any DNS lookup.
+
+        Args: none (no parameters).
+        """
+        from synth_engine.shared.ssrf import validate_callback_url
+
+        with pytest.raises(ValueError, match="no hostname|private|reserved|forbidden"):
+            validate_callback_url("https:///path")
+
+    def test_validate_callback_url_dns_gaierror_returns_safely(self) -> None:
+        """DNS gaierror must be treated as safe (fail-open).
+
+        Lines ~102-109 of ssrf.py: when ``socket.getaddrinfo`` raises
+        ``socket.gaierror``, the function logs at DEBUG and returns without
+        raising.  Valid webhooks should not be blocked by transient DNS
+        failures; the HTTP request itself will fail if the host is truly
+        unreachable.
+
+        Args: none (no parameters).
+        """
+        from synth_engine.shared.ssrf import validate_callback_url
+
+        with patch(
+            "synth_engine.shared.ssrf.socket.getaddrinfo",
+            side_effect=socket.gaierror("Name or service not known"),
+        ):
+            # Must NOT raise — fail-open behavior
+            validate_callback_url("https://nonexistent.example.com/hook")
+
+    def test_validate_callback_url_malformed_ip_from_dns_is_skipped(self) -> None:
+        """Malformed IP string returned by getaddrinfo must be skipped silently.
+
+        Lines ~116-117 of ssrf.py: if ``ipaddress.ip_address()`` raises
+        ``ValueError`` for a bad address string (e.g. ``"not-an-ip"``), the
+        entry is skipped via ``continue`` and no exception propagates.
+
+        Args: none (no parameters).
+        """
+        from synth_engine.shared.ssrf import validate_callback_url
+
+        # Simulate getaddrinfo returning one entry with a malformed address string.
+        # The second element of the sockaddr tuple (index 0) is the IP string.
+        fake_addr = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("not-an-ip", 80))]
+        with patch("synth_engine.shared.ssrf.socket.getaddrinfo", return_value=fake_addr):
+            # Must NOT raise — the bad entry is silently skipped
+            validate_callback_url("https://example.com/hook")
 
 
 class TestHMACTampering:
