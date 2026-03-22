@@ -10,11 +10,7 @@ Task: T46.1 — Internal Certificate Authority & Certificate Issuance
 from __future__ import annotations
 
 import datetime
-import os
-import stat
-import tempfile
 from pathlib import Path
-from typing import Any, Generator
 
 import pytest
 from cryptography import x509
@@ -73,16 +69,14 @@ def _build_cert(
     )
     if san_dns:
         builder = builder.add_extension(
-            x509.SubjectAlternativeName(
-                [x509.DNSName(name) for name in san_dns]
-            ),
+            x509.SubjectAlternativeName([x509.DNSName(name) for name in san_dns]),
             critical=False,
         )
     return builder.sign(issuer_key, hashes.SHA256())
 
 
 def _now_utc() -> datetime.datetime:
-    return datetime.datetime.now(tz=datetime.timezone.utc)
+    return datetime.datetime.now(tz=datetime.UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -90,19 +84,19 @@ def _now_utc() -> datetime.datetime:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def ca_key() -> ec.EllipticCurvePrivateKey:
     """Generate a CA private key."""
     return _generate_key()
 
 
-@pytest.fixture()
+@pytest.fixture
 def leaf_key() -> ec.EllipticCurvePrivateKey:
     """Generate a leaf certificate private key."""
     return _generate_key()
 
 
-@pytest.fixture()
+@pytest.fixture
 def valid_ca_cert(ca_key: ec.EllipticCurvePrivateKey) -> x509.Certificate:
     """Self-signed CA certificate valid for 10 years."""
     now = _now_utc()
@@ -116,7 +110,7 @@ def valid_ca_cert(ca_key: ec.EllipticCurvePrivateKey) -> x509.Certificate:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def valid_leaf_cert(
     ca_key: ec.EllipticCurvePrivateKey,
     leaf_key: ec.EllipticCurvePrivateKey,
@@ -135,22 +129,16 @@ def valid_leaf_cert(
     )
 
 
-@pytest.fixture()
-def cert_file(
-    tmp_path: Path, valid_leaf_cert: x509.Certificate
-) -> Generator[Path, None, None]:
+@pytest.fixture
+def cert_file(tmp_path: Path, valid_leaf_cert: x509.Certificate) -> Path:
     """Write a valid PEM leaf cert to a temp file."""
     path = tmp_path / "leaf.crt"
-    path.write_bytes(
-        valid_leaf_cert.public_bytes(serialization.Encoding.PEM)
-    )
-    yield path
+    path.write_bytes(valid_leaf_cert.public_bytes(serialization.Encoding.PEM))
+    return path
 
 
-@pytest.fixture()
-def key_file(
-    tmp_path: Path, leaf_key: ec.EllipticCurvePrivateKey
-) -> Generator[Path, None, None]:
+@pytest.fixture
+def key_file(tmp_path: Path, leaf_key: ec.EllipticCurvePrivateKey) -> Path:
     """Write a valid PEM leaf private key to a temp file."""
     path = tmp_path / "leaf.key"
     path.write_bytes(
@@ -160,19 +148,15 @@ def key_file(
             serialization.NoEncryption(),
         )
     )
-    yield path
+    return path
 
 
-@pytest.fixture()
-def ca_cert_file(
-    tmp_path: Path, valid_ca_cert: x509.Certificate
-) -> Generator[Path, None, None]:
+@pytest.fixture
+def ca_cert_file(tmp_path: Path, valid_ca_cert: x509.Certificate) -> Path:
     """Write a valid PEM CA cert to a temp file."""
     path = tmp_path / "ca.crt"
-    path.write_bytes(
-        valid_ca_cert.public_bytes(serialization.Encoding.PEM)
-    )
-    yield path
+    path.write_bytes(valid_ca_cert.public_bytes(serialization.Encoding.PEM))
+    return path
 
 
 # ===========================================================================
@@ -183,9 +167,7 @@ def ca_cert_file(
 class TestAttackCertFileNotFound:
     """AC1 negative — missing cert file raises a clear error."""
 
-    def test_tls_config_raises_when_cert_file_not_found(
-        self, tmp_path: Path
-    ) -> None:
+    def test_tls_config_raises_when_cert_file_not_found(self, tmp_path: Path) -> None:
         """Missing cert file path must raise TLSCertificateError."""
         from synth_engine.shared.tls.config import TLSConfig
 
@@ -212,9 +194,7 @@ class TestAttackCertExpired:
             not_after=now - datetime.timedelta(days=1),
         )
         cert_path = tmp_path / "expired.crt"
-        cert_path.write_bytes(
-            expired_cert.public_bytes(serialization.Encoding.PEM)
-        )
+        cert_path.write_bytes(expired_cert.public_bytes(serialization.Encoding.PEM))
 
         with pytest.raises(TLSCertificateError, match="expired"):
             TLSConfig.validate_certificate(cert_path)
@@ -239,9 +219,7 @@ class TestAttackCertNotYetValid:
             not_after=now + datetime.timedelta(days=90),
         )
         cert_path = tmp_path / "future.crt"
-        cert_path.write_bytes(
-            future_cert.public_bytes(serialization.Encoding.PEM)
-        )
+        cert_path.write_bytes(future_cert.public_bytes(serialization.Encoding.PEM))
 
         with pytest.raises(TLSCertificateError, match="not yet valid"):
             TLSConfig.validate_certificate(cert_path)
@@ -262,9 +240,7 @@ class TestAttackKeyCertMismatch:
         wrong_key = _generate_key()
         cert_path = tmp_path / "leaf.crt"
         key_path = tmp_path / "wrong.key"
-        cert_path.write_bytes(
-            valid_leaf_cert.public_bytes(serialization.Encoding.PEM)
-        )
+        cert_path.write_bytes(valid_leaf_cert.public_bytes(serialization.Encoding.PEM))
         key_path.write_bytes(
             wrong_key.private_bytes(
                 serialization.Encoding.PEM,
@@ -314,9 +290,7 @@ class TestAttackSANValidationRejectsExcessiveLength:
 class TestAttackMalformedCert:
     """AC8 negative — garbage data passed as cert raises an error."""
 
-    def test_tls_config_raises_when_cert_is_malformed(
-        self, tmp_path: Path
-    ) -> None:
+    def test_tls_config_raises_when_cert_is_malformed(self, tmp_path: Path) -> None:
         """Malformed PEM data must raise TLSCertificateError."""
         from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
 
@@ -337,9 +311,7 @@ class TestAttackPermissionDenied:
         from synth_engine.shared.tls.config import TLSConfig
 
         cert_path = tmp_path / "unreadable.crt"
-        cert_path.write_bytes(
-            valid_leaf_cert.public_bytes(serialization.Encoding.PEM)
-        )
+        cert_path.write_bytes(valid_leaf_cert.public_bytes(serialization.Encoding.PEM))
         cert_path.chmod(0o000)
 
         try:
@@ -358,9 +330,7 @@ class TestAttackPermissionDenied:
 class TestLoadCertificate:
     """Feature — TLSConfig.load_certificate happy path."""
 
-    def test_load_certificate_returns_cert_object(
-        self, cert_file: Path
-    ) -> None:
+    def test_load_certificate_returns_cert_object(self, cert_file: Path) -> None:
         """load_certificate must return an x509.Certificate."""
         from synth_engine.shared.tls.config import TLSConfig
 
@@ -382,18 +352,14 @@ class TestLoadCertificate:
 class TestValidateCertificate:
     """Feature — TLSConfig.validate_certificate on valid cert."""
 
-    def test_validate_certificate_passes_for_valid_cert(
-        self, cert_file: Path
-    ) -> None:
+    def test_validate_certificate_passes_for_valid_cert(self, cert_file: Path) -> None:
         """validate_certificate must not raise for a valid, in-window cert."""
         from synth_engine.shared.tls.config import TLSConfig
 
         # Should complete without raising
         TLSConfig.validate_certificate(cert_file)
 
-    def test_validate_certificate_returns_expiry_datetime(
-        self, cert_file: Path
-    ) -> None:
+    def test_validate_certificate_returns_expiry_datetime(self, cert_file: Path) -> None:
         """validate_certificate must return the not_valid_after datetime."""
         from synth_engine.shared.tls.config import TLSConfig
 
@@ -418,9 +384,7 @@ class TestVerifyKeyCertPair:
 class TestVerifyChain:
     """Feature — TLSConfig.verify_chain validates leaf-to-CA chain."""
 
-    def test_verify_chain_passes_for_valid_chain(
-        self, cert_file: Path, ca_cert_file: Path
-    ) -> None:
+    def test_verify_chain_passes_for_valid_chain(self, cert_file: Path, ca_cert_file: Path) -> None:
         """verify_chain must not raise for a valid leaf-to-CA chain."""
         from synth_engine.shared.tls.config import TLSConfig
 
@@ -448,25 +412,17 @@ class TestVerifyChain:
 
         leaf_path = tmp_path / "leaf.crt"
         wrong_ca_path = tmp_path / "wrong_ca.crt"
-        leaf_path.write_bytes(
-            valid_leaf_cert.public_bytes(serialization.Encoding.PEM)
-        )
-        wrong_ca_path.write_bytes(
-            different_ca_cert.public_bytes(serialization.Encoding.PEM)
-        )
+        leaf_path.write_bytes(valid_leaf_cert.public_bytes(serialization.Encoding.PEM))
+        wrong_ca_path.write_bytes(different_ca_cert.public_bytes(serialization.Encoding.PEM))
 
         with pytest.raises(TLSCertificateError, match="chain|issuer|verify"):
-            TLSConfig.verify_chain(
-                leaf_cert_path=leaf_path, ca_cert_path=wrong_ca_path
-            )
+            TLSConfig.verify_chain(leaf_cert_path=leaf_path, ca_cert_path=wrong_ca_path)
 
 
 class TestDaysUntilExpiry:
     """Feature — TLSConfig.days_until_expiry."""
 
-    def test_days_until_expiry_returns_positive_for_valid_cert(
-        self, cert_file: Path
-    ) -> None:
+    def test_days_until_expiry_returns_positive_for_valid_cert(self, cert_file: Path) -> None:
         """days_until_expiry must return a positive integer for a valid cert."""
         from synth_engine.shared.tls.config import TLSConfig
 
@@ -489,9 +445,7 @@ class TestDaysUntilExpiry:
             not_after=now - datetime.timedelta(days=1),
         )
         cert_path = tmp_path / "expired.crt"
-        cert_path.write_bytes(
-            expired_cert.public_bytes(serialization.Encoding.PEM)
-        )
+        cert_path.write_bytes(expired_cert.public_bytes(serialization.Encoding.PEM))
 
         days = TLSConfig.days_until_expiry(cert_path)
         assert days < 0
@@ -511,9 +465,7 @@ class TestSANValidation:
             "postgres.synth-engine.svc.cluster.local",
         ],
     )
-    def test_san_validation_accepts_valid_hostnames(
-        self, hostname: str
-    ) -> None:
+    def test_san_validation_accepts_valid_hostnames(self, hostname: str) -> None:
         """validate_san_hostname must not raise for valid, known hostnames."""
         from synth_engine.shared.tls.config import validate_san_hostname
 
@@ -566,3 +518,138 @@ class TestTLSCertificateError:
         err = TLSCertificateError("test message")
         assert isinstance(err, Exception)
         assert "test message" in str(err)
+
+
+# ===========================================================================
+# EDGE-CASE / COVERAGE TESTS — branch paths not covered by negative/feature
+# ===========================================================================
+
+
+class TestVerifyKeyCertPairMalformedKey:
+    """Coverage — malformed private key file raises TLSCertificateError."""
+
+    def test_verify_key_cert_pair_raises_for_malformed_key(
+        self, tmp_path: Path, valid_leaf_cert: x509.Certificate
+    ) -> None:
+        """Malformed private key PEM must raise TLSCertificateError."""
+        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+
+        cert_path = tmp_path / "leaf.crt"
+        key_path = tmp_path / "bad.key"
+        cert_path.write_bytes(valid_leaf_cert.public_bytes(serialization.Encoding.PEM))
+        key_path.write_bytes(b"this is not a valid private key\n")
+
+        with pytest.raises(TLSCertificateError, match="Failed to load private key"):
+            TLSConfig.verify_key_cert_pair(key_path, cert_path)
+
+
+class TestVerifyChainNonECDSACa:
+    """Coverage — non-ECDSA CA key type raises TLSCertificateError."""
+
+    def test_verify_chain_raises_for_rsa_ca(self, tmp_path: Path) -> None:
+        """Chain verify with RSA CA must raise TLSCertificateError (ECDSA only)."""
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+
+        # Build an RSA-2048 CA cert
+        rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        ec_leaf_key = _generate_key()
+        now = _now_utc()
+
+        rsa_ca_cert = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "RSA CA")]))
+            .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "RSA CA")]))
+            .public_key(rsa_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(seconds=1))
+            .not_valid_after(now + datetime.timedelta(days=3650))
+            .sign(rsa_key, hashes.SHA256())
+        )
+
+        leaf_cert = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "app")]))
+            .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "RSA CA")]))
+            .public_key(ec_leaf_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(seconds=1))
+            .not_valid_after(now + datetime.timedelta(days=90))
+            .sign(rsa_key, hashes.SHA256())
+        )
+
+        ca_path = tmp_path / "rsa_ca.crt"
+        leaf_path = tmp_path / "leaf.crt"
+        ca_path.write_bytes(rsa_ca_cert.public_bytes(serialization.Encoding.PEM))
+        leaf_path.write_bytes(leaf_cert.public_bytes(serialization.Encoding.PEM))
+
+        with pytest.raises(TLSCertificateError, match="unsupported key type"):
+            TLSConfig.verify_chain(leaf_cert_path=leaf_path, ca_cert_path=ca_path)
+
+
+class TestEnsureUTCNaiveDatetime:
+    """Coverage — _ensure_utc handles naive datetimes."""
+
+    def test_ensure_utc_adds_timezone_to_naive_datetime(self) -> None:
+        """_ensure_utc must add UTC tzinfo to a naive datetime."""
+        from synth_engine.shared.tls.config import _ensure_utc
+
+        naive = datetime.datetime(2025, 6, 1, 12, 0, 0)
+        aware = _ensure_utc(naive)
+        assert aware.tzinfo is datetime.UTC
+        assert aware.year == 2025
+
+    def test_ensure_utc_preserves_already_aware_datetime(self) -> None:
+        """_ensure_utc must pass through a datetime that already has tzinfo."""
+        from synth_engine.shared.tls.config import _ensure_utc
+
+        aware = datetime.datetime(2025, 6, 1, 12, 0, 0, tzinfo=datetime.UTC)
+        result = _ensure_utc(aware)
+        assert result is aware
+
+
+class TestVerifyChainIssuerMismatch:
+    """Coverage — leaf issuer name mismatch with CA subject raises TLSCertificateError."""
+
+    def test_verify_chain_raises_for_issuer_name_mismatch(self, tmp_path: Path) -> None:
+        """Leaf cert with different issuer name must raise TLSCertificateError."""
+        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+
+        # Build a CA cert
+        ca_key = _generate_key()
+        leaf_key = _generate_key()
+        now = _now_utc()
+
+        ca_cert = _build_cert(
+            "Real CA",
+            ca_key,
+            "Real CA",
+            ca_key,
+            not_before=now - datetime.timedelta(seconds=1),
+            not_after=now + datetime.timedelta(days=3650),
+        )
+
+        # Build a leaf cert where issuer says "Different CA" but we try to verify
+        # against "Real CA" — both signature AND issuer name mismatch.
+        # We construct the leaf signed by ca_key but with issuer name != CA subject.
+        subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "app")])
+        wrong_issuer_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Different CA")])
+        leaf_cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(wrong_issuer_name)
+            .public_key(leaf_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(seconds=1))
+            .not_valid_after(now + datetime.timedelta(days=90))
+            .sign(ca_key, hashes.SHA256())
+        )
+
+        ca_path = tmp_path / "ca.crt"
+        leaf_path = tmp_path / "leaf.crt"
+        ca_path.write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
+        leaf_path.write_bytes(leaf_cert.public_bytes(serialization.Encoding.PEM))
+
+        with pytest.raises(TLSCertificateError, match="mismatch"):
+            TLSConfig.verify_chain(leaf_cert_path=leaf_path, ca_cert_path=ca_path)

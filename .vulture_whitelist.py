@@ -247,3 +247,16 @@ WebhookDeliveryCallback  # unused variable — shared/protocols.py; type alias u
 WebhookRegistrationProtocol  # unused class — shared/protocols.py; mypy structural typing for deliver_webhook parameter
 _safe_url_for_log  # unused function — bootstrapper/routers/webhooks.py; called for SSRF log sanitization
 _build_webhook_delivery_fn  # unused function — bootstrapper/main.py; called at module load time for IoC wiring
+
+# ---------------------------------------------------------------------------
+# Category L — T46.1 mTLS TLS helpers
+# TLSConfig static methods are called from operator startup hooks and tests
+# via deferred imports. Vulture cannot trace test-scoped deferred imports.
+# validate_san_hostname and _ensure_utc are module-level functions exported
+# as part of the shared/tls/ public API.
+# ---------------------------------------------------------------------------
+
+validate_certificate  # unused method — TLSConfig.validate_certificate (shared/tls/config.py)
+verify_key_cert_pair  # unused method — TLSConfig.verify_key_cert_pair (shared/tls/config.py)
+verify_chain  # unused method — TLSConfig.verify_chain (shared/tls/config.py)
+days_until_expiry  # unused method — TLSConfig.days_until_expiry (shared/tls/config.py)
