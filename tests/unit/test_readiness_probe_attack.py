@@ -25,7 +25,6 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
 
-
 # ---------------------------------------------------------------------------
 # Settings cache isolation
 # ---------------------------------------------------------------------------

@@ -43,6 +43,7 @@ upsert_setting  # unused function — FastAPI route handler (routers/settings.py
 get_setting  # unused function — FastAPI route handler (routers/settings.py)
 delete_setting  # unused function — FastAPI route handler (routers/settings.py)
 health_check  # unused function — FastAPI route handler (bootstrapper/lifecycle.py)
+readiness_check  # unused function — FastAPI route handler (bootstrapper/routers/health.py)
 unseal_vault  # unused function — FastAPI route handler (bootstrapper/lifecycle.py)
 get_budget  # unused function — FastAPI route handler (routers/privacy.py)
 refresh_budget  # unused function — FastAPI route handler (routers/privacy.py)

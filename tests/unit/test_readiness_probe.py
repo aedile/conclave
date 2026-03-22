@@ -26,7 +26,6 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-
 # ---------------------------------------------------------------------------
 # Settings cache isolation
 # ---------------------------------------------------------------------------
@@ -499,9 +498,7 @@ class TestReadinessRouteRegistration:
         """An unregistered path must return 404 so we can confirm /ready is explicit."""
         app = _build_app()
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/readyz")
 
         assert response.status_code == 404
