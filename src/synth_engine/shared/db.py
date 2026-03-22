@@ -14,9 +14,11 @@ handles external multiplexing.
 Engine singleton caching (T19.1)
 ---------------------------------
 Both ``get_engine`` and ``get_async_engine`` cache the engine they create,
-keyed by the ``database_url`` string.  Subsequent calls with the same URL
-return the **same** engine instance from the module-level cache, avoiding
-the creation of a new connection pool on every call.
+keyed by a composite ``"{database_url}|mtls={mtls_enabled}"`` string for
+PostgreSQL connections (``"{database_url}"`` for SQLite, which never uses
+TLS).  Caching by the composite key prevents returning a cached plaintext
+engine when the same URL is subsequently requested with mTLS enabled — a
+scenario that can occur in tests that toggle ``MTLS_ENABLED`` between cases.
 
 Without caching, each call would create a new ``QueuePool`` with up to
 ``pool_size + max_overflow = 15`` connections.  In a request-heavy
@@ -24,13 +26,33 @@ environment this could exhaust the available PostgreSQL connections.
 
 Call :func:`dispose_engines` to release all cached engines and their
 connection pools — required between test cases that use different
-``database_url`` values, and at application shutdown.
+``database_url`` values or mTLS state, and at application shutdown.
 
 ``get_async_engine`` provides an :class:`~sqlalchemy.ext.asyncio.AsyncEngine`
 for use with async sessions.  Required by the Privacy Accountant (T4.4)
 which needs ``SELECT ... FOR UPDATE`` within an async FastAPI request context.
 For PostgreSQL async the driver is ``asyncpg`` (``postgresql+asyncpg://``).
 For in-process unit tests the driver is ``aiosqlite`` (``sqlite+aiosqlite://``).
+
+mTLS engine configuration (T46.2)
+----------------------------------
+When ``MTLS_ENABLED=true`` is set in the environment:
+
+- ``get_engine()`` (sync / psycopg2) adds::
+
+      connect_args={
+          "sslmode": "verify-full",
+          "sslcert": <MTLS_CLIENT_CERT_PATH>,
+          "sslkey": <MTLS_CLIENT_KEY_PATH>,
+          "sslrootcert": <MTLS_CA_CERT_PATH>,
+      }
+
+- ``get_async_engine()`` (asyncpg) builds an ``ssl.SSLContext`` with the
+  client cert/key loaded and the CA cert as the trust anchor, then passes::
+
+      connect_args={"ssl": <ssl.SSLContext>}
+
+SQLite connections are never modified — they do not support TLS.
 
 Session management
 ------------------
@@ -69,11 +91,13 @@ Task: P2-T2.2 — Secure Database Layer
 Task: P4-T4.4 — Privacy Accountant (async engine + session)
 Task: P5-T5.1 — Task Orchestration API Core (SessionFactory type alias)
 Task: T19.1 — Engine singleton caching (dispose_engines)
+Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 """
 
 from __future__ import annotations
 
 import contextlib
+import ssl
 import uuid
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager
@@ -103,30 +127,109 @@ SessionFactory = Callable[[], contextlib.AbstractContextManager[Session]]
 _POOL_SIZE = 5
 _MAX_OVERFLOW = 10
 
-#: Module-level cache for synchronous engines, keyed by database_url.
+#: Module-level cache for synchronous engines, keyed by composite cache key.
+#: For PostgreSQL: ``"{database_url}|mtls={mtls_enabled}"``.
+#: For SQLite: ``"{database_url}"`` (TLS not applicable).
 #: Populated lazily on first call to :func:`get_engine`.
 #: Call :func:`dispose_engines` to clear.
 _engine_cache: dict[str, Engine] = {}
 
-#: Module-level cache for asynchronous engines, keyed by database_url.
+#: Module-level cache for asynchronous engines, keyed by composite cache key.
+#: For PostgreSQL: ``"{database_url}|mtls={mtls_enabled}"``.
+#: For SQLite: ``"{database_url}"`` (TLS not applicable).
 #: Populated lazily on first call to :func:`get_async_engine`.
 #: Call :func:`dispose_engines` to clear.
 _async_engine_cache: dict[str, AsyncEngine] = {}
 
 
+def _engine_cache_key(database_url: str) -> str:
+    """Return the cache key for the given database URL.
+
+    For SQLite connections the URL itself is the key — SQLite never uses TLS.
+    For all other drivers (PostgreSQL) the key is a composite that includes the
+    current ``mtls_enabled`` setting, preventing a cached plaintext engine from
+    being returned after mTLS is enabled (e.g., between test cases).
+
+    Args:
+        database_url: A SQLAlchemy-compatible connection URL.
+
+    Returns:
+        A string suitable for use as the key in ``_engine_cache`` or
+        ``_async_engine_cache``.
+    """
+    if database_url.startswith("sqlite"):
+        return database_url
+    from synth_engine.shared.settings import get_settings
+
+    settings = get_settings()
+    return f"{database_url}|mtls={settings.mtls_enabled}"
+
+
+def _build_psycopg2_connect_args() -> dict[str, str]:
+    """Build psycopg2 TLS connect_args from current settings.
+
+    Called only when ``MTLS_ENABLED=true`` and the database URL is a
+    PostgreSQL connection (not SQLite).  Reads the mTLS cert paths from
+    :func:`get_settings` and returns a dict suitable for passing as
+    ``connect_args`` to :func:`sqlalchemy.create_engine`.
+
+    Returns:
+        A dict with ``sslmode``, ``sslcert``, ``sslkey``, and ``sslrootcert``
+        keys, all populated from :class:`ConclaveSettings`.
+    """
+    from synth_engine.shared.settings import get_settings
+
+    settings = get_settings()
+    return {
+        "sslmode": "verify-full",
+        "sslcert": settings.mtls_client_cert_path,
+        "sslkey": settings.mtls_client_key_path,
+        "sslrootcert": settings.mtls_ca_cert_path,
+    }
+
+
+def _build_asyncpg_ssl_context() -> ssl.SSLContext:
+    """Build an ssl.SSLContext for asyncpg mTLS connections.
+
+    Creates a client-side TLS context that:
+    - Verifies the server certificate against the configured CA cert.
+    - Loads the client certificate and key for mutual authentication.
+
+    Returns:
+        A configured :class:`ssl.SSLContext` ready for asyncpg's
+        ``connect_args={"ssl": context}`` parameter.
+    """
+    from synth_engine.shared.settings import get_settings
+
+    settings = get_settings()
+    ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=settings.mtls_ca_cert_path)
+    ctx.load_cert_chain(
+        certfile=settings.mtls_client_cert_path,
+        keyfile=settings.mtls_client_key_path,
+    )
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    return ctx
+
+
 def get_engine(database_url: str) -> Engine:
     """Return a cached SQLAlchemy engine for the given URL.
 
-    If an engine for ``database_url`` already exists in the module-level
-    cache, it is returned immediately without creating a new connection pool.
-    Otherwise a new engine is created, stored in the cache, and returned.
+    If an engine for ``database_url`` (with the current mTLS state) already
+    exists in the module-level cache, it is returned immediately without
+    creating a new connection pool.  Otherwise a new engine is created, stored
+    in the cache, and returned.
 
-    This singleton behaviour prevents connection pool exhaustion in
-    request-heavy environments: without caching, each call would allocate a
-    new ``QueuePool`` with up to ``pool_size + max_overflow`` connections.
+    The cache key is a composite ``"{database_url}|mtls={mtls_enabled}"``
+    for PostgreSQL connections so that toggling ``MTLS_ENABLED`` between calls
+    (as can happen in tests) always produces a correctly-configured engine,
+    never returning a cached plaintext engine for an mTLS-enabled request.
 
     For SQLite URLs (``sqlite://``) pool sizing arguments are omitted
     because SQLite uses a ``StaticPool`` that does not accept them.
+
+    When ``MTLS_ENABLED=true`` and the URL is a PostgreSQL connection,
+    ``connect_args`` carrying ``sslmode=verify-full`` and the cert paths
+    are injected automatically.
 
     Args:
         database_url: A SQLAlchemy-compatible connection URL.  Credentials
@@ -139,30 +242,43 @@ def get_engine(database_url: str) -> Engine:
 
     Returns:
         A configured :class:`sqlalchemy.Engine` instance.  The same instance
-        is returned on every call with the same ``database_url``.
+        is returned on every call with the same ``database_url`` and mTLS
+        state.
     """
-    if database_url in _engine_cache:
-        return _engine_cache[database_url]
+    cache_key = _engine_cache_key(database_url)
+    if cache_key in _engine_cache:
+        return _engine_cache[cache_key]
 
     if database_url.startswith("sqlite"):
         engine = create_engine(database_url)
     else:
+        from synth_engine.shared.settings import get_settings
+
+        settings = get_settings()
+        extra_kwargs: dict[str, object] = {}
+        if settings.mtls_enabled:
+            extra_kwargs["connect_args"] = _build_psycopg2_connect_args()
+
         engine = create_engine(
             database_url,
             pool_size=_POOL_SIZE,
             max_overflow=_MAX_OVERFLOW,
+            **extra_kwargs,
         )
 
-    _engine_cache[database_url] = engine
+    _engine_cache[cache_key] = engine
     return engine
 
 
 def get_async_engine(database_url: str) -> AsyncEngine:
     """Return a cached async SQLAlchemy engine for the given URL.
 
-    If an async engine for ``database_url`` already exists in the module-level
-    cache, it is returned immediately.  Otherwise a new engine is created,
-    cached, and returned.
+    If an async engine for ``database_url`` (with the current mTLS state)
+    already exists in the module-level cache, it is returned immediately.
+    Otherwise a new engine is created, cached, and returned.
+
+    The cache key is a composite ``"{database_url}|mtls={mtls_enabled}"``
+    for PostgreSQL connections — the same rationale as :func:`get_engine`.
 
     Supports two driver schemes:
 
@@ -177,6 +293,10 @@ def get_async_engine(database_url: str) -> AsyncEngine:
     because ``StaticPool`` is automatically chosen by SQLAlchemy for
     in-memory SQLite and does not accept pool configuration.
 
+    When ``MTLS_ENABLED=true`` and the URL is a PostgreSQL asyncpg connection,
+    an :class:`ssl.SSLContext` is built from the configured cert paths and
+    passed as ``connect_args={"ssl": ctx}``.
+
     Args:
         database_url: An async-driver-compatible SQLAlchemy URL.  Credentials
             must be sourced from environment variables at call-site, never
@@ -184,21 +304,31 @@ def get_async_engine(database_url: str) -> AsyncEngine:
 
     Returns:
         A configured :class:`~sqlalchemy.ext.asyncio.AsyncEngine` instance.
-        The same instance is returned on every call with the same ``database_url``.
+        The same instance is returned on every call with the same
+        ``database_url`` and mTLS state.
     """
-    if database_url in _async_engine_cache:
-        return _async_engine_cache[database_url]
+    cache_key = _engine_cache_key(database_url)
+    if cache_key in _async_engine_cache:
+        return _async_engine_cache[cache_key]
 
     if database_url.startswith("sqlite"):
         engine = create_async_engine(database_url)
     else:
+        from synth_engine.shared.settings import get_settings
+
+        settings = get_settings()
+        extra_kwargs: dict[str, object] = {}
+        if settings.mtls_enabled:
+            extra_kwargs["connect_args"] = {"ssl": _build_asyncpg_ssl_context()}
+
         engine = create_async_engine(
             database_url,
             pool_size=_POOL_SIZE,
             max_overflow=_MAX_OVERFLOW,
+            **extra_kwargs,
         )
 
-    _async_engine_cache[database_url] = engine
+    _async_engine_cache[cache_key] = engine
     return engine
 
 
@@ -215,7 +345,7 @@ def dispose_engines() -> None:
     a no-op.
 
     Use cases:
-    - Test teardown: clear between test cases that use different URLs.
+    - Test teardown: clear between test cases that use different URLs or mTLS state.
     - Application shutdown: release all DB connections before exit.
     """
     for sync_engine in _engine_cache.values():

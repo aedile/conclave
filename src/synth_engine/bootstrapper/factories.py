@@ -212,12 +212,25 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
 
     from synth_engine.shared.settings import get_settings
 
-    database_url = get_settings().database_url or "sqlite:///:memory:"
+    settings = get_settings()
+    database_url = settings.database_url or "sqlite:///:memory:"
     sync_url = _promote_to_sync_url(database_url)
+
+    # Build TLS connect_args when mTLS is enabled (T46.2).
+    # The sync engine (psycopg2) uses psycopg2-native ssl kwargs.
+    # SQLite connections are never modified — they do not support TLS.
+    extra_kwargs: dict[str, object] = {}
+    if settings.mtls_enabled and not sync_url.startswith("sqlite"):
+        extra_kwargs["connect_args"] = {
+            "sslmode": "verify-full",
+            "sslcert": settings.mtls_client_cert_path,
+            "sslkey": settings.mtls_client_key_path,
+            "sslrootcert": settings.mtls_ca_cert_path,
+        }
 
     # Build the engine once at factory scope — reused for every invocation of
     # the returned _sync_wrapper.  NullPool: no idle connections between calls.
-    engine = create_engine(sync_url, poolclass=NullPool)
+    engine = create_engine(sync_url, poolclass=NullPool, **extra_kwargs)
 
     def _sync_wrapper(
         *,

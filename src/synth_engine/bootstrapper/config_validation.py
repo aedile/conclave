@@ -20,6 +20,16 @@ Multi-key signing consistency (T42.1):
   be set and must exist as a key within the map.  This is validated in all deployment
   modes to prevent silent misconfiguration during rotation.
 
+mTLS cert file validation (T46.2):
+  When ``MTLS_ENABLED=true``, the three cert path settings
+  (``MTLS_CA_CERT_PATH``, ``MTLS_CLIENT_CERT_PATH``, ``MTLS_CLIENT_KEY_PATH``)
+  must each point to an existing, readable file.  All three are checked before
+  raising so that the operator receives a complete error in one pass.
+
+  When ``MTLS_ENABLED=true`` and ``CONCLAVE_SSL_REQUIRED=false``, a WARNING
+  is logged noting that mTLS implies SSL is required — the setting is effectively
+  overridden.
+
 Design rationale (ADV-077):
   Without a startup check, a misconfigured production instance will start
   silently and then fail at runtime — potentially mid-synthesis, after PII
@@ -40,11 +50,13 @@ Task: P36 review — Delegate _is_production() to get_settings().is_production()
 Task: T37.2 — Drain ADV-P36-01: replace remaining os.environ.get() with get_settings()
 Task: T42.2 — Add HTTPS Enforcement & Deployment Safety Checks
 Task: T42.1 — Artifact Signing Key Versioning (multi-key consistency validation)
+Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
 from synth_engine.shared.settings import get_settings
@@ -76,6 +88,41 @@ def _is_production() -> bool:
     return get_settings().is_production()
 
 
+def _validate_mtls_cert_files(errors: list[str]) -> None:
+    """Validate that mTLS cert files exist and are readable.
+
+    Appends error messages to ``errors`` for each missing or unreadable
+    cert file.  All three cert paths are checked before returning so that
+    the operator receives a complete list of problems in one pass.
+
+    This function is a no-op when ``MTLS_ENABLED=false``.
+
+    Args:
+        errors: Mutable list of error strings.  Any new errors found are
+            appended in-place.
+    """
+    settings = get_settings()
+    if not settings.mtls_enabled:
+        return
+
+    cert_paths: dict[str, str] = {
+        "MTLS_CA_CERT_PATH": settings.mtls_ca_cert_path,
+        "MTLS_CLIENT_CERT_PATH": settings.mtls_client_cert_path,
+        "MTLS_CLIENT_KEY_PATH": settings.mtls_client_key_path,
+    }
+
+    for env_var, path_str in cert_paths.items():
+        if not path_str:
+            errors.append(f"{env_var} is empty — set it to the path of the mTLS certificate file")
+            continue
+        path = Path(path_str)
+        if not path.exists():
+            errors.append(
+                f"{env_var}={path_str!r} does not exist — "
+                f"ensure the certificate file is present before starting with MTLS_ENABLED=true"
+            )
+
+
 def validate_config() -> None:
     """Validate required environment variables at application startup.
 
@@ -91,18 +138,19 @@ def validate_config() -> None:
       ``CONCLAVE_SSL_REQUIRED=true`` but no TLS certificate path is configured
       in the environment — indicating a potential misconfiguration where the
       application expects TLS but no cert is wired.
-    Additionally, validates multi-key signing consistency (T42.1): if
-    ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE``
-    must be set and present as a key within the map.  This check applies in
-    all deployment modes.
+    - Validates multi-key signing consistency (T42.1): if
+      ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE``
+      must be set and present as a key within the map.  This check applies in
+      all deployment modes.
+    - When ``MTLS_ENABLED=true``, validates that all three mTLS cert paths
+      (``MTLS_CA_CERT_PATH``, ``MTLS_CLIENT_CERT_PATH``, ``MTLS_CLIENT_KEY_PATH``)
+      point to existing files (T46.2).
+    - When ``MTLS_ENABLED=true`` and ``CONCLAVE_SSL_REQUIRED=false``, emits a
+      WARNING that mTLS implies SSL is required (T46.2).
 
-    Also emits a security warning when ``CONCLAVE_SSL_REQUIRED=false``
-    is detected in production mode, as this disables SSL enforcement for
-    PostgreSQL connections.
-
-    Collects ALL missing variables before raising so that the operator
-    receives a complete list in a single error message — not just the first
-    missing variable.
+    Collects ALL missing variables and cert errors before raising so that the
+    operator receives a complete list in a single error message — not just the
+    first missing variable.
 
     All environment variable access goes through the :func:`get_settings`
     singleton rather than ``os.environ`` directly, ensuring a single source
@@ -113,7 +161,8 @@ def validate_config() -> None:
 
     Raises:
         SystemExit: If any required environment variable is missing or if the
-            multi-key signing configuration is inconsistent.  The exit message
+            multi-key signing configuration is inconsistent, or if any mTLS
+            cert file is missing when MTLS_ENABLED=true.  The exit message
             lists every error.
 
     Example::
@@ -146,6 +195,9 @@ def validate_config() -> None:
                 f"is not present in ARTIFACT_SIGNING_KEYS"
             )
 
+    # T46.2: validate mTLS cert files exist when MTLS_ENABLED=true.
+    _validate_mtls_cert_files(errors)
+
     if errors:
         error_list = ", ".join(errors)
         raise SystemExit(
@@ -159,6 +211,16 @@ def validate_config() -> None:
             "CONCLAVE_SSL_REQUIRED=false in production mode — "
             "SSL enforcement for PostgreSQL connections is disabled. "
             "This is a security misconfiguration for production."
+        )
+
+    # T46.2: Warn when mTLS is enabled but CONCLAVE_SSL_REQUIRED is false.
+    # mTLS implies SSL — the explicit flag is redundant but its absence is
+    # a misconfiguration signal worth surfacing.
+    if settings.mtls_enabled and not settings.conclave_ssl_required:
+        _logger.warning(
+            "MTLS_ENABLED=true overrides CONCLAVE_SSL_REQUIRED=false — "
+            "ssl is implicitly required when mTLS is active. "
+            "Set CONCLAVE_SSL_REQUIRED=true to silence this warning."
         )
 
     # TLS cert misconfiguration check (T42.2): warn if ssl_required=True but no

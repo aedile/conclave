@@ -45,6 +45,7 @@ Task: T42.2 — Add HTTPS Enforcement & Deployment Safety Checks
 Task: T42.1 — Artifact Signing Key Versioning (multi-key support)
 Task: T45.2 — Reintroduce Orphan Task Reaper (TBD-08)
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
+Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 """
 
 from __future__ import annotations
@@ -458,6 +459,40 @@ class ConclaveSettings(BaseSettings):
             "HTTP timeout in seconds for each webhook delivery attempt. "
             "Applied per-attempt; total time can be up to 3x for 3 retries. "
             "Defaults to 10 seconds."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # mTLS Inter-Container Communication (T46.2)
+    # -----------------------------------------------------------------------
+
+    mtls_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable mTLS for all inter-container connections. "
+            "Defaults to False for backward compatibility.  When True, "
+            "all data-plane connections use TLS with mutual certificate authentication."
+        ),
+    )
+    mtls_ca_cert_path: str = Field(
+        default="secrets/mtls/ca.crt",
+        description=(
+            "Path to the mTLS CA certificate.  Used when MTLS_ENABLED=true to verify "
+            "the server certificate for PostgreSQL and Redis connections."
+        ),
+    )
+    mtls_client_cert_path: str = Field(
+        default="secrets/mtls/app.crt",
+        description=(
+            "Path to the mTLS client certificate.  Presented to PostgreSQL and Redis "
+            "servers for mutual authentication when MTLS_ENABLED=true."
+        ),
+    )
+    mtls_client_key_path: str = Field(
+        default="secrets/mtls/app.key",
+        description=(
+            "Path to the mTLS client private key.  Must correspond to the certificate "
+            "at MTLS_CLIENT_CERT_PATH.  Used when MTLS_ENABLED=true."
         ),
     )
 

@@ -518,12 +518,11 @@ No service other than `app` (port 8000) and `grafana` (port 3000) is accessible
 from outside the Docker host. Do not bind these ports to public interfaces in
 production.
 
-### 8.3 mTLS (Future)
+### 8.3 mTLS
 
-The current architecture uses network-level isolation rather than mutual TLS
-between services. If inter-service mTLS is required, configure it at the
-Docker network layer or use a service mesh (Envoy, Linkerd). No code changes
-are required in the engine itself.
+Native mTLS for all inter-container data-plane connections is implemented as
+an opt-in Docker Compose overlay. See **Section 12** for setup and activation
+instructions, and **Section 13** for certificate rotation procedures.
 
 ### 8.4 Secret Management
 
@@ -979,3 +978,353 @@ compliance evidence.
 | Financial services (SEC Rule 17a-4) | 2,555 (7 years) | SEC Rule 17a-4(b)(1) |
 
 Consult your legal counsel for your specific jurisdiction and data category.
+
+---
+
+## 12. mTLS Inter-Container Communication (T46.1)
+
+This section covers certificate management for mTLS inter-container
+communication in multi-host deployments.
+
+### 12.1 Overview
+
+The Conclave Engine uses an internal Certificate Authority (CA) to issue leaf
+certificates for each service that participates in mTLS. The CA is operator-
+provisioned and never leaves the operator host.
+
+**Services with mTLS certificates:**
+- `app` — Conclave Engine API server + Huey workers
+- `postgres` — PostgreSQL database
+- `pgbouncer` — PgBouncer connection pooler
+- `redis` — Redis task queue
+
+**Services exempt from mTLS** (ADR-0029 Gap 7):
+- `prometheus`, `alertmanager`, `grafana`, `minio` — monitoring/ephemeral
+  services do not receive leaf certificates.
+
+### 12.2 Generating Certificates
+
+Prerequisites: `openssl` 1.1.1+ on the operator host.
+
+```bash
+# First-time setup — generates CA + all leaf certificates
+./scripts/generate-mtls-certs.sh
+
+# Help and options
+./scripts/generate-mtls-certs.sh --help
+```
+
+Key options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--ca-days N` | 3650 | CA certificate validity in days |
+| `--leaf-days N` | 90 | Leaf certificate validity in days |
+| `--output-dir DIR` | `secrets/mtls` | Output directory |
+| `--force` | (off) | Regenerate CA even if `ca.key` exists |
+
+### 12.3 Certificate Storage
+
+Certificates are stored in `secrets/mtls/` (gitignored):
+
+```
+secrets/mtls/ca.crt      — CA trust anchor  (distribute to all containers)
+secrets/mtls/ca.key      — CA private key   (0400 — operator host ONLY)
+secrets/mtls/<svc>.crt   — Leaf certificate (0644)
+secrets/mtls/<svc>.key   — Leaf private key (0600)
+```
+
+CRITICAL: The CA private key (`ca.key`) must never be mounted into any
+container. Only the leaf `.crt`, `.key`, and `ca.crt` are distributed.
+
+### 12.4 Certificate Expiry Monitoring
+
+Check expiry from the command line:
+
+```bash
+openssl x509 -noout -enddate -in secrets/mtls/app.crt
+```
+
+Or from Python (e.g. in a health-check script):
+
+```python
+from pathlib import Path
+from synth_engine.shared.tls import TLSConfig
+
+for service in ("app", "postgres", "pgbouncer", "redis"):
+    days = TLSConfig.days_until_expiry(Path(f"secrets/mtls/{service}.crt"))
+    status = "OK" if days > 14 else "EXPIRING SOON" if days > 0 else "EXPIRED"
+    print(f"{service}: {days} days remaining — {status}")
+```
+
+### 12.5 Certificate Rotation
+
+Leaf certificates default to 90-day validity. Re-run the script to rotate
+(CA is preserved unless `--force` is specified):
+
+```bash
+./scripts/generate-mtls-certs.sh
+docker compose restart app postgres pgbouncer redis
+```
+
+After rotation, verify the new chain:
+
+```bash
+openssl verify -CAfile secrets/mtls/ca.crt secrets/mtls/app.crt
+```
+
+See `docs/PRODUCTION_DEPLOYMENT.md` Step 2.5 for full provisioning details.
+
+---
+
+## 13. Certificate Rotation Procedures (T46.3)
+
+Leaf certificates have a 90-day default validity. This section covers
+zero-downtime rotation procedures, Prometheus alert rules, and CA rotation
+planning.
+
+### 13.1 Overview
+
+**Key concepts:**
+
+- **Leaf cert rotation**: Replace app/postgres/pgbouncer/redis certs using
+  the existing CA. Zero-downtime for PgBouncer/Redis/PostgreSQL; rolling
+  restart required for the `app` container (uvicorn does not support live TLS
+  reload). Clients with retry logic reconnect automatically.
+- **CA rotation**: Requires a planned maintenance window. The CA is the trust
+  root — rotating it requires a dual-CA trust migration period. See
+  Section 13.4.
+- **Mixed-cert window**: During rotation, old and new leaf certs are both
+  signed by the same CA. Both are simultaneously valid, so PgBouncer/Redis
+  can reload without interrupting in-flight connections. The app container's
+  restart takes seconds with `docker compose up -d --no-deps --force-recreate app`.
+
+### 13.2 Docker Compose Leaf Certificate Rotation
+
+**Prerequisites:** `openssl` 1.1.1+ on the operator host. CA key at
+`secrets/mtls/ca.key`.
+
+#### Step-by-step procedure
+
+**Step 1: Run the rotation helper script**
+
+```bash
+# Backs up existing certs, generates new leaf certs, validates, prints reload
+# commands. Does NOT automatically reload services.
+./scripts/rotate-mtls-certs.sh
+```
+
+Options:
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--output-dir DIR` | `secrets/mtls` | Directory containing current certs |
+| `--leaf-days N` | `90` | New leaf cert validity in days |
+
+The script exits with code 1 if any new cert fails chain verification,
+key-pair match, or minimum expiry check (>30 days). On failure, the previous
+certs are preserved in the timestamped backup directory.
+
+**Step 2: Reload services (in order)**
+
+Run the commands printed by the script. The order below minimises disruption:
+
+```bash
+# PgBouncer — live config reload, no connection drops
+docker compose exec pgbouncer psql -U pgbouncer pgbouncer -c 'RELOAD;'
+
+# Redis — live TLS config reload, no connection drops
+docker compose exec redis redis-cli CONFIG SET \
+    tls-ca-cert-file /run/secrets/mtls/ca.crt \
+    tls-cert-file /run/secrets/mtls/redis.crt \
+    tls-key-file /run/secrets/mtls/redis.key
+
+# PostgreSQL — reloads TLS config without dropping existing connections
+docker compose exec postgres psql -U postgres -c 'SELECT pg_reload_conf();'
+
+# App container — uvicorn does NOT support dynamic TLS reload.
+# A rolling restart is required (brief reconnect window for in-flight requests).
+docker compose up -d --no-deps --force-recreate app
+```
+
+**Step 3: Verify the new chain**
+
+```bash
+openssl verify -CAfile secrets/mtls/ca.crt secrets/mtls/app.crt
+openssl verify -CAfile secrets/mtls/ca.crt secrets/mtls/postgres.crt
+openssl verify -CAfile secrets/mtls/ca.crt secrets/mtls/pgbouncer.crt
+openssl verify -CAfile secrets/mtls/ca.crt secrets/mtls/redis.crt
+```
+
+**Step 4: Verify Prometheus expiry metrics**
+
+```bash
+curl -s http://localhost:9000/metrics | grep conclave_cert_expiry_days
+```
+
+Expected output (days will vary):
+
+```text
+conclave_cert_expiry_days{service="app"} 90.0
+conclave_cert_expiry_days{service="ca"} 3649.0
+```
+
+### 13.3 Kubernetes Leaf Certificate Rotation
+
+In Kubernetes, mTLS certs are stored in a `Secret` and mounted as volumes.
+
+**Option A: cert-manager (recommended)**
+
+Install cert-manager and create `Certificate` and `Issuer` resources. cert-manager
+automatically rotates leaf certs before expiry and triggers pod rollouts via
+`kubectl.kubernetes.io/restartedAt` annotations.
+
+```yaml
+# Example cert-manager Certificate resource
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: conclave-app-cert
+  namespace: synth-engine
+spec:
+  secretName: conclave-mtls
+  duration: 2160h  # 90 days
+  renewBefore: 720h  # Renew 30 days before expiry
+  issuerRef:
+    name: conclave-internal-ca
+    kind: Issuer
+  dnsNames:
+    - app
+    - app.synth-engine.svc.cluster.local
+```
+
+**Option B: Manual rotation**
+
+```bash
+# Generate new certs on the operator host
+./scripts/rotate-mtls-certs.sh --output-dir /tmp/new-certs
+
+# Update the Kubernetes secret
+kubectl create secret generic conclave-mtls \
+    --from-file=ca.crt=/tmp/new-certs/ca.crt \
+    --from-file=app.crt=/tmp/new-certs/app.crt \
+    --from-file=app.key=/tmp/new-certs/app.key \
+    --from-file=postgres.crt=/tmp/new-certs/postgres.crt \
+    --from-file=postgres.key=/tmp/new-certs/postgres.key \
+    --from-file=pgbouncer.crt=/tmp/new-certs/pgbouncer.crt \
+    --from-file=pgbouncer.key=/tmp/new-certs/pgbouncer.key \
+    --from-file=redis.crt=/tmp/new-certs/redis.crt \
+    --from-file=redis.key=/tmp/new-certs/redis.key \
+    --namespace synth-engine \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+# Rolling restart to pick up new certs
+kubectl rollout restart deployment/conclave-app -n synth-engine
+kubectl rollout restart deployment/conclave-pgbouncer -n synth-engine
+kubectl rollout restart statefulset/conclave-postgres -n synth-engine
+kubectl rollout restart statefulset/conclave-redis -n synth-engine
+
+# Wait for rollout and verify
+kubectl rollout status deployment/conclave-app -n synth-engine
+```
+
+### 13.4 CA Rotation (Planned Maintenance Window)
+
+CA rotation invalidates ALL existing leaf certificates. It requires a
+planned maintenance window because there is no zero-downtime path when the
+trust root changes.
+
+**When to rotate the CA:**
+- CA cert is approaching expiry (default 3650 days ≈ 10 years).
+- CA private key compromise is suspected.
+- Security policy mandates shorter CA lifetimes.
+
+**Dual-CA trust migration procedure:**
+
+The recommended approach is a dual-CA trust window that eliminates hard
+cutover:
+
+```
+Phase 1 — Introduce new CA into trust bundles
+  1. Generate new CA: ./scripts/generate-mtls-certs.sh --force
+  2. Distribute new ca.crt alongside old ca.crt to all containers.
+  3. Configure all services to trust BOTH CAs (concat in ca-bundle.crt).
+  4. Reload trust bundles: RELOAD / pg_reload_conf() / CONFIG SET as above.
+
+Phase 2 — Issue new leaf certs signed by new CA
+  5. ./scripts/rotate-mtls-certs.sh (uses new CA from step 1).
+  6. Rolling restart all containers.
+
+Phase 3 — Remove old CA from trust bundles
+  7. Remove old ca.crt from trust bundles.
+  8. Reload all services.
+  9. Securely delete old CA key: shred -u old-ca.key
+```
+
+**IMPORTANT:** Do NOT run `generate-mtls-certs.sh --force` without completing
+this full migration. Skipping to step 5 before distributing the new CA trust
+anchor will cause all existing connections to fail.
+
+### 13.5 Prometheus Certificate Expiry Alerts
+
+The engine exposes a `conclave_cert_expiry_days` gauge on `/metrics`:
+
+| Label | Value | Meaning |
+|-------|-------|---------|
+| `service="ca"` | Days remaining | CA certificate expiry |
+| `service="app"` | Days remaining | App leaf cert expiry |
+| Any | `-1` | Cert file unreadable (WARNING logged) |
+| Any | `NaN` | mTLS disabled — not applicable |
+
+**Sample Prometheus alert rule** (paste into your `alert.rules.yml`):
+
+```yaml
+groups:
+  - name: conclave-mtls
+    rules:
+      - alert: ConclaveCertExpiryWarning
+        expr: conclave_cert_expiry_days < 30 and conclave_cert_expiry_days >= 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "mTLS certificate expiring soon ({{ $labels.service }})"
+          description: >
+            The {{ $labels.service }} certificate expires in
+            {{ $value | humanizeDuration }} days. Run
+            ./scripts/rotate-mtls-certs.sh before it reaches zero.
+
+      - alert: ConclaveCertExpired
+        expr: conclave_cert_expiry_days < 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "mTLS certificate EXPIRED ({{ $labels.service }})"
+          description: >
+            The {{ $labels.service }} certificate has expired. mTLS connections
+            will fail. Rotate immediately with ./scripts/rotate-mtls-certs.sh.
+
+      - alert: ConclaveCertUnreadable
+        expr: conclave_cert_expiry_days == -1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "mTLS certificate unreadable ({{ $labels.service }})"
+          description: >
+            Cannot read the {{ $labels.service }} certificate. Check the app
+            container logs for WARNING messages from synth_engine.shared.cert_metrics.
+```
+
+### 13.6 Reconnection Behaviour During Rotation
+
+| Service | Reload mechanism | Connection impact |
+|---------|-----------------|-------------------|
+| PgBouncer | `RELOAD` command | Zero-drop: existing client connections are preserved |
+| Redis | `CONFIG SET` | Zero-drop: existing connections are preserved |
+| PostgreSQL | `pg_reload_conf()` | Zero-drop: existing sessions continue with old TLS until next connect |
+| App (uvicorn) | `--force-recreate` restart | Brief gap (~1-5 seconds). Clients with retry logic reconnect automatically |
+
+Clients connecting during the app restart window receive a connection refused
+and should retry with exponential backoff. The default retry settings in
+asyncpg and redis-py cover this window.

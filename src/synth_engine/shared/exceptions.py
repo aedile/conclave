@@ -27,6 +27,7 @@ Exception taxonomy
   - :exc:`VaultAlreadyUnsealedError` — unseal attempted on an already-unsealed vault
   - :exc:`VaultConfigError` — VAULT_SEAL_SALT missing or too short
   - :exc:`LicenseError` — license validation failed
+  - :exc:`TLSCertificateError` — TLS certificate failed a security or validity check
 
 HTTP-safety classification
 --------------------------
@@ -37,7 +38,7 @@ Exceptions are classified as HTTP-safe or logged-only:
   :exc:`CollisionError`, :exc:`CycleDetectionError`, :exc:`OOMGuardrailError`,
   :exc:`VaultSealedError`, :exc:`VaultEmptyPassphraseError`,
   :exc:`VaultConfigError`, :exc:`VaultAlreadyUnsealedError`,
-  :exc:`LicenseError`
+  :exc:`LicenseError`, :exc:`TLSCertificateError`
 
 - **Logged-only** (must NOT appear in HTTP response body — log only):
   :exc:`PrivilegeEscalationError`, :exc:`ArtifactTamperingError`
@@ -60,6 +61,7 @@ Task: T34.2 — Consolidate module-local exceptions into shared hierarchy
 Task: P36 review — Add CycleDetectionError and CollisionError to shared hierarchy (ADR-0037)
 Task: T37.1 — Add EpsilonMeasurementError; update OPERATOR_ERROR_MAP mapping
 Task: T38.1 — Add AuditWriteError; fail job on WORM audit write failure after budget deduction
+Task: T46.1 — Add TLSCertificateError; move from shared/tls/config.py (ARCH-F1)
 """
 
 from __future__ import annotations
@@ -75,6 +77,7 @@ __all__ = [
     "OOMGuardrailError",
     "PrivilegeEscalationError",
     "SynthEngineError",
+    "TLSCertificateError",
     "VaultAlreadyUnsealedError",
     "VaultConfigError",
     "VaultEmptyPassphraseError",
@@ -354,3 +357,29 @@ class LicenseError(SynthEngineError):
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail
+
+
+class TLSCertificateError(SynthEngineError):
+    """Raised when a TLS certificate fails a security or validity check.
+
+    Produced by the TLS helper functions in :mod:`synth_engine.shared.tls.config`
+    for mTLS inter-container certificate management.
+
+    HTTP-safe: yes — the message describes a certificate validation failure
+    without leaking private key material or internal secrets.  The bootstrapper
+    maps this to HTTP 500 or 503 depending on context (startup vs. health-check).
+
+    Moved from ``shared/tls/config.py`` to ``shared/exceptions.py`` in T46.1
+    review (ARCH-F1) to ensure all domain exceptions inherit from
+    ``SynthEngineError`` per ADR-0037.
+
+    Args:
+        message: Human-readable description of the certificate failure.
+
+    Attributes:
+        message: Human-readable description of the failure.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message

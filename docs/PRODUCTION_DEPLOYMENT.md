@@ -646,3 +646,101 @@ should review their deployment if this warning appears in production logs.
 - `docs/DISASTER_RECOVERY.md` — Recovery procedures for failure scenarios
 - `docs/LICENSING.md` — License activation protocol
 - `.env.example` — All supported environment variables with descriptions
+
+---
+
+## Step 2.5 — mTLS Inter-Container Certificate Provisioning (Multi-Host Only)
+
+> **Single-host Docker Compose deployments:** mTLS between containers is
+> **optional** when all services run on the same Docker host with an isolated
+> `internal` bridge network. Skip this step for single-host deployments.
+>
+> **Multi-host deployments (Kubernetes, Docker Swarm):** mTLS is **required**
+> when containers communicate over shared infrastructure. See ADR-0029 Gap 7.
+
+### 2.5.1 Services Covered by mTLS
+
+The internal CA issues leaf certificates for four core services:
+
+| Service | Container Hostname | Purpose |
+|---------|-------------------|---------|
+| `app` | `app` | Conclave Engine API server + Huey workers |
+| `postgres` | `postgres` | PostgreSQL database |
+| `pgbouncer` | `pgbouncer` | PgBouncer connection pooler |
+| `redis` | `redis` | Redis task queue |
+
+**Monitoring services exempt from mTLS** (ADR-0029 Gap 7): Prometheus,
+Alertmanager, Grafana, and MinIO do not receive leaf certificates and are
+NOT connected to the mTLS trust chain.
+
+### 2.5.2 Certificate Generation
+
+Run the certificate generation script on the operator host (not inside any
+container). The script requires only `openssl` (version 1.1.1+) and is fully
+offline — air-gap compatible.
+
+```bash
+# Generate CA + leaf certificates with defaults (CA: 3650 days, leaf: 90 days)
+./scripts/generate-mtls-certs.sh
+
+# Or with custom validity periods
+./scripts/generate-mtls-certs.sh --ca-days 1825 --leaf-days 30
+
+# Force CA regeneration (WARNING: invalidates all existing leaf certificates)
+./scripts/generate-mtls-certs.sh --force
+```
+
+**Output structure:**
+
+```
+secrets/mtls/
+├── ca.crt          — CA root certificate (distribute as trust anchor)
+├── ca.key          — CA private key (0400 — NEVER mount into containers)
+├── app.crt         — App leaf certificate
+├── app.key         — App leaf private key (0600)
+├── postgres.crt    — PostgreSQL leaf certificate
+├── postgres.key    — PostgreSQL leaf private key (0600)
+├── pgbouncer.crt   — PgBouncer leaf certificate
+├── pgbouncer.key   — PgBouncer leaf private key (0600)
+├── redis.crt       — Redis leaf certificate
+└── redis.key       — Redis leaf private key (0600)
+```
+
+### 2.5.3 Security Constraints
+
+- **CA private key** (`ca.key`): Must remain on the operator host only. It
+  is created with `0400` permissions. It MUST NOT be mounted into any
+  container. If it is compromised, regenerate with `--force` and redeploy
+  all leaf certificates.
+- **Leaf private keys**: Created with `0600` permissions. Mount only the
+  specific service's `.crt`, `.key`, and `ca.crt` into each container.
+- **Idempotency**: Re-running the script without `--force` skips CA
+  generation if `ca.key` already exists, preventing accidental CA rotation.
+- **SANs**: Certificates include both Docker Compose short hostnames and
+  Kubernetes FQDN variants (`<service>.synth-engine.svc.cluster.local`).
+
+### 2.5.4 Certificate Rotation
+
+Leaf certificates default to 90-day validity. Rotate before expiry:
+
+```bash
+# Check days remaining on a leaf certificate
+openssl x509 -noout -enddate -in secrets/mtls/app.crt
+
+# Rotate leaf certificates only (CA key preserved, CA not regenerated)
+./scripts/generate-mtls-certs.sh
+
+# After rotation, restart affected containers to pick up new certificates
+docker compose restart app postgres pgbouncer redis
+```
+
+For programmatic expiry checking, use the Python TLS helpers:
+
+```python
+from pathlib import Path
+from synth_engine.shared.tls import TLSConfig
+
+days = TLSConfig.days_until_expiry(Path("secrets/mtls/app.crt"))
+print(f"app certificate expires in {days} days")
+```
+
