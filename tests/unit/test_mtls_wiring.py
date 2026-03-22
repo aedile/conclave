@@ -16,8 +16,8 @@ Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None, None, None]:
+def _clear_settings_cache() -> Generator[None]:
     """Clear get_settings() LRU cache before/after every test (AC19)."""
     from synth_engine.shared.settings import get_settings
 
@@ -40,7 +40,7 @@ def _clear_settings_cache() -> Generator[None, None, None]:
     get_settings.cache_clear()
 
 
-@pytest.fixture()
+@pytest.fixture
 def mtls_cert_files(tmp_path: Path) -> dict[str, Path]:
     """Create dummy cert/key files for mTLS settings tests."""
     ca = tmp_path / "ca.crt"
@@ -267,7 +267,8 @@ def test_get_async_engine_passes_ssl_context_when_mtls_enabled(
     import ssl
 
     monkeypatch.setenv(
-        "DATABASE_URL", "postgresql+asyncpg://user:pass@host/db"  # pragma: allowlist secret
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@host/db",  # pragma: allowlist secret
     )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MTLS_ENABLED", "true")
@@ -281,6 +282,11 @@ def test_get_async_engine_passes_ssl_context_when_mtls_enabled(
         captured_kwargs.update(kwargs)
         return MagicMock()
 
+    # Patch _build_asyncpg_ssl_context to avoid loading real certs from disk —
+    # the unit under test here is that get_async_engine() CALLS the builder and
+    # passes its result as connect_args["ssl"].
+    fake_ssl_ctx = ssl.create_default_context()
+
     from synth_engine.shared.db import _async_engine_cache
     from synth_engine.shared.settings import ConclaveSettings
 
@@ -288,9 +294,15 @@ def test_get_async_engine_passes_ssl_context_when_mtls_enabled(
     db_url = settings.database_url
     _async_engine_cache.pop(db_url, None)
 
-    with patch(
-        "synth_engine.shared.db.create_async_engine",
-        side_effect=fake_create_async_engine,
+    with (
+        patch(
+            "synth_engine.shared.db.create_async_engine",
+            side_effect=fake_create_async_engine,
+        ),
+        patch(
+            "synth_engine.shared.db._build_asyncpg_ssl_context",
+            return_value=fake_ssl_ctx,
+        ),
     ):
         from synth_engine.shared.db import get_async_engine
 
@@ -326,8 +338,6 @@ def test_redis_client_gets_ssl_kwargs_when_mtls_enabled(
     captured_kwargs: dict[str, object] = {}
 
     import redis as redis_lib
-
-    original_from_url = redis_lib.Redis.from_url
 
     def fake_from_url(url: str, **kwargs: object) -> MagicMock:  # type: ignore[misc]
         captured_url.append(url)
@@ -405,26 +415,25 @@ def test_build_huey_uses_rediss_url_when_mtls_enabled(
 
     captured_url: list[str] = []
     captured_conn_kwargs: list[dict[str, object]] = []
+    captured_instance: list[object] = []
 
     from huey import RedisHuey
 
-    original_init = RedisHuey.__init__
-
-    def fake_redis_huey_init(
-        self: RedisHuey, name: str, url: str | None = None, **kwargs: object
-    ) -> None:
+    # Intercept RedisHuey construction — capture kwargs, return a MagicMock so
+    # we never touch the real Huey init path (which would attempt a network call).
+    def fake_redis_huey_new(name: str, url: str | None = None, **kwargs: object) -> MagicMock:
         if url is not None:
             captured_url.append(url)
         conn_kw = kwargs.get("connection_kwargs")
         if isinstance(conn_kw, dict):
             captured_conn_kwargs.append(conn_kw)
-        # Don't actually init to avoid network calls
-        self.name = name  # type: ignore[attr-defined]
-        self.immediate = kwargs.get("immediate", False)  # type: ignore[attr-defined]
+        mock = MagicMock(spec=RedisHuey)
+        captured_instance.append(mock)
+        return mock
 
-    with patch.object(RedisHuey, "__init__", fake_redis_huey_init):
-        from synth_engine.shared.task_queue import _build_huey
+    from synth_engine.shared.task_queue import _build_huey
 
+    with patch("huey.RedisHuey", side_effect=fake_redis_huey_new):
         _build_huey()
 
     assert len(captured_url) == 1
@@ -449,7 +458,8 @@ def test_build_spend_budget_fn_uses_ssl_connect_args_when_mtls_enabled(
 ) -> None:
     """build_spend_budget_fn() sync engine has TLS connect_args when MTLS_ENABLED=true."""
     monkeypatch.setenv(
-        "DATABASE_URL", "postgresql+asyncpg://user:pass@host/db"  # pragma: allowlist secret
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@host/db",  # pragma: allowlist secret
     )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MTLS_ENABLED", "true")
@@ -463,7 +473,7 @@ def test_build_spend_budget_fn_uses_ssl_connect_args_when_mtls_enabled(
         captured_kwargs.update(kwargs)
         return MagicMock()
 
-    with patch("synth_engine.bootstrapper.factories.create_engine", side_effect=fake_create_engine):
+    with patch("sqlalchemy.create_engine", side_effect=fake_create_engine):
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         build_spend_budget_fn()
@@ -481,7 +491,8 @@ def test_build_spend_budget_fn_no_ssl_args_when_mtls_disabled(
 ) -> None:
     """build_spend_budget_fn() sync engine has NO TLS connect_args when MTLS_ENABLED=false."""
     monkeypatch.setenv(
-        "DATABASE_URL", "postgresql+asyncpg://user:pass@host/db"  # pragma: allowlist secret
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@host/db",  # pragma: allowlist secret
     )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MTLS_ENABLED", "false")
@@ -492,7 +503,7 @@ def test_build_spend_budget_fn_no_ssl_args_when_mtls_disabled(
         captured_kwargs.update(kwargs)
         return MagicMock()
 
-    with patch("synth_engine.bootstrapper.factories.create_engine", side_effect=fake_create_engine):
+    with patch("sqlalchemy.create_engine", side_effect=fake_create_engine):
         from synth_engine.bootstrapper.factories import build_spend_budget_fn
 
         build_spend_budget_fn()

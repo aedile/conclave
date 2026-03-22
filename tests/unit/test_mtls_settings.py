@@ -18,9 +18,8 @@ Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 
 from __future__ import annotations
 
-import os
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -33,7 +32,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None, None, None]:
+def _clear_settings_cache() -> Generator[None]:
     """Clear get_settings() LRU cache before/after every test (AC19)."""
     from synth_engine.shared.settings import get_settings
 
@@ -282,4 +281,6 @@ def test_mtls_enabled_implies_ssl_regardless_of_conclave_ssl_required(
         validate_config()
 
     # Should warn about mTLS implying SSL, not raise SystemExit
-    assert any("MTLS_ENABLED" in rec.message and "ssl" in rec.message.lower() for rec in caplog.records)
+    assert any(
+        "MTLS_ENABLED" in rec.message and "ssl" in rec.message.lower() for rec in caplog.records
+    )

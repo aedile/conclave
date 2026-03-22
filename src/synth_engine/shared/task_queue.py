@@ -19,6 +19,15 @@ in the environment.  In immediate mode Huey executes tasks synchronously in
 the enqueuing process — this is the recommended setting for integration tests
 that exercise task logic without a Huey worker.
 
+mTLS configuration (T46.2)
+---------------------------
+When ``MTLS_ENABLED=true``:
+
+- The ``redis://`` URL scheme is promoted to ``rediss://`` (Redis TLS scheme).
+- ``connection_kwargs`` are passed to :class:`huey.RedisHuey` with
+  ``ssl_certfile``, ``ssl_keyfile``, ``ssl_ca_certs``, and
+  ``ssl_cert_reqs="required"`` so that the Huey worker uses mutual TLS.
+
 Boundary constraints (import-linter enforced):
     - This module must NOT import from ``modules/`` or ``bootstrapper/``.
 
@@ -26,6 +35,7 @@ Task: P4-T4.2c — Huey Task Wiring & Checkpointing
 T2.1 context: Huey was specified as the task queue in the Phase 2 bootstrapper
 spec.  This module provides the singleton Huey instance that T4.2c tasks use.
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
+Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 """
 
 from __future__ import annotations
@@ -61,6 +71,29 @@ def _mask_redis_url(redis_url: str) -> str:
     return urlunparse(parsed._replace(netloc=safe_netloc))
 
 
+def _promote_redis_url_to_tls(redis_url: str) -> str:
+    """Promote a ``redis://`` URL to ``rediss://`` for TLS connections.
+
+    When mTLS is enabled, the Redis client requires the ``rediss://`` scheme
+    to initiate a TLS handshake.  This function upgrades the scheme in-place
+    while preserving all other URL components (auth, host, port, database).
+
+    This function is idempotent: if the URL already uses ``rediss://``, it is
+    returned unchanged.
+
+    Args:
+        redis_url: A Redis connection URL, e.g. ``redis://redis:6379/0`` or
+            ``redis://:password@redis:6379/0``.
+
+    Returns:
+        The URL with ``redis://`` replaced by ``rediss://``, or the original
+        URL unchanged if it does not start with ``redis://``.
+    """
+    if redis_url.startswith("redis://"):
+        return "rediss://" + redis_url[len("redis://") :]
+    return redis_url
+
+
 def _build_huey() -> Huey:
     """Build and return the shared Huey instance.
 
@@ -75,6 +108,11 @@ def _build_huey() -> Huey:
     Immediate mode:
       - ``HUEY_IMMEDIATE=true``: Tasks execute synchronously in the calling
         process.  Recommended for integration tests.
+
+    mTLS mode (T46.2):
+      - When ``MTLS_ENABLED=true``, the ``redis://`` scheme is promoted to
+        ``rediss://`` and TLS client-cert kwargs are added to
+        ``connection_kwargs``.
 
     Returns:
         A configured Huey instance (``RedisHuey`` or ``MemoryHuey``).
@@ -93,16 +131,29 @@ def _build_huey() -> Huey:
     from huey import RedisHuey
 
     redis_url = settings.redis_url
+
+    extra_kwargs: dict[str, object] = {}
+    if settings.mtls_enabled:
+        redis_url = _promote_redis_url_to_tls(redis_url)
+        extra_kwargs["connection_kwargs"] = {
+            "ssl_certfile": settings.mtls_client_cert_path,
+            "ssl_keyfile": settings.mtls_client_key_path,
+            "ssl_ca_certs": settings.mtls_ca_cert_path,
+            "ssl_cert_reqs": "required",
+        }
+
     safe_url = _mask_redis_url(redis_url)
     _logger.info(
-        "Huey: using RedisHuey (url=%s, immediate=%s).",
+        "Huey: using RedisHuey (url=%s, immediate=%s, mtls=%s).",
         safe_url,
         immediate,
+        settings.mtls_enabled,
     )
     return RedisHuey(
         name="conclave-engine",
         url=redis_url,
         immediate=immediate,
+        **extra_kwargs,
     )
 
 
