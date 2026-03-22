@@ -45,12 +45,32 @@ from __future__ import annotations
 import redis as redis_lib
 
 from synth_engine.shared.settings import get_settings
-from synth_engine.shared.task_queue import _promote_redis_url_to_tls
 
 #: Module-level singleton.  Initialized on first call to ``get_redis_client()``.
 #: redis.Redis is typed without type parameters as the installed stubs do not
 #: support generic subscripting for this version (redis-py 5.x).
 _client: redis_lib.Redis | None = None
+
+
+def _promote_redis_url_to_tls(redis_url: str) -> str:
+    """Promote a ``redis://`` URL to ``rediss://`` for TLS connections.
+
+    This is a local copy of the same helper in ``shared/task_queue.py``.
+    It is duplicated here rather than imported from that module because
+    importing a private function (underscore prefix) across module boundaries
+    creates a fragile coupling — a refactor of task_queue.py would silently
+    break this module.
+
+    Args:
+        redis_url: A Redis connection URL, e.g. ``redis://redis:6379/0``.
+
+    Returns:
+        The URL with ``redis://`` replaced by ``rediss://``, or the original
+        URL unchanged if it does not start with ``redis://``.
+    """
+    if redis_url.startswith("redis://"):
+        return "rediss://" + redis_url[len("redis://") :]
+    return redis_url
 
 
 def get_redis_client() -> redis_lib.Redis:

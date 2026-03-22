@@ -169,23 +169,36 @@ or network-exposed deployment topologies.
 
 **Specification:** All inter-container communication over mTLS.
 
-**Actual Implementation:** Plain TCP on the Docker bridge network (Docker Compose
-`docker-compose.yml`). Containers communicate over the default bridge network with no
-TLS.
+**Actual Implementation:** Mutual TLS implemented as an opt-in overlay
+(`docker-compose.mtls.yml`) covering all data-plane connections:
 
-**Disposition: Deferred.**
+- **app → PgBouncer (frontend):** `verify-full` — clients must present a certificate
+  signed by the shared CA; PgBouncer verifies it.
+- **PgBouncer → PostgreSQL (backend):** mutual — PgBouncer presents its own cert/key
+  and verifies PostgreSQL's server cert against the shared CA.
+- **app → Redis:** `rediss://` with `ssl_cert_reqs=required` — mutual TLS using the
+  app client cert/key.
+- **Huey workers → Redis:** same `rediss://` + mutual auth via `connection_kwargs`.
 
-**Rationale:** The Docker bridge network (`docker-compose.yml`) creates a private virtual
-network namespace on the host machine. Traffic between containers on the same bridge
-network never leaves the host OS's kernel networking stack — it is not transmitted over
-any physical or wireless medium. An attacker who has compromised the host to the level of
-intercepting bridge network traffic already has root and has already compromised the
-system at a more fundamental level than mTLS would protect. mTLS between containers adds
-meaningful security when containers run on different physical hosts (Kubernetes, Docker
-Swarm with multi-node networking) where traffic traverses shared infrastructure. For the
-current single-host Docker Compose deployment, the bridge network isolation provides
-equivalent containment. mTLS hardening is deferred to a future phase scoped to
-multi-host Kubernetes deployment.
+Application-level wiring lives in `shared/db.py` (psycopg2 `sslmode=verify-full` and
+asyncpg `ssl.SSLContext`), `bootstrapper/dependencies/redis.py`, and
+`shared/task_queue.py`. Certificate generation is scripted at
+`scripts/generate-mtls-certs.sh` (T46.1). Startup validation (`config_validation.py`)
+enforces cert-file existence at boot when `MTLS_ENABLED=true`.
+
+Monitoring services (prometheus, alertmanager, grafana, minio) are exempt per the original
+ADR rationale — they are read-only observability consumers with no write path to
+sensitive data.
+
+**Disposition: Implemented (Phase 46).**
+
+**Rationale:** T46.1 (certificate generation) and T46.2 (application-level mTLS wiring)
+deliver the full mTLS requirement as an opt-in overlay. The overlay model was chosen over
+always-on enforcement to preserve backward compatibility for operators who deploy without
+mTLS certs (development, CI). Setting `MTLS_ENABLED=true` activates mutual TLS on every
+data-plane connection. The previous "Deferred" rationale (bridge network isolation is
+sufficient for single-host deployments) remains valid for non-mTLS deployments; the
+overlay provides defence-in-depth for operators who require it.
 
 ---
 
@@ -251,7 +264,7 @@ worker entry points need modification.
 | 4 | Model Context Protocol (MCP) | Descoped — incompatible with air-gap mandate | Permanent |
 | 5 | `datamodel-code-generator` in CI | Implemented Differently (hand-written models) | N/A — permanent |
 | 6 | Rate limiting & circuit breakers | Implemented | Phase 39 (complete) |
-| 7 | mTLS inter-container | Deferred | Phase 46 (pending) |
+| 7 | mTLS inter-container | Implemented (Phase 46) — opt-in overlay, all data-plane connections | Phase 46 (complete) |
 | 8 | Custom Prometheus business metrics | Implemented | Phase 25 (complete) |
 | 9 | OTEL trace context into Huey workers | Implemented | Phase 25 (complete) |
 
@@ -267,11 +280,14 @@ worker entry points need modification.
   AI agent connectivity.
 - The two "Implemented Differently" items are documented as intentional design choices,
   not omissions.
+- Gap 7 (mTLS) is now fully implemented as of Phase 46, closing the last open security
+  gap from the Phase 10 roast.
 
 **Negative / Constraints:**
-- Deferred item 7 (mTLS inter-container) remains open. It requires a Kubernetes deployment
-  topology to provide full value and cannot be meaningfully implemented in a single-host
-  Docker Compose environment. Scheduled for Phase 46.
+- mTLS is opt-in via `MTLS_ENABLED=true` + `docker-compose.mtls.yml` overlay. Operators
+  who do not set `MTLS_ENABLED=true` continue to use plaintext inter-container
+  communication — the bridge network isolation rationale from the original deferral still
+  applies for those deployments.
 - All other deferred items (Gaps 2, 6, 8, 9) have been implemented and are complete.
 
 ---
@@ -291,3 +307,7 @@ worker entry points need modification.
 - `src/synth_engine/shared/telemetry.py` — Gap 9 OTEL TracerProvider configuration
 - `src/synth_engine/shared/task_queue.py` — Gap 9 Huey instance (no trace propagation)
 - `.github/workflows/ci.yml` — Gap 5 CI pipeline (no `datamodel-codegen` step)
+- `docker-compose.mtls.yml` — Gap 7 mTLS overlay
+- `scripts/generate-mtls-certs.sh` — Gap 7 certificate generation (T46.1)
+- `src/synth_engine/shared/db.py` — Gap 7 DB engine mTLS wiring (T46.2)
+- `src/synth_engine/bootstrapper/dependencies/redis.py` — Gap 7 Redis mTLS wiring (T46.2)

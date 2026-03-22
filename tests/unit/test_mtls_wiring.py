@@ -207,18 +207,17 @@ def test_get_engine_passes_ssl_connect_args_when_mtls_enabled(
         return MagicMock()
 
     from synth_engine.shared.db import _engine_cache
-    from synth_engine.shared.settings import ConclaveSettings
 
-    settings = ConclaveSettings()
-    db_url = settings.database_url
-
-    _engine_cache.pop(db_url, None)
+    _engine_cache.clear()
 
     with patch("synth_engine.shared.db.create_engine", side_effect=fake_create_engine):
+        from synth_engine.shared.settings import ConclaveSettings
+
+        settings = ConclaveSettings()
         from synth_engine.shared.db import get_engine
 
-        get_engine(db_url)
-        _engine_cache.pop(db_url, None)
+        get_engine(settings.database_url)
+        _engine_cache.clear()
 
     connect_args = captured_kwargs.get("connect_args", {})
     assert isinstance(connect_args, dict)
@@ -243,17 +242,17 @@ def test_get_engine_no_ssl_args_when_mtls_disabled(
         return MagicMock()
 
     from synth_engine.shared.db import _engine_cache
-    from synth_engine.shared.settings import ConclaveSettings
 
-    settings = ConclaveSettings()
-    db_url = settings.database_url
-    _engine_cache.pop(db_url, None)
+    _engine_cache.clear()
 
     with patch("synth_engine.shared.db.create_engine", side_effect=fake_create_engine):
+        from synth_engine.shared.settings import ConclaveSettings
+
+        settings = ConclaveSettings()
         from synth_engine.shared.db import get_engine
 
-        get_engine(db_url)
-        _engine_cache.pop(db_url, None)
+        get_engine(settings.database_url)
+        _engine_cache.clear()
 
     connect_args = captured_kwargs.get("connect_args", {})
     assert "sslmode" not in connect_args
@@ -288,11 +287,8 @@ def test_get_async_engine_passes_ssl_context_when_mtls_enabled(
     fake_ssl_ctx = ssl.create_default_context()
 
     from synth_engine.shared.db import _async_engine_cache
-    from synth_engine.shared.settings import ConclaveSettings
 
-    settings = ConclaveSettings()
-    db_url = settings.database_url
-    _async_engine_cache.pop(db_url, None)
+    _async_engine_cache.clear()
 
     with (
         patch(
@@ -304,10 +300,13 @@ def test_get_async_engine_passes_ssl_context_when_mtls_enabled(
             return_value=fake_ssl_ctx,
         ),
     ):
+        from synth_engine.shared.settings import ConclaveSettings
+
+        settings = ConclaveSettings()
         from synth_engine.shared.db import get_async_engine
 
-        get_async_engine(db_url)
-        _async_engine_cache.pop(db_url, None)
+        get_async_engine(settings.database_url)
+        _async_engine_cache.clear()
 
     connect_args = captured_kwargs.get("connect_args", {})
     assert isinstance(connect_args, dict)
