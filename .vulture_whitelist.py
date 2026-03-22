@@ -264,3 +264,14 @@ validate_certificate  # unused function — shared/tls/config.py; called from st
 verify_key_cert_pair  # unused function — shared/tls/config.py; called from startup hooks and tests
 verify_chain  # unused function — shared/tls/config.py; called from startup hooks and tests
 days_until_expiry  # unused function — shared/tls/config.py; called from startup hooks and tests
+
+# ---------------------------------------------------------------------------
+# Category M — T46.3 Certificate Expiry Metrics
+# update_cert_expiry_metrics is called from bootstrapper/lifecycle.py at
+# startup. CERT_EXPIRY_DAYS is a module-level Gauge object consumed by
+# Prometheus (auto-collected on scrape). Vulture cannot trace cross-module
+# calls from lifecycle.py or Prometheus registry collection.
+# ---------------------------------------------------------------------------
+
+update_cert_expiry_metrics  # unused function — shared/cert_metrics.py; called from bootstrapper/lifecycle.py at startup
+CERT_EXPIRY_DAYS  # unused variable — shared/cert_metrics.py; Prometheus Gauge auto-collected on /metrics scrape

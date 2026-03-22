@@ -3,13 +3,18 @@
 Contains:
 - ``UnsealRequest`` — Pydantic model for the /unseal request body.
 - ``_lifespan()`` — async context manager wired as the FastAPI lifespan hook;
-  runs startup validation via :func:`~synth_engine.bootstrapper.config_validation.validate_config`.
+  runs startup validation via :func:`~synth_engine.bootstrapper.config_validation.validate_config`
+  and initialises certificate expiry Prometheus metrics (T46.3).
 - ``_register_routes()`` — attaches /health and /unseal to the application.
 
 Task: P29-T29.3 — Error Message Audience Differentiation
     The /unseal route now returns RFC 7807 format for error responses, using
     OPERATOR_ERROR_MAP for operator-friendly titles and actionable detail messages.
     The legacy ``{"error_code": ..., "detail": ...}`` format has been removed.
+
+Task: T46.3 — Certificate Rotation Without Downtime
+    ``_lifespan`` calls ``update_cert_expiry_metrics()`` at startup so that
+    the Prometheus gauge is populated on the first scrape.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from pydantic import BaseModel
 
 from synth_engine.bootstrapper.config_validation import validate_config
 from synth_engine.bootstrapper.errors import operator_error_response
+from synth_engine.shared.cert_metrics import update_cert_expiry_metrics
 from synth_engine.shared.security.vault import (
     VaultAlreadyUnsealedError,
     VaultConfigError,
@@ -51,10 +57,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     Runs :func:`~synth_engine.bootstrapper.config_validation.validate_config`
     at server startup to enforce fail-fast configuration validation before
-    the application accepts any traffic.  This hook is executed by the ASGI
-    server (uvicorn) when the process starts -- not at import time -- so unit
-    tests that call :func:`create_app` without a live ASGI server are
-    unaffected.
+    the application accepts any traffic.  Also initialises certificate expiry
+    Prometheus metrics so the gauge is populated on the first scrape rather
+    than returning "no data" until the first periodic update.
+
+    This hook is executed by the ASGI server (uvicorn) when the process
+    starts -- not at import time -- so unit tests that call
+    :func:`create_app` without a live ASGI server are unaffected.
 
     Args:
         app: The FastAPI application instance (required by FastAPI lifespan
@@ -64,6 +73,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
         None: Control to the application for the duration of its lifetime.
     """
     validate_config()
+    # Populate cert expiry metrics at startup so the first Prometheus scrape
+    # has data.  Failures are logged (not raised) inside update_cert_expiry_metrics.
+    update_cert_expiry_metrics()
     yield
 
 
