@@ -41,25 +41,21 @@ Present a plan, list files to create/modify, list tests to write, estimated comm
 
 ### PM Planning Rules
 
-**Rule 6 — Technology substitution requires PM approval and an ADR.** [sunset: Phase 50]
+**Rule 6 — Technology substitution requires PM approval and an ADR.** [sunset: Phase 60]
 If a backlog task names a specific technology and the subagent proposes a different one, the PM
 MUST require an ADR documenting the substitution BEFORE approving. Silent substitutions are a
 process violation. (Active: ADR-0031 created in T18.2, ADR-0035 created in P28 — both per this rule.)
 
-**Rule 8 — Operational wiring is a delivery requirement.** [sunset: Phase 50]
+**Rule 8 — Operational wiring is a delivery requirement.** [sunset: Phase 60]
 Any IoC hook or callback introduced in a task must be wired to a concrete implementation in
 `bootstrapper/` before the task is complete. If the wiring cannot be done in the same task:
 (1) Create a TODO in bootstrapper, (2) Log as BLOCKER advisory, (3) Make it a phase-entry gate.
 
-**Rule 9 — Documentation gate: every PR requires a `docs:` commit.** [sunset: Phase 50]
-Every PR branch MUST contain at least one `docs:` commit. If no docs changed:
-`docs: no documentation changes required — <justification>`
-
-**Rule 11 — Advisory drain cadence.** [sunset: Phase 50]
+**Rule 11 — Advisory drain cadence.** [sunset: Phase 60]
 ADV rows tagged: `BLOCKER` | `ADVISORY` | `DEFERRED`. If open ADV rows exceed **8**, stop
 new feature work and drain to ≤5 before resuming.
 
-**Rule 12 — Phase execution authority.** [sunset: Phase 50]
+**Rule 12 — Phase execution authority.** [sunset: Phase 60]
 Once user approves a phase plan, the PM has execution authority over all tasks. Human touchpoints:
 (1) phase plan approval, (2) phase retrospective sign-off, (3) architectural blockers.
 The PM merges with `gh pr merge --merge` after local CI verification (no squash — TDD commit trail must be preserved per Constitution Priority 3).
@@ -69,13 +65,9 @@ Every retrospective-sourced rule carries `[sunset: Phase N+5]`. At the tagged ph
 recurrence prevention. If the rule has not prevented a failure in 10+ phases, delete it.
 CLAUDE.md line cap: **400 lines**.
 
-**Rule 16 — Materiality threshold.** [sunset: Phase 50]
+**Rule 16 — Materiality threshold.** [sunset: Phase 60]
 Cosmetic-only review findings get batched into a "polish" task. Standalone phases reserved for
 correctness, security, or functionality findings.
-
-**Rule 17 — Small-fix batching.** [sunset: Phase 50]
-If a "phase" would have fewer than 5 meaningful commits, it becomes a task within the current
-or next phase — not a standalone phase.
 
 **Rule 18 — Two-Gate Test Policy.** [sunset: Phase 45]
 Full test suite runs only twice per feature: post-GREEN (Gate #1) and pre-merge (Gate #2).
