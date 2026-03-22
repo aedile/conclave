@@ -42,6 +42,7 @@ from typing import Any
 
 import httpx
 
+from synth_engine.shared.protocols import WebhookRegistrationProtocol
 from synth_engine.shared.ssrf import validate_callback_url
 
 _logger = logging.getLogger(__name__)
@@ -126,7 +127,7 @@ def _compute_hmac_signature(payload: dict[str, Any], signing_key: str) -> str:
 
 def deliver_webhook(
     *,
-    registration: Any,
+    registration: WebhookRegistrationProtocol,
     job_id: int,
     event_type: str,
     payload: dict[str, Any],
@@ -145,9 +146,8 @@ def deliver_webhook(
     open redirects.
 
     Args:
-        registration: Webhook registration object with attributes:
-            ``active`` (bool), ``callback_url`` (str), ``signing_key`` (str),
-            ``id`` (str).
+        registration: Webhook registration satisfying
+            :class:`~synth_engine.shared.protocols.WebhookRegistrationProtocol`.
         job_id: Integer PK of the synthesis job that triggered the delivery.
         event_type: Event type string (e.g. ``"job.completed"``).
         payload: Dict payload to deliver as JSON.
