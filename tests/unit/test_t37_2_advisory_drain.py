@@ -269,6 +269,8 @@ class TestConfigValidationNoDirectEnvAccess:
         monkeypatch.setenv("ARTIFACT_SIGNING_KEY", _SIGNING_KEY)
         monkeypatch.setenv("MASKING_SALT", _MASKING_SALT)
         monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
+        monkeypatch.setenv("JWT_SECRET_KEY", "dummy-secret-for-test")  # pragma: allowlist secret
+        monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "$2b$12$" + "a" * 53)
         monkeypatch.delenv("CONCLAVE_ENV", raising=False)
         get_settings.cache_clear()
 

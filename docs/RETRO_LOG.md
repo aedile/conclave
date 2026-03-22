@@ -16,6 +16,33 @@ Drain (delete) rows when their target task is completed.
 | ADV-P46-04 | DevOps T46.3 | — | ADVISORY | `rotate-mtls-certs.sh` LibreSSL detection gap — macOS operators may hit incompatible OpenSSL flags |
 | ADV-P46-05 | Arch T46.3 | — | ADVISORY | Prometheus metrics naming convention (conclave_* prefix) not captured in ADR — risk of label drift |
 | ADV-P46-06 | Red-Team T46.4 | — | ADVISORY | MinIO has no K8s NetworkPolicy — relies on default-deny, intentional for ephemeral storage |
+| ADV-P47-01 | PM P46 merge | — | BLOCKER | Production Smoke Test CI job fails on main — `secrets/` files not provisioned in CI. Job is not a required check but should not be silently ignored. Fix: either provision test secrets in CI or skip smoke test when secrets are absent. |
+| ADV-P47-02 | Arch P47 review | — | ADVISORY | `_promote_redis_url_to_tls` logic is duplicated between `shared/tls/config.py` and bootstrapper init. Current duplication is intentional per T46.2 architecture review. Future cleanup should consolidate into a single utility. |
+| ADV-P47-03 | Arch P47 review | — | ADVISORY | No ADR documents the scope-based authorization model introduced in T47.x. An ADR should be drafted in a future phase to codify the authorization design decisions. |
+
+---
+
+### [2026-03-22] P47 Review Fix — QA, DevOps, and Architecture Findings
+
+**Branch**: `feat/P47-auth-safety-ops`
+
+**Findings resolved**:
+- FINDING 1 (QA): `test_config_validation_ssl_warning_uses_settings` regression fixed.
+  Test now supplies `JWT_SECRET_KEY` and `OPERATOR_CREDENTIALS_HASH` when setting
+  `ENV=production`, satisfying the T47.4/T47.5 production-required validators.
+- FINDING 2 (DevOps): `.env.example` updated with `PARQUET_MAX_FILE_BYTES` and
+  `PARQUET_MAX_ROWS` entries under a new T47.7 section.
+- FINDING 3 (Architecture): `DatasetTooLargeError` imported and added to
+  `OPERATOR_ERROR_MAP` with `status_code=413` and a safe operator-facing detail string.
+- FINDING 4 (Architecture ADVISORY): `_promote_redis_url_to_tls` duplication logged
+  as ADV-P47-02. No code change — duplication is intentional per T46.2 architecture review.
+- FINDING 5 (Architecture ADVISORY): ADR gap for scope-based authorization logged as
+  ADV-P47-03. No ADR created in this task per task scope constraints.
+
+**Quality gates**: ruff PASS | ruff format PASS | mypy PASS | bandit PASS | vulture PASS
+Unit tests: 2272 passed, 1 skipped, 97.40% coverage (95% gate PASS).
+1 pre-existing flaky failure (`test_synthesis_engine_train_raises_on_empty_parquet`) passes
+individually — ordering-sensitive state pollution, unrelated to this diff.
 
 ---
 
