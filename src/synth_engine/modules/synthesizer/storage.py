@@ -28,6 +28,7 @@ tests.
 Task: P4-T4.1 — GPU Passthrough & Ephemeral Storage
 ADR: ADR-0017 (CTGAN + Opacus; ephemeral Parquet store between subsetting and
      synthesis steps)
+Task: T47.7 — Memory-bounded Parquet loading
 """
 
 from __future__ import annotations
@@ -38,6 +39,9 @@ from typing import Protocol, cast, runtime_checkable
 
 import pandas as pd
 
+from synth_engine.shared.exceptions import DatasetTooLargeError
+from synth_engine.shared.settings import get_settings
+
 _logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -45,6 +49,46 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Device selection
 # ---------------------------------------------------------------------------
+
+
+def _read_parquet_bounded_bytes(data: bytes) -> pd.DataFrame:
+    """Deserialise Parquet bytes with size and row-count guards.
+
+    Checks configured limits from :func:
+    before and after loading:
+
+    1. **Size check** — len(data) is compared against
+       settings.parquet_max_file_bytes.  If exceeded, raises immediately
+       *before* any bytes are decoded.
+    2. **Row-count check** — after loading, len(df) is compared against
+       settings.parquet_max_rows.
+
+    Args:
+        data: Raw Parquet bytes previously stored in ephemeral storage.
+
+    Returns:
+        The loaded :class:.
+
+    Raises:
+        DatasetTooLargeError: If the payload size or row count exceeds the
+            configured limit.
+    """
+    settings = get_settings()
+    payload_size = len(data)
+    if payload_size > settings.parquet_max_file_bytes:
+        raise DatasetTooLargeError(
+            actual_size=payload_size,
+            limit=settings.parquet_max_file_bytes,
+            limit_type="bytes",
+        )
+    df = pd.read_parquet(io.BytesIO(data), engine="pyarrow")
+    if len(df) > settings.parquet_max_rows:
+        raise DatasetTooLargeError(
+            actual_size=len(df),
+            limit=settings.parquet_max_rows,
+            limit_type="rows",
+        )
+    return df
 
 
 def _log_device_selection() -> str:
@@ -279,4 +323,4 @@ class EphemeralStorageClient:
 
         """
         data = self._backend.get(self._bucket, key)
-        return pd.read_parquet(io.BytesIO(data), engine="pyarrow")
+        return _read_parquet_bounded_bytes(data)
