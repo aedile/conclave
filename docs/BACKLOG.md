@@ -55,6 +55,7 @@ This document serves as the top-level index for all project phases and their con
 *   [Phase 45: Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper](backlog/phase-45.md) ✅
 *   [Phase 46: mTLS Inter-Container Communication](backlog/phase-46.md)
 *   [Phase 47: Auth Gap Remediation, Safety Hardening & Operational Fixes](backlog/phase-47.md)
+*   [Phase 48: Production-Critical Infrastructure Fixes](backlog/phase-48.md)
 
 ---
 
@@ -339,3 +340,10 @@ This document serves as the top-level index for all project phases and their con
 *   **Task 47.8:** Add Shutdown Cleanup to Lifespan Hook.
 *   **Task 47.9:** Scrub Budget Values From Exception Messages.
 *   **Task 47.10:** Add Redis Health Check to Docker Compose.
+
+### [Phase 48: Production-Critical Infrastructure Fixes](backlog/phase-48.md)
+*   **Task 48.1:** Redis-Backed Rate Limiting.
+*   **Task 48.2:** Connection Pooling for Huey Workers.
+*   **Task 48.3:** Readiness Probe & External Dependency Health Checks.
+*   **Task 48.4:** Immutable Audit Trail Anchoring.
+*   **Task 48.5:** ALE Vault Dependency Enforcement.
