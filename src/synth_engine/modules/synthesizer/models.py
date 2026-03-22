@@ -118,7 +118,7 @@ def _validate_signing_key(signing_key: bytes, *, context: str) -> None:
     """
     if len(signing_key) == 0:
         raise ValueError(
-            f"signing_key must not be empty. "
+            "signing_key must not be empty. "
             f"Provide a key of at least {_MIN_SIGNING_KEY_BYTES} bytes or pass "
             f"signing_key=None to {context} an unsigned artifact."
         )
