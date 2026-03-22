@@ -64,9 +64,12 @@ Task: T37.1 — Add EpsilonMeasurementError; update OPERATOR_ERROR_MAP mapping
 Task: T38.1 — Add AuditWriteError; fail job on WORM audit write failure after budget deduction
 Task: T46.1 — Add TLSCertificateError; move from shared/tls/config.py (ARCH-F1)
 Task: T47.7 — Add DatasetTooLargeError; enforce Parquet memory bounds
+Task: T47.9 — BudgetExhaustionError: scrub epsilon from message; add structured attributes
 """
 
 from __future__ import annotations
+
+from decimal import Decimal
 
 __all__ = [
     "ArtifactTamperingError",
@@ -136,16 +139,52 @@ class BudgetExhaustionError(SynthEngineError):
     import it directly without violating the import-linter independence
     contract.
 
-    HTTP-safe: yes — a sanitized version of the message may appear in the
-    HTTP 402/409 response body so operators understand why the job failed.
+    HTTP-safe: yes — the ``str()`` of this exception is a generic message safe
+    for operator-facing HTTP responses.  Epsilon values are deliberately excluded
+    from the message to prevent privacy budget state from leaking into API
+    responses or log aggregation systems (T47.9 — security scrubbing).
+
+    The detailed epsilon context is stored as structured attributes on the
+    exception instance for use by internal audit logging code only.  Callers
+    that need the epsilon values must read the attributes, not parse the message.
+
+    Attributes:
+        requested_epsilon: The epsilon amount that was requested but could
+            not be satisfied.
+        total_spent: The total epsilon already spent on this ledger at the
+            time the error was raised.
+        total_allocated: The total epsilon allocation ceiling for this ledger.
+        remaining_epsilon: Convenience attribute — ``total_allocated - total_spent``,
+            i.e. how much epsilon remained before the exhaustion was triggered.
+
+    Args:
+        requested_epsilon: The epsilon amount that triggered exhaustion.
+        total_spent: The total epsilon spent on this ledger.
+        total_allocated: The total epsilon allocation for this ledger.
 
     Example::
 
         raise BudgetExhaustionError(
-            f"DP budget exhausted: epsilon_spent={1.1:.4f} >= "
-            f"allocated_epsilon={1.0:.4f} (delta={1e-5:.0e})"
+            requested_epsilon=decimal_amount,
+            total_spent=ledger.total_spent_epsilon,
+            total_allocated=ledger.total_allocated_epsilon,
         )
     """
+
+    #: Generic safe message — contains no epsilon values.
+    _GENERIC_MESSAGE: str = "Differential privacy budget exhausted. Synthesis job cannot proceed."
+
+    def __init__(
+        self,
+        requested_epsilon: Decimal,
+        total_spent: Decimal,
+        total_allocated: Decimal,
+    ) -> None:
+        super().__init__(self._GENERIC_MESSAGE)
+        self.requested_epsilon: Decimal = requested_epsilon
+        self.total_spent: Decimal = total_spent
+        self.total_allocated: Decimal = total_allocated
+        self.remaining_epsilon: Decimal = total_allocated - total_spent
 
 
 class EpsilonMeasurementError(SynthEngineError):

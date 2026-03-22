@@ -19,6 +19,7 @@ ADV-046: parameter validation guards for degenerate inputs added.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,18 +35,31 @@ class TestBudgetExhaustionError:
         assert issubclass(BudgetExhaustionError, Exception)
 
     def test_budget_exhaustion_error_carries_message(self) -> None:
-        """BudgetExhaustionError must carry a human-readable message."""
+        """BudgetExhaustionError must carry a generic human-readable message.
+
+        T47.9: The message is now generic — no epsilon values are embedded.
+        """
         from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
 
-        err = BudgetExhaustionError("epsilon 1.1 >= allocated 1.0")
-        assert "1.1" in str(err)
+        err = BudgetExhaustionError(
+            requested_epsilon=Decimal("0.5"),
+            total_spent=Decimal("0.9"),
+            total_allocated=Decimal("1.0"),
+        )
+        # Must be a non-empty, generic, human-readable message
+        assert len(str(err)) > 0
+        assert "budget exhausted" in str(err).lower()
 
     def test_budget_exhaustion_error_is_raiseable(self) -> None:
         """BudgetExhaustionError must be raiseable via raise statement."""
         from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
 
         with pytest.raises(BudgetExhaustionError, match="budget"):
-            raise BudgetExhaustionError("budget exhausted")
+            raise BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            )
 
 
 class TestDPTrainingWrapperInit:
@@ -477,14 +491,31 @@ class TestDPTrainingWrapperCheckBudget:
         result = wrapper.check_budget(allocated_epsilon=1.0, delta=1e-5)  # type: ignore[union-attr]
         assert result is None
 
-    def test_check_budget_error_message_contains_epsilon_values(self) -> None:
-        """BudgetExhaustionError message must contain both spent and allocated epsilon."""
+    def test_check_budget_error_message_is_generic(self) -> None:
+        """BudgetExhaustionError from check_budget must use the generic scrubbed message.
+
+        T47.9: The exception message must NOT contain epsilon values.
+        Structured attributes on the exception carry the values instead.
+        """
         from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
 
         wrapper = self._make_wrapper_with_epsilon(1.1)
 
-        with pytest.raises(BudgetExhaustionError, match=r"1\.1.*1\.0"):
+        with pytest.raises(BudgetExhaustionError) as exc_info:
             wrapper.check_budget(allocated_epsilon=1.0, delta=1e-5)  # type: ignore[union-attr]
+
+        exc = exc_info.value
+        exc_str = str(exc)
+
+        # Must NOT contain epsilon values
+        assert "1.1" not in exc_str, (
+            f"BudgetExhaustionError message must not contain epsilon values; got: {exc_str!r}"
+        )
+        assert "1.0" not in exc_str, (
+            f"BudgetExhaustionError message must not contain allocated epsilon; got: {exc_str!r}"
+        )
+        # Must be generic
+        assert "budget exhausted" in exc_str.lower()
 
     def test_check_budget_before_wrap_raises_runtime_error(self) -> None:
         """check_budget on an unwrapped wrapper must raise RuntimeError (no engine yet)."""

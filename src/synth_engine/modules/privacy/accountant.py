@@ -18,7 +18,7 @@ Locking protocol
 2. Acquire a ``SELECT ... FOR UPDATE`` lock on the target ``PrivacyLedger`` row.
 3. Read ``total_spent_epsilon`` and ``total_allocated_epsilon`` under the lock.
 4. For ``spend_budget``: raise
-   :exc:`~synth_engine.modules.privacy.dp_engine.BudgetExhaustionError` if
+   :exc:`~synth_engine.shared.exceptions.BudgetExhaustionError` if
    ``total_spent + amount > total_allocated``.
    The transaction context manager rolls back automatically on exception,
    releasing the lock.
@@ -55,6 +55,7 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P4-T4.4 — Privacy Accountant
 Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050)
 Task: P22-T22.4 — Budget Management API (reset_budget)
+Task: T47.9 — Scrub epsilon from BudgetExhaustionError message; use structured constructor
 """
 
 from __future__ import annotations
@@ -66,8 +67,8 @@ from prometheus_client import Counter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
 from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
+from synth_engine.shared.exceptions import BudgetExhaustionError
 
 _logger = logging.getLogger(__name__)
 
@@ -118,7 +119,7 @@ async def spend_budget(
     and commits — all atomically.  The lock is released on commit.
 
     If budget is exhausted: raises
-    :exc:`~synth_engine.modules.privacy.dp_engine.BudgetExhaustionError`.
+    :exc:`~synth_engine.shared.exceptions.BudgetExhaustionError`.
     The transaction context manager rolls back automatically, releasing the
     lock without writing any transaction record.
 
@@ -183,10 +184,9 @@ async def spend_budget(
             # Raise here — session.begin() context manager auto-rolls back
             # when BudgetExhaustionError propagates out of the block.
             raise BudgetExhaustionError(
-                f"Global DP budget exhausted: requested epsilon={decimal_amount}, "
-                f"total_spent={ledger.total_spent_epsilon}, "
-                f"total_allocated={ledger.total_allocated_epsilon}. "
-                "Synthesis job cannot proceed — budget exhausted."
+                requested_epsilon=decimal_amount,
+                total_spent=ledger.total_spent_epsilon,
+                total_allocated=ledger.total_allocated_epsilon,
             )
 
         # Deduct epsilon and record the transaction — same DB transaction.

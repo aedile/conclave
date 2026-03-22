@@ -15,6 +15,7 @@ Task: T35.1 — Decompose _run_synthesis_job_impl Into Discrete Job Steps
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -376,7 +377,13 @@ class TestDpAccountingStepIsolation:
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 999.0
 
-        mock_budget_fn = MagicMock(side_effect=BudgetExhaustionError("over budget"))
+        mock_budget_fn = MagicMock(
+            side_effect=BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            )
+        )
 
         job = _make_synthesis_job(id=1)
         ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
@@ -407,7 +414,13 @@ class TestDpAccountingStepIsolation:
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 999.0
-        mock_budget_fn = MagicMock(side_effect=BudgetExhaustionError("over budget"))
+        mock_budget_fn = MagicMock(
+            side_effect=BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            )
+        )
 
         job = _make_synthesis_job(id=1, status="TRAINING")
         ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)

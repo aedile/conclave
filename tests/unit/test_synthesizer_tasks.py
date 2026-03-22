@@ -23,6 +23,7 @@ Task: P22-T22.3 — Wire spend_budget() into Synthesis Pipeline
 from __future__ import annotations
 
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -1261,7 +1262,11 @@ class TestSpendBudgetWiring:
         job, mock_budget_fn, mock_session = self._run_impl_with_budget_mock(
             job_id=22,
             epsilon=999.0,
-            budget_fn_side_effect=BudgetExhaustionError("Budget exhausted"),
+            budget_fn_side_effect=BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            ),
         )
 
         assert job.status == "FAILED", f"Expected FAILED; got {job.status}"
@@ -1273,7 +1278,11 @@ class TestSpendBudgetWiring:
         job, _, _ = self._run_impl_with_budget_mock(
             job_id=23,
             epsilon=999.0,
-            budget_fn_side_effect=BudgetExhaustionError("over budget"),
+            budget_fn_side_effect=BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            ),
         )
 
         assert job.error_msg == "Privacy budget exhausted", (
@@ -1291,7 +1300,11 @@ class TestSpendBudgetWiring:
         job, _, _ = self._run_impl_with_budget_mock(
             job_id=24,
             epsilon=999.0,
-            budget_fn_side_effect=BudgetExhaustionError("over budget"),
+            budget_fn_side_effect=BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            ),
         )
 
         assert job.artifact_path is None, (
@@ -1305,7 +1318,11 @@ class TestSpendBudgetWiring:
         _, _, mock_session = self._run_impl_with_budget_mock(
             job_id=25,
             epsilon=999.0,
-            budget_fn_side_effect=BudgetExhaustionError("over budget"),
+            budget_fn_side_effect=BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            ),
         )
 
         assert mock_session.commit.call_count >= 1

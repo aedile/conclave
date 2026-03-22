@@ -17,11 +17,13 @@ Task: P4-T4.3b — DP Engine Wiring
 Task: P7-T7.3 — Opacus End-to-End Wiring (adds constructor params; drains ADV-048)
 Task: P26-T26.2 — Exception Hierarchy (BudgetExhaustionError moved to shared)
 ADR: ADR-0017 (CTGAN + Opacus; RDP accountant for Epsilon tracking)
+Task: T47.9 — Scrub epsilon from check_budget() BudgetExhaustionError; log via WARNING
 """
 
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any
 
 from synth_engine.shared.exceptions import BudgetExhaustionError
@@ -302,10 +304,16 @@ class DPTrainingWrapper:
         spent = self.epsilon_spent(delta=delta)
 
         if spent >= allocated_epsilon:
+            _logger.warning(
+                "DP budget exhausted during training: spent=%.6f, allocated=%.6f, delta=%.0e",
+                spent,
+                allocated_epsilon,
+                delta,
+            )
             raise BudgetExhaustionError(
-                f"DP budget exhausted: epsilon_spent={spent:.6f} >= "
-                f"allocated_epsilon={allocated_epsilon:.6f} (delta={delta:.0e}). "
-                "Training halted to protect privacy guarantee."
+                requested_epsilon=Decimal(str(spent)),
+                total_spent=Decimal(str(spent)),
+                total_allocated=Decimal(str(allocated_epsilon)),
             )
 
         _logger.debug(

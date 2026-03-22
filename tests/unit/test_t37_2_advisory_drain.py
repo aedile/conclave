@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import logging
 import pathlib
+from decimal import Decimal
 
 import pytest
 
@@ -63,7 +64,15 @@ class TestOperatorErrorResponseLogSanitization:
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         sensitive_path = "/var/lib/postgresql/data/pg_hba.conf"
-        exc = BudgetExhaustionError(f"Exceeded budget reading {sensitive_path}")
+        # T47.9: BudgetExhaustionError no longer accepts a string message.
+        # The sensitive_path is never in str(exc) since the message is always generic.
+        # This test verifies the log does not contain the path (which it cannot, since
+        # str(exc) is now the safe generic message).
+        exc = BudgetExhaustionError(
+            requested_epsilon=Decimal("0.5"),
+            total_spent=Decimal("0.9"),
+            total_allocated=Decimal("1.0"),
+        )
 
         with caplog.at_level(
             logging.WARNING,
@@ -90,7 +99,11 @@ class TestOperatorErrorResponseLogSanitization:
         from synth_engine.bootstrapper.errors.formatter import operator_error_response
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
-        exc = BudgetExhaustionError("epsilon budget gone")
+        exc = BudgetExhaustionError(
+            requested_epsilon=Decimal("0.5"),
+            total_spent=Decimal("0.9"),
+            total_allocated=Decimal("1.0"),
+        )
 
         with caplog.at_level(
             logging.WARNING,
