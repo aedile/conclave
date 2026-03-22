@@ -19,6 +19,35 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-22] T47.9 — Scrub Budget Values From Exception Messages
+
+**Branch**: `feat/P47-auth-safety-ops`
+
+**What was implemented**:
+- `BudgetExhaustionError` restructured with a typed `__init__` accepting
+  keyword args (`requested_epsilon`, `total_spent`, `total_allocated`).
+  `str(exc)` now always returns the generic safe constant:
+  `"Differential privacy budget exhausted. Synthesis job cannot proceed."`
+  Epsilon values are stored as typed `Decimal` attributes for internal
+  audit logging without any HTTP exposure.
+- `remaining_epsilon` computed attribute (`total_allocated - total_spent`)
+  added for operator audit convenience.
+- Raise sites in `accountant.py`, `factories.py`, and `dp_engine.py`
+  updated to use the new structured constructor.
+- `dp_engine.check_budget()` now emits a `WARNING` log with epsilon details
+  before raising (matching the accountant's pre-existing WARNING log pattern).
+- 12 existing tests updated to use the new keyword-arg constructor;
+  message-assertion tests updated to verify the generic-message contract.
+
+**Tests added**: 12 new tests in `test_budget_error_scrubbing.py`
+(5 attack/negative, 7 feature). All pass. No regressions introduced.
+
+**Quality gates**: ruff ✓ | ruff format ✓ | mypy ✓ | bandit ✓ | vulture ✓
+Pre-commit hooks pass on all changed files (detect-secrets flag in
+`test_config_validation_hardening_feature.py` is pre-existing, unrelated).
+
+---
+
 ### [2026-03-22] T47.4 + T47.5 + ADV-P46-03 — Config Validation Hardening
 
 **Branch**: `feat/P47-auth-safety-ops`
