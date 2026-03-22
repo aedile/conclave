@@ -41,8 +41,10 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import SQLModel
 
+from synth_engine.modules.privacy.ledger import (
+    PrivacyLedger,
+)
 from synth_engine.shared.exceptions import BudgetExhaustionError, SynthEngineError
-
 
 # ---------------------------------------------------------------------------
 # Shared async fixture (SQLite / aiosqlite — same pattern as test_privacy_accountant.py)
@@ -149,9 +151,7 @@ class TestBudgetExhaustionMessageScrubbing:
         assert "0.5" not in args_str, (
             f"exc.args[0] must not contain epsilon value; got: {args_str!r}"
         )
-        assert "4.5" not in args_str, (
-            f"exc.args[0] must not contain total_spent; got: {args_str!r}"
-        )
+        assert "4.5" not in args_str, f"exc.args[0] must not contain total_spent; got: {args_str!r}"
 
     def test_api_response_for_budget_exhaustion_is_generic(self) -> None:
         """The bootstrapper error handler must use OPERATOR_ERROR_MAP detail, not str(exc).
@@ -350,9 +350,7 @@ class TestBudgetExhaustionInternalLogging:
         assert "0.75" in log_text, (
             f"WARNING log must contain requested epsilon value; log: {log_text!r}"
         )
-        assert "9.5" in log_text, (
-            f"WARNING log must contain total_spent value; log: {log_text!r}"
-        )
+        assert "9.5" in log_text, f"WARNING log must contain total_spent value; log: {log_text!r}"
 
         # The exception str must still be clean
         assert "0.75" not in str(exc), (
@@ -380,7 +378,6 @@ class TestAccountantRaiseSite:
         Assert: BudgetExhaustionError.str() is generic; attributes are populated.
         """
         from synth_engine.modules.privacy.accountant import spend_budget
-        from synth_engine.modules.privacy.ledger import PrivacyLedger
         from synth_engine.shared.db import get_async_session
 
         # Arrange: ledger with tight budget
@@ -457,5 +454,6 @@ class TestDpEngineCheckBudgetScrubbing:
             f"check_budget() BudgetExhaustionError must not contain spent epsilon; got: {exc_str!r}"
         )
         assert "1.0" not in exc_str, (
-            f"check_budget() BudgetExhaustionError must not contain allocated epsilon; got: {exc_str!r}"
+            f"check_budget() BudgetExhaustionError must not contain "
+            f"allocated epsilon; got: {exc_str!r}"
         )
