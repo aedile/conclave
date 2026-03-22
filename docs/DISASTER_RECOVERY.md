@@ -430,3 +430,132 @@ docker volume rm conclave_postgres_data
 Do not remove `postgres_data` without first attempting a `pg_dump` backup.
 If the PostgreSQL data files are corrupt, `pg_dump` may fail — in that case,
 restore from an external backup (Section 4).
+
+---
+
+## 7. mTLS Certificate Loss Recovery (T46.3)
+
+### 7.1 Loss Scenarios and Recovery Paths
+
+| Loss scenario | Recoverable? | Recovery action |
+|---------------|:------------:|-----------------|
+| Leaf cert(s) lost (CA key intact) | Yes | Regenerate leaf certs from existing CA |
+| CA cert lost (CA key intact) | Yes | Regenerate CA cert from CA key, then regenerate leaf certs |
+| CA key lost (no backup) | **No** | Full CA rebuild — all services must be restarted |
+| CA key lost (backup exists) | Yes | Restore from backup, then rotate leaf certs |
+
+### 7.2 Leaf Cert Loss (CA Key Intact)
+
+If one or more leaf `.crt` / `.key` files are lost or corrupted but the CA
+key remains intact, re-run the rotation helper:
+
+```bash
+./scripts/rotate-mtls-certs.sh
+```
+
+Then follow the reload commands printed by the script
+(Section 13.2 of `docs/OPERATOR_MANUAL.md`).
+
+If only a single service is affected, you can regenerate just that service
+by running `generate-mtls-certs.sh` (it regenerates all leaf certs but
+preserves the CA):
+
+```bash
+./scripts/generate-mtls-certs.sh
+# Then restart only the affected service:
+docker compose up -d --no-deps --force-recreate <service>
+```
+
+### 7.3 CA Key Loss (Unrecoverable Without Backup)
+
+If `secrets/mtls/ca.key` is lost and no backup exists, the CA cannot be
+reconstructed. **All mTLS connections will fail** once the existing leaf
+certs expire or are replaced.
+
+**Immediate mitigation:** Disable mTLS to restore connectivity:
+
+```bash
+# Set MTLS_ENABLED=false in your .env or docker-compose override
+echo "MTLS_ENABLED=false" >> .env
+docker compose up -d --force-recreate
+```
+
+**Full recovery procedure:**
+
+```bash
+# Step 1: Generate a completely new CA and all leaf certs
+./scripts/generate-mtls-certs.sh --force
+
+# Step 2: Restart ALL services to pick up the new trust anchor
+docker compose up -d --force-recreate
+
+# Step 3: Re-enable mTLS
+# Remove the MTLS_ENABLED=false line from .env (or set to true)
+docker compose up -d --force-recreate
+
+# Step 4: Verify the new chain
+openssl verify -CAfile secrets/mtls/ca.crt secrets/mtls/app.crt
+```
+
+This constitutes a hard cutover — all containers must be restarted
+simultaneously or they will reject each other's certs (new CA vs old CA).
+Schedule this as a maintenance window.
+
+### 7.4 Certificate Backup Strategy
+
+The rotation script (`rotate-mtls-certs.sh`) automatically creates a
+timestamped backup before every rotation:
+
+```
+secrets/mtls/backup-20260315-143022/
+  app.crt  app.key  postgres.crt  postgres.key
+  pgbouncer.crt  pgbouncer.key  redis.crt  redis.key  ca.crt
+```
+
+The CA private key (`ca.key`) is **NOT** included in rotation backups because
+it never changes during leaf-cert rotation. You MUST back up `ca.key`
+separately using your organisation's secret management procedure.
+
+**Recommended backup checklist:**
+
+- `secrets/mtls/ca.key` — Back up immediately after first-time generation.
+  Store in offline cold storage (encrypted USB, hardware security module, or
+  secrets vault).
+- `secrets/mtls/ca.crt` — Include in rotation backups (already done by script).
+- Rotation backups (`backup-YYYYMMDD-HHMMSS/`) — Retain for at least 7 days
+  to cover any delayed rollback scenario.
+
+**Test your backup:**
+
+```bash
+# Verify you can reconstruct a leaf cert from the backed-up CA key
+openssl x509 -req \
+    -in /tmp/test.csr \
+    -CA secrets/mtls/ca.crt \
+    -CAkey /path/to/backup/ca.key \
+    -CAcreateserial \
+    -out /tmp/test.crt \
+    -days 1
+openssl verify -CAfile secrets/mtls/ca.crt /tmp/test.crt
+```
+
+### 7.5 Cert Expiry Emergency (Production)
+
+If certificates have already expired and services are rejecting connections:
+
+```bash
+# Fast path: disable mTLS to restore connectivity immediately
+echo "MTLS_ENABLED=false" >> .env
+docker compose up -d --force-recreate
+
+# Then rotate certs at controlled pace (CA key still intact)
+./scripts/rotate-mtls-certs.sh
+
+# Re-enable mTLS and restart
+# Remove MTLS_ENABLED=false from .env
+docker compose up -d --force-recreate
+```
+
+Monitor the `conclave_cert_expiry_days` Prometheus metric and the alert rules
+in Section 13.5 of `docs/OPERATOR_MANUAL.md` to receive advance warning
+before certs reach zero.
