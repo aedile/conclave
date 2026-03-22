@@ -568,6 +568,7 @@ After completing the walkthrough, verify:
 
 - [ ] Vault unseals successfully with the operator passphrase
 - [ ] `GET /health` returns `{"status": "ok"}`
+- [ ] `GET /ready` returns `{"status": "ok"}` with all dependency checks passing
 - [ ] A test synthesis job completes without errors
 - [ ] Grafana dashboard (`https://conclave.internal:3000`) shows metrics
 - [ ] Application logs show no error-level entries
@@ -744,3 +745,97 @@ days = TLSConfig.days_until_expiry(Path("secrets/mtls/app.crt"))
 print(f"app certificate expires in {days} days")
 ```
 
+
+
+---
+
+## Appendix C — Kubernetes Readiness & Liveness Probes (T48.3)
+
+### C.1 Probe Distinction
+
+The Conclave Engine exposes two health endpoints:
+
+| Endpoint | Probe type | What it checks |
+|----------|-----------|----------------|
+| `GET /health` | Liveness | Process alive — returns `{"status": "ok"}` always |
+| `GET /ready` | Readiness | Live dependency checks — PostgreSQL, Redis, MinIO (optional) |
+
+Use `/ready` as the **readiness probe** (gates traffic routing) and `/health` as the
+**liveness probe** (triggers container restart if the process hangs).
+
+### C.2 Security Properties
+
+- `/ready` is exempt from `SealGateMiddleware` — probe succeeds even when vault is sealed.
+- `/ready` is exempt from `AuthenticationGateMiddleware` — no Bearer token required.
+- Error responses use **generic service names only** (`database`, `cache`, `object_store`).
+  Internal hostnames, ports, and connection strings are never included in the response body.
+
+### C.3 Kubernetes Deployment Manifest
+
+```yaml
+# deployment.yaml — readiness and liveness probes for the Conclave Engine
+spec:
+  containers:
+    - name: conclave-engine
+      image: conclave-engine:latest
+      ports:
+        - containerPort: 8000
+
+      # Liveness probe: restart container if the process hangs
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8000
+        initialDelaySeconds: 15
+        periodSeconds: 20
+        timeoutSeconds: 5
+        failureThreshold: 3
+
+      # Readiness probe: remove pod from Service endpoints until all
+      # external dependencies (PostgreSQL, Redis, MinIO) are reachable
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 8000
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+        successThreshold: 1
+```
+
+### C.4 Response Schema
+
+**200 OK — all dependencies reachable:**
+```json
+{
+  "status": "ok",
+  "checks": {
+    "database": "ok",
+    "cache": "ok",
+    "object_store": "skipped"
+  }
+}
+```
+
+**503 Service Unavailable — one or more dependencies unreachable:**
+```json
+{
+  "status": "degraded",
+  "checks": {
+    "database": "error",
+    "cache": "ok",
+    "object_store": "skipped"
+  }
+}
+```
+
+`object_store` is `"skipped"` when MinIO is not configured (the endpoint is absent from
+the environment). MinIO unavailability does **not** cause a 503 — it is treated as
+optional storage.
+
+### C.5 Per-Check Timeout
+
+Each dependency check is bounded to **3 seconds** via `asyncio.wait_for`. A single
+slow dependency cannot hang the probe indefinitely. If a check exceeds the timeout,
+its result is `"error"` and the probe returns 503.
