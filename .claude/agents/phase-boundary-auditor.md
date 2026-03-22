@@ -42,6 +42,7 @@ Analyze test quality and flag bloat patterns:
 - **redundant-invariant-tests**: Multiple tests asserting the same invariant from different angles? ADVISORY — suggest consolidation.
 - **dead-fixtures**: Fixtures defined but never used (check `conftest.py` files for fixtures not referenced by any test)? FINDING.
 - **production-to-test-ratio**: Production-to-test LOC ratio for this phase: report it. If >1:2.5, justify.
+- **assertion-specificity**: Grep for test functions where the only assertions are `is not None`, `isinstance()`, or `field in dict` without a corresponding value assertion. Flag as FINDING.
 
 How to execute:
 ```bash
@@ -102,7 +103,7 @@ mocking-the-subject:       PASS/FINDING — <detail>
 redundant-invariant-tests: PASS/ADVISORY — <detail>
 dead-fixtures:             PASS/FINDING — <detail>
 production-to-test-ratio:  <ratio> — <justification if >1:2.5>
-
+assertion-specificity:     PASS/FINDING — <detail>
 ### E2E Smoke Test
 e2e-playwright:            PASS/FAIL/SKIP — <pass/fail count or skip reason>
 

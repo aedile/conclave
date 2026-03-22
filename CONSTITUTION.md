@@ -46,6 +46,7 @@ This section governs how you write and manage code.
    - No change is complete until it is covered by robust, passing tests.
    - You _WILL_ maintain a comprehensive test suite with **95%+ test coverage**.
    - No regressions _WILL_ be introduced. All existing tests _MUST_ pass before your work on a task is considered finished.
+   - Tests _MUST_ contain at least one specific value assertion per test function. Assertions that only check truthiness (`is not None`), type (`isinstance`), or existence (`in`) without also asserting a specific expected value are insufficient as the sole assertion.
 4. **Code Quality (Priority 5):**
    - You _WILL_ write clean, maintainable, efficient, and well-factored code.
    - You _WILL_ adhere to all existing coding standards, style guides, and architectural patterns of the project.
@@ -100,6 +101,7 @@ This principle governs the Constitution itself and all future amendments.
 | 2.5 | Priority sequencing | spec-challenger priority-compliance sweep + PM phase-plan checklist |
 | 3 | TDD Red/Green/Refactor | `test:` commit before `feat:` commit — auditable in git log |
 | 4 | 95%+ test coverage | `pytest --cov-fail-under=95` in CI; build fails below threshold |
+| 4 | Assertion quality | phase-boundary-auditor assertion-specificity sweep |
 | 5 | Code quality / typing | `ruff`, `mypy --strict` in pre-commit + CI |
 | 6 | Documentation currency | `docs-gate` CI job — every PR branch must contain a `docs:` commit |
 | 7 | Retrospectives | `docs: update RETRO_LOG` commit required per task — auditable in git log |
