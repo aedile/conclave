@@ -359,6 +359,10 @@ jobs:
         # passes the always-required startup check in all deployment modes.
         # The postgres password is fixed (not random) so DATABASE_URL can be
         # constructed deterministically.
+        # NOTE: Dollar signs in the bcrypt hash MUST be escaped as $$ in the
+        # .env file. Docker Compose treats $ as a variable reference; $$ is
+        # the literal $. Without escaping, the hash is silently mangled and
+        # validate_config() rejects it at startup.
         run: |
           CI_PG_PASSWORD="ci-dummy-postgres-password-for-smoke-test"
           mkdir -p secrets
@@ -380,23 +384,15 @@ jobs:
             echo "JWT_SECRET_KEY=$(openssl rand -hex 32)"
             # Auth environment variables required by T47.4/T47.5 config validation.
             # Bcrypt hash of "ci-dummy-password" — dummy value for CI only.
-            echo 'OPERATOR_CREDENTIALS_HASH=$2b$12$LJ3m4ys3Lk0TSwHil.mGF.UzMcMeBudDBLzSgIGKjCwBnEMNRKSoi'  # pragma: allowlist secret
+            echo 'OPERATOR_CREDENTIALS_HASH=$$2b$$12$$LJ3m4ys3Lk0TSwHil.mGF.UzMcMeBudDBLzSgIGKjCwBnEMNRKSoi'  # pragma: allowlist secret
           } > .env
           chmod 600 .env
 
-      - name: Build Docker image
-        run: docker build -t conclave-engine:smoke-test .
-
-      - name: Start stack via docker compose
-        # Uses docker-compose.yml only — no CPU override in CI (Linux)
-        run: docker compose -f docker-compose.yml up -d
-
       - name: Run smoke test script
+        # smoke_test.sh manages its own full lifecycle: build, start, health
+        # wait, HTTP assertions, and teardown via EXIT trap. No redundant
+        # inline build/start/teardown steps required.
         run: bash scripts/smoke_test.sh
-
-      - name: Tear down stack
-        if: always()
-        run: docker compose -f docker-compose.yml down -v
 
   # ---------------------------------------------------------------------------
   # Frontend — Lint, Unit Tests (Vitest, 90% coverage), Build
