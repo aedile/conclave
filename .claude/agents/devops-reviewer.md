@@ -26,6 +26,15 @@ Key project facts:
 
 **You are NOT limited to reviewing the diff.** The diff tells you what changed. Your job is to find problems ANYWHERE in the system that the change may have exposed. Read related files. Trace call chains. Check that callers of modified functions still work correctly. Check that new code interacts safely with existing code. The diff is your starting point, not your boundary.
 
+## Deployment Topology Preamble (Mandatory)
+
+Before reviewing any code, state the assumed deployment model. The default is:
+> Uvicorn behind nginx reverse proxy, 4 workers per pod, 2+ pods in Kubernetes, Redis as a shared sidecar/service, PostgreSQL managed (RDS/CloudSQL or containerized with pgbouncer), MinIO for ephemeral artifact storage.
+
+For every piece of in-process state encountered — in-memory caches, module-level singletons, counters, connection pools, thread-local storage — the reviewer must ask: "Does this break when there are N instances of this process?"
+
+If the answer is yes, or if the state is not shared across processes, this is a FINDING. The fix is either move to a shared store (Redis) or document the single-instance assumption as an explicit ADR.
+
 ## Scope Assessment
 
 First, determine scope by checking the diff:
@@ -84,6 +93,14 @@ poetry run pip-audit 2>&1 || echo "pip-audit not installed — note for team"
 
 **job-consistency**: Do all CI jobs that install the same tool (Poetry, Node, Python) pin the same version? Check `snok/install-poetry`, `actions/setup-python`, etc. across all jobs. Version divergence = FINDING.
 
+## Operational Readiness Checks (Every Phase — Never Skip)
+
+- **readiness-probes**: Every external dependency must have a connectivity check surfaced via a readiness endpoint. Bare `GET /health → 200` without downstream checks is insufficient for Kubernetes readiness probes.
+- **structured-observability**: Failure modes for background tasks must be observable via metrics or alerting, not just log lines. Every swallowed `except Exception` should increment a Prometheus counter.
+- **graceful-drain**: System must be able to stop accepting new work, finish in-flight work, and shut down cleanly.
+- **correlation-ids**: Log entries should include request correlation IDs.
+- **runbook-coverage**: Every alertmanager rule should have a runbook entry in docs/.
+
 ## Output Format
 
 Return your findings in EXACTLY this format. **Important**: avoid using bare auth/credential keywords as isolated words in your finding descriptions — paraphrase them (e.g., "auth material" instead of isolated occurrences, "credential patterns" rather than individual keyword-only lines). This prevents false positives in the project's commit-message scanner.
@@ -105,6 +122,12 @@ no-bypass-flags:           PASS/FINDING — <detail>
 ci-health:                 PASS/FINDING/SKIP — <detail>
 no-speculative-permissions: PASS/FINDING/SKIP — <detail>
 job-consistency:           PASS/FINDING/SKIP — <detail>
+deployment-topology:       PASS/FINDING — <detail>
+readiness-probes:          PASS/FINDING — <detail>
+structured-observability:  PASS/FINDING — <detail>
+graceful-drain:            PASS/FINDING — <detail>
+correlation-ids:           PASS/FINDING — <detail>
+runbook-coverage:          PASS/FINDING — <detail>
 
 Overall: PASS/FINDING — <brief summary>
 ```
