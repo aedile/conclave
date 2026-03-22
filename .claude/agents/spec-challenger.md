@@ -86,6 +86,10 @@ For each new operation that modifies shared state:
 - Are there metrics that should be emitted?
 - Can the operation be debugged from logs alone?
 
+### 8. Priority Compliance
+
+Verify that all Constitutional priorities with lower numbers than the current phase's work are implemented or have deferral ADRs. For example, if the phase targets Priority 5 (Code Quality) work, confirm that Priority 0 (Security), 1 (Quality Gates), 2 (Source Control), 2.5 (Priority Sequencing), 3 (TDD), and 4 (Testing) are all either fully implemented with passing enforcement gates or explicitly deferred with an ADR. Flag any gap as a MISSING acceptance criterion.
+
 ## Output Format
 
 Return your findings in EXACTLY this format:

@@ -52,6 +52,10 @@ This section governs how you write and manage code.
    - You _WILL_ use type hints throughout all Python code (mypy strict mode).
    - You _WILL_ write docstrings for all public functions and classes (Google style).
 
+## **Section 1a: Priority Sequencing (Priority 2.5)**
+
+1. **Priority Sequencing Constraint:** Before approving a phase plan, the PM _MUST_ verify that all Constitutional requirements with a lower priority number are either (a) fully implemented with passing enforcement gates, or (b) explicitly deferred with an ADR documenting the deferral rationale. A phase targeting Priority 5 work _MUST NOT_ be approved while Priority 0–4 requirements remain unimplemented without an ADR.
+
 ## **Section 2: Process & Management (Priority 6 & 8)**
 
 This section governs how you plan, track, and document your work.
@@ -93,6 +97,7 @@ This principle governs the Constitution itself and all future amendments.
 | 0.5 | Programmatic Enforcement | This table — self-referential; PM verifies at phase kickoff |
 | 1 | Quality Gates unbreakable | `ruff`, `mypy`, `pytest --cov-fail-under=95`, `pre-commit` cannot be skipped |
 | 2 | Source control / PRs | Pre-commit `--no-verify` forbidden; branch protection on `main` |
+| 2.5 | Priority sequencing | spec-challenger priority-compliance sweep + PM phase-plan checklist |
 | 3 | TDD Red/Green/Refactor | `test:` commit before `feat:` commit — auditable in git log |
 | 4 | 95%+ test coverage | `pytest --cov-fail-under=95` in CI; build fails below threshold |
 | 5 | Code quality / typing | `ruff`, `mypy --strict` in pre-commit + CI |
