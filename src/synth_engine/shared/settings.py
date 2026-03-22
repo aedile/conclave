@@ -43,6 +43,8 @@ Task: T39.3 — Add Rate Limiting Middleware
 Task: T41.1 — Implement Data Retention Policy
 Task: T42.2 — Add HTTPS Enforcement & Deployment Safety Checks
 Task: T42.1 — Artifact Signing Key Versioning (multi-key support)
+Task: T45.2 — Reintroduce Orphan Task Reaper (TBD-08)
+Task: T45.3 — Implement Webhook Callbacks for Task Completion
 """
 
 from __future__ import annotations
@@ -130,6 +132,13 @@ class ConclaveSettings(BaseSettings):
         rate_limit_download_per_minute: Maximum download requests per
             authenticated operator per minute.  Bandwidth protection.
             Defaults to ``10``.
+        reaper_stale_threshold_minutes: Number of minutes after which an
+            IN_PROGRESS synthesis job is considered orphaned.  Must be >= 5
+            to prevent accidental mass-reaping.  Defaults to 60 minutes.
+        webhook_max_registrations: Maximum number of active webhook
+            registrations per operator.  Defaults to 10.
+        webhook_delivery_timeout_seconds: HTTP timeout in seconds for each
+            webhook delivery attempt.  Defaults to 10.
     """
 
     model_config = SettingsConfigDict(
@@ -396,6 +405,59 @@ class ConclaveSettings(BaseSettings):
             "Number of days to retain generated Parquet artifact files before "
             "they are eligible for deletion by the retention cleanup task. "
             "Defaults to 30 days."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Idempotency (T45.1)
+    # -----------------------------------------------------------------------
+
+    idempotency_ttl_seconds: int = Field(
+        default=300,
+        ge=1,
+        description=(
+            "Time-to-live in seconds for idempotency keys stored in Redis. "
+            "A key is valid for this many seconds after it is first set; "
+            "within this window, duplicate requests with the same key receive "
+            "HTTP 409.  Must be >= 1.  Defaults to 300 (5 minutes). "
+            "Configure to cover the maximum expected request latency plus "
+            "any client retry window."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Orphan Task Reaper (T45.2)
+    # -----------------------------------------------------------------------
+
+    reaper_stale_threshold_minutes: int = Field(
+        default=60,
+        ge=5,
+        description=(
+            "Number of minutes after which an IN_PROGRESS synthesis job is "
+            "considered orphaned and eligible for reaping.  Must be >= 5 to "
+            "prevent accidental mass-reaping.  Defaults to 60 minutes."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Webhook Callbacks (T45.3)
+    # -----------------------------------------------------------------------
+
+    webhook_max_registrations: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "Maximum number of active webhook registrations per operator. "
+            "Enforced at POST /webhooks time.  Defaults to 10."
+        ),
+    )
+    webhook_delivery_timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "HTTP timeout in seconds for each webhook delivery attempt. "
+            "Applied per-attempt; total time can be up to 3x for 3 retries. "
+            "Defaults to 10 seconds."
         ),
     )
 

@@ -11,10 +11,12 @@ more modules belongs in shared/."
 Task: P22-T22.3 — Wire spend_budget() into Synthesis Pipeline (F6 review fix)
 Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (complete DPWrapperProtocol)
 Task: T41.2 — GDPR Erasure Endpoint (ARCH-F6: OwnedRecordModel Protocol)
+Task: P45 review — F6: WebhookDeliveryCallback + WebhookRegistrationProtocol
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
 
@@ -146,3 +148,38 @@ class OwnedRecordModel(Protocol):
     """
 
     owner_id: str
+
+
+# ---------------------------------------------------------------------------
+# Webhook delivery type aliases (T45.3, P45 review F6)
+# ---------------------------------------------------------------------------
+
+#: Type alias for the IoC webhook delivery callback.
+#: Signature: ``(job_id: int, status: str) -> None``
+#: Registered by ``bootstrapper/main.py`` via ``set_webhook_delivery_fn()``.
+WebhookDeliveryCallback = Callable[[int, str], None]
+
+
+class WebhookRegistrationProtocol(Protocol):
+    """Structural interface for a webhook registration object.
+
+    Used by :func:`~synth_engine.modules.synthesizer.webhook_delivery.deliver_webhook`
+    as the type for its ``registration`` parameter.  This avoids importing
+    the SQLModel ``WebhookRegistration`` class from ``bootstrapper/schemas/``
+    into the synthesizer module, which would violate the import-linter contract.
+
+    Any object with the four required attributes satisfies this Protocol
+    structurally (duck typing — ``@runtime_checkable`` intentionally omitted
+    here since this is used only for mypy checking, not isinstance tests).
+
+    Attributes:
+        active: Whether the registration is active and should receive deliveries.
+        callback_url: Absolute HTTP(S) URL to deliver payloads to.
+        signing_key: HMAC signing secret for payload authentication.
+        id: Unique identifier for this registration (string or int).
+    """
+
+    active: bool
+    callback_url: str
+    signing_key: str
+    id: int | str

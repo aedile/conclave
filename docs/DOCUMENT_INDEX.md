@@ -129,6 +129,7 @@ Status values: `Accepted`, `Superseded`, `Retired`, `Template`.
 | `docs/adr/ADR-0041-data-retention-compliance.md` | ADR | ACTIVE (ADR) | Defines data retention schedule and automated purge policy for GDPR/CCPA |
 | `docs/adr/ADR-0042-artifact-signing-key-versioning.md` | ADR | ACTIVE (ADR) | Versions artifact signing keys to support key rotation without invalidating prior artifacts |
 | `docs/adr/ADR-0043-https-enforcement-middleware.md` | ADR | ACTIVE (ADR) | Enforces HTTPS at the ASGI middleware layer, rejecting plain HTTP requests |
+| `docs/adr/ADR-0044-webhook-idempotency-reaper-architecture.md` | ADR | ACTIVE (ADR) | Documents webhook delivery guarantees, idempotency key semantics, reaper staleness heuristics, and Huey/Redis integration |
 
 ---
 

@@ -1,14 +1,19 @@
 """Hygiene polish validation tests for T43.4.
 
 Tests verifying:
-1. job_orchestration.py: The two ``except Exception`` blocks (epsilon measurement
-   and audit log) have inline justification comments.
-2. dp_training.py: The ``except Exception`` block in ``fit()`` has an inline
+1. dp_training.py: The ``except Exception`` block in ``fit()`` has an inline
    justification comment explaining the broad catch.
-3. accountant.py: EPSILON_SPENT_TOTAL counter has documented label strategy
+2. accountant.py: EPSILON_SPENT_TOTAL counter has documented label strategy
    including cardinality expectations.
-4. models.py: ModelArtifact mutability is documented near the class definition.
-5. Spike findings documents have a "HISTORICAL — DO NOT USE" header.
+3. models.py: ModelArtifact mutability is documented near the class definition.
+4. Spike findings documents have a "HISTORICAL — DO NOT USE" header.
+
+Note: The original AC1 tests for job_orchestration.py (epsilon_spent and
+audit.log_event ``except Exception as exc:`` handlers) were removed in a later
+refactor that replaced the broad ``except Exception as exc:`` catches with typed
+exceptions (RuntimeError, OOMGuardrailError, etc.).  Those stale tests were
+deleted; the typed exception handlers they guarded are the correct, more
+restrictive implementation.
 
 Approach: source-code inspection tests. For comments and docstrings we read the
 module source and assert the expected text is present. This is the lightest-weight
@@ -79,93 +84,6 @@ def _has_comment_in_window(lines: list[str], center_idx: int, window: int = 5) -
     start = max(0, center_idx - window)
     end = min(len(lines), center_idx + window + 1)
     return any("#" in lines[i] for i in range(start, end))
-
-
-# ---------------------------------------------------------------------------
-# AC1: job_orchestration.py — exception handler justification comments
-# ---------------------------------------------------------------------------
-
-
-class TestJobOrchestrationExceptionComments:
-    """Verify that both bare ``except Exception`` blocks carry justification comments."""
-
-    def test_epsilon_spent_exception_handler_has_justification_comment(self) -> None:
-        """The except block wrapping dp_wrapper.epsilon_spent() has a comment.
-
-        dp_wrapper.epsilon_spent() may raise any exception type from the
-        underlying Opacus implementation. The broad catch is intentional and
-        must be documented with an inline justification comment near the
-        ``except Exception`` statement.
-        """
-        source = _read_source("modules/synthesizer/job_orchestration.py")
-        lines = source.splitlines()
-        except_indices = _find_except_exception_indices(lines)
-
-        assert except_indices, "No 'except Exception as exc:' found in job_orchestration.py"
-
-        # Find the except block that is in the context of epsilon_spent()
-        epsilon_except_idx: int | None = None
-        for idx in except_indices:
-            context = "\n".join(lines[max(0, idx - 10) : idx + 2])
-            if "epsilon_spent" in context or "EpsilonMeasurementError" in context:
-                epsilon_except_idx = idx
-                break
-
-        assert epsilon_except_idx is not None, (
-            "Could not locate the except Exception block for epsilon_spent() "
-            "in job_orchestration.py"
-        )
-
-        assert _has_comment_in_window(lines, epsilon_except_idx, window=5), (
-            f"No inline justification comment found within 5 lines of the except Exception "
-            f"block for epsilon_spent() "
-            f"(line {epsilon_except_idx + 1}) in job_orchestration.py.\n"
-            f"Context:\n"
-            + textwrap.indent(
-                "\n".join(lines[max(0, epsilon_except_idx - 5) : epsilon_except_idx + 3]),
-                "  ",
-            )
-        )
-
-    def test_audit_log_exception_handler_has_justification_comment(self) -> None:
-        """The except block wrapping audit.log_event() has a justification comment.
-
-        audit.log_event() may raise any exception type. The broad catch is
-        intentional (T38.1: Constitution Priority 0 — budget deducted but audit
-        failed). The comment must document this rationale near the
-        ``except Exception`` statement.
-        """
-        source = _read_source("modules/synthesizer/job_orchestration.py")
-        lines = source.splitlines()
-        except_indices = _find_except_exception_indices(lines)
-
-        assert except_indices, "No 'except Exception as exc:' found in job_orchestration.py"
-
-        # Find the except block that is in the context of the audit log call
-        audit_except_idx: int | None = None
-        for idx in except_indices:
-            context = "\n".join(lines[max(0, idx - 10) : idx + 2])
-            has_audit = "log_event" in context
-            has_audit_write_error = "audit" in context.lower() and "AuditWriteError" in context
-            if has_audit or has_audit_write_error:
-                audit_except_idx = idx
-                break
-
-        assert audit_except_idx is not None, (
-            "Could not locate the except Exception block for audit.log_event() "
-            "in job_orchestration.py"
-        )
-
-        assert _has_comment_in_window(lines, audit_except_idx, window=5), (
-            f"No inline justification comment found within 5 lines of the except Exception "
-            f"block for audit.log_event() "
-            f"(line {audit_except_idx + 1}) in job_orchestration.py.\n"
-            f"Context:\n"
-            + textwrap.indent(
-                "\n".join(lines[max(0, audit_except_idx - 5) : audit_except_idx + 3]),
-                "  ",
-            )
-        )
 
 
 # ---------------------------------------------------------------------------

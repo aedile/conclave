@@ -80,7 +80,7 @@ Two similarly named locations exist in `shared/`:
 | Path | Purpose |
 |---|---|
 | `shared/task_queue.py` | Huey instance construction (infrastructure) |
-| `bootstrapper/` | Periodic task definitions (retention, etc.) |
+| `modules/synthesizer/` | Periodic task definitions (retention, etc.) |
 
 `shared/task_queue.py` is the **queue infrastructure module** — it constructs
 and configures the Huey instance. It contains no task definitions.
@@ -88,7 +88,7 @@ and configures the Huey instance. It contains no task definitions.
 **Note (Phase 41, T41.1):** The `shared/tasks/` directory described in the original
 ADR was never created (ADR-0005 orphan reaper was removed in T32.1). Periodic task
 definitions (e.g., `cleanup_expired_jobs`, `cleanup_expired_artifacts`) are in
-`bootstrapper/retention_tasks.py`, which imports the Huey instance from `shared/task_queue.py`.
+`modules/synthesizer/retention_tasks.py`, which imports the Huey instance from `shared/task_queue.py`.
 
 ---
 
@@ -165,3 +165,22 @@ Both patterns are first-class and correct:
 The explicit import is preferred as the canonical documentation point, even when
 transitive import would suffice, because it makes the registration visible in one
 place (`main.py`).
+
+---
+
+## Amendment — T45.2 (Phase 45)
+
+`shared/tasks/` was created in T45.2 for abstract task repository interfaces
+(`TaskRepository` ABC, `StaleTask` value object) and reaper business logic
+(`OrphanTaskReaper`).  The concrete `SQLAlchemyTaskRepository` implementation
+lives in `modules/synthesizer/reaper_repository.py` where it is free to import
+`SynthesisJob`.  The periodic `periodic_reap_orphan_tasks` Huey task is defined
+in `modules/synthesizer/reaper_tasks.py` and registered via a side-effect import
+in `bootstrapper/main.py`.
+
+| Path | Purpose |
+|------|---------|
+| `shared/tasks/repository.py` | `TaskRepository` ABC + `StaleTask` value object |
+| `shared/tasks/reaper.py` | `OrphanTaskReaper` business logic |
+| `modules/synthesizer/reaper_repository.py` | `SQLAlchemyTaskRepository` concrete impl |
+| `modules/synthesizer/reaper_tasks.py` | Huey periodic task registration |
