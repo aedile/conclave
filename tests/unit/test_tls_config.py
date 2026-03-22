@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 from cryptography.x509.oid import NameOID
 
 pytestmark = pytest.mark.unit
@@ -168,11 +170,11 @@ class TestAttackCertFileNotFound:
     """AC1 negative — missing cert file raises a clear error."""
 
     def test_tls_config_raises_when_cert_file_not_found(self, tmp_path: Path) -> None:
-        """Missing cert file path must raise TLSCertificateError."""
-        from synth_engine.shared.tls.config import TLSConfig
+        """Missing cert file path must raise FileNotFoundError."""
+        from synth_engine.shared.tls.config import load_certificate
 
         with pytest.raises(FileNotFoundError, match="not found"):
-            TLSConfig.load_certificate(tmp_path / "nonexistent.crt")
+            load_certificate(tmp_path / "nonexistent.crt")
 
 
 class TestAttackCertExpired:
@@ -182,7 +184,7 @@ class TestAttackCertExpired:
         self, tmp_path: Path, ca_key: ec.EllipticCurvePrivateKey
     ) -> None:
         """Expired certificate must raise TLSCertificateError."""
-        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+        from synth_engine.shared.tls.config import TLSCertificateError, validate_certificate
 
         now = _now_utc()
         expired_cert = _build_cert(
@@ -197,7 +199,7 @@ class TestAttackCertExpired:
         cert_path.write_bytes(expired_cert.public_bytes(serialization.Encoding.PEM))
 
         with pytest.raises(TLSCertificateError, match="expired"):
-            TLSConfig.validate_certificate(cert_path)
+            validate_certificate(cert_path)
 
 
 class TestAttackCertNotYetValid:
@@ -207,7 +209,7 @@ class TestAttackCertNotYetValid:
         self, tmp_path: Path, ca_key: ec.EllipticCurvePrivateKey
     ) -> None:
         """Not-yet-valid certificate must raise TLSCertificateError."""
-        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+        from synth_engine.shared.tls.config import TLSCertificateError, validate_certificate
 
         now = _now_utc()
         future_cert = _build_cert(
@@ -222,7 +224,7 @@ class TestAttackCertNotYetValid:
         cert_path.write_bytes(future_cert.public_bytes(serialization.Encoding.PEM))
 
         with pytest.raises(TLSCertificateError, match="not yet valid"):
-            TLSConfig.validate_certificate(cert_path)
+            validate_certificate(cert_path)
 
 
 class TestAttackKeyCertMismatch:
@@ -234,7 +236,7 @@ class TestAttackKeyCertMismatch:
         valid_leaf_cert: x509.Certificate,
     ) -> None:
         """Key/cert mismatch must raise TLSCertificateError."""
-        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+        from synth_engine.shared.tls.config import TLSCertificateError, verify_key_cert_pair
 
         # Generate a DIFFERENT key — not the one that signed the cert
         wrong_key = _generate_key()
@@ -250,7 +252,7 @@ class TestAttackKeyCertMismatch:
         )
 
         with pytest.raises(TLSCertificateError, match="key.*mismatch|mismatch.*key"):
-            TLSConfig.verify_key_cert_pair(key_path, cert_path)
+            verify_key_cert_pair(key_path, cert_path)
 
 
 class TestAttackSANValidationRejectsEmpty:
@@ -292,13 +294,13 @@ class TestAttackMalformedCert:
 
     def test_tls_config_raises_when_cert_is_malformed(self, tmp_path: Path) -> None:
         """Malformed PEM data must raise TLSCertificateError."""
-        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+        from synth_engine.shared.tls.config import TLSCertificateError, load_certificate
 
         malformed_path = tmp_path / "garbage.crt"
         malformed_path.write_bytes(b"this is not a valid PEM certificate\n")
 
         with pytest.raises(TLSCertificateError, match="malformed|invalid|parse"):
-            TLSConfig.load_certificate(malformed_path)
+            load_certificate(malformed_path)
 
 
 class TestAttackPermissionDenied:
@@ -308,7 +310,7 @@ class TestAttackPermissionDenied:
         self, tmp_path: Path, valid_leaf_cert: x509.Certificate
     ) -> None:
         """Permission-denied on cert file must raise PermissionError."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import load_certificate
 
         cert_path = tmp_path / "unreadable.crt"
         cert_path.write_bytes(valid_leaf_cert.public_bytes(serialization.Encoding.PEM))
@@ -316,10 +318,27 @@ class TestAttackPermissionDenied:
 
         try:
             with pytest.raises(PermissionError):
-                TLSConfig.load_certificate(cert_path)
+                load_certificate(cert_path)
         finally:
             # Restore permissions so tmp_path cleanup does not fail
             cert_path.chmod(0o644)
+
+
+class TestAttackKeyFileNotFound:
+    """QA-F1 — missing key file raises FileNotFoundError with clear message."""
+
+    def test_verify_key_cert_pair_raises_when_key_file_missing(
+        self, tmp_path: Path, valid_leaf_cert: x509.Certificate
+    ) -> None:
+        """Missing key file must raise FileNotFoundError, not propagate unchecked."""
+        from synth_engine.shared.tls.config import verify_key_cert_pair
+
+        cert_path = tmp_path / "leaf.crt"
+        cert_path.write_bytes(valid_leaf_cert.public_bytes(serialization.Encoding.PEM))
+        missing_key_path = tmp_path / "nonexistent.key"
+
+        with pytest.raises(FileNotFoundError, match="not found"):
+            verify_key_cert_pair(missing_key_path, cert_path)
 
 
 # ===========================================================================
@@ -328,13 +347,13 @@ class TestAttackPermissionDenied:
 
 
 class TestLoadCertificate:
-    """Feature — TLSConfig.load_certificate happy path."""
+    """Feature — load_certificate happy path."""
 
     def test_load_certificate_returns_cert_object(self, cert_file: Path) -> None:
         """load_certificate must return an x509.Certificate."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import load_certificate
 
-        cert = TLSConfig.load_certificate(cert_file)
+        cert = load_certificate(cert_file)
         assert isinstance(cert, x509.Certificate)
 
     def test_load_certificate_has_expected_subject(
@@ -342,53 +361,53 @@ class TestLoadCertificate:
         cert_file: Path,
     ) -> None:
         """Loaded certificate subject CN must match 'app'."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import load_certificate
 
-        cert = TLSConfig.load_certificate(cert_file)
+        cert = load_certificate(cert_file)
         cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
         assert cn == "app"
 
 
 class TestValidateCertificate:
-    """Feature — TLSConfig.validate_certificate on valid cert."""
+    """Feature — validate_certificate on valid cert."""
 
     def test_validate_certificate_passes_for_valid_cert(self, cert_file: Path) -> None:
         """validate_certificate must not raise for a valid, in-window cert."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import validate_certificate
 
         # Should complete without raising
-        TLSConfig.validate_certificate(cert_file)
+        validate_certificate(cert_file)
 
     def test_validate_certificate_returns_expiry_datetime(self, cert_file: Path) -> None:
         """validate_certificate must return the not_valid_after datetime."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import validate_certificate
 
-        expiry = TLSConfig.validate_certificate(cert_file)
+        expiry = validate_certificate(cert_file)
         assert isinstance(expiry, datetime.datetime)
         assert expiry > _now_utc()
 
 
 class TestVerifyKeyCertPair:
-    """Feature — TLSConfig.verify_key_cert_pair happy path."""
+    """Feature — verify_key_cert_pair happy path."""
 
     def test_verify_key_cert_pair_passes_for_matching_pair(
         self, key_file: Path, cert_file: Path
     ) -> None:
         """verify_key_cert_pair must not raise when key matches cert."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import verify_key_cert_pair
 
         # Should complete without raising
-        TLSConfig.verify_key_cert_pair(key_file, cert_file)
+        verify_key_cert_pair(key_file, cert_file)
 
 
 class TestVerifyChain:
-    """Feature — TLSConfig.verify_chain validates leaf-to-CA chain."""
+    """Feature — verify_chain validates leaf-to-CA chain."""
 
     def test_verify_chain_passes_for_valid_chain(self, cert_file: Path, ca_cert_file: Path) -> None:
         """verify_chain must not raise for a valid leaf-to-CA chain."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import verify_chain
 
-        TLSConfig.verify_chain(leaf_cert_path=cert_file, ca_cert_path=ca_cert_file)
+        verify_chain(leaf_cert_path=cert_file, ca_cert_path=ca_cert_file)
 
     def test_verify_chain_raises_for_mismatched_chain(
         self,
@@ -396,7 +415,7 @@ class TestVerifyChain:
         valid_leaf_cert: x509.Certificate,
     ) -> None:
         """verify_chain must raise TLSCertificateError for mismatched chain."""
-        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+        from synth_engine.shared.tls.config import TLSCertificateError, verify_chain
 
         # Create a completely separate CA — NOT the one that signed valid_leaf_cert
         different_ca_key = _generate_key()
@@ -416,24 +435,59 @@ class TestVerifyChain:
         wrong_ca_path.write_bytes(different_ca_cert.public_bytes(serialization.Encoding.PEM))
 
         with pytest.raises(TLSCertificateError, match="chain|issuer|verify"):
-            TLSConfig.verify_chain(leaf_cert_path=leaf_path, ca_cert_path=wrong_ca_path)
+            verify_chain(leaf_cert_path=leaf_path, ca_cert_path=wrong_ca_path)
+
+    def test_verify_chain_raises_on_generic_verify_exception(
+        self, cert_file: Path, ca_cert_file: Path
+    ) -> None:
+        """Generic exception from verify() must be wrapped in TLSCertificateError.
+
+        QA-F3: exercises the ``except Exception`` fallback path in verify_chain
+        by patching load_certificate to return a mock CA cert whose EC public key
+        raises TypeError from verify(). MagicMock(spec=EllipticCurvePublicKey)
+        passes the isinstance() check inside verify_chain.
+        """
+        from synth_engine.shared.tls.config import (
+            TLSCertificateError,
+            load_certificate,
+            verify_chain,
+        )
+
+        # Build a mock CA cert whose public_key().verify() raises TypeError.
+        # spec=EllipticCurvePublicKey ensures isinstance(mock, EllipticCurvePublicKey) is True.
+        mock_ec_key = MagicMock(spec=EllipticCurvePublicKey)
+        mock_ec_key.verify.side_effect = TypeError("unexpected internal error")
+
+        mock_ca_cert = MagicMock(spec=x509.Certificate)
+        mock_ca_cert.public_key.return_value = mock_ec_key
+
+        # load_certificate is called twice in verify_chain: leaf first, then CA.
+        # Pre-load the real leaf cert before patching.
+        real_leaf = load_certificate(cert_file)
+
+        with patch(
+            "synth_engine.shared.tls.config.load_certificate",
+            side_effect=[real_leaf, mock_ca_cert],
+        ):
+            with pytest.raises(TLSCertificateError, match="chain verification error"):
+                verify_chain(leaf_cert_path=cert_file, ca_cert_path=ca_cert_file)
 
 
 class TestDaysUntilExpiry:
-    """Feature — TLSConfig.days_until_expiry."""
+    """Feature — days_until_expiry."""
 
     def test_days_until_expiry_returns_positive_for_valid_cert(self, cert_file: Path) -> None:
         """days_until_expiry must return a positive integer for a valid cert."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import days_until_expiry
 
-        days = TLSConfig.days_until_expiry(cert_file)
+        days = days_until_expiry(cert_file)
         assert days > 0
 
     def test_days_until_expiry_returns_negative_for_expired_cert(
         self, tmp_path: Path, ca_key: ec.EllipticCurvePrivateKey
     ) -> None:
         """days_until_expiry must return negative for an expired cert."""
-        from synth_engine.shared.tls.config import TLSConfig
+        from synth_engine.shared.tls.config import days_until_expiry
 
         now = _now_utc()
         expired_cert = _build_cert(
@@ -447,7 +501,7 @@ class TestDaysUntilExpiry:
         cert_path = tmp_path / "expired.crt"
         cert_path.write_bytes(expired_cert.public_bytes(serialization.Encoding.PEM))
 
-        days = TLSConfig.days_until_expiry(cert_path)
+        days = days_until_expiry(cert_path)
         assert days < 0
 
 
@@ -509,15 +563,24 @@ class TestServiceHostnames:
 
 
 class TestTLSCertificateError:
-    """Feature — TLSCertificateError is a proper exception."""
+    """Feature — TLSCertificateError is a proper domain exception."""
 
-    def test_tls_certificate_error_is_exception(self) -> None:
-        """TLSCertificateError must inherit from Exception."""
+    def test_tls_certificate_error_is_synth_engine_error(self) -> None:
+        """TLSCertificateError must inherit from SynthEngineError (ADR-0037)."""
+        from synth_engine.shared.exceptions import SynthEngineError
         from synth_engine.shared.tls.config import TLSCertificateError
 
         err = TLSCertificateError("test message")
+        assert isinstance(err, SynthEngineError)
         assert isinstance(err, Exception)
         assert "test message" in str(err)
+
+    def test_tls_certificate_error_importable_from_shared_exceptions(self) -> None:
+        """TLSCertificateError must be importable from shared.exceptions directly."""
+        from synth_engine.shared.exceptions import TLSCertificateError
+
+        err = TLSCertificateError("from exceptions module")
+        assert "from exceptions module" in str(err)
 
 
 # ===========================================================================
@@ -532,7 +595,7 @@ class TestVerifyKeyCertPairMalformedKey:
         self, tmp_path: Path, valid_leaf_cert: x509.Certificate
     ) -> None:
         """Malformed private key PEM must raise TLSCertificateError."""
-        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+        from synth_engine.shared.tls.config import TLSCertificateError, verify_key_cert_pair
 
         cert_path = tmp_path / "leaf.crt"
         key_path = tmp_path / "bad.key"
@@ -540,7 +603,7 @@ class TestVerifyKeyCertPairMalformedKey:
         key_path.write_bytes(b"this is not a valid private key\n")
 
         with pytest.raises(TLSCertificateError, match="Failed to load private key"):
-            TLSConfig.verify_key_cert_pair(key_path, cert_path)
+            verify_key_cert_pair(key_path, cert_path)
 
 
 class TestVerifyChainNonECDSACa:
@@ -550,7 +613,7 @@ class TestVerifyChainNonECDSACa:
         """Chain verify with RSA CA must raise TLSCertificateError (ECDSA only)."""
         from cryptography.hazmat.primitives.asymmetric import rsa
 
-        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+        from synth_engine.shared.tls.config import TLSCertificateError, verify_chain
 
         # Build an RSA-2048 CA cert
         rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -585,7 +648,7 @@ class TestVerifyChainNonECDSACa:
         leaf_path.write_bytes(leaf_cert.public_bytes(serialization.Encoding.PEM))
 
         with pytest.raises(TLSCertificateError, match="unsupported key type"):
-            TLSConfig.verify_chain(leaf_cert_path=leaf_path, ca_cert_path=ca_path)
+            verify_chain(leaf_cert_path=leaf_path, ca_cert_path=ca_path)
 
 
 class TestEnsureUTCNaiveDatetime:
@@ -614,7 +677,7 @@ class TestVerifyChainIssuerMismatch:
 
     def test_verify_chain_raises_for_issuer_name_mismatch(self, tmp_path: Path) -> None:
         """Leaf cert with different issuer name must raise TLSCertificateError."""
-        from synth_engine.shared.tls.config import TLSCertificateError, TLSConfig
+        from synth_engine.shared.tls.config import TLSCertificateError, verify_chain
 
         # Build a CA cert
         ca_key = _generate_key()
@@ -652,4 +715,4 @@ class TestVerifyChainIssuerMismatch:
         leaf_path.write_bytes(leaf_cert.public_bytes(serialization.Encoding.PEM))
 
         with pytest.raises(TLSCertificateError, match="mismatch"):
-            TLSConfig.verify_chain(leaf_cert_path=leaf_path, ca_cert_path=ca_path)
+            verify_chain(leaf_cert_path=leaf_path, ca_cert_path=ca_path)

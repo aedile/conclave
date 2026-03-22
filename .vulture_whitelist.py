@@ -250,13 +250,17 @@ _build_webhook_delivery_fn  # unused function — bootstrapper/main.py; called a
 
 # ---------------------------------------------------------------------------
 # Category L — T46.1 mTLS TLS helpers
-# TLSConfig static methods are called from operator startup hooks and tests
-# via deferred imports. Vulture cannot trace test-scoped deferred imports.
-# validate_san_hostname and _ensure_utc are module-level functions exported
-# as part of the shared/tls/ public API.
+# Module-level functions in shared/tls/config.py are called from operator
+# startup hooks and tests via deferred imports. Vulture cannot trace
+# test-scoped deferred imports.
+# validate_san_hostname, _ensure_utc, load_certificate, validate_certificate,
+# verify_key_cert_pair, verify_chain, and days_until_expiry are all
+# module-level functions exported as part of the shared/tls/ public API.
+# TLSCertificateError is defined in shared/exceptions.py and re-exported
+# from shared/tls/config.py for backward-compatible imports.
 # ---------------------------------------------------------------------------
 
-validate_certificate  # unused method — TLSConfig.validate_certificate (shared/tls/config.py)
-verify_key_cert_pair  # unused method — TLSConfig.verify_key_cert_pair (shared/tls/config.py)
-verify_chain  # unused method — TLSConfig.verify_chain (shared/tls/config.py)
-days_until_expiry  # unused method — TLSConfig.days_until_expiry (shared/tls/config.py)
+validate_certificate  # unused function — shared/tls/config.py; called from startup hooks and tests
+verify_key_cert_pair  # unused function — shared/tls/config.py; called from startup hooks and tests
+verify_chain  # unused function — shared/tls/config.py; called from startup hooks and tests
+days_until_expiry  # unused function — shared/tls/config.py; called from startup hooks and tests

@@ -11,8 +11,9 @@ Security properties
 - Validity windows are checked against the current UTC clock.
 - Key/certificate pair matching is verified via public-key byte comparison.
 - Chain verification uses the cryptography library's issuer/signature APIs.
-- SAN hostnames are validated against a hardcoded allowlist — no arbitrary
-  input is accepted.
+- SAN hostnames are validated for format correctness (RFC 1035 character set,
+  length limit, no wildcards). Allowlist enforcement is a generation-time
+  concern handled by the CA shell script, not a load-time concern.
 
 Module placement: ``shared/tls/`` — consumed by bootstrapper startup
 validation and potentially by ingestion/synthesizer health checks. Lives in
@@ -41,6 +42,24 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
     ECDSA,
     EllipticCurvePublicKey,
 )
+
+from synth_engine.shared.exceptions import TLSCertificateError
+
+# ---------------------------------------------------------------------------
+# Public re-export — TLSCertificateError lives in shared/exceptions.py but
+# is re-exported here so that callers who import from this module directly
+# continue to work without modification.
+# ---------------------------------------------------------------------------
+__all__ = [
+    "SERVICE_HOSTNAMES",
+    "TLSCertificateError",
+    "days_until_expiry",
+    "load_certificate",
+    "validate_certificate",
+    "validate_san_hostname",
+    "verify_chain",
+    "verify_key_cert_pair",
+]
 
 # ---------------------------------------------------------------------------
 # Public constants
@@ -78,26 +97,6 @@ _VALID_HOSTNAME_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*
 
 
 # ---------------------------------------------------------------------------
-# Custom exception
-# ---------------------------------------------------------------------------
-
-
-class TLSCertificateError(Exception):
-    """Raised when a TLS certificate fails a security or validity check.
-
-    Args:
-        message: Human-readable description of the certificate failure.
-
-    Attributes:
-        message: Human-readable description of the failure.
-    """
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
-
-
-# ---------------------------------------------------------------------------
 # SAN validation
 # ---------------------------------------------------------------------------
 
@@ -106,7 +105,9 @@ def validate_san_hostname(hostname: str) -> None:
     """Validate a SAN DNS hostname entry against security constraints.
 
     Rejects empty strings, wildcards, hostnames exceeding RFC 1035 length
-    limits, and hostnames containing invalid characters.
+    limits, and hostnames containing invalid characters. This is a format
+    validation only — allowlist enforcement is a generation-time concern
+    handled by the CA shell script.
 
     Args:
         hostname: The DNS hostname string to validate.
@@ -131,184 +132,183 @@ def validate_san_hostname(hostname: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TLSConfig
+# Certificate helpers (module-level functions)
 # ---------------------------------------------------------------------------
 
 
-class TLSConfig:
-    """Certificate loading, validation, and chain verification utilities.
+def load_certificate(cert_path: Path) -> x509.Certificate:
+    """Load a PEM-encoded X.509 certificate from disk.
 
-    All methods are static/class-level — there is no instance state.
-    Operations are intentionally stateless so they can be called from any
-    context (startup hooks, health checks, CLI tools).
+    Args:
+        cert_path: Absolute or relative path to the PEM certificate file.
+
+    Returns:
+        The parsed X.509 Certificate object.
+
+    Raises:
+        FileNotFoundError: If the file does not exist at ``cert_path``.
+        PermissionError: If the file exists but cannot be read.
+        TLSCertificateError: If the file contents cannot be parsed as a
+            valid PEM certificate.
     """
+    if not cert_path.exists():
+        raise FileNotFoundError(f"Certificate file not found: {cert_path}")
 
-    @staticmethod
-    def load_certificate(cert_path: Path) -> x509.Certificate:
-        """Load a PEM-encoded X.509 certificate from disk.
+    # read_bytes() propagates PermissionError if the file is not readable.
+    pem_data = cert_path.read_bytes()
 
-        Args:
-            cert_path: Absolute or relative path to the PEM certificate file.
+    try:
+        return x509.load_pem_x509_certificate(pem_data)
+    except Exception as exc:
+        raise TLSCertificateError(f"Failed to parse certificate at {cert_path}: {exc}") from exc
 
-        Returns:
-            The parsed X.509 Certificate object.
 
-        Raises:
-            FileNotFoundError: If the file does not exist at ``cert_path``.
-            TLSCertificateError: If the file contents cannot be parsed as a
-                valid PEM certificate.
-        """
-        if not cert_path.exists():
-            raise FileNotFoundError(f"Certificate file not found: {cert_path}")
+def validate_certificate(cert_path: Path) -> datetime.datetime:
+    """Validate a certificate's temporal validity window.
 
-        # read_bytes() propagates PermissionError if the file is not readable.
-        pem_data = cert_path.read_bytes()
+    Loads the certificate and checks that the current UTC time falls
+    within the ``not_valid_before`` / ``not_valid_after`` window.
 
-        try:
-            return x509.load_pem_x509_certificate(pem_data)
-        except Exception as exc:
-            raise TLSCertificateError(f"Failed to parse certificate at {cert_path}: {exc}") from exc
+    Args:
+        cert_path: Absolute or relative path to the PEM certificate file.
 
-    @staticmethod
-    def validate_certificate(cert_path: Path) -> datetime.datetime:
-        """Validate a certificate's temporal validity window.
+    Returns:
+        The ``not_valid_after`` datetime (UTC-aware) for the certificate.
 
-        Loads the certificate and checks that the current UTC time falls
-        within the ``not_valid_before`` / ``not_valid_after`` window.
+    Raises:
+        TLSCertificateError: If the certificate is malformed, already
+            expired, or not yet valid.
+    """
+    cert = load_certificate(cert_path)
+    now = datetime.datetime.now(tz=datetime.UTC)
 
-        Args:
-            cert_path: Absolute or relative path to the PEM certificate file.
+    not_before = _ensure_utc(cert.not_valid_before_utc)
+    not_after = _ensure_utc(cert.not_valid_after_utc)
 
-        Returns:
-            The ``not_valid_after`` datetime (UTC-aware) for the certificate.
-
-        Raises:
-            TLSCertificateError: If the certificate is malformed, already
-                expired, or not yet valid.
-        """
-        cert = TLSConfig.load_certificate(cert_path)
-        now = datetime.datetime.now(tz=datetime.UTC)
-
-        not_before = _ensure_utc(cert.not_valid_before_utc)
-        not_after = _ensure_utc(cert.not_valid_after_utc)
-
-        if now < not_before:
-            raise TLSCertificateError(
-                f"Certificate at {cert_path} is not yet valid (valid from {not_before.isoformat()})"
-            )
-
-        if now > not_after:
-            raise TLSCertificateError(
-                f"Certificate at {cert_path} has expired (expired {not_after.isoformat()})"
-            )
-
-        return not_after
-
-    @staticmethod
-    def verify_key_cert_pair(key_path: Path, cert_path: Path) -> None:
-        """Verify that a private key matches a certificate's public key.
-
-        Compares the DER-encoded public key bytes of the private key against
-        those embedded in the certificate.
-
-        Args:
-            key_path: Path to the PEM-encoded private key file.
-            cert_path: Path to the PEM-encoded certificate file.
-
-        Raises:
-            TLSCertificateError: If the private key does not correspond to
-                the certificate's public key, or if either file is malformed.
-        """
-        cert = TLSConfig.load_certificate(cert_path)
-        key_pem = key_path.read_bytes()
-
-        try:
-            private_key = serialization.load_pem_private_key(key_pem, password=None)
-        except Exception as exc:
-            raise TLSCertificateError(f"Failed to load private key at {key_path}: {exc}") from exc
-
-        cert_pub_bytes = cert.public_key().public_bytes(
-            serialization.Encoding.DER,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        key_pub_bytes = private_key.public_key().public_bytes(
-            serialization.Encoding.DER,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
+    if now < not_before:
+        raise TLSCertificateError(
+            f"Certificate at {cert_path} is not yet valid (valid from {not_before.isoformat()})"
         )
 
-        if cert_pub_bytes != key_pub_bytes:
-            raise TLSCertificateError(
-                f"Private key at {key_path} does not match "
-                f"the certificate at {cert_path} (key/cert mismatch)"
-            )
+    if now > not_after:
+        raise TLSCertificateError(
+            f"Certificate at {cert_path} has expired (expired {not_after.isoformat()})"
+        )
 
-    @staticmethod
-    def verify_chain(leaf_cert_path: Path, ca_cert_path: Path) -> None:
-        """Verify that a leaf certificate was signed by the given CA certificate.
+    return not_after
 
-        Uses the CA certificate's public key to verify the leaf certificate's
-        signature. This is a single-hop verification (leaf → CA) — it does not
-        walk multi-level chains.
 
-        Args:
-            leaf_cert_path: Path to the PEM-encoded leaf certificate.
-            ca_cert_path: Path to the PEM-encoded CA certificate.
+def verify_key_cert_pair(key_path: Path, cert_path: Path) -> None:
+    """Verify that a private key matches a certificate's public key.
 
-        Raises:
-            TLSCertificateError: If the leaf certificate was not signed by
-                the CA, if either file is malformed, or if the CA uses a
-                non-ECDSA key type.
-        """
-        leaf_cert = TLSConfig.load_certificate(leaf_cert_path)
-        ca_cert = TLSConfig.load_certificate(ca_cert_path)
+    Compares the DER-encoded public key bytes of the private key against
+    those embedded in the certificate.
 
-        ca_public_key = ca_cert.public_key()
+    Args:
+        key_path: Path to the PEM-encoded private key file.
+        cert_path: Path to the PEM-encoded certificate file.
 
-        if not isinstance(ca_public_key, EllipticCurvePublicKey):
-            raise TLSCertificateError(
-                f"CA certificate at {ca_cert_path} uses an unsupported key type "
-                f"(expected ECDSA, got {type(ca_public_key).__name__})"
-            )
+    Raises:
+        FileNotFoundError: If ``key_path`` does not exist on disk.
+        PermissionError: If ``key_path`` exists but cannot be read.
+        TLSCertificateError: If the private key does not correspond to
+            the certificate's public key, or if either file is malformed.
+    """
+    cert = load_certificate(cert_path)
 
-        try:
-            ca_public_key.verify(
-                leaf_cert.signature,
-                leaf_cert.tbs_certificate_bytes,
-                ECDSA(hashes.SHA256()),
-            )
-        except InvalidSignature as exc:
-            raise TLSCertificateError(
-                f"Certificate chain verification failed: leaf at {leaf_cert_path} "
-                f"was not signed by CA at {ca_cert_path}"
-            ) from exc
-        except Exception as exc:
-            raise TLSCertificateError(f"Certificate chain verification error: {exc}") from exc
+    if not key_path.exists():
+        raise FileNotFoundError(f"Private key file not found: {key_path}")
 
-        # Also verify the issuer name matches the CA subject name
-        if leaf_cert.issuer != ca_cert.subject:
-            raise TLSCertificateError(
-                f"Issuer name mismatch: leaf issuer={leaf_cert.issuer.rfc4514_string()!r} "
-                f"does not match CA subject={ca_cert.subject.rfc4514_string()!r}"
-            )
+    # read_bytes() propagates PermissionError if the file is not readable.
+    key_pem = key_path.read_bytes()
 
-    @staticmethod
-    def days_until_expiry(cert_path: Path) -> int:
-        """Return the number of days until a certificate expires.
+    try:
+        private_key = serialization.load_pem_private_key(key_pem, password=None)
+    except Exception as exc:
+        raise TLSCertificateError(f"Failed to load private key at {key_path}: {exc}") from exc
 
-        The value is negative if the certificate is already expired.
+    cert_pub_bytes = cert.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    key_pub_bytes = private_key.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
 
-        Args:
-            cert_path: Path to the PEM-encoded certificate file.
+    if cert_pub_bytes != key_pub_bytes:
+        raise TLSCertificateError(
+            f"Private key at {key_path} does not match "
+            f"the certificate at {cert_path} (key/cert mismatch)"
+        )
 
-        Returns:
-            Integer number of days until (or since) expiry. Negative means
-            already expired.
-        """
-        cert = TLSConfig.load_certificate(cert_path)
-        now = datetime.datetime.now(tz=datetime.UTC)
-        not_after = _ensure_utc(cert.not_valid_after_utc)
-        delta = not_after - now
-        return delta.days
+
+def verify_chain(leaf_cert_path: Path, ca_cert_path: Path) -> None:
+    """Verify that a leaf certificate was signed by the given CA certificate.
+
+    Uses the CA certificate's public key to verify the leaf certificate's
+    signature. This is a single-hop verification (leaf -> CA) — it does not
+    walk multi-level chains.
+
+    Args:
+        leaf_cert_path: Path to the PEM-encoded leaf certificate.
+        ca_cert_path: Path to the PEM-encoded CA certificate.
+
+    Raises:
+        TLSCertificateError: If the leaf certificate was not signed by
+            the CA, if either file is malformed, or if the CA uses a
+            non-ECDSA key type.
+    """
+    leaf_cert = load_certificate(leaf_cert_path)
+    ca_cert = load_certificate(ca_cert_path)
+
+    ca_public_key = ca_cert.public_key()
+
+    if not isinstance(ca_public_key, EllipticCurvePublicKey):
+        raise TLSCertificateError(
+            f"CA certificate at {ca_cert_path} uses an unsupported key type "
+            f"(expected ECDSA, got {type(ca_public_key).__name__})"
+        )
+
+    try:
+        ca_public_key.verify(
+            leaf_cert.signature,
+            leaf_cert.tbs_certificate_bytes,
+            ECDSA(hashes.SHA256()),
+        )
+    except InvalidSignature as exc:
+        raise TLSCertificateError(
+            f"Certificate chain verification failed: leaf at {leaf_cert_path} "
+            f"was not signed by CA at {ca_cert_path}"
+        ) from exc
+    except Exception as exc:
+        raise TLSCertificateError(f"Certificate chain verification error: {exc}") from exc
+
+    # Also verify the issuer name matches the CA subject name
+    if leaf_cert.issuer != ca_cert.subject:
+        raise TLSCertificateError(
+            f"Issuer name mismatch: leaf issuer={leaf_cert.issuer.rfc4514_string()!r} "
+            f"does not match CA subject={ca_cert.subject.rfc4514_string()!r}"
+        )
+
+
+def days_until_expiry(cert_path: Path) -> int:
+    """Return the number of days until a certificate expires.
+
+    The value is negative if the certificate is already expired.
+
+    Args:
+        cert_path: Path to the PEM-encoded certificate file.
+
+    Returns:
+        Integer number of days until (or since) expiry. Negative means
+        already expired.
+    """
+    cert = load_certificate(cert_path)
+    now = datetime.datetime.now(tz=datetime.UTC)
+    not_after = _ensure_utc(cert.not_valid_after_utc)
+    delta = not_after - now
+    return delta.days
 
 
 # ---------------------------------------------------------------------------
