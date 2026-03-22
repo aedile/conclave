@@ -13,6 +13,7 @@
 # Egress allowed:
 #   - prometheus -> app (port 8000) for /metrics scraping
 #   - alertmanager -> prometheus (port 9090)
+#   - alertmanager -> external notification endpoints (TCP 443)
 #   - grafana -> prometheus (port 9090) as its data source
 #   - kube-dns for all monitoring pods
 #
@@ -163,6 +164,14 @@ spec:
         - protocol: TCP
           port: 9093
   egress:
+    # AlertManager must reach external notification endpoints (Slack, PagerDuty, etc.)
+    # OPERATOR NOTE: Extend this rule with specific IP ranges or CIDR blocks
+    # for your notification service endpoints. The broad HTTPS rule below is a
+    # placeholder — restrict it in production to your specific endpoints.
+    - to: []  # Allow all destinations (operator should restrict to specific CIDRs)
+      ports:
+        - protocol: TCP
+          port: 443
     # DNS resolution (required for alertmanager notification routing).
     - to:
         - namespaceSelector:

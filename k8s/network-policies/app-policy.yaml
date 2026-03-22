@@ -2,6 +2,7 @@
 #
 # Ingress allowed from:
 #   - Kubernetes ingress controller pods (port 8000 HTTP API)
+#   - Prometheus pods (port 8000 /metrics scraping)
 #
 # Egress allowed to:
 #   - pgbouncer (port 6432)
@@ -34,6 +35,20 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow Prometheus to scrape /metrics (port 8000).
+    # Without this matching ingress rule, monitoring-policy.yaml's prometheus
+    # egress rule is insufficient — both sides of the NetworkPolicy must permit
+    # the flow for CNI enforcement to pass the traffic.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: conclave
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
           port: 8000
