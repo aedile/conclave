@@ -204,6 +204,10 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             A 400 JSONResponse if the key is invalid,
             a 409 JSONResponse if the key already exists in Redis,
             or the normal downstream response otherwise.
+
+        Raises:
+            Exception: Re-raises any exception from the downstream handler
+                after a best-effort delete of the idempotency key in Redis.
         """
         # Step 1: Skip safe (non-mutating) methods.
         if request.method not in _MUTATING_METHODS:

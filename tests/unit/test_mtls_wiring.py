@@ -86,7 +86,7 @@ def test_conclave_settings_mtls_cert_paths_have_defaults() -> None:
     s = ConclaveSettings(database_url="sqlite:///test.db", audit_key="aa" * 32)
     assert s.mtls_ca_cert_path == "secrets/mtls/ca.crt"
     assert s.mtls_client_cert_path == "secrets/mtls/app.crt"
-    assert s.mtls_client_key_path == "secrets/mtls/app.key"
+    assert s.mtls_client_key_path == "secrets/mtls/app.key"  # pragma: allowlist secret
 
 
 def test_conclave_settings_mtls_cert_paths_from_env(

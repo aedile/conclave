@@ -147,7 +147,6 @@ def load_certificate(cert_path: Path) -> x509.Certificate:
 
     Raises:
         FileNotFoundError: If the file does not exist at ``cert_path``.
-        PermissionError: If the file exists but cannot be read.
         TLSCertificateError: If the file contents cannot be parsed as a
             valid PEM certificate.
     """
@@ -210,7 +209,6 @@ def verify_key_cert_pair(key_path: Path, cert_path: Path) -> None:
 
     Raises:
         FileNotFoundError: If ``key_path`` does not exist on disk.
-        PermissionError: If ``key_path`` exists but cannot be read.
         TLSCertificateError: If the private key does not correspond to
             the certificate's public key, or if either file is malformed.
     """
