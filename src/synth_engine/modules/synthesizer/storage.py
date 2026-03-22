@@ -54,20 +54,21 @@ _logger = logging.getLogger(__name__)
 def _read_parquet_bounded_bytes(data: bytes) -> pd.DataFrame:
     """Deserialise Parquet bytes with size and row-count guards.
 
-    Checks configured limits from :func:
-    before and after loading:
+    Checks configured limits from
+    :func:`~synth_engine.shared.settings.get_settings` before and after
+    loading:
 
-    1. **Size check** — len(data) is compared against
-       settings.parquet_max_file_bytes.  If exceeded, raises immediately
+    1. **Size check** — ``len(data)`` is compared against
+       ``settings.parquet_max_file_bytes``.  If exceeded, raises immediately
        *before* any bytes are decoded.
-    2. **Row-count check** — after loading, len(df) is compared against
-       settings.parquet_max_rows.
+    2. **Row-count check** — after loading, ``len(df)`` is compared against
+       ``settings.parquet_max_rows``.
 
     Args:
         data: Raw Parquet bytes previously stored in ephemeral storage.
 
     Returns:
-        The loaded :class:.
+        The loaded :class:`~pandas.DataFrame`.
 
     Raises:
         DatasetTooLargeError: If the payload size or row count exceeds the

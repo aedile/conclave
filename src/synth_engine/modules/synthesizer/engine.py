@@ -109,25 +109,25 @@ def _row_count_bucket(n: int) -> str:
 def _read_parquet_bounded(path: str) -> pd.DataFrame:
     """Load a Parquet file with size and row-count guards.
 
-    Checks configured limits from :func:
-    before and after loading:
+    Checks configured limits from
+    :func:`~synth_engine.shared.settings.get_settings` before and after
+    loading:
 
-    1. **Size check** — os.path.getsize(path) is compared against
-       settings.parquet_max_file_bytes.  If exceeded, raises immediately
+    1. **Size check** — ``os.path.getsize(path)`` is compared against
+       ``settings.parquet_max_file_bytes``.  If exceeded, raises immediately
        *before* any data is read into memory.
-    2. **Row-count check** — after loading, len(df) is compared against
-       settings.parquet_max_rows.
+    2. **Row-count check** — after loading, ``len(df)`` is compared against
+       ``settings.parquet_max_rows``.
 
     Args:
         path: Filesystem path to a Parquet file.
 
     Returns:
-        The loaded :class:.
+        The loaded :class:`~pandas.DataFrame`.
 
     Raises:
         DatasetTooLargeError: If the file size or row count exceeds the
             configured limit.
-        FileNotFoundError: If path does not exist on disk.
     """
     settings = get_settings()
     file_size = os.path.getsize(path)
