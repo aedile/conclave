@@ -14,9 +14,7 @@ Task: T48.1 — Redis-Backed Rate Limiting
 
 from __future__ import annotations
 
-import hashlib
 import logging
-from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -25,7 +23,6 @@ import redis as redis_lib
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
-from limits import parse
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -203,9 +200,7 @@ def test_xff_spoofing_empty_header_falls_back_to_client_host() -> None:
 
     ip = _extract_client_ip(request)
     # Empty XFF should not be trusted; fallback to client.host
-    assert ip == "198.51.100.5", (
-        f"Empty XFF must fall back to client.host; got: {ip!r}"
-    )
+    assert ip == "198.51.100.5", f"Empty XFF must fall back to client.host; got: {ip!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -233,9 +228,8 @@ async def test_graceful_degradation_redis_down_allows_request() -> None:
 
     app = _build_redis_app(redis_client=mock_redis, unseal_limit=2)
 
-    with pytest.warns(None):  # No warnings raised as Python warnings — only logging
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post("/unseal", headers={"X-Forwarded-For": "10.1.1.1"})
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/unseal", headers={"X-Forwarded-For": "10.1.1.1"})
 
     assert response.status_code == 200, (
         f"Redis down must fail open (allow request); got {response.status_code}"
@@ -267,8 +261,12 @@ async def test_graceful_degradation_logs_warning_on_redis_error(
             await client.post("/unseal", headers={"X-Forwarded-For": "10.1.1.2"})
 
     warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("redis" in r.message.lower() or "fallback" in r.message.lower() for r in warning_records), (
-        f"WARNING about Redis degradation must be logged; got: {[r.message for r in warning_records]}"
+    logged_messages = [r.message for r in warning_records]
+    has_redis_warning = any(
+        "redis" in msg.lower() or "fallback" in msg.lower() for msg in logged_messages
+    )
+    assert has_redis_warning, (
+        f"WARNING about Redis degradation must be logged; got: {logged_messages}"
     )
 
 
@@ -296,7 +294,8 @@ async def test_graceful_degradation_does_not_log_raw_ip(
             await client.post("/unseal", headers={"X-Forwarded-For": raw_ip})
 
     assert raw_ip not in caplog.text, (
-        f"Raw IP '{raw_ip}' must NOT appear in warning log (CONSTITUTION P0); got: {caplog.text!r}"
+        f"Raw IP '{raw_ip}' must NOT appear in warning log (CONSTITUTION P0); "
+        f"got: {caplog.text!r}"
     )
 
 
@@ -461,12 +460,8 @@ async def test_429_response_does_not_expose_redis_key_details() -> None:
 
     assert response.status_code == 429
     body_text = response.text
-    assert "ratelimit:" not in body_text, (
-        "Redis key prefix must NOT appear in 429 response body"
-    )
-    assert "redis" not in body_text.lower(), (
-        "Redis internals must NOT appear in 429 response body"
-    )
+    assert "ratelimit:" not in body_text, "Redis key prefix must NOT appear in 429 response body"
+    assert "redis" not in body_text.lower(), "Redis internals must NOT appear in 429 response body"
 
 
 # ---------------------------------------------------------------------------

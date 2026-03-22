@@ -1,4 +1,4 @@
-"""Unit tests for the rate limiting middleware (T39.3).
+"""Unit tests for the rate limiting middleware (T39.3 + T48.1).
 
 Tests exercise RateLimitGateMiddleware in isolation using a minimal FastAPI
 app, following the established middleware isolation pattern from the project.
@@ -11,17 +11,25 @@ Coverage targets:
 - AC5: Rate limit values configurable via ConclaveSettings.
 - AC6: Exceed → 429; within limit → 200; different operators have independent limits.
 
+T48.1 update: Tests now inject a counting mock Redis so that end-to-end
+rate limit counting is exercised against the Redis-backed implementation.
+
 CONSTITUTION Priority 0: Security — brute-force protection on vault/auth
 CONSTITUTION Priority 3: TDD
 Task: T39.3 — Add Rate Limiting Middleware
+Task: T48.1 — Redis-Backed Rate Limiting
 """
 
 from __future__ import annotations
 
+import hashlib
+import logging
 from collections.abc import Generator
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
+import redis as redis_lib
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
@@ -54,6 +62,54 @@ def clear_settings_cache() -> Generator[None]:
 
 
 # ---------------------------------------------------------------------------
+# Counting mock Redis helper
+# ---------------------------------------------------------------------------
+
+
+def _make_counting_redis() -> redis_lib.Redis:
+    """Build a mock Redis client that accurately simulates INCR + EXPIRE.
+
+    Uses a plain dict as the backing store so that end-to-end rate limit
+    counting behaves identically to a real Redis server (each call to
+    pipeline.execute() on the same key increments the counter).
+
+    Returns:
+        A mock redis.Redis whose pipeline correctly tracks INCR counts.
+    """
+    _counters: dict[str, int] = {}
+
+    mock_redis = MagicMock(spec=redis_lib.Redis)
+
+    def _make_pipeline() -> MagicMock:
+        _pending_key: list[str] = []
+
+        mock_pipe = MagicMock()
+
+        def _incr(key: str) -> MagicMock:
+            _pending_key.clear()
+            _pending_key.append(key)
+            return mock_pipe
+
+        def _expire(key: str, seconds: int) -> MagicMock:
+            return mock_pipe
+
+        def _execute() -> list[Any]:
+            key = _pending_key[0] if _pending_key else "__unknown__"
+            _counters[key] = _counters.get(key, 0) + 1
+            return [_counters[key], True]
+
+        mock_pipe.incr.side_effect = _incr
+        mock_pipe.expire.side_effect = _expire
+        mock_pipe.execute.side_effect = _execute
+        mock_pipe.__enter__ = MagicMock(return_value=mock_pipe)
+        mock_pipe.__exit__ = MagicMock(return_value=False)
+        return mock_pipe
+
+    mock_redis.pipeline.side_effect = lambda: _make_pipeline()
+    return mock_redis  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
 # App factory helpers
 # ---------------------------------------------------------------------------
 
@@ -64,25 +120,31 @@ def _build_isolated_app(
     auth_limit: int = 10,
     general_limit: int = 60,
     download_limit: int = 10,
+    redis_client: Any = None,
 ) -> Any:
     """Build a minimal FastAPI app with only RateLimitGateMiddleware.
 
     Used for isolation tests — no vault, license, or auth middleware layers.
+    Injects a counting mock Redis by default so tests do not need a live server.
 
     Args:
         unseal_limit: Requests per minute allowed on /unseal per IP.
         auth_limit: Requests per minute allowed on /auth/token per IP.
         general_limit: Requests per minute allowed on all other endpoints per operator.
         download_limit: Requests per minute allowed on download endpoints per operator.
+        redis_client: Redis client to inject; if None, a counting mock is created.
 
     Returns:
         A FastAPI instance with RateLimitGateMiddleware registered.
     """
     from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
 
+    _redis = redis_client if redis_client is not None else _make_counting_redis()
+
     app = FastAPI()
     app.add_middleware(
         RateLimitGateMiddleware,
+        redis_client=_redis,
         unseal_limit=unseal_limit,
         auth_limit=auth_limit,
         general_limit=general_limit,
@@ -553,24 +615,28 @@ def test_compute_retry_after_fallback_logs_hashed_key_not_raw(
     key via sha256 before logging to prevent raw client IPs or operator IDs
     from appearing in log files (CONSTITUTION Priority 0: security).
 
-    Arrange: patch get_window_stats to raise RuntimeError.
+    Arrange: inject a mock Redis; patch _fallback_limiter.get_window_stats to raise.
     Act: call _compute_retry_after directly.
     Assert: the raw key string does not appear in the warning log.
     Assert: a 12-character hex substring (the hash prefix) appears in the log.
     """
-    import hashlib
-    import logging
-    from unittest.mock import MagicMock, patch
-
-    from limits import parse
-
     from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
 
     raw_key = "ip:203.0.113.99"
     expected_hash_prefix = hashlib.sha256(raw_key.encode()).hexdigest()[:12]
 
+    mock_redis = MagicMock(spec=redis_lib.Redis)
+    mock_pipeline = MagicMock()
+    mock_pipeline.__enter__ = MagicMock(return_value=mock_pipeline)
+    mock_pipeline.__exit__ = MagicMock(return_value=False)
+    mock_pipeline.execute.return_value = [1, True]
+    mock_redis.pipeline.return_value = mock_pipeline
+
+    from limits import parse
+
     middleware = RateLimitGateMiddleware(
         app=MagicMock(),
+        redis_client=mock_redis,
         unseal_limit=5,
         auth_limit=10,
         general_limit=60,
@@ -580,7 +646,7 @@ def test_compute_retry_after_fallback_logs_hashed_key_not_raw(
 
     rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit"
     with patch.object(
-        middleware._limiter,
+        middleware._fallback_limiter,
         "get_window_stats",
         side_effect=RuntimeError("storage error"),
     ):
