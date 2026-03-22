@@ -349,16 +349,22 @@ jobs:
         # with real values. Dummy random values are sufficient — the smoke test
         # only validates HTTP reachability and security headers, not data integrity.
         #
-        # T47.4 / T47.5: Phase 47 added production config validation that
-        # requires JWT_SECRET_KEY and OPERATOR_CREDENTIALS_HASH. Without them,
-        # validate_config() raises SystemExit at startup, causing the health
-        # check to time out. The bcrypt hash below is a dummy CI-only value
-        # (hash of "ci-dummy-password", generated offline). The remaining
-        # production-required vars (ARTIFACT_SIGNING_KEY, MASKING_SALT,
-        # AUDIT_KEY) and DATABASE_URL are also provisioned here so the app
-        # passes the always-required startup check in all deployment modes.
-        # The postgres password is fixed (not random) so DATABASE_URL can be
-        # constructed deterministically.
+        # Why ENV=development (not ENV=production):
+        # The smoke test validates Docker image buildability, stack operability,
+        # health endpoint reachability, and security headers. Production config
+        # validation (JWT_SECRET_KEY, OPERATOR_CREDENTIALS_HASH) is covered by
+        # unit tests. Production mode activates HTTPSEnforcementMiddleware
+        # (T42.2) which rejects plain HTTP with 421 — incompatible with Docker
+        # Compose internal HTTP traffic. Using ENV=development avoids this while
+        # still exercising the full stack. The remaining production-required env
+        # vars (JWT_SECRET_KEY, OPERATOR_CREDENTIALS_HASH, ARTIFACT_SIGNING_KEY,
+        # MASKING_SALT, AUDIT_KEY) are still provisioned so the app starts
+        # without warnings in development mode.
+        #
+        # T47.4 / T47.5: The bcrypt hash below is a dummy CI-only value
+        # (hash of "ci-dummy-password", generated offline). The postgres password
+        # is fixed (not random) so DATABASE_URL can be constructed
+        # deterministically.
         # NOTE: Dollar signs in the bcrypt hash MUST be escaped as $$ in the
         # .env file. Docker Compose treats $ as a variable reference; $$ is
         # the literal $. Without escaping, the hash is silently mangled and
@@ -376,7 +382,7 @@ jobs:
           # Provision .env with all vars required by validate_config().
           # env_file: .env in docker-compose.yml forwards these to the container.
           {
-            echo "ENV=production"
+            echo "ENV=development"
             echo "DATABASE_URL=postgresql+asyncpg://conclave:${CI_PG_PASSWORD}@pgbouncer:5432/conclave"
             echo "AUDIT_KEY=$(openssl rand -hex 32)"
             echo "ARTIFACT_SIGNING_KEY=$(openssl rand -hex 32)"
