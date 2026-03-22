@@ -72,6 +72,8 @@ secrets/*.pfx
 secrets/mtls/*.crt
 secrets/mtls/*.key
 secrets/mtls/*.srl
+# Rotation backups contain private key copies — NEVER commit (Finding 1: T46.3 review)
+secrets/mtls/backup-*/
 
 # pgbouncer credentials — plaintext password file MUST NOT be committed.
 # Operators must copy pgbouncer/userlist.txt.example to pgbouncer/userlist.txt

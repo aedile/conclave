@@ -40,6 +40,9 @@
 #   - This script reads ca.key only from the operator host.
 #   - All new private key files are created with 0600 permissions.
 #   - Backups retain original permissions.
+#   - Backup directories are created with 0700 (owner-only) permissions to
+#     prevent world-readable access to private key copies.
+#   - --output-dir is canonicalized via realpath to prevent path traversal.
 #   - Idempotent: running twice rotates certs twice (each run creates a new
 #     time-stamped backup, so re-running is safe and the backup is preserved).
 #
@@ -116,6 +119,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---------------------------------------------------------------------------
+# Canonicalize OUTPUT_DIR to prevent path traversal (Finding 4: T46.3 review)
+# realpath resolves symlinks and collapses ../ sequences.
+# ---------------------------------------------------------------------------
+
+OUTPUT_DIR="$(realpath "$OUTPUT_DIR")"
+
+# Warn if the resolved path escapes the expected secrets/ subtree.
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+EXPECTED_PREFIX="$SCRIPT_DIR/secrets"
+if [[ "$OUTPUT_DIR" != "$EXPECTED_PREFIX"* ]]; then
+    log "WARNING: --output-dir resolved to '$OUTPUT_DIR', which is outside the expected secrets/ directory."
+    log "         Ensure this is intentional before continuing."
+fi
+
+# ---------------------------------------------------------------------------
 # Validate numeric args
 # ---------------------------------------------------------------------------
 
@@ -175,7 +193,9 @@ BACKUP_DIR="$OUTPUT_DIR/backup-${BACKUP_TIMESTAMP}"
 
 log ""
 log "Step 1/4: Backing up current certs to $BACKUP_DIR ..."
-mkdir -p "$BACKUP_DIR"
+# Use 0700 (owner-only) so private key copies in the backup are not
+# world-readable regardless of the operator's umask (Finding 2: T46.3 review).
+mkdir -m 0700 -p "$BACKUP_DIR"
 
 for SERVICE in "${SERVICES[@]}"; do
     for EXT in crt key; do

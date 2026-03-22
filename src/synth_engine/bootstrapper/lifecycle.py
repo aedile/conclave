@@ -14,7 +14,9 @@ Task: P29-T29.3 — Error Message Audience Differentiation
 
 Task: T46.3 — Certificate Rotation Without Downtime
     ``_lifespan`` calls ``update_cert_expiry_metrics()`` at startup so that
-    the Prometheus gauge is populated on the first scrape.
+    the Prometheus gauge is populated on the first scrape.  The call is
+    dispatched via ``asyncio.to_thread`` to avoid blocking the event loop
+    during synchronous file I/O (Finding 3: T46.3 review).
 """
 
 from __future__ import annotations
@@ -61,6 +63,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     Prometheus metrics so the gauge is populated on the first scrape rather
     than returning "no data" until the first periodic update.
 
+    ``update_cert_expiry_metrics`` reads cert files from disk and is therefore
+    dispatched via ``asyncio.to_thread`` so that synchronous file I/O does not
+    block the event loop during startup.
+
     This hook is executed by the ASGI server (uvicorn) when the process
     starts -- not at import time -- so unit tests that call
     :func:`create_app` without a live ASGI server are unaffected.
@@ -74,8 +80,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     validate_config()
     # Populate cert expiry metrics at startup so the first Prometheus scrape
-    # has data.  Failures are logged (not raised) inside update_cert_expiry_metrics.
-    update_cert_expiry_metrics()
+    # has data.  Dispatched via asyncio.to_thread to avoid blocking the event
+    # loop on synchronous file I/O.  Failures are logged (not raised) inside
+    # update_cert_expiry_metrics.
+    await asyncio.to_thread(update_cert_expiry_metrics)
     yield
 
 
