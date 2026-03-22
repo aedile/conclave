@@ -1,7 +1,8 @@
-"""Negative/attack tests for ModelArtifact artifact signature hardening.
+"""Negative/attack tests and feature tests for ModelArtifact artifact signature hardening.
 
-Attack-first TDD per Rule 22 (CLAUDE.md). These tests define security
-invariants that MUST hold before feature tests are written.
+Attack-first TDD per Rule 22 (CLAUDE.md). Section 1 contains security
+invariant tests (attack tests). Section 2 contains feature tests that
+verify the new positive behaviors introduced in T47.6.
 
 T47.6 — Harden Model Artifact Signature Verification
 """
@@ -10,17 +11,17 @@ from __future__ import annotations
 
 import os
 import pickle  # nosec B403 — constructing adversarial payloads for security tests
-import struct
 import tempfile
+import unittest.mock
 from pathlib import Path
-from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 
 from synth_engine.modules.synthesizer.models import ModelArtifact
 from synth_engine.shared.exceptions import ArtifactTamperingError
 from synth_engine.shared.security import SecurityError
-from synth_engine.shared.security.hmac_signing import HMAC_DIGEST_SIZE, compute_hmac
+from synth_engine.shared.security.hmac_signing import compute_hmac
 
 pytestmark = pytest.mark.unit
 
@@ -35,8 +36,23 @@ _SHORT_KEY_16: bytes = os.urandom(16)
 _SHORT_KEY_31: bytes = os.urandom(31)
 
 
+class _PicklableStub:
+    """Minimal picklable synthesizer stub for hardening tests."""
+
+    def sample(self, num_rows: int = 1) -> pd.DataFrame:
+        """Return a trivial DataFrame.
+
+        Args:
+            num_rows: Number of rows to return.
+
+        Returns:
+            DataFrame with one column.
+        """
+        return pd.DataFrame({"id": list(range(num_rows))})
+
+
 def _make_artifact(table_name: str = "attack_test") -> ModelArtifact:
-    """Return a minimal ModelArtifact for adversarial test construction.
+    """Return a minimal ModelArtifact with a picklable synthesizer stub.
 
     Args:
         table_name: Name to assign to the test artifact.
@@ -46,12 +62,16 @@ def _make_artifact(table_name: str = "attack_test") -> ModelArtifact:
     """
     return ModelArtifact(
         table_name=table_name,
-        model=MagicMock(),
+        model=_PicklableStub(),
         column_names=["id"],
         column_dtypes={"id": "int64"},
         column_nullables={"id": False},
     )
 
+
+# ===========================================================================
+# SECTION 1 — ATTACK / NEGATIVE TESTS
+# ===========================================================================
 
 # ---------------------------------------------------------------------------
 # ATTACK: Crafted preamble — 32-byte preamble crafted to look signed, but
@@ -251,8 +271,6 @@ def test_load_file_exceeding_size_limit_raises(tmp_path: Path) -> None:
     # We mock os.path.getsize to avoid writing gigabytes in tests.
     oversized_file.write_bytes(b"\x00" * 64)
 
-    import unittest.mock
-
     # Simulate a file that reports 3 GiB in size
     _3_GIB = 3 * 1024 * 1024 * 1024
     with unittest.mock.patch("os.path.getsize", return_value=_3_GIB):
@@ -278,3 +296,123 @@ def test_load_exactly_32_bytes_with_key_raises_security_error() -> None:
 
         with pytest.raises(SecurityError, match="HMAC verification failed"):
             ModelArtifact.load(str(short_file), signing_key=_VALID_KEY_32)
+
+
+# ===========================================================================
+# SECTION 2 — FEATURE TESTS (failing before implementation)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# FEATURE: _detect_signed_format function exists with correct name and docstring
+# ---------------------------------------------------------------------------
+
+
+def test_detect_signed_format_function_exists_with_correct_name() -> None:
+    """The format-detector function must be named _detect_signed_format.
+
+    The rename from _looks_signed to _detect_signed_format clarifies that
+    this is a format detector, NOT a security check.
+    """
+    import synth_engine.modules.synthesizer.models as models_mod
+
+    assert hasattr(models_mod, "_detect_signed_format"), (
+        "_detect_signed_format not found — rename from _looks_signed not complete"
+    )
+
+
+def test_looks_signed_removed() -> None:
+    """The old name _looks_signed must no longer exist on the module."""
+    import synth_engine.modules.synthesizer.models as models_mod
+
+    assert not hasattr(models_mod, "_looks_signed"), (
+        "_looks_signed still present — rename to _detect_signed_format incomplete"
+    )
+
+
+def test_detect_signed_format_docstring_says_not_security_check() -> None:
+    """_detect_signed_format docstring must state it is NOT a security check.
+
+    This prevents future developers from misusing the function as a security
+    gate (it is a format detector only — for better error messages).
+    """
+    import synth_engine.modules.synthesizer.models as models_mod
+
+    doc = models_mod._detect_signed_format.__doc__ or ""
+    assert "NOT a security check" in doc, (
+        f"_detect_signed_format docstring must say 'NOT a security check'; got: {doc!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# FEATURE: Minimum key length enforcement — 32 bytes is the minimum accepted
+# ---------------------------------------------------------------------------
+
+
+def test_signing_key_exactly_32_bytes_accepted_by_save() -> None:
+    """save() must accept a key of exactly 32 bytes (the minimum valid length)."""
+    artifact = _make_artifact(table_name="edge_32")
+    key_32 = os.urandom(32)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_path = Path(tmpdir) / "artifact.pkl"
+        # Must not raise
+        artifact.save(str(save_path), signing_key=key_32)
+        assert Path(save_path).exists()
+
+
+def test_signing_key_exactly_32_bytes_accepted_by_load() -> None:
+    """load() must accept a key of exactly 32 bytes (the minimum valid length)."""
+    artifact = _make_artifact(table_name="edge_32_load")
+    key_32 = os.urandom(32)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_path = Path(tmpdir) / "artifact.pkl"
+        artifact.save(str(save_path), signing_key=key_32)
+        loaded = ModelArtifact.load(str(save_path), signing_key=key_32)
+        assert loaded.table_name == "edge_32_load"
+
+
+def test_signing_key_longer_than_32_bytes_accepted_by_save() -> None:
+    """save() must accept a key longer than 32 bytes (e.g. 64 bytes)."""
+    artifact = _make_artifact(table_name="long_key")
+    key_64 = os.urandom(64)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_path = Path(tmpdir) / "artifact.pkl"
+        artifact.save(str(save_path), signing_key=key_64)
+        assert Path(save_path).exists()
+
+
+# ---------------------------------------------------------------------------
+# FEATURE: isinstance guard rejects non-ModelArtifact in unsigned mode too
+# ---------------------------------------------------------------------------
+
+
+def test_isinstance_check_on_unsigned_non_model_artifact(tmp_path: Path) -> None:
+    """load() without signing_key must also reject non-ModelArtifact unpickled objects.
+
+    The isinstance guard must fire regardless of whether a signing key is used,
+    preventing malicious unsigned pickle files from executing arbitrary code.
+    """
+    evil_payload = pickle.dumps([1, 2, 3], protocol=pickle.HIGHEST_PROTOCOL)  # nosec B301
+    # Make it start with 0x80 (pickle opcode) so _detect_signed_format returns False
+    assert evil_payload[0] == 0x80
+    unsigned_file = tmp_path / "evil_unsigned.pkl"
+    unsigned_file.write_bytes(evil_payload)
+
+    with pytest.raises(ArtifactTamperingError):
+        ModelArtifact.load(str(unsigned_file))
+
+
+# ---------------------------------------------------------------------------
+# FEATURE: File size limit — files within the limit load normally
+# ---------------------------------------------------------------------------
+
+
+def test_load_file_within_size_limit_succeeds() -> None:
+    """load() must succeed for files within the 2 GiB size limit."""
+    artifact = _make_artifact(table_name="size_ok")
+    key = os.urandom(32)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        save_path = Path(tmpdir) / "artifact.pkl"
+        artifact.save(str(save_path), signing_key=key)
+        # Must not raise — real file is only a few KB
+        loaded = ModelArtifact.load(str(save_path), signing_key=key)
+        assert loaded.table_name == "size_ok"
