@@ -17,6 +17,7 @@ Task: T36.2 — Split bootstrapper/errors.py Into Focused Modules
 Task: P36 review — Import CycleDetectionError and CollisionError from shared.exceptions (ADR-0037)
 Task: T37.1 — Add EpsilonMeasurementError to OPERATOR_ERROR_MAP
 Task: T38.1 — Add AuditWriteError to OPERATOR_ERROR_MAP (status 500)
+Task: T47.7 — Add DatasetTooLargeError to OPERATOR_ERROR_MAP (status 413)
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from synth_engine.shared.exceptions import (
     BudgetExhaustionError,
     CollisionError,
     CycleDetectionError,
+    DatasetTooLargeError,
     EpsilonMeasurementError,
     LicenseError,
     OOMGuardrailError,
@@ -117,6 +119,12 @@ OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
             "Reduce the dataset size or the number of rows and retry."
         ),
         status_code=422,
+        type_uri="about:blank",
+    ),
+    DatasetTooLargeError: OperatorErrorEntry(
+        title="Dataset Too Large",
+        detail="The uploaded dataset exceeds the configured size or row count limit.",
+        status_code=413,
         type_uri="about:blank",
     ),
     VaultSealedError: OperatorErrorEntry(

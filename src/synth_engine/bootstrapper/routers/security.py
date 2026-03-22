@@ -17,9 +17,21 @@ dependency module so they bypass the ``SealGateMiddleware``.
 
 Route-level authentication is enforced via the
 :func:`~synth_engine.bootstrapper.dependencies.auth.get_current_operator`
-dependency on both endpoints (ADV-022).  The authenticated operator's sub
-claim is used as the audit actor identity — replacing the previous hardcoded
-``"operator"`` literal.
+dependency on both endpoints (ADV-022).
+
+Scope-based authorization is enforced via
+:func:`~synth_engine.bootstrapper.dependencies.auth.require_scope` on both
+endpoints.  Both ``/security/shred`` and ``/security/keys/rotate`` require the
+``security:admin`` scope (T47.1).
+
+Note on AUTH_EXEMPT_PATHS: ``/security/shred`` and ``/security/keys/rotate``
+are listed in ``COMMON_INFRA_EXEMPT_PATHS`` (vault middleware bypass) so that
+the shred operation remains reachable even in a sealed state for emergency
+response.  This exemption is at the vault/seal layer — they are NOT exempt
+from JWT authentication or scope enforcement.
+
+The authenticated operator's sub claim is used as the audit actor identity —
+replacing the previous hardcoded ``"operator"`` literal.
 
 RFC 7807 Problem Details format is used for all error responses.
 
@@ -27,6 +39,7 @@ All route handlers are ``async def`` per the T5.2 architecture finding.
 
 CONSTITUTION Priority 0: Security
 Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
+Task: T47.1 — Scope-based auth for security endpoints
 """
 
 from __future__ import annotations
@@ -38,7 +51,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+from synth_engine.bootstrapper.dependencies.auth import require_scope
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.shared.security.ale import get_fernet
 from synth_engine.shared.security.audit import get_audit_logger
@@ -76,7 +89,7 @@ class RotateRequest(BaseModel):
 
 @router.post("/shred", tags=["security"])
 async def shred_vault(
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_operator: Annotated[str, Depends(require_scope("security:admin"))],
 ) -> JSONResponse:
     """Zeroize the master wrapping key, rendering all ALE ciphertext unrecoverable.
 
@@ -96,8 +109,11 @@ async def shred_vault(
     shred operation itself is on the audit record.  The authenticated operator's
     JWT sub claim is used as the audit actor identity.
 
+    Requires scope: ``security:admin`` (T47.1).
+
     Args:
-        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim, verified to hold
+            the ``security:admin`` scope (injected by FastAPI DI).
 
     Returns:
         ``{"status": "shredded"}`` with HTTP 200.
@@ -142,7 +158,7 @@ async def shred_vault(
 @router.post("/keys/rotate", tags=["security"])
 async def rotate_keys(
     body: RotateRequest,
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_operator: Annotated[str, Depends(require_scope("security:admin"))],
 ) -> JSONResponse:
     """Enqueue a Huey background task to re-encrypt all ALE-encrypted columns.
 
@@ -162,12 +178,15 @@ async def rotate_keys(
     audit trail to document operator intent.  It is NOT used to derive the
     new Fernet key; a random key is generated for the re-encryption.
 
+    Requires scope: ``security:admin`` (T47.1).
+
     The authenticated operator's JWT sub claim is used as the audit actor
     identity — replacing the previous hardcoded ``"operator"`` literal.
 
     Args:
         body: JSON body containing ``new_passphrase``.
-        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim, verified to hold
+            the ``security:admin`` scope (injected by FastAPI DI).
 
     Returns:
         ``{"status": "accepted", "detail": "..."}`` with HTTP 202 on success.

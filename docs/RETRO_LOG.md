@@ -12,13 +12,149 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-P46-01 | Red-Team T46.2 | — | ADVISORY | asyncpg SSLContext should pin minimum TLS version to TLSv1.3 (defense-in-depth) |
-| ADV-P46-03 | DevOps T46.2 | — | ADVISORY | `_validate_mtls_cert_files` checks existence but not readability (docstring/impl mismatch) |
-| ADV-P46-04 | DevOps T46.3 | — | ADVISORY | `rotate-mtls-certs.sh` LibreSSL detection gap — macOS operators may hit incompatible OpenSSL flags |
-| ADV-P46-05 | Arch T46.3 | — | ADVISORY | Prometheus metrics naming convention (conclave_* prefix) not captured in ADR — risk of label drift |
-| ADV-P46-06 | Red-Team T46.4 | — | ADVISORY | MinIO has no K8s NetworkPolicy — relies on default-deny, intentional for ephemeral storage |
+| ~~ADV-P46-01~~ | ~~Red-Team T46.2~~ | T47.8 | ~~ADVISORY~~ | ~~asyncpg TLS 1.3 pin — RESOLVED in T47.8 (shared/db.py)~~ |
+| ~~ADV-P46-04~~ | ~~DevOps T46.3~~ | ADV drain P47 | ~~ADVISORY~~ | ~~LibreSSL detection — RESOLVED in P47 (rotate-mtls-certs.sh)~~ |
+| ~~ADV-P46-05~~ | ~~Arch T46.3~~ | ADV drain P47 | ~~ADVISORY~~ | ~~Prometheus metrics naming — RESOLVED in P47 (ADR-0045 amendment)~~ |
+| ~~ADV-P46-06~~ | ~~Red-Team T46.4~~ | ADV drain P47 | ~~ADVISORY~~ | ~~MinIO NetworkPolicy — RESOLVED in P47 (minio-policy.yaml)~~ |
+| ~~ADV-P47-01~~ | ~~PM P46 merge~~ | P47 fix | ~~BLOCKER~~ | ~~Production Smoke Test — RESOLVED in P47 (CI dummy secrets provisioning)~~ |
+| ADV-P47-02 | Arch P47 review | — | ADVISORY | `_promote_redis_url_to_tls` logic is duplicated between `shared/tls/config.py` and bootstrapper init. Current duplication is intentional per T46.2 architecture review. Future cleanup should consolidate into a single utility. |
+| ADV-P47-03 | Arch P47 review | — | ADVISORY | No ADR documents the scope-based authorization model introduced in T47.x. An ADR should be drafted in a future phase to codify the authorization design decisions. |
+| ADV-P47-04 | Red-Team P47 | — | ADVISORY | `/security/shred` and `/security/keys/rotate` are in `AUTH_EXEMPT_PATHS`, so in pass-through mode (empty `JWT_SECRET_KEY`) no auth applies. Scope enforcement (`require_scope`) is bypassed because the auth middleware skips the route entirely. Low risk: pass-through mode is dev-only, and scope enforcement is a defense-in-depth layer. Fix: remove security routes from `AUTH_EXEMPT_PATHS` or add pass-through-mode warning at startup. |
+| ADV-P47-05 | Red-Team P47 | — | ADVISORY | All-or-nothing scope grant: single-operator model issues all scopes (`read`, `write`, `security:admin`, `settings:write`) to every authenticated operator. Fine for current single-tenant deployment; future multi-operator support will need role-based scope assignment. |
+| ADV-P47-06 | Red-Team P47 | T48.1 | ADVISORY | In-memory rate limiter ineffective in multi-pod Kubernetes deployments. Already addressed by T48.1 (Redis-backed rate limiting). |
+| ADV-P47-07 | Red-Team P47 | — | ADVISORY | TOCTOU in `ModelArtifact.load()`: file size check, then read, then HMAC verify. An attacker with filesystem write access could swap the file between size check and read. Low severity — requires local filesystem access, and HMAC verification would fail on tampered content. |
 
 ---
+
+### [2026-03-22] Phase 47 — Auth & Safety Ops Retrospective
+
+**Branch**: `feat/P47-auth-safety-ops` (29 commits)
+
+**Tasks completed**: T47.1 (Scope enforcement for security routes), T47.3 (Scope enforcement
+for settings routes), T47.4 (JWT secret key production validation), T47.5 (Operator credentials
+hash validation), T47.6 (Artifact signature hardening), T47.7 (Parquet memory bounds),
+T47.8 (Shutdown cleanup + TLS 1.3 pin), T47.9 (Budget error scrubbing), T47.10 (Redis healthcheck)
+
+**Advisories drained**: ADV-P46-01 (TLS 1.3 pin), ADV-P46-03 (TOCTOU cert check),
+ADV-P46-04 (LibreSSL detection), ADV-P46-05 (Prometheus metrics naming),
+ADV-P46-06 (MinIO NetworkPolicy), ADV-P47-01 (CI smoke test dummy secrets)
+
+**Advisories raised**: ADV-P47-02 through ADV-P47-07 (6 total: 2 architecture, 4 red-team)
+
+**Open advisory count**: 6 (under Rule 11 threshold of 8)
+
+**What went well**:
+- Three-wave parallel execution delivered 10 tasks in a single phase
+- Spec-challenger caught scope issuance gap (default operator scopes needed updating)
+- Config validation hardening used collect-all error pattern — single startup attempt shows
+  ALL missing vars, not one-at-a-time failure
+- pydantic-settings `.env` bleeding bug caught and fixed with autouse conftest fixture —
+  prevents future test pollution system-wide
+- 6 P46 advisories drained inline alongside new feature work
+
+**What was challenging**:
+- Pre-existing test infrastructure issues (pydantic-settings `.env` bleeding, VaultState
+  ordering in test_ale.py) required diagnostic work unrelated to Phase 47 scope
+- CI smoke test failure on PR merge (ADV-P47-01) — `secrets/` directory not provisioned
+  in CI. Fixed by adding dummy cert provisioning step. Process failure: should have flagged
+  to user before merging per feedback memory
+
+**What could be improved**:
+- CI smoke test should be treated as a blocking check even though it is not in the required
+  checks list. Memory saved: always flag any failing CI job to user before merge.
+- Production-required config vars must be added to ALL test fixtures that set `ENV=production`,
+  not just the new test files. Grep audit pattern: `ENV=production` + `monkeypatch.setenv`.
+
+**Test metrics**: 2272 passed, 1 skipped, 97.40% coverage (95% gate PASS)
+
+---
+
+### [2026-03-22] P47 Review Fix — QA, DevOps, and Architecture Findings
+
+**Branch**: `feat/P47-auth-safety-ops`
+
+**Findings resolved**:
+- FINDING 1 (QA): `test_config_validation_ssl_warning_uses_settings` regression fixed.
+  Test now supplies `JWT_SECRET_KEY` and `OPERATOR_CREDENTIALS_HASH` when setting
+  `ENV=production`, satisfying the T47.4/T47.5 production-required validators.
+- FINDING 2 (DevOps): `.env.example` updated with `PARQUET_MAX_FILE_BYTES` and
+  `PARQUET_MAX_ROWS` entries under a new T47.7 section.
+- FINDING 3 (Architecture): `DatasetTooLargeError` imported and added to
+  `OPERATOR_ERROR_MAP` with `status_code=413` and a safe operator-facing detail string.
+- FINDING 4 (Architecture ADVISORY): `_promote_redis_url_to_tls` duplication logged
+  as ADV-P47-02. No code change — duplication is intentional per T46.2 architecture review.
+- FINDING 5 (Architecture ADVISORY): ADR gap for scope-based authorization logged as
+  ADV-P47-03. No ADR created in this task per task scope constraints.
+
+**Quality gates**: ruff PASS | ruff format PASS | mypy PASS | bandit PASS | vulture PASS
+Unit tests: 2272 passed, 1 skipped, 97.40% coverage (95% gate PASS).
+1 pre-existing flaky failure (`test_synthesis_engine_train_raises_on_empty_parquet`) passes
+individually — ordering-sensitive state pollution, unrelated to this diff.
+
+---
+
+### [2026-03-22] T47.9 — Scrub Budget Values From Exception Messages
+
+**Branch**: `feat/P47-auth-safety-ops`
+
+**What was implemented**:
+- `BudgetExhaustionError` restructured with a typed `__init__` accepting
+  keyword args (`requested_epsilon`, `total_spent`, `total_allocated`).
+  `str(exc)` now always returns the generic safe constant:
+  `"Differential privacy budget exhausted. Synthesis job cannot proceed."`
+  Epsilon values are stored as typed `Decimal` attributes for internal
+  audit logging without any HTTP exposure.
+- `remaining_epsilon` computed attribute (`total_allocated - total_spent`)
+  added for operator audit convenience.
+- Raise sites in `accountant.py`, `factories.py`, and `dp_engine.py`
+  updated to use the new structured constructor.
+- `dp_engine.check_budget()` now emits a `WARNING` log with epsilon details
+  before raising (matching the accountant's pre-existing WARNING log pattern).
+- 12 existing tests updated to use the new keyword-arg constructor;
+  message-assertion tests updated to verify the generic-message contract.
+
+**Tests added**: 12 new tests in `test_budget_error_scrubbing.py`
+(5 attack/negative, 7 feature). All pass. No regressions introduced.
+
+**Quality gates**: ruff ✓ | ruff format ✓ | mypy ✓ | bandit ✓ | vulture ✓
+Pre-commit hooks pass on all changed files (detect-secrets flag in
+`test_config_validation_hardening_feature.py` is pre-existing, unrelated).
+
+---
+
+### [2026-03-22] T47.4 + T47.5 + ADV-P46-03 — Config Validation Hardening
+
+**Branch**: `feat/P47-auth-safety-ops`
+
+**What was implemented**:
+- `JWT_SECRET_KEY` added to production-required validation (T47.4): empty or whitespace-only
+  values raise `SystemExit` in production; emit `WARNING` in development. Whitespace-only
+  keys treated as empty (strip before truthiness check).
+- `OPERATOR_CREDENTIALS_HASH` added to production-required validation with two-step check (T47.5):
+  1. Presence check: empty → SystemExit in production, WARNING in development.
+  2. Format check: must start with `$2b$` and be >= 59 chars (fast structural check, no
+     `bcrypt.checkpw()` call to avoid intentional slowness). Invalid format → SystemExit in
+     production, WARNING in development.
+  - Error messages name the variable only — hash value is NEVER included (hash oracle prevention).
+- `_validate_mtls_cert_files()` now attempts `open(path, 'rb')` after `Path.exists()`, making
+  it an atomic existence+readability check. Eliminates the TOCTOU race that a separate
+  `os.access()` call would introduce (ADV-P46-03 DRAINED).
+- Existing production test fixtures updated to include the two new required auth vars
+  (`test_all_vars_present_production_passes`, `test_production_ssl_required_*`).
+
+**Tests added**: 16 new tests across 2 files (9 attack/negative + 7 feature).
+All 68 targeted tests pass. Full suite: 2200 passed / 10 pre-existing failures / 97.03% coverage.
+
+**Quality gates**: ruff ✓ | ruff format ✓ | mypy ✓ | bandit ✓ | vulture ✓ | coverage 97.03% ✓
+
+**Advisory drained**: ADV-P46-03 (cert readability check — DELIVERED T47.4+T47.5 branch).
+
+**Lessons learned**:
+- Existing production tests must be updated when new production-required vars are added.
+  Grepping for `ENV=production` + `monkeypatch.setenv` is the right audit pattern.
+- Hash oracle prevention: error messages for credential config must name only the variable,
+  never the value — even a bcrypt hash can be exploited offline if leaked into logs.
+- TOCTOU races in cert validation: open() is always preferable to os.access() for atomicity.
 
 ### [2026-03-22] T46.4 — Network Policy Enforcement & Documentation
 

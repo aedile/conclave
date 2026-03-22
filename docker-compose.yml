@@ -35,6 +35,10 @@
 #   for supply chain security (ADV-014 resolved). Digests obtained via Docker
 #   Registry v2 API. Refresh digests with:
 #     docker pull <image>:<tag> && docker inspect --format='{{index .RepoDigests 0}}' <image>:<tag>
+#
+# T47.10 (2026-03-22): Redis healthcheck added; app depends_on redis with
+#   condition: service_healthy to prevent startup races where Huey attempts
+#   to connect to Redis before it is ready to accept connections.
 # =============================================================================
 
 services:
@@ -72,6 +76,14 @@ services:
     secrets:
       - app_secret_key
 
+    # --- Application configuration (env_file) --------------------------------
+    # Pydantic Settings reads .env from the working directory at startup.
+    # docker-compose passes all variables from this file into the container so
+    # that validate_config() can find DATABASE_URL, AUDIT_KEY, JWT_SECRET_KEY,
+    # and OPERATOR_CREDENTIALS_HASH without baking secrets into the image.
+    env_file:
+      - .env
+
     # --- Persistent named volumes --------------------------------------------
     volumes:
       - chroma_data:/app/.chroma_data
@@ -92,6 +104,13 @@ services:
 
     ports:
       - "8000:8000"
+
+    # --- Service readiness gates (T47.10) ------------------------------------
+    # redis: service_healthy ensures Huey does not attempt to connect before
+    # Redis has passed its ping healthcheck.
+    depends_on:
+      redis:
+        condition: service_healthy
 
     networks:
       - internal
@@ -122,6 +141,11 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     # No ports: intentionally internal-only
     logging:
       driver: "json-file"

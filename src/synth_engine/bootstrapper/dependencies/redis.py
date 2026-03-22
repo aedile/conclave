@@ -38,6 +38,7 @@ CONSTITUTION Priority 0: Security — no credentials logged
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T45.1 — Reintroduce Idempotency Middleware (TBD-07)
 Task: T46.2 — Wire mTLS on All Container-to-Container Connections
+Task: T47.8 — Add close_redis_client() for shutdown cleanup
 """
 
 from __future__ import annotations
@@ -104,3 +105,24 @@ def get_redis_client() -> redis_lib.Redis:
 
         _client = redis_lib.Redis.from_url(url, **tls_kwargs)
     return _client
+
+
+def close_redis_client() -> None:
+    """Disconnect and release the singleton Redis client.
+
+    Calls ``connection_pool.disconnect()`` on the cached client to release
+    all pooled connections, then resets the module-level singleton to
+    ``None`` so a subsequent call to :func:`get_redis_client` creates a
+    fresh client.
+
+    This function is idempotent: calling it when the client was never
+    initialized (or has already been closed) is a safe no-op.
+
+    Use cases:
+    - Application shutdown: release Redis connections before process exit.
+    - Test teardown: reset the singleton between test cases.
+    """
+    global _client
+    if _client is not None:
+        _client.connection_pool.disconnect()
+        _client = None

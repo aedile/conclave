@@ -154,3 +154,41 @@ async def test_csp_middleware_does_not_modify_response_body() -> None:
         response = await client.get("/test")
 
     assert response.json() == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_x_content_type_options_nosniff_on_normal_route() -> None:
+    """CSPMiddleware must add X-Content-Type-Options: nosniff to all responses.
+
+    This header prevents MIME-type sniffing attacks where a browser might
+    interpret a response as a different content type than declared.  It is
+    a required security hardening header per CONSTITUTION Priority 0.
+    """
+    app = _build_minimal_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/test")
+
+    assert response.status_code == 200
+    assert response.headers.get("x-content-type-options") == "nosniff"
+
+
+@pytest.mark.asyncio
+async def test_x_content_type_options_nosniff_on_health_route() -> None:
+    """X-Content-Type-Options: nosniff must appear on /health too."""
+    app = _build_minimal_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.headers.get("x-content-type-options") == "nosniff"
+
+
+@pytest.mark.asyncio
+async def test_x_content_type_options_nosniff_on_error_response() -> None:
+    """X-Content-Type-Options: nosniff must appear even on 404 error responses."""
+    app = _build_minimal_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/nonexistent")
+
+    assert response.status_code == 404
+    assert response.headers.get("x-content-type-options") == "nosniff"

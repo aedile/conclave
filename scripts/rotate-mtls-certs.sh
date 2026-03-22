@@ -78,6 +78,10 @@ log() {
     printf '[rotate-mtls-certs] %s\n' "$*" >&2
 }
 
+warn() {
+    printf '[rotate-mtls-certs] WARNING: %s\n' "$*" >&2
+}
+
 die() {
     log "ERROR: $*"
     exit 2
@@ -117,6 +121,22 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ---------------------------------------------------------------------------
+# LibreSSL detection (ADV-P46-04)
+#
+# LibreSSL ships on macOS as the default `openssl` binary but diverges from
+# OpenSSL in some extension flags and subcommand behaviour.  The script may
+# work for basic cert operations, but operators should install OpenSSL via
+# Homebrew for full compatibility.  This is a WARNING, not a hard failure —
+# LibreSSL passes the version gate above (it reports "2.x") but some OpenSSL
+# flags (e.g. -CAcreateserial) may behave differently.
+# ---------------------------------------------------------------------------
+
+if openssl version 2>&1 | grep -qi "libressl"; then
+    warn "LibreSSL detected. Some OpenSSL flags may not be compatible."
+    warn "For full compatibility, install OpenSSL via Homebrew: brew install openssl"
+fi
 
 # ---------------------------------------------------------------------------
 # Canonicalize OUTPUT_DIR to prevent path traversal (Finding 4: T46.3 review)

@@ -16,6 +16,8 @@ Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -85,12 +87,25 @@ class TestExceptionHierarchy:
         with pytest.raises(SynthEngineError, match="test"):
             raise SynthEngineError("test")
 
-    def test_budget_exhaustion_carries_message(self) -> None:
-        """BudgetExhaustionError must preserve the error message."""
+    def test_budget_exhaustion_carries_generic_message(self) -> None:
+        """BudgetExhaustionError must return the generic scrubbed message.
+
+        T47.9: The exception message must not contain epsilon values.
+        The generic message must describe the error without leaking budget state.
+        """
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
-        exc = BudgetExhaustionError("budget gone")
-        assert "budget gone" in str(exc)
+        exc = BudgetExhaustionError(
+            requested_epsilon=Decimal("0.5"),
+            total_spent=Decimal("0.9"),
+            total_allocated=Decimal("1.0"),
+        )
+        # The message must be the generic safe constant
+        assert "budget exhausted" in str(exc).lower(), (
+            f"Generic budget exhausted message expected; got: {str(exc)!r}"
+        )
+        # Must NOT contain any epsilon values
+        assert "0.5" not in str(exc), "Message must not contain epsilon values"
 
     def test_oom_guardrail_carries_message(self) -> None:
         """OOMGuardrailError must preserve the error message."""
@@ -161,7 +176,11 @@ class TestBudgetExhaustionCatchByType:
         # Simulate what job_orchestration does: spend_budget() raises
         # BudgetExhaustionError (from shared, via privacy module).
         def _fake_spend_budget() -> None:
-            raise BudgetExhaustionError("epsilon_spent=1.1 >= allocated=1.0")
+            raise BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            )
 
         caught = False
         try:
@@ -178,7 +197,11 @@ class TestBudgetExhaustionCatchByType:
 
         caught_as_shared = False
         try:
-            raise DpBee("test from dp_engine")
+            raise DpBee(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            )
         except SharedBee:
             caught_as_shared = True
 

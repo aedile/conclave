@@ -17,6 +17,10 @@ Security posture
   provides constant-time comparison.
 - Tokens contain ``sub`` (operator ID), ``exp`` (expiry), ``iat``
   (issued-at), and ``scope`` (permissions list).
+- ``require_scope()`` enforces scope-based authorization by verifying that
+  the JWT ``scope`` claim is a *list* containing the required scope string.
+  Bare-string scope claims are unconditionally rejected (array injection
+  attack vector).
 
 Unconfigured mode
 -----------------
@@ -25,7 +29,8 @@ When ``jwt_secret_key`` is empty (the default), the middleware operates in
 and a WARNING is logged on every non-exempt request.  This allows the
 application to start and be accessed before JWT credentials are configured,
 but production deployments MUST set ``JWT_SECRET_KEY`` to a non-empty
-value to enforce authentication.
+value to enforce authentication.  ``require_scope()`` also bypasses the
+scope check in pass-through mode for the same reason.
 
 Middleware ordering
 -------------------
@@ -48,16 +53,19 @@ CONSTITUTION Priority 0: Security — algorithm pinning, no alg:none
 CONSTITUTION Priority 3: TDD
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
+Task: T47.1 — Scope-based auth for security endpoints
+Task: T47.3 — Scope-based auth for settings write endpoints
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 
 import bcrypt as _bcrypt
 import jwt as pyjwt
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -261,6 +269,121 @@ def get_current_operator(request: Request) -> str:
             headers={"WWW-Authenticate": "Bearer"},
         )
     return sub
+
+
+def require_scope(scope: str) -> Callable[..., str]:
+    """Return a FastAPI dependency that enforces the given scope.
+
+    The returned dependency resolves after ``get_current_operator`` has
+    already verified the token (authentication).  It then checks that the
+    JWT ``scope`` claim:
+
+    1. Is a ``list`` (bare-string claims are rejected — array injection
+       attack vector where ``"security:admin" in "security:admin"`` would
+       be ``True`` for substring checks but is an illegitimate claim shape).
+    2. Contains the required scope string via exact list membership.
+
+    Pass-through mode: when ``jwt_secret_key`` is empty, the scope check
+    is bypassed entirely — consistent with ``get_current_operator`` and the
+    ``AuthenticationGateMiddleware`` pass-through behavior.
+
+    FastAPI injection: the returned ``_check_scope`` function declares
+    ``request: Request`` without ``Depends()`` — FastAPI recognises
+    ``Request`` as a special type and injects the current request
+    automatically.  ``operator`` is resolved via ``Depends(get_current_operator)``
+    to enforce authentication before authorization.
+
+    Args:
+        scope: The required scope string, e.g. ``"security:admin"``.
+
+    Returns:
+        A FastAPI-compatible dependency callable.
+
+    Example::
+
+        @router.post("/security/shred")
+        async def shred_vault(
+            current_operator: Annotated[str, Depends(require_scope("security:admin"))],
+        ) -> JSONResponse: ...
+    """
+
+    def _check_scope(
+        request: Request,
+        operator: str = Depends(get_current_operator),
+    ) -> str:
+        """Verify the JWT scope claim contains the required scope string.
+
+        FastAPI injects ``request`` directly (special Request type) and
+        resolves ``operator`` via the ``get_current_operator`` dependency.
+
+        Args:
+            request: The incoming HTTP request (auto-injected by FastAPI).
+            operator: Resolved operator sub claim from ``get_current_operator``.
+
+        Returns:
+            The operator sub claim on success.
+
+        Raises:
+            HTTPException: 403 Forbidden if the scope claim is absent,
+                not a list, or does not contain the required scope.
+        """
+        settings = get_settings()
+
+        # Pass-through mode: no JWT configured → skip scope check.
+        if not settings.jwt_secret_key:
+            return operator
+
+        # Extract and re-verify the token to read scope claims.
+        # get_current_operator has already verified token authenticity.
+        # Re-reading from headers is safe — we need the claims dict.
+        auth_header: str | None = request.headers.get("Authorization")
+        if auth_header is None or not auth_header.startswith("Bearer "):
+            # Defensive: this branch is unreachable if get_current_operator
+            # ran first (it would have raised 401 already).
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden. Required scope not present.",
+            )
+
+        token = auth_header[len("Bearer ") :]
+        try:
+            claims = verify_token(token)
+        except AuthenticationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden. Required scope not present.",
+            ) from exc
+
+        raw_scope = claims.get("scope")
+
+        # SECURITY: scope MUST be a list.  A bare string is an injection
+        # vector — ``"security:admin" in "security:admin"`` is True for
+        # string substring checks but scope claims must be lists.
+        if not isinstance(raw_scope, list):
+            _logger.warning(
+                "Scope claim is not a list (type=%s). Rejecting request.",
+                type(raw_scope).__name__,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden. Required scope not present.",
+            )
+
+        # Exact list membership only — no substring or prefix matching.
+        if scope not in raw_scope:
+            _logger.warning(
+                "Scope '%s' not in token scopes %r. Rejecting request.",
+                scope,
+                raw_scope,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden. Required scope not present.",
+            )
+
+        return operator
+
+    return _check_scope
 
 
 def _build_401_response(detail: str) -> JSONResponse:

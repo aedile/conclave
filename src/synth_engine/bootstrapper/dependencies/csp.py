@@ -1,10 +1,16 @@
-"""FastAPI/Starlette middleware for Content-Security-Policy enforcement.
+"""FastAPI/Starlette middleware for security response header enforcement.
 
-This module adds a strict Content-Security-Policy header to every HTTP
-response, denying all external CDN references for scripts, fonts, and
+This module adds a strict Content-Security-Policy header and an
+X-Content-Type-Options: nosniff header to every HTTP response.
+
+The CSP header denies all external CDN references for scripts, fonts, and
 stylesheets.  This is a defence-in-depth measure that complements the
 air-gapped deployment model — even if a XSS vulnerability were exploited,
 the browser would refuse to load external resources.
+
+The X-Content-Type-Options: nosniff header prevents MIME-type sniffing
+attacks where a browser might interpret a response as a different content
+type than declared by the server.
 
 CONSTITUTION Priority 0: Security
 Task: P5-T5.3 — Build Accessible React SPA & "Vault Unseal" (ADV-016+017)
@@ -50,15 +56,21 @@ _CSP_POLICY = (
 
 
 class CSPMiddleware(BaseHTTPMiddleware):
-    """Starlette middleware that adds a Content-Security-Policy header.
+    """Starlette middleware that adds security hardening headers to every response.
 
-    This middleware is purely additive — it attaches the CSP header to
-    **every** response, regardless of status code or path.  It does not
-    inspect the request, block any paths, or modify the response body.
+    Two headers are set on all responses, regardless of status code or path:
+
+    * ``Content-Security-Policy`` — restricts resource loading to same-origin,
+      preventing XSS exploitation of external CDN resources.
+    * ``X-Content-Type-Options: nosniff`` — prevents browsers from
+      MIME-sniffing a response away from the declared content type.
+
+    The middleware is purely additive — it does not inspect the request,
+    block any paths, or modify the response body.
 
     The middleware must be added AFTER SealGateMiddleware and
-    LicenseGateMiddleware in create_app() so that CSP headers appear even on
-    423 / 402 error responses (LIFO middleware ordering means CSP fires last
+    LicenseGateMiddleware in create_app() so that security headers appear even
+    on 423 / 402 error responses (LIFO middleware ordering means CSP fires last
     and wraps all other middleware).
 
     Example registration in create_app()::
@@ -69,16 +81,17 @@ class CSPMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """Attach the CSP header to the outgoing response.
+        """Attach security hardening headers to the outgoing response.
 
         Args:
             request: Incoming HTTP request (not modified).
             call_next: ASGI callable for the next middleware or route handler.
 
         Returns:
-            The downstream response with the Content-Security-Policy header
-            attached.
+            The downstream response with Content-Security-Policy and
+            X-Content-Type-Options headers attached.
         """
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = _CSP_POLICY
+        response.headers["X-Content-Type-Options"] = "nosniff"
         return response

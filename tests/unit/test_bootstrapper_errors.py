@@ -9,6 +9,7 @@ Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
 CONSTITUTION Priority 3: TDD — RED phase
 """
 
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -569,7 +570,9 @@ class TestOperatorFriendlyExceptionHandlers:
         @app.get("/test-budget-exhaustion")
         async def _raise_budget() -> None:
             raise BudgetExhaustionError(
-                "DP budget exhausted: epsilon_spent=1.234 >= allocated_epsilon=1.0"
+                requested_epsilon=Decimal("0.234"),
+                total_spent=Decimal("1.234"),
+                total_allocated=Decimal("1.0"),
             )
 
         with (

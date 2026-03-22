@@ -26,6 +26,7 @@ Task: P7-T7.3 — Opacus End-to-End Wiring (routes to DPCompatibleCTGAN when
 Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (replace Any with Protocol)
 ADR: ADR-0017 (CTGAN + Opacus; per-table training with FK post-processing)
 ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
+Task: T47.7 — Memory-bounded Parquet loading
 """
 
 from __future__ import annotations
@@ -40,7 +41,9 @@ import pandas as pd
 from prometheus_client import Histogram
 
 from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+from synth_engine.shared.exceptions import DatasetTooLargeError
 from synth_engine.shared.protocols import DPWrapperProtocol
+from synth_engine.shared.settings import get_settings
 
 # CTGANSynthesizer: deferred import — bound at module scope for unit-test patching.
 # Absent when the synthesizer dependency group is not installed; checked at call time.
@@ -101,6 +104,47 @@ def _row_count_bucket(n: int) -> str:
     if n <= 10000:
         return "1001-10000"
     return "10001+"
+
+
+def _read_parquet_bounded(path: str) -> pd.DataFrame:
+    """Load a Parquet file with size and row-count guards.
+
+    Checks configured limits from
+    :func:`~synth_engine.shared.settings.get_settings` before and after
+    loading:
+
+    1. **Size check** — ``os.path.getsize(path)`` is compared against
+       ``settings.parquet_max_file_bytes``.  If exceeded, raises immediately
+       *before* any data is read into memory.
+    2. **Row-count check** — after loading, ``len(df)`` is compared against
+       ``settings.parquet_max_rows``.
+
+    Args:
+        path: Filesystem path to a Parquet file.
+
+    Returns:
+        The loaded :class:`~pandas.DataFrame`.
+
+    Raises:
+        DatasetTooLargeError: If the file size or row count exceeds the
+            configured limit.
+    """
+    settings = get_settings()
+    file_size = os.path.getsize(path)
+    if file_size > settings.parquet_max_file_bytes:
+        raise DatasetTooLargeError(
+            actual_size=file_size,
+            limit=settings.parquet_max_file_bytes,
+            limit_type="bytes",
+        )
+    df = pd.read_parquet(path, engine="pyarrow")
+    if len(df) > settings.parquet_max_rows:
+        raise DatasetTooLargeError(
+            actual_size=len(df),
+            limit=settings.parquet_max_rows,
+            limit_type="rows",
+        )
+    return df
 
 
 def _build_metadata(df: pd.DataFrame) -> SingleTableMetadata:
@@ -318,7 +362,7 @@ class SynthesisEngine:
             )
 
         _logger.info("Loading Parquet for table '%s' from %s", table_name, parquet_path)
-        source_df = pd.read_parquet(parquet_path, engine="pyarrow")
+        source_df = _read_parquet_bounded(parquet_path)
 
         column_names = list(source_df.columns)
         column_dtypes = {col: str(source_df[col].dtype) for col in column_names}

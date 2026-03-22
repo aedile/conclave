@@ -258,8 +258,8 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         from sqlalchemy import select
         from sqlalchemy.orm import Session
 
-        from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError
         from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
+        from synth_engine.shared.exceptions import BudgetExhaustionError
 
         decimal_amount: Decimal = amount if isinstance(amount, Decimal) else Decimal(str(amount))
         if decimal_amount <= 0:
@@ -285,10 +285,9 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
                         ledger.total_allocated_epsilon,
                     )
                     raise BudgetExhaustionError(
-                        f"Global DP budget exhausted: requested epsilon={decimal_amount}, "
-                        f"total_spent={ledger.total_spent_epsilon}, "
-                        f"total_allocated={ledger.total_allocated_epsilon}. "
-                        "Synthesis job cannot proceed — budget exhausted."
+                        requested_epsilon=decimal_amount,
+                        total_spent=ledger.total_spent_epsilon,
+                        total_allocated=ledger.total_allocated_epsilon,
                     )
 
                 ledger.total_spent_epsilon += decimal_amount

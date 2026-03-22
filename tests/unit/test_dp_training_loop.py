@@ -25,6 +25,7 @@ ADR: ADR-0036 (Discriminator-Level DP-SGD Architecture)
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -472,7 +473,9 @@ class TestBudgetExhaustion:
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
         mock_dp_wrapper.check_budget.side_effect = BudgetExhaustionError(
-            "Privacy budget exceeded: epsilon=1.5 > allocated=1.0"
+            requested_epsilon=Decimal("0.5"),
+            total_spent=Decimal("0.9"),
+            total_allocated=Decimal("1.0"),
         )
 
         n = 100
@@ -519,7 +522,7 @@ class TestBudgetExhaustion:
             mock_torch.optim = MagicMock()
             mock_torch.optim.Adam.return_value = MagicMock()
 
-            with pytest.raises(BudgetExhaustionError, match="Privacy budget exceeded"):
+            with pytest.raises(BudgetExhaustionError, match="budget exhausted"):
                 instance._train_dp_discriminator(processed_df, model_kwargs)
 
     def test_budget_exhaustion_propagates_from_fit_method(self) -> None:
@@ -535,7 +538,11 @@ class TestBudgetExhaustion:
 
         # Replace _train_dp_discriminator with one that raises BudgetExhaustionError
         def raise_budget_error(*args: Any, **kwargs: Any) -> None:
-            raise BudgetExhaustionError("Privacy budget exceeded: epsilon=1.5 > allocated=1.0")
+            raise BudgetExhaustionError(
+                requested_epsilon=Decimal("0.5"),
+                total_spent=Decimal("0.9"),
+                total_allocated=Decimal("1.0"),
+            )
 
         instance._train_dp_discriminator = raise_budget_error  # type: ignore[method-assign]
 
@@ -549,7 +556,7 @@ class TestBudgetExhaustion:
                 return_value=[],
             ),
         ):
-            with pytest.raises(BudgetExhaustionError, match="Privacy budget exceeded"):
+            with pytest.raises(BudgetExhaustionError, match="budget exhausted"):
                 instance.fit(_make_training_df())
 
 

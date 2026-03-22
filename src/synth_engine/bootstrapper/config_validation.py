@@ -14,6 +14,11 @@ Required additionally in production mode (``ENV=production`` or
   - ``MASKING_SALT``         — secret salt for deterministic HMAC masking.  Without
     this, production masking falls back to a hardcoded development salt, making
     masked values reversible by anyone with access to the source code.
+  - ``JWT_SECRET_KEY``       — HMAC secret for JWT signing and verification.  An
+    empty or whitespace-only value silently disables all authenticated routes.
+  - ``OPERATOR_CREDENTIALS_HASH`` — bcrypt hash of the operator passphrase.  Must
+    start with ``$2b$`` and be at least 59 characters.  Without a valid hash,
+    token issuance always fails at runtime.
 
 Multi-key signing consistency (T42.1):
   When ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE`` must
@@ -25,6 +30,10 @@ mTLS cert file validation (T46.2):
   (``MTLS_CA_CERT_PATH``, ``MTLS_CLIENT_CERT_PATH``, ``MTLS_CLIENT_KEY_PATH``)
   must each point to an existing, readable file.  All three are checked before
   raising so that the operator receives a complete error in one pass.
+
+  The readability check uses an atomic ``open()`` attempt (ADV-P46-03) rather than
+  a separate ``os.access()`` call, to avoid a TOCTOU race between the access check
+  and the actual open.
 
   When ``MTLS_ENABLED=true`` and ``CONCLAVE_SSL_REQUIRED=false``, a WARNING
   is logged noting that mTLS implies SSL is required — the setting is effectively
@@ -51,6 +60,9 @@ Task: T37.2 — Drain ADV-P36-01: replace remaining os.environ.get() with get_se
 Task: T42.2 — Add HTTPS Enforcement & Deployment Safety Checks
 Task: T42.1 — Artifact Signing Key Versioning (multi-key consistency validation)
 Task: T46.2 — Wire mTLS on All Container-to-Container Connections
+Task: T47.4 — Add JWT_SECRET_KEY to production-required validation
+Task: T47.5 — Add OPERATOR_CREDENTIALS_HASH to production-required validation
+Task: ADV-P46-03 — Fix cert readability check (existence + open())
 """
 
 from __future__ import annotations
@@ -71,6 +83,12 @@ _PRODUCTION_REQUIRED: tuple[str, ...] = (
     "MASKING_SALT",
 )
 
+# Minimum structural length for a bcrypt hash ($2b$NN$<22-char salt><31-char hash>).
+# A full bcrypt output is 60 characters; 59 is the minimum we accept to guard against
+# truncation without calling bcrypt.checkpw() (which is intentionally slow).
+_BCRYPT_PREFIX = "$2b$"
+_BCRYPT_MIN_LENGTH = 59
+
 _logger = logging.getLogger(__name__)
 
 
@@ -88,8 +106,117 @@ def _is_production() -> bool:
     return get_settings().is_production()
 
 
+def _validate_jwt_secret_key(errors: list[str]) -> None:
+    """Validate that JWT_SECRET_KEY is present and non-empty in production.
+
+    An absent or whitespace-only key silently disables all authenticated routes
+    at runtime.  In production the key is fatal-if-absent; in development a
+    WARNING is emitted so the developer is aware.
+
+    The warning is NOT emitted in production mode — there it is a fatal error
+    already collected into ``errors``.
+
+    Args:
+        errors: Mutable list of error strings.  Any new errors found are
+            appended in-place.
+    """
+    settings = get_settings()
+    key_value = settings.jwt_secret_key.strip()
+
+    if not key_value:
+        if _is_production():
+            errors.append(
+                "JWT_SECRET_KEY is not set or is empty — "
+                "a non-empty HMAC secret is required to sign and verify JWT tokens in production"
+            )
+        else:
+            _logger.warning(
+                "JWT_SECRET_KEY is not set — JWT authentication will not function. "
+                "Set a cryptographically random value before deploying to production."
+            )
+
+
+def _is_valid_bcrypt_hash(value: str) -> bool:
+    """Return ``True`` when ``value`` is structurally valid as a bcrypt hash.
+
+    Uses a fast structural check only (prefix + length) — does NOT call
+    ``bcrypt.checkpw()`` which is intentionally CPU-intensive.
+
+    Args:
+        value: The string to check.
+
+    Returns:
+        ``True`` when ``value`` starts with ``$2b$`` and is at least
+        :data:`_BCRYPT_MIN_LENGTH` characters long.
+    """
+    return value.startswith(_BCRYPT_PREFIX) and len(value) >= _BCRYPT_MIN_LENGTH
+
+
+def _validate_operator_credentials_hash(errors: list[str]) -> None:
+    """Validate that OPERATOR_CREDENTIALS_HASH is present and structurally valid.
+
+    Two checks are applied:
+
+    1. **Presence**: the value must be non-empty.
+    2. **Format**: the value must start with ``$2b$`` and be at least 59 characters
+       (structural bcrypt validity check — no cryptographic verification).
+
+    In production, a failed check appends an error that will cause
+    :exc:`SystemExit` at the end of :func:`validate_config`.  The error message
+    always names the variable but NEVER includes the hash value itself, to prevent
+    hash oracle attacks via logs.
+
+    In development, a failed check emits a WARNING so the developer is aware
+    without blocking startup.
+
+    Args:
+        errors: Mutable list of error strings.  Any new errors found are
+            appended in-place.
+    """
+    settings = get_settings()
+    hash_value = settings.operator_credentials_hash
+    production = _is_production()
+
+    if not hash_value:
+        if production:
+            errors.append(
+                "OPERATOR_CREDENTIALS_HASH is not set — "
+                "a bcrypt hash of the operator passphrase is required in production. "
+                "Generate one with: python -c "
+                '\'import bcrypt; print(bcrypt.hashpw(b"<passphrase>", '
+                "bcrypt.gensalt()).decode())' "
+            )
+        else:
+            _logger.warning(
+                "OPERATOR_CREDENTIALS_HASH is not set — "
+                "POST /auth/token will always fail. "
+                "Set a bcrypt hash of the operator passphrase before deploying to production."
+            )
+        return
+
+    if not _is_valid_bcrypt_hash(hash_value):
+        if production:
+            errors.append(
+                "OPERATOR_CREDENTIALS_HASH has an invalid format — "
+                f"expected a bcrypt hash starting with '{_BCRYPT_PREFIX}' "
+                f"and at least {_BCRYPT_MIN_LENGTH} characters long. "
+                "Generate a valid hash before starting the Conclave Engine in production."
+            )
+        else:
+            _logger.warning(
+                "OPERATOR_CREDENTIALS_HASH does not appear to be a valid bcrypt hash — "
+                f"expected prefix '{_BCRYPT_PREFIX}' and minimum length {_BCRYPT_MIN_LENGTH}. "
+                "POST /auth/token may fail at runtime."
+            )
+
+
 def _validate_mtls_cert_files(errors: list[str]) -> None:
     """Validate that mTLS cert files exist and are readable.
+
+    Uses an atomic existence-plus-readability check: after verifying the path
+    exists, the function attempts to ``open()`` the file for reading.  This
+    avoids the TOCTOU race that a separate ``os.access()`` call would introduce
+    (ADV-P46-03).
 
     Appends error messages to ``errors`` for each missing or unreadable
     cert file.  All three cert paths are checked before returning so that
@@ -121,6 +248,18 @@ def _validate_mtls_cert_files(errors: list[str]) -> None:
                 f"{env_var}={path_str!r} does not exist — "
                 f"ensure the certificate file is present before starting with MTLS_ENABLED=true"
             )
+            continue
+        # Atomic readability check: attempt to open the file.  This catches
+        # permission errors and path-is-a-directory cases without a separate
+        # os.access() call that would introduce a TOCTOU race (ADV-P46-03).
+        try:
+            with open(path, "rb"):
+                pass
+        except OSError as exc:
+            errors.append(
+                f"{env_var}={path_str!r} exists but cannot be read — "
+                f"check file permissions and ensure the process has read access: {exc}"
+            )
 
 
 def validate_config() -> None:
@@ -128,7 +267,9 @@ def validate_config() -> None:
 
     Checks that all required environment variables are set and non-empty.
     In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
-    also validates that ``ARTIFACT_SIGNING_KEY`` and ``MASKING_SALT`` are present.
+    also validates that ``ARTIFACT_SIGNING_KEY``, ``MASKING_SALT``,
+    ``JWT_SECRET_KEY``, and ``OPERATOR_CREDENTIALS_HASH`` are present and
+    correctly formed.
 
     Additionally:
     - Emits a security warning when ``CONCLAVE_SSL_REQUIRED=false`` is detected
@@ -144,9 +285,12 @@ def validate_config() -> None:
       all deployment modes.
     - When ``MTLS_ENABLED=true``, validates that all three mTLS cert paths
       (``MTLS_CA_CERT_PATH``, ``MTLS_CLIENT_CERT_PATH``, ``MTLS_CLIENT_KEY_PATH``)
-      point to existing files (T46.2).
+      point to existing, readable files (T46.2, ADV-P46-03).
     - When ``MTLS_ENABLED=true`` and ``CONCLAVE_SSL_REQUIRED=false``, emits a
       WARNING that mTLS implies SSL is required (T46.2).
+    - Validates ``JWT_SECRET_KEY`` presence in production (T47.4).
+    - Validates ``OPERATOR_CREDENTIALS_HASH`` presence and bcrypt format in
+      production (T47.5).
 
     Collects ALL missing variables and cert errors before raising so that the
     operator receives a complete list in a single error message — not just the
@@ -195,7 +339,13 @@ def validate_config() -> None:
                 f"is not present in ARTIFACT_SIGNING_KEYS"
             )
 
-    # T46.2: validate mTLS cert files exist when MTLS_ENABLED=true.
+    # T47.4: validate JWT_SECRET_KEY presence in production.
+    _validate_jwt_secret_key(errors)
+
+    # T47.5: validate OPERATOR_CREDENTIALS_HASH presence and bcrypt format in production.
+    _validate_operator_credentials_hash(errors)
+
+    # T46.2 / ADV-P46-03: validate mTLS cert files exist and are readable.
     _validate_mtls_cert_files(errors)
 
     if errors:

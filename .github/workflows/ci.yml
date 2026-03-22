@@ -343,19 +343,62 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Build Docker image
-        run: docker build -t conclave-engine:smoke-test .
-
-      - name: Start stack via docker compose
-        # Uses docker-compose.yml only — no CPU override in CI (Linux)
-        run: docker compose -f docker-compose.yml up -d
+      - name: Provision CI dummy secrets
+        # The docker-compose.yml reads secret values from ./secrets/*.txt files.
+        # These files are never committed (.gitignore) and must not exist in CI
+        # with real values. Dummy random values are sufficient — the smoke test
+        # only validates HTTP reachability and security headers, not data integrity.
+        #
+        # Why ENV=development (not ENV=production):
+        # The smoke test validates Docker image buildability, stack operability,
+        # health endpoint reachability, and security headers. Production config
+        # validation (JWT_SECRET_KEY, OPERATOR_CREDENTIALS_HASH) is covered by
+        # unit tests. Production mode activates HTTPSEnforcementMiddleware
+        # (T42.2) which rejects plain HTTP with 421 — incompatible with Docker
+        # Compose internal HTTP traffic. Using ENV=development avoids this while
+        # still exercising the full stack. The remaining production-required env
+        # vars (JWT_SECRET_KEY, OPERATOR_CREDENTIALS_HASH, ARTIFACT_SIGNING_KEY,
+        # MASKING_SALT, AUDIT_KEY) are still provisioned so the app starts
+        # without warnings in development mode.
+        #
+        # T47.4 / T47.5: The bcrypt hash below is a dummy CI-only value
+        # (hash of "ci-dummy-password", generated offline). The postgres password
+        # is fixed (not random) so DATABASE_URL can be constructed
+        # deterministically.
+        # NOTE: Dollar signs in the bcrypt hash MUST be escaped as $$ in the
+        # .env file. Docker Compose treats $ as a variable reference; $$ is
+        # the literal $. Without escaping, the hash is silently mangled and
+        # validate_config() rejects it at startup.
+        run: |
+          CI_PG_PASSWORD="ci-dummy-postgres-password-for-smoke-test"
+          mkdir -p secrets
+          openssl rand -hex 32 > secrets/app_secret_key.txt
+          echo "${CI_PG_PASSWORD}" > secrets/postgres_password.txt
+          openssl rand -hex 32 > secrets/grafana_admin_password.txt
+          echo "ci-admin" > secrets/grafana_admin_user.txt
+          openssl rand -hex 16 > secrets/minio_ephemeral_access_key.txt
+          openssl rand -hex 32 > secrets/minio_ephemeral_secret_key.txt
+          chmod 600 secrets/*.txt
+          # Provision .env with all vars required by validate_config().
+          # env_file: .env in docker-compose.yml forwards these to the container.
+          {
+            echo "ENV=development"
+            echo "DATABASE_URL=postgresql+asyncpg://conclave:${CI_PG_PASSWORD}@pgbouncer:5432/conclave"
+            echo "AUDIT_KEY=$(openssl rand -hex 32)"
+            echo "ARTIFACT_SIGNING_KEY=$(openssl rand -hex 32)"
+            echo "MASKING_SALT=$(openssl rand -hex 32)"
+            echo "JWT_SECRET_KEY=$(openssl rand -hex 32)"
+            # Auth environment variables required by T47.4/T47.5 config validation.
+            # Bcrypt hash of "ci-dummy-password" — dummy value for CI only.
+            echo 'OPERATOR_CREDENTIALS_HASH=$$2b$$12$$LJ3m4ys3Lk0TSwHil.mGF.UzMcMeBudDBLzSgIGKjCwBnEMNRKSoi'  # pragma: allowlist secret
+          } > .env
+          chmod 600 .env
 
       - name: Run smoke test script
+        # smoke_test.sh manages its own full lifecycle: build, start, health
+        # wait, HTTP assertions, and teardown via EXIT trap. No redundant
+        # inline build/start/teardown steps required.
         run: bash scripts/smoke_test.sh
-
-      - name: Tear down stack
-        if: always()
-        run: docker compose -f docker-compose.yml down -v
 
   # ---------------------------------------------------------------------------
   # Frontend — Lint, Unit Tests (Vitest, 90% coverage), Build

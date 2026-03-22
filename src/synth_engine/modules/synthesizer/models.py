@@ -36,6 +36,7 @@ signature verification.
 
 Task: P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
 Task: P8-T8.2  — Security Hardening (ADV-040: HMAC-SHA256 pickle signing)
+Task: T47.6    — Harden Model Artifact Signature Verification
 ADR: ADR-0017 (CTGAN + Opacus; per-table training strategy)
 """
 
@@ -45,8 +46,9 @@ import logging
 import os
 import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) ensures only self-produced artifacts are trusted before unpickling
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any
 
+from synth_engine.shared.exceptions import ArtifactTamperingError
 from synth_engine.shared.security.hmac_signing import (
     HMAC_DIGEST_SIZE,
     SecurityError,
@@ -64,9 +66,22 @@ _logger = logging.getLogger(__name__)
 #: valid unsigned payload always begins with this byte.
 _PICKLE_OPCODE: int = 0x80
 
+#: Maximum permitted artifact file size in bytes (2 GiB).
+#: Files exceeding this limit are rejected before reading to prevent
+#: memory exhaustion attacks via crafted oversized artifacts.
+_MAX_ARTIFACT_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024
 
-def _looks_signed(raw: bytes) -> bool:
+#: Minimum signing key length in bytes.
+#: Keys shorter than 32 bytes provide insufficient security strength
+#: for HMAC-SHA256 and are rejected at the API boundary.
+_MIN_SIGNING_KEY_BYTES: int = 32
+
+
+def _detect_signed_format(raw: bytes) -> bool:
     """Heuristically detect whether *raw* is a signed (HMAC-prefixed) artifact.
+
+    Format detector — NOT a security check. Used to produce better error
+    messages when operators omit their signing key.
 
     A signed file has 32 bytes of raw HMAC digest followed by a pickle payload
     that starts with the pickle protocol-2+ opcode (``0x80``).  An unsigned
@@ -88,6 +103,53 @@ def _looks_signed(raw: bytes) -> bool:
         and raw[0] != _PICKLE_OPCODE
         and raw[HMAC_DIGEST_SIZE] == _PICKLE_OPCODE
     )
+
+
+def _validate_signing_key(signing_key: bytes, *, context: str) -> None:
+    """Validate a signing key's presence and minimum length.
+
+    Args:
+        signing_key: The signing key bytes to validate.
+        context: Human-readable label for error messages (e.g. ``"save"``).
+
+    Raises:
+        ValueError: If the key is empty or shorter than
+            :data:`_MIN_SIGNING_KEY_BYTES`.
+    """
+    if len(signing_key) == 0:
+        raise ValueError(
+            "signing_key must not be empty. "
+            f"Provide a key of at least {_MIN_SIGNING_KEY_BYTES} bytes or pass "
+            f"signing_key=None to {context} an unsigned artifact."
+        )
+    if len(signing_key) < _MIN_SIGNING_KEY_BYTES:
+        raise ValueError(
+            f"Signing key must be at least {_MIN_SIGNING_KEY_BYTES} bytes; "
+            f"got {len(signing_key)} bytes.  Short keys provide insufficient "
+            "security strength for HMAC-SHA256."
+        )
+
+
+def _log_verification_failure(path: str, reason: str) -> None:
+    """Emit a best-effort audit log entry for an artifact verification failure.
+
+    Best-effort: any exception raised during logging is silently suppressed
+    so that the original security error is never blocked by a logging failure.
+
+    Args:
+        path: Filesystem path of the artifact that failed verification.
+        reason: Human-readable description of the failure (must not contain
+            PII or secret material).
+    """
+    try:
+        _logger.warning(
+            "ARTIFACT_VERIFICATION_FAILURE event_type=ARTIFACT_VERIFICATION_FAILURE "
+            "action=load resource=model_artifact path=%s reason=%s",
+            path,
+            reason,
+        )
+    except Exception:  # noqa: S110  # nosec B110 — best-effort; must not block error propagation
+        pass
 
 
 # Intentionally mutable: column_names, column_dtypes, and column_nullables
@@ -148,24 +210,20 @@ class ModelArtifact:
                 Parent directories must already exist.
             signing_key: Raw signing key bytes for HMAC-SHA256 authentication.
                 Use ``bytes.fromhex(os.environ["ARTIFACT_SIGNING_KEY"])`` for
-                production wiring.  If ``None``, the artifact is saved unsigned
-                (backward-compatible mode).  An empty bytes value (``b""``) is
-                rejected with :exc:`ValueError` because an empty key provides
-                no security.
+                production wiring.  Must be at least 32 bytes.  If ``None``,
+                the artifact is saved unsigned (backward-compatible mode).
+                An empty bytes value (``b""``) is rejected with
+                :exc:`ValueError` because an empty key provides no security.
 
         Returns:
             The ``path`` argument unchanged, allowing callers to chain:
             ``saved_path = artifact.save(path, signing_key=key)``.
 
         Raises:
-            ValueError: If ``signing_key`` is an empty bytes value.
-        """
-        if signing_key is not None and len(signing_key) == 0:
-            raise ValueError(
-                "signing_key must not be empty. "
-                "Provide a key of at least 32 bytes or pass signing_key=None "
-                "to save an unsigned artifact."
-            )
+            ValueError: If ``signing_key`` is empty or shorter than 32 bytes.
+        """  # noqa: DOC502 — ValueError is raised by _validate_signing_key(), not inline
+        if signing_key is not None:
+            _validate_signing_key(signing_key, context="save")
 
         payload = pickle.dumps(self, protocol=pickle.HIGHEST_PROTOCOL)  # nosec B301 — payload is self-produced; HMAC signing below authenticates it before any future load
 
@@ -200,6 +258,11 @@ class ModelArtifact:
         verification fails, :exc:`SecurityError` is raised and the pickle data
         is never executed.
 
+        After unpickling, the result is asserted to be a :class:`ModelArtifact`
+        instance.  If it is not, :exc:`ArtifactTamperingError` is raised even
+        when HMAC verification passed — a compromised signing key could
+        produce a valid-HMAC payload that is not a :class:`ModelArtifact`.
+
         When ``signing_key`` is ``None``, the file is loaded in unsigned mode
         (backward-compatible).  If the file appears to be signed (i.e., it
         carries an HMAC header), :exc:`SecurityError` is raised to prevent
@@ -209,34 +272,42 @@ class ModelArtifact:
         Args:
             path: Filesystem path previously written by :meth:`save`.
             signing_key: Raw signing key bytes.  Must match the key used at
-                :meth:`save` time.  If ``None``, unsigned mode is used.
+                :meth:`save` time and be at least 32 bytes.  If ``None``,
+                unsigned mode is used.
 
         Returns:
             The deserialised :class:`ModelArtifact` instance.
 
         Raises:
-            ValueError: If ``signing_key`` is an empty bytes value (``b""``).
-                An empty key provides no security and is always rejected.
+            ValueError: If ``signing_key`` is an empty bytes value (``b""``),
+                shorter than 32 bytes, or if the artifact file exceeds 2 GiB.
             FileNotFoundError: If no file exists at ``path``.
             SecurityError: If HMAC verification fails for any reason:
                 wrong key, tampered payload, signed file loaded without a key,
                 or unsigned file loaded with a key.
+            ArtifactTamperingError: If the unpickled object is not a
+                :class:`ModelArtifact` instance (even with a valid HMAC).
         """
-        if signing_key is not None and len(signing_key) == 0:
-            raise ValueError(
-                "signing_key must not be empty. "
-                "Provide a key of at least 32 bytes or pass signing_key=None "
-                "to load an unsigned artifact."
-            )
+        if signing_key is not None:
+            _validate_signing_key(signing_key, context="load")
 
         if not os.path.exists(path):
             raise FileNotFoundError(f"ModelArtifact file not found: {path}")
+
+        file_size = os.path.getsize(path)
+        if file_size > _MAX_ARTIFACT_SIZE_BYTES:
+            raise ValueError(
+                f"File too large: {file_size} bytes exceeds the 2 GiB size limit "
+                f"({_MAX_ARTIFACT_SIZE_BYTES} bytes).  Artifact rejected to prevent "
+                "memory exhaustion."
+            )
 
         with open(path, "rb") as f:
             raw = f.read()
 
         if signing_key is not None:
             if len(raw) <= HMAC_DIGEST_SIZE:
+                _log_verification_failure(path, "file too short for HMAC header")
                 raise SecurityError(
                     "HMAC verification failed: file is too short to contain a valid "
                     f"HMAC header (expected >{HMAC_DIGEST_SIZE} bytes, got {len(raw)})."
@@ -244,6 +315,7 @@ class ModelArtifact:
             stored_digest = raw[:HMAC_DIGEST_SIZE]
             pickle_payload = raw[HMAC_DIGEST_SIZE:]
             if not verify_hmac(signing_key, pickle_payload, stored_digest):
+                _log_verification_failure(path, "HMAC digest mismatch")
                 raise SecurityError(
                     "HMAC verification failed: the artifact signature does not match "
                     "the provided signing key.  The artifact may have been tampered "
@@ -255,7 +327,8 @@ class ModelArtifact:
             # A signed file cannot be silently downgraded to unsigned mode;
             # that would allow an attacker to bypass HMAC verification by
             # simply omitting the key.
-            if _looks_signed(raw):
+            if _detect_signed_format(raw):
+                _log_verification_failure(path, "signed artifact loaded without key")
                 raise SecurityError(
                     "HMAC verification failed: the artifact appears to be signed "
                     "(HMAC header detected) but no signing_key was provided. "
@@ -264,9 +337,21 @@ class ModelArtifact:
             pickle_payload = raw
 
         artifact = pickle.loads(pickle_payload)  # noqa: S301  # nosec B301 — payload is either unsigned (trusted caller) or HMAC-verified above; not user-supplied data
+
+        if not isinstance(artifact, ModelArtifact):
+            _log_verification_failure(
+                path,
+                f"unpickled object is {type(artifact).__name__!r}, not ModelArtifact",
+            )
+            raise ArtifactTamperingError(
+                "Artifact tampering detected: unpickled object is not a ModelArtifact "
+                f"instance (got {type(artifact).__name__!r}).  The artifact may have "
+                "been replaced or the signing key may be compromised."
+            )
+
         _logger.info(
             "ModelArtifact for table '%s' loaded from %s",
             artifact.table_name,
             path,
         )
-        return cast("ModelArtifact", artifact)
+        return artifact

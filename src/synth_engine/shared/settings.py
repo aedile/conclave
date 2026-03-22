@@ -46,6 +46,7 @@ Task: T42.1 — Artifact Signing Key Versioning (multi-key support)
 Task: T45.2 — Reintroduce Orphan Task Reaper (TBD-08)
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: T46.2 — Wire mTLS on All Container-to-Container Connections
+Task: T47.7 — Add Parquet Memory Bounds (parquet_max_file_bytes, parquet_max_rows)
 """
 
 from __future__ import annotations
@@ -140,6 +141,10 @@ class ConclaveSettings(BaseSettings):
             registrations per operator.  Defaults to 10.
         webhook_delivery_timeout_seconds: HTTP timeout in seconds for each
             webhook delivery attempt.  Defaults to 10.
+        parquet_max_file_bytes: Maximum Parquet file or payload size in bytes.
+            Size check fires before row-count check.  Defaults to 2 GiB.
+        parquet_max_rows: Maximum number of rows permitted in a loaded Parquet
+            DataFrame.  Defaults to 10,000,000.
     """
 
     model_config = SettingsConfigDict(
@@ -493,6 +498,29 @@ class ConclaveSettings(BaseSettings):
         description=(
             "Path to the mTLS client private key.  Must correspond to the certificate "
             "at MTLS_CLIENT_CERT_PATH.  Used when MTLS_ENABLED=true."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Parquet Memory Bounds (T47.7)
+    # -----------------------------------------------------------------------
+
+    parquet_max_file_bytes: int = Field(
+        default=2 * 1024**3,
+        gt=0,
+        description=(
+            "Maximum Parquet file or payload size in bytes before loading into memory. "
+            "Size check fires before row-count check to reject oversized data early. "
+            "Defaults to 2 GiB.  Must be > 0."
+        ),
+    )
+    parquet_max_rows: int = Field(
+        default=10_000_000,
+        gt=0,
+        description=(
+            "Maximum number of rows permitted in a loaded Parquet DataFrame. "
+            "Row-count check fires after loading; raises DatasetTooLargeError when "
+            "the limit is exceeded.  Defaults to 10,000,000.  Must be > 0."
         ),
     )
 
