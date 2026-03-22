@@ -1,9 +1,8 @@
-"""Negative/attack tests for certificate expiry Prometheus metric.
+"""Tests for certificate expiry Prometheus metric (T46.3).
 
-Tests covering adversarial, edge-case, and missing-file scenarios for the
-``update_cert_expiry_metrics()`` function in ``shared/cert_metrics.py``.
-
-Attack-first TDD (Rule 22): these tests are committed BEFORE the feature tests.
+Covers both attack/negative scenarios (committed first per Rule 22) and
+feature scenarios for ``update_cert_expiry_metrics()`` in
+``shared/cert_metrics.py``.
 
 Task: T46.3 — Certificate Rotation Without Downtime
 """
@@ -97,6 +96,10 @@ def _reset_cert_expiry_gauge() -> Any:
     except Exception:  # noqa: BLE001
         pass
 
+
+# ===========================================================================
+# ATTACK / NEGATIVE TESTS (committed first per Rule 22)
+# ===========================================================================
 
 # ---------------------------------------------------------------------------
 # ATTACK TEST 1: expired cert metric reports negative value, not clipped to 0
@@ -334,3 +337,149 @@ def test_corrupt_cert_emits_warning_log(tmp_path: Path, caplog: pytest.LogCaptur
     assert any(r.levelno >= logging.WARNING for r in caplog.records), (
         "Expected WARNING level log"
     )
+
+
+# ===========================================================================
+# FEATURE TESTS
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# FEATURE TEST 1: valid cert reports correct positive days
+# ---------------------------------------------------------------------------
+
+
+def test_valid_cert_reports_positive_days(tmp_path: Path) -> None:
+    """A valid cert expiring in ~45 days must produce a metric close to 45.
+
+    The exact value may differ by 1 due to timedelta truncation, so we allow
+    a ±2 day tolerance.
+    """
+    cert_file = tmp_path / "app.crt"
+    cert_file.write_bytes(_make_cert(days_until_expiry=45))
+
+    from synth_engine.shared.cert_metrics import CERT_EXPIRY_DAYS, update_cert_expiry_metrics
+
+    with patch("synth_engine.shared.cert_metrics.get_settings") as mock_get:
+        settings = MagicMock()
+        settings.mtls_enabled = True
+        settings.mtls_ca_cert_path = str(cert_file)
+        settings.mtls_client_cert_path = str(cert_file)
+        mock_get.return_value = settings
+
+        update_cert_expiry_metrics()
+
+    ca_days = CERT_EXPIRY_DAYS.labels(service="ca")._value.get()
+    assert 43 <= ca_days <= 47, f"Expected ~45 days, got {ca_days}"
+
+
+# ---------------------------------------------------------------------------
+# FEATURE TEST 2: both 'ca' and 'app' services are populated
+# ---------------------------------------------------------------------------
+
+
+def test_both_services_populated(tmp_path: Path) -> None:
+    """update_cert_expiry_metrics must populate both 'ca' and 'app' service labels."""
+    ca_cert = tmp_path / "ca.crt"
+    app_cert = tmp_path / "app.crt"
+    ca_cert.write_bytes(_make_cert(days_until_expiry=300))
+    app_cert.write_bytes(_make_cert(days_until_expiry=60))
+
+    from synth_engine.shared.cert_metrics import CERT_EXPIRY_DAYS, update_cert_expiry_metrics
+
+    with patch("synth_engine.shared.cert_metrics.get_settings") as mock_get:
+        settings = MagicMock()
+        settings.mtls_enabled = True
+        settings.mtls_ca_cert_path = str(ca_cert)
+        settings.mtls_client_cert_path = str(app_cert)
+        mock_get.return_value = settings
+
+        update_cert_expiry_metrics()
+
+    ca_days = CERT_EXPIRY_DAYS.labels(service="ca")._value.get()
+    app_days = CERT_EXPIRY_DAYS.labels(service="app")._value.get()
+
+    assert ca_days > 0, f"CA days must be positive, got {ca_days}"
+    assert app_days > 0, f"App days must be positive, got {app_days}"
+    # CA cert should have more days than app cert
+    assert ca_days > app_days, f"CA ({ca_days}) should outlast app ({app_days})"
+
+
+# ---------------------------------------------------------------------------
+# FEATURE TEST 3: gauge metric name and description are correct
+# ---------------------------------------------------------------------------
+
+
+def test_metric_name_and_description() -> None:
+    """The Prometheus gauge must have the correct metric name and description."""
+    from synth_engine.shared.cert_metrics import CERT_EXPIRY_DAYS
+
+    assert CERT_EXPIRY_DAYS._name == "conclave_cert_expiry_days"
+    assert "expir" in CERT_EXPIRY_DAYS._documentation.lower(), (
+        "Metric description must mention expiry"
+    )
+
+
+# ---------------------------------------------------------------------------
+# FEATURE TEST 4: idempotent — calling twice with same certs gives same result
+# ---------------------------------------------------------------------------
+
+
+def test_update_is_idempotent(tmp_path: Path) -> None:
+    """Calling update_cert_expiry_metrics() twice must not error or diverge."""
+    cert_file = tmp_path / "app.crt"
+    cert_file.write_bytes(_make_cert(days_until_expiry=30))
+
+    from synth_engine.shared.cert_metrics import CERT_EXPIRY_DAYS, update_cert_expiry_metrics
+
+    with patch("synth_engine.shared.cert_metrics.get_settings") as mock_get:
+        settings = MagicMock()
+        settings.mtls_enabled = True
+        settings.mtls_ca_cert_path = str(cert_file)
+        settings.mtls_client_cert_path = str(cert_file)
+        mock_get.return_value = settings
+
+        update_cert_expiry_metrics()
+        first = CERT_EXPIRY_DAYS.labels(service="ca")._value.get()
+
+        update_cert_expiry_metrics()
+        second = CERT_EXPIRY_DAYS.labels(service="ca")._value.get()
+
+    # Values should be the same (both calls within same second)
+    assert abs(first - second) <= 1, f"Idempotent calls diverged: {first} vs {second}"
+
+
+# ---------------------------------------------------------------------------
+# FEATURE TEST 5: mTLS re-enabled after disabled resets NaN to real value
+# ---------------------------------------------------------------------------
+
+
+def test_mtls_disabled_then_enabled(tmp_path: Path) -> None:
+    """After mTLS is disabled (NaN), re-enabling must reset metric to real days."""
+    cert_file = tmp_path / "app.crt"
+    cert_file.write_bytes(_make_cert(days_until_expiry=20))
+
+    from synth_engine.shared.cert_metrics import CERT_EXPIRY_DAYS, update_cert_expiry_metrics
+
+    # First call with mTLS disabled — should set NaN
+    with patch("synth_engine.shared.cert_metrics.get_settings") as mock_get:
+        settings = MagicMock()
+        settings.mtls_enabled = False
+        settings.mtls_ca_cert_path = str(cert_file)
+        settings.mtls_client_cert_path = str(cert_file)
+        mock_get.return_value = settings
+        update_cert_expiry_metrics()
+
+    assert math.isnan(CERT_EXPIRY_DAYS.labels(service="ca")._value.get())
+
+    # Second call with mTLS enabled — should overwrite NaN with real value
+    with patch("synth_engine.shared.cert_metrics.get_settings") as mock_get:
+        settings = MagicMock()
+        settings.mtls_enabled = True
+        settings.mtls_ca_cert_path = str(cert_file)
+        settings.mtls_client_cert_path = str(cert_file)
+        mock_get.return_value = settings
+        update_cert_expiry_metrics()
+
+    ca_days = CERT_EXPIRY_DAYS.labels(service="ca")._value.get()
+    assert not math.isnan(ca_days), "Expected real days after re-enabling mTLS"
+    assert ca_days > 0, f"Expected positive days, got {ca_days}"
