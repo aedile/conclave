@@ -343,6 +343,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Provision CI dummy secrets
+        # The docker-compose.yml reads secret values from ./secrets/*.txt files.
+        # These files are never committed (.gitignore) and must not exist in CI
+        # with real values. Dummy random values are sufficient — the smoke test
+        # only validates HTTP reachability and security headers, not data integrity.
+        run: |
+          mkdir -p secrets
+          openssl rand -hex 32 > secrets/app_secret_key.txt
+          openssl rand -hex 32 > secrets/postgres_password.txt
+          openssl rand -hex 32 > secrets/grafana_admin_password.txt
+          echo "ci-admin" > secrets/grafana_admin_user.txt
+          openssl rand -hex 16 > secrets/minio_ephemeral_access_key.txt
+          openssl rand -hex 32 > secrets/minio_ephemeral_secret_key.txt
+          chmod 600 secrets/*.txt
+
       - name: Build Docker image
         run: docker build -t conclave-engine:smoke-test .
 

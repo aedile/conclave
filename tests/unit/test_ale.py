@@ -25,7 +25,11 @@ from cryptography.fernet import Fernet, InvalidToken
 
 @pytest.fixture(autouse=True)
 def _reset_fernet(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    """Reset the lru_cache on get_fernet and seal the vault after every test.
+    """Seal vault and reset Fernet cache before and after every test in this module.
+
+    Runs both in setup (before yield) and teardown (after yield) to guarantee
+    that vault state from other test modules cannot bleed into ALE tests —
+    regardless of test execution order within the full suite.
 
     This fixture runs automatically for every test in this module so that
     changes to the ALE_KEY environment variable and vault state propagate
@@ -34,7 +38,13 @@ def _reset_fernet(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     from synth_engine.shared.security.ale import _reset_fernet_cache
     from synth_engine.shared.security.vault import VaultState
 
+    # Setup: seal the vault in case a prior test (in another module) left it unsealed.
+    VaultState.reset()
+    _reset_fernet_cache()
+
     yield
+
+    # Teardown: restore sealed state so subsequent tests start clean.
     _reset_fernet_cache()
     VaultState.reset()
 

@@ -33,11 +33,11 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 
 _PROD_BASE_ENV: dict[str, str] = {
-    "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db",
+    "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
     "AUDIT_KEY": "deadbeefdeadbeefdeadbeefdeadbeef",
     "ENV": "production",
     "ARTIFACT_SIGNING_KEY": "cafecafecafecafecafecafecafecafe",
-    "MASKING_SALT": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+    "MASKING_SALT": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
 }
 
 _VALID_BCRYPT_HASH = "$2b$12$" + "a" * 53  # 60 chars total — valid structural format

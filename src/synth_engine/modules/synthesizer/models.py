@@ -221,7 +221,7 @@ class ModelArtifact:
 
         Raises:
             ValueError: If ``signing_key`` is empty or shorter than 32 bytes.
-        """
+        """  # noqa: DOC502 — ValueError is raised by _validate_signing_key(), not inline
         if signing_key is not None:
             _validate_signing_key(signing_key, context="save")
 

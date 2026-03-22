@@ -5,6 +5,7 @@ This module registers custom markers and scaffolds future DB fixtures.
 Task: P1-T1.2 — TDD Framework
 Task: T36.1 — Add settings cache-clear autouse fixture
 Task: T39.2 — Add logger-re-enable fixture to counter alembic fileConfig side-effect
+Fix: P47 — Document that .env file suppression is handled by tests/unit/conftest.py
 """
 
 from __future__ import annotations
@@ -51,14 +52,18 @@ def _clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     causing flaky failures.
 
     This fixture also ensures that ``DATABASE_URL`` and ``AUDIT_KEY`` are
-    set to test-safe defaults when not already present.  Many tests exercise
-    code that incidentally calls ``get_settings()`` but does not care about
-    the DB or audit key values.  Without the defaults, ``ConclaveSettings``
-    raises ``ValidationError`` for required-but-absent fields.
+    set to test-safe defaults when not already present in ``os.environ``.  Many
+    tests exercise code that incidentally calls ``get_settings()`` but does not
+    care about the DB or audit key values.  Without the defaults,
+    ``ConclaveSettings`` raises ``ValidationError`` for required-but-absent fields.
 
     Tests that explicitly need to control ``DATABASE_URL`` or ``AUDIT_KEY``
     (e.g., ``test_settings.py``) use ``monkeypatch.setenv`` / ``delenv``
     which override these defaults within the test scope.
+
+    Note: Suppression of ``.env`` file reading (so that ``monkeypatch.delenv``
+    has full effect) is handled by the per-directory conftest at
+    ``tests/unit/conftest.py`` via patching ``ConclaveSettings.__init__``.
 
     Args:
         monkeypatch: The pytest monkeypatch fixture for reversible env manipulation.
@@ -74,7 +79,9 @@ def _clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     except ImportError:
         pass  # Module not yet created during test discovery
 
-    # Inject test-safe defaults only if not already set.
+    # Inject test-safe defaults only if not already set in os.environ.
+    # Note: these inject into os.environ, which takes precedence over .env
+    # when pydantic-settings reads the configuration.
     if not os.environ.get("DATABASE_URL"):
         monkeypatch.setenv("DATABASE_URL", _TEST_DATABASE_URL)
     if not os.environ.get("AUDIT_KEY"):
@@ -165,11 +172,9 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
 
     This fixture also calls ``gc.collect()`` in its teardown (after yield, but still
     inside the ``catch_warnings`` context) to force GC of any short-lived SQLite engines
-    before the context exits.  Without this, SQLite engines created in helper functions
-    (e.g., ``_make_connections_app()``) are GC-collected after the test session ends —
-    during ``pytest._ensure_unconfigure`` — where no ``ResourceWarning`` filter is
-    active and ``PytestUnraisableExceptionWarning`` fires, causing a non-zero exit code
-    despite all tests passing.
+    before the context exits.  Without this, CPython defers collection to session teardown
+    (outside our filter scope), where PytestUnraisableExceptionWarning would fire,
+    causing a non-zero exit code despite all tests passing.
 
     The warnings suppressed here are all from third-party packages we cannot modify:
 

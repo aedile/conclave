@@ -30,11 +30,20 @@ _PROD_KEYS_TO_DELETE = (
 
 def _set_prod_full_valid(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set all production vars — including new auth ones — to valid values."""
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "production")
-    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
-    monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+    monkeypatch.setenv(
+        "ARTIFACT_SIGNING_KEY",
+        "cafecafecafecafecafecafecafecafe",  # pragma: allowlist secret
+    )
+    monkeypatch.setenv(
+        "MASKING_SALT",
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("JWT_SECRET_KEY", "supersecretkey-for-production")
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", _VALID_BCRYPT_HASH)
     for key in _PROD_KEYS_TO_DELETE:
@@ -72,7 +81,10 @@ def test_empty_jwt_secret_dev_warns(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", "")
@@ -123,7 +135,10 @@ def test_empty_operator_hash_dev_warns(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "")
@@ -155,7 +170,10 @@ def test_invalid_hash_dev_warns(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "not-a-bcrypt-hash")
@@ -233,8 +251,14 @@ def test_jwt_and_hash_valid_with_other_errors(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("DATABASE_URL", "")
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "production")
-    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
-    monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+    monkeypatch.setenv(
+        "ARTIFACT_SIGNING_KEY",
+        "cafecafecafecafecafecafecafecafe",  # pragma: allowlist secret
+    )
+    monkeypatch.setenv(
+        "MASKING_SALT",
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("JWT_SECRET_KEY", "supersecretkey-for-production")
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", _VALID_BCRYPT_HASH)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
