@@ -12,8 +12,6 @@ Drain (delete) rows when their target task is completed.
 
 | ID | Source | Target Task | Severity | Advisory |
 |----|--------|-------------|----------|----------|
-| ADV-P45-01 | Arch re-review | Polish task | ADVISORY | `deliver_webhook(registration: Any)` not updated to `WebhookRegistrationProtocol` |
-| ADV-P45-02 | Arch re-review | Polish task | ADVISORY | ADR-0003 header still says "Deferred" despite T45.1 amendment |
 
 ---
 

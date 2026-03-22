@@ -176,10 +176,10 @@ class WebhookRegistrationProtocol(Protocol):
         active: Whether the registration is active and should receive deliveries.
         callback_url: Absolute HTTP(S) URL to deliver payloads to.
         signing_key: HMAC signing secret for payload authentication.
-        id: Unique identifier for this registration (string or int).
+        id: Unique string identifier for this registration (UUID v4).
     """
 
     active: bool
     callback_url: str
     signing_key: str
-    id: int | str
+    id: str

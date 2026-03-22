@@ -1,6 +1,6 @@
 # ADR-0003: Redis SET NX EX for Atomic Idempotency Key Management
 
-**Status:** Accepted — Deferred (implementation removed T32.1)
+**Status:** Accepted — Implemented (T45.1, Phase 45)
 **Date:** 2026-03-13
 **Deciders:** Project team
 
