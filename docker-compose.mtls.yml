@@ -1,0 +1,112 @@
+# docker-compose.mtls.yml — mTLS overlay for the Air-Gapped Synthetic Data Generation Engine
+#
+# This file is a Docker Compose OVERRIDE that enables mutual TLS on all
+# container-to-container data-plane connections:
+#
+#   app  <──rediss://──>  redis      (Redis TLS + mutual auth)
+#   app  <──TLS──>        pgbouncer  (frontend TLS + client cert verification)
+#   pgbouncer <──TLS──>   postgres   (backend TLS, verify-full)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.mtls.yml up
+#
+# Prerequisites:
+#   1. Generate certificates with scripts/generate-mtls-certs.sh (T46.1).
+#   2. Place the generated files in secrets/mtls/:
+#        secrets/mtls/ca.crt           — Shared CA certificate
+#        secrets/mtls/app.crt          — App (client) certificate
+#        secrets/mtls/app.key          — App (client) private key
+#        secrets/mtls/postgres.crt     — PostgreSQL server certificate
+#        secrets/mtls/postgres.key     — PostgreSQL server private key
+#        secrets/mtls/pgbouncer.crt    — PgBouncer server certificate
+#        secrets/mtls/pgbouncer.key    — PgBouncer server private key
+#        secrets/mtls/redis.crt        — Redis server certificate
+#        secrets/mtls/redis.key        — Redis server private key
+#   3. Set MTLS_ENABLED=true in your .env file or environment.
+#
+# Security notes:
+#   - secrets/mtls/ is .gitignored and MUST NEVER be committed.
+#   - All cert files are mounted :ro (read-only) into containers.
+#   - Redis is reconfigured to listen on TLS port 6379 only (--port 0).
+#   - PostgreSQL requires client certificate verification (ssl_ca_file).
+#   - PgBouncer verifies both frontend clients and backend PostgreSQL.
+#
+# Monitoring services (prometheus, alertmanager, grafana, minio) are
+# intentionally EXCLUDED from mTLS — they are exempt per ADR-0029 (Gap 7).
+#
+# CONSTITUTION Priority 0: Security — mTLS inter-container communication
+# Task: T46.2 — Wire mTLS on All Container-to-Container Connections
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application (API + Huey worker)
+  # ---------------------------------------------------------------------------
+  app:
+    environment:
+      MTLS_ENABLED: "true"
+      MTLS_CA_CERT_PATH: /run/secrets/mtls/ca.crt
+      MTLS_CLIENT_CERT_PATH: /run/secrets/mtls/app.crt
+      MTLS_CLIENT_KEY_PATH: /run/secrets/mtls/app.key
+      # mTLS implies SSL — make this explicit to suppress the startup warning
+      CONCLAVE_SSL_REQUIRED: "true"
+    volumes:
+      - ./secrets/mtls:/run/secrets/mtls:ro
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — enable server-side TLS and require client certificates
+  # ---------------------------------------------------------------------------
+  postgres:
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/var/lib/postgresql/certs/postgres.crt
+      -c ssl_key_file=/var/lib/postgresql/certs/postgres.key
+      -c ssl_ca_file=/var/lib/postgresql/certs/ca.crt
+      -c ssl_min_protocol_version=TLSv1.3
+    volumes:
+      - ./secrets/mtls:/var/lib/postgresql/certs:ro
+
+  # ---------------------------------------------------------------------------
+  # PgBouncer — frontend TLS (require client certs) + backend TLS to PostgreSQL
+  #
+  # The edoburu/pgbouncer image is configured entirely via environment variables.
+  # There is no pgbouncer.ini file in this deployment.
+  #
+  # Frontend (clients → PgBouncer):
+  #   PGBOUNCER_CLIENT_TLS_SSLMODE=require  — clients must use TLS
+  # Backend (PgBouncer → PostgreSQL):
+  #   PGBOUNCER_SERVER_TLS_SSLMODE=verify-full  — verify PostgreSQL's cert
+  # ---------------------------------------------------------------------------
+  pgbouncer:
+    environment:
+      # Frontend TLS — require TLS from all clients (including the app)
+      PGBOUNCER_CLIENT_TLS_SSLMODE: "require"
+      PGBOUNCER_CLIENT_TLS_CERT_FILE: /etc/pgbouncer/certs/pgbouncer.crt
+      PGBOUNCER_CLIENT_TLS_KEY_FILE: /etc/pgbouncer/certs/pgbouncer.key
+      PGBOUNCER_CLIENT_TLS_CA_FILE: /etc/pgbouncer/certs/ca.crt
+      # Backend TLS — verify PostgreSQL server certificate via shared CA
+      PGBOUNCER_SERVER_TLS_SSLMODE: "verify-full"
+      PGBOUNCER_SERVER_TLS_CA_FILE: /etc/pgbouncer/certs/ca.crt
+    volumes:
+      - ./secrets/mtls:/etc/pgbouncer/certs:ro
+
+  # ---------------------------------------------------------------------------
+  # Redis — TLS-only mode (disable plaintext port, enable TLS port 6379)
+  #   --port 0           disables the default plaintext port
+  #   --tls-port 6379    enables TLS on 6379 (same port number, different proto)
+  #   --tls-auth-clients yes  requires client certificates (mutual TLS)
+  # ---------------------------------------------------------------------------
+  redis:
+    command: >
+      redis-server
+      --save ""
+      --appendonly no
+      --port 0
+      --tls-port 6379
+      --tls-cert-file /tls/redis.crt
+      --tls-key-file /tls/redis.key
+      --tls-ca-cert-file /tls/ca.crt
+      --tls-auth-clients yes
+      --tls-protocols "TLSv1.3"
+    volumes:
+      - ./secrets/mtls:/tls:ro
