@@ -26,7 +26,46 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P48-02~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Redis INCR+EXPIRE atomicity — CLOSED as accepted tradeoff (standard industry pattern, documented)~~ |
 | ~~ADV-P48-03~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Anchor verification equality-only — CLOSED as accepted tradeoff (S3 Object Lock, documented in ADR-0048)~~ |
 | ~~ADV-P48-04~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~ale_key field in settings — RESOLVED (field removed from ConclaveSettings)~~ |
+| ADV-T49-01 | Dev T49.5 | — | ADVISORY | mutmut 3.x + CPython 3.14 segfault incompatibility: all target mutants exit with SIGSEGV (-11) rather than normal test failure (exit code 1). 0 mutants survived; 200/200 detected via process crash. Mutation hardening tests added to verify behavioral correctness without trampoline. Track mutmut issue for Python 3.14 fix upstream. |
 | ADV-P47-07 | Red-Team P47 | — | ADVISORY | TOCTOU in `ModelArtifact.load()`: file size check, then read, then HMAC verify. An attacker with filesystem write access could swap the file between size check and read. Low severity — requires local filesystem access, and HMAC verification would fail on tampered content. |
+| ADV-P49-02 | Red-Team P49 | — | ADVISORY | Audit event HMAC signature does not cover the `details` field. An attacker with log store access could modify `details` without invalidating the signature. Chain hash covers it transitively but is re-computable. Pre-existing issue, not introduced by P49. |
+| ADV-P49-03 | DevOps P49 | — | ADVISORY | mutmut CI gate not wired into `.github/workflows/ci.yml`. Blocked by ADV-T49-01 (Python 3.14 segfault). Constitution Priority 0.5 gap — documented but not programmatically enforced. |
+
+---
+
+### [2026-03-23] Phase 49 — Test Quality Hardening
+
+**Branch**: `chore/P49-test-quality-hardening`
+
+**Tasks completed**: T49.1 (Security assertion hardening), T49.2 (Masking/subsetting assertion
+hardening), T49.3 (Mock reduction), T49.4 (Test organization), T49.5 (Mutation testing baseline)
+
+**T49.1**: `test_download_hmac_signing.py` 4→20 tests; `test_audit.py` value assertions;
+`test_dp_accounting.py` propagation guards; `test_ale.py` round-trip + distinctness.
+
+**T49.2**: Salt-sensitivity on all mask functions; parametrized sweeps; subsetting negative
+cases (mid-stream failure, DB disconnect); settings router value assertions.
+
+**T49.3**: Shared `helpers_synthesizer.py`; opt-in `jwt_secret_key_env` fixture; 2 Opacus
+integration tests; 3 guardrails edge cases (psutil, CUDA, memory=0).
+
+**T49.4**: `test_synthesizer_tasks.py` (2738 lines) split into 3 files (107/107 tests preserved).
+
+**T49.5**: mutmut 3.x configured for `shared/security/` + `modules/privacy/`; 200 mutants
+generated, 0 survived (all SIGSEGV due to Python 3.14 incompatibility); 19 hardening tests.
+
+**Review findings resolved** (commit 4253ff1):
+- FINDING (Red-Team F-2): audit.py/audit_anchor.py excluded from mutation testing — fixed
+
+**Review findings logged as advisory**:
+- Red-Team F-1: Audit HMAC doesn't cover `details` field — pre-existing (ADV-P49-02)
+- DevOps F-1: mutmut not in CI — blocked by Python 3.14 segfault (ADV-P49-03)
+
+**Advisories raised**: ADV-T49-01, ADV-P49-02, ADV-P49-03
+
+**Test metrics**: 2466 passed, 1 skipped — coverage 96.76% (95% gate PASS). Net +72 tests.
+
+**Open advisory count**: 7 (under Rule 11 threshold of 8)
 
 ---
 

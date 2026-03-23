@@ -5,6 +5,7 @@ RED Phase — all tests must fail before implementation exists.
 CONSTITUTION Priority 3: TDD
 Task: P2-T2.4 — Vault Observability
 Task: P2-D3 — AuditLogger singleton & cross-request chain integrity
+Task: T49.1 — Assertion Hardening: replace key-presence with value validity
 """
 
 from __future__ import annotations
@@ -12,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 from collections.abc import Generator
+from datetime import UTC
 
 import pytest
 
@@ -136,7 +139,18 @@ def test_first_event_has_genesis_prev_hash(logger_instance: AuditLogger) -> None
 
 
 def test_audit_event_is_json_serializable(logger_instance: AuditLogger) -> None:  # noqa: F821
-    """model_dump_json() produces valid JSON with all expected fields."""
+    """model_dump_json() produces valid JSON with all expected fields holding valid values.
+
+    Replaces shallow key-presence assertions (T49.1) with value-validity checks:
+    - timestamp: non-empty ISO 8601 string containing a 'T' separator and UTC offset
+    - event_type: exact match to what was passed in
+    - actor: exact non-empty match
+    - resource: exact non-empty match
+    - action: exact non-empty match
+    - details: correct dict value
+    - prev_hash: 64-character lowercase hex string (SHA-256 or genesis sentinel)
+    - signature: 64-character lowercase hex string (HMAC-SHA256 hexdigest)
+    """
     event = logger_instance.log_event(
         event_type="SERIALIZE_TEST",
         actor="pytest",
@@ -148,17 +162,100 @@ def test_audit_event_is_json_serializable(logger_instance: AuditLogger) -> None:
     raw = event.model_dump_json()
     parsed = json.loads(raw)
 
-    for field in (
-        "timestamp",
-        "event_type",
-        "actor",
-        "resource",
-        "action",
-        "details",
-        "prev_hash",
-        "signature",
-    ):
-        assert field in parsed
+    # timestamp: non-empty, valid ISO 8601 with 'T' separator
+    assert isinstance(parsed["timestamp"], str), "timestamp must be a string"
+    assert len(parsed["timestamp"]) > 0, "timestamp must not be empty"
+    assert "T" in parsed["timestamp"], "timestamp must contain ISO 8601 'T' separator"
+
+    # event_type: exact match to what was passed
+    assert parsed["event_type"] == "SERIALIZE_TEST", (
+        f"event_type must be 'SERIALIZE_TEST'; got {parsed['event_type']!r}"
+    )
+
+    # actor: exact non-empty match
+    assert parsed["actor"] == "pytest", f"actor must be 'pytest'; got {parsed['actor']!r}"
+    assert len(parsed["actor"]) > 0, "actor must not be empty"
+
+    # resource: exact non-empty match
+    assert parsed["resource"] == "resource", (
+        f"resource must be 'resource'; got {parsed['resource']!r}"
+    )
+
+    # action: exact match
+    assert parsed["action"] == "inspect", f"action must be 'inspect'; got {parsed['action']!r}"
+
+    # details: correct key-value pair
+    assert parsed["details"] == {"key": "value"}, (
+        f"details must be {{'key': 'value'}}; got {parsed['details']!r}"
+    )
+
+    # prev_hash: 64-character lowercase hex string
+    assert isinstance(parsed["prev_hash"], str), "prev_hash must be a string"
+    assert len(parsed["prev_hash"]) == 64, (
+        f"prev_hash must be 64 hex chars; got {len(parsed['prev_hash'])}"
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", parsed["prev_hash"]), (
+        f"prev_hash must be lowercase hex; got {parsed['prev_hash']!r}"
+    )
+
+    # signature: 64-character lowercase hex string (HMAC-SHA256 hexdigest)
+    assert isinstance(parsed["signature"], str), "signature must be a string"
+    assert len(parsed["signature"]) == 64, (
+        f"signature must be 64 hex chars; got {len(parsed['signature'])}"
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", parsed["signature"]), (
+        f"signature must be lowercase hex; got {parsed['signature']!r}"
+    )
+    # Signature must match what the event object carries
+    assert parsed["signature"] == event.signature, "serialised signature must match event.signature"
+
+
+def test_audit_event_field_values_reflect_inputs(
+    logger_instance: AuditLogger,  # noqa: F821
+) -> None:
+    """All logged field values must exactly reflect the caller-supplied inputs.
+
+    Asserts that no field is silently truncated, uppercased, or transformed
+    from the value that was passed to log_event().
+    """
+    event = logger_instance.log_event(
+        event_type="VAULT_UNSEAL",
+        actor="operator@example.com",
+        resource="vault/seal",
+        action="unseal",
+        details={"reason": "scheduled maintenance", "host": "node-1"},
+    )
+
+    assert event.event_type == "VAULT_UNSEAL"
+    assert event.actor == "operator@example.com"
+    assert event.resource == "vault/seal"
+    assert event.action == "unseal"
+    assert event.details == {"reason": "scheduled maintenance", "host": "node-1"}
+
+
+def test_audit_event_timestamp_is_utc_iso8601(
+    logger_instance: AuditLogger,  # noqa: F821
+) -> None:
+    """log_event() must produce a timestamp that is a valid UTC ISO 8601 string.
+
+    The timestamp drives chain ordering and signature correctness.
+    An invalid or naive timestamp would make cross-system verification impossible.
+    """
+    from datetime import datetime
+
+    event = logger_instance.log_event(
+        event_type="TIMESTAMP_CHECK",
+        actor="system",
+        resource="clock",
+        action="read",
+        details={},
+    )
+
+    # Must be parseable as a datetime
+    parsed_ts = datetime.fromisoformat(event.timestamp)
+    # Must carry UTC timezone info
+    assert parsed_ts.tzinfo is not None, "timestamp must have timezone info (UTC)"
+    assert parsed_ts.utcoffset() == UTC.utcoffset(None), "timestamp must be UTC (offset +00:00)"
 
 
 # ---------------------------------------------------------------------------

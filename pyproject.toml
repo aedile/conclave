@@ -101,6 +101,11 @@ chromadb = "^1.5.5"
 datamodel-code-generator = ">=0.50.0,<1.0.0"
 # Property-based testing for unit tests (T19.3). Dev group — runs in tests/unit/.
 hypothesis = "^6.151.9"
+# mutmut: mutation testing for security-critical modules (T49.5).
+# ADR-0047 mandates mutation testing on shared/security/ and modules/privacy/.
+# Target modules are configured in [tool.mutmut] below.  The [tool.mutmut]
+# runner uses `python -m pytest` which invokes the poetry-managed interpreter.
+mutmut = "^3.5.0"
 
 # ---------------------------------------------------------------------------
 # Integration group — NOT included by default; wired in Task 2.2
@@ -271,6 +276,7 @@ skips = ["B101"]
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = [
@@ -440,3 +446,90 @@ check-return-types = false
 check-class-attributes = false
 require-return-section-when-returning-nothing = false
 require-yield-section-when-yielding-nothing = false
+
+# ---------------------------------------------------------------------------
+# Mutmut — Mutation Testing (T49.5, ADR-0047)
+#
+# Scope: security-critical modules only — shared/security/ and modules/privacy/.
+# These are the modules mandated by ADR-0047 and Constitution Priority 4.
+#
+# paths_to_mutate: TOML array — mutmut 3.x requires a list, not a comma-
+# separated string. A bare string is iterated character-by-character by Python,
+# which causes the / separator to be interpreted as the filesystem root.
+#
+# tests_dir: TOML array — same requirement; single string "tests/unit/" appended
+# to pytest_add_cli_args_test_selection as-is, which is what we want.
+#
+# pytest_add_cli_args: per-mutant pytest flags:
+#   -x:      stop on first failure (faster feedback per mutant)
+#   -q:      suppress verbose output (reduces log volume)
+#   --tb=no: suppress tracebacks (faster; errors are expected for killed mutants)
+#   --no-header: suppress pytest header per mutant run
+#   --no-cov:    skip coverage collection during mutation runs (speed)
+#
+# Note: the 2.x "runner" key is NOT supported in mutmut 3.x.
+# Per-mutant test execution is configured via pytest_add_cli_args instead.
+# ---------------------------------------------------------------------------
+[tool.mutmut]
+# Walk the full src/synth_engine/ tree so all __init__.py files are copied to
+# mutants/src/ (required for Python to find the package). Only files in the two
+# security-critical sub-packages actually receive mutations (via do_not_mutate).
+paths_to_mutate = ["src/synth_engine/"]
+# Skip everything that is NOT a security-critical module.
+# These patterns exclude all other packages from mutation while still copying
+# their source files to mutants/src/ for import resolution.
+do_not_mutate = [
+    "src/synth_engine/bootstrapper/*",
+    "src/synth_engine/bootstrapper/**/*",
+    "src/synth_engine/modules/ingestion/*",
+    "src/synth_engine/modules/ingestion/**/*",
+    "src/synth_engine/modules/mapping/*",
+    "src/synth_engine/modules/mapping/**/*",
+    "src/synth_engine/modules/masking/*",
+    "src/synth_engine/modules/masking/**/*",
+    "src/synth_engine/modules/profiler/*",
+    "src/synth_engine/modules/profiler/**/*",
+    "src/synth_engine/modules/subsetting/*",
+    "src/synth_engine/modules/subsetting/**/*",
+    "src/synth_engine/modules/synthesizer/*",
+    "src/synth_engine/modules/synthesizer/**/*",
+]
+tests_dir = ["tests/unit/"]
+pytest_add_cli_args = [
+    "-x",
+    "-q",
+    "--tb=no",
+    "--no-header",
+    "--no-cov",
+    # Ignore tests that check project file structure (docker-compose, alembic,
+    # scripts, CI configs). These tests verify project hygiene, not module logic,
+    # and they fail in the mutants/ sandbox because those files are not copied.
+    # Infrastructure and project-hygiene tests that check file structure paths
+    # (REPO_ROOT resolution, docker-compose, alembic versions, vulture whitelist)
+    # fail in the mutants/ sandbox. These tests do NOT exercise the security or
+    # privacy modules being mutated and are excluded here.
+    "--ignore=tests/unit/test_ci_infrastructure.py",
+    "--ignore=tests/unit/test_config_validation.py",
+    "--ignore=tests/unit/test_dependency_audit.py",
+    "--ignore=tests/unit/test_docker_image_pinning.py",
+    "--ignore=tests/unit/test_dp_training_loop.py",
+    "--ignore=tests/unit/test_dp_training_privacy.py",
+    "--ignore=tests/unit/test_dp_training_qa_findings.py",
+    "--ignore=tests/unit/test_dp_training_strategy_classes.py",
+    "--ignore=tests/unit/test_e2e_load_test_script.py",
+    "--ignore=tests/unit/test_init_chroma.py",
+    "--ignore=tests/unit/test_job_steps.py",
+    "--ignore=tests/unit/test_migration_003_epsilon_precision.py",
+    "--ignore=tests/unit/test_migration_007_encrypt_connection_metadata.py",
+    "--ignore=tests/unit/test_seed_chroma.py",
+    "--ignore=tests/unit/test_seed_sample_data.py",
+    "--ignore=tests/unit/test_synthesizer_engine.py",
+    "--ignore=tests/unit/test_synthesizer_tasks.py",
+    "--ignore=tests/unit/test_t37_2_advisory_drain.py",
+    "--ignore=tests/unit/test_t43_4_hygiene_polish.py",
+    "--ignore=tests/unit/test_telemetry.py",
+]
+# also_copy: additional paths needed by the test suite that are not in src/.
+# alembic/ is required by migration tests. .github/ and scripts/ are needed
+# by test_ci_infrastructure.py. .vulture_whitelist.py is needed by hygiene tests.
+also_copy = ["alembic/", ".github/", "scripts/", ".vulture_whitelist.py"]

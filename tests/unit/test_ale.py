@@ -12,6 +12,7 @@ CONSTITUTION Priority 3: TDD — Red Phase
 Task: P2-T2.2 — Secure Database Layer
 Fix:  P2-debt-D1 — ALE-Vault KEK wiring
 Task: T48.5 — ALE Vault Dependency Enforcement
+Task: T49.1 — Assertion Hardening: round-trip verification, boundary values
 """
 
 from __future__ import annotations
@@ -81,13 +82,17 @@ def test_encrypted_string_encrypts_on_bind(unsealed_vault: None) -> None:
 
     The round-trip must also be lossless: decrypting the stored token must
     yield the original plaintext.
+
+    Hardened (T49.1): replaced ``is not None`` with ``len > 0`` to confirm
+    the ciphertext has actual content, not an empty string.
     """
     from synth_engine.shared.security.ale import EncryptedString
 
     col = EncryptedString()
     ciphertext = col.process_bind_param("secret", None)
 
-    assert ciphertext is not None
+    assert ciphertext is not None, "ciphertext must not be None"
+    assert len(ciphertext) > 0, "ciphertext must not be empty"
     assert ciphertext != "secret", "ciphertext must differ from plaintext"
 
     # Round-trip: ciphertext must decrypt back to the original value
@@ -139,11 +144,68 @@ def test_encrypted_string_empty_string_roundtrip(unsealed_vault: None) -> None:
     ciphertext = col.process_bind_param("", None)
 
     assert ciphertext is not None, "empty string must produce a ciphertext, not None"
+    assert len(ciphertext) > 0, "empty string must produce a non-empty ciphertext"
     assert ciphertext != "", "empty string must produce a non-empty ciphertext"
 
     # Round-trip: decrypting the ciphertext must recover the empty string
     plaintext = col.process_result_value(ciphertext, None)
     assert plaintext == ""
+
+
+# ---------------------------------------------------------------------------
+# EncryptedString — boundary values (T49.1)
+# ---------------------------------------------------------------------------
+
+
+def test_encrypted_string_very_long_string_roundtrip(unsealed_vault: None) -> None:
+    """process_bind_param on a very long string must produce ciphertext and round-trip.
+
+    PII fields can be arbitrarily long (e.g., free-text notes).  The encryption
+    layer must handle large values without truncating, rejecting, or corrupting.
+    Decrypted output must exactly equal the original input.
+    """
+    from synth_engine.shared.security.ale import EncryptedString
+
+    # 100 KB of ASCII text — realistic upper-bound for a text column
+    long_value = "A" * 100_000
+
+    col = EncryptedString()
+    ciphertext = col.process_bind_param(long_value, None)
+
+    assert ciphertext is not None, "very long string must produce a ciphertext"
+    assert len(ciphertext) > 0, "ciphertext must have content"
+    assert ciphertext != long_value, "ciphertext must differ from plaintext"
+
+    # Round-trip: decrypted output must be byte-for-byte identical to input
+    recovered = col.process_result_value(ciphertext, None)
+    assert recovered == long_value, (
+        f"Round-trip failed: recovered length {len(recovered or '')} "
+        f"!= original length {len(long_value)}"
+    )
+
+
+def test_different_plaintexts_produce_different_ciphertexts(unsealed_vault: None) -> None:
+    """Two different plaintexts encrypted with the same key must produce different ciphertexts.
+
+    Fernet uses a random IV per encryption call, so even the same plaintext
+    produces different ciphertexts.  Different plaintexts must never collide.
+    This guards against any broken constant-ciphertext regression.
+    """
+    from synth_engine.shared.security.ale import EncryptedString
+
+    col = EncryptedString()
+    plaintexts = ["alice@example.com", "bob@example.com", "charlie@example.com"]
+    ciphertexts = [col.process_bind_param(p, None) for p in plaintexts]
+
+    # All ciphertexts must be distinct
+    assert len(set(ciphertexts)) == len(plaintexts), (
+        "Different plaintexts must produce different ciphertexts"
+    )
+
+    # Round-trip: each ciphertext must decrypt to its original plaintext
+    for original, ciphertext in zip(plaintexts, ciphertexts, strict=True):
+        recovered = col.process_result_value(ciphertext, None)
+        assert recovered == original, f"Round-trip failed for {original!r}: got {recovered!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -281,15 +343,20 @@ def test_fernet_raises_sealed_error_when_vault_is_sealed_between_calls(
 
     If the vault is unsealed, ALE works.  After sealing, ALE must fail
     with VaultSealedError — even in the same process.
+
+    Hardened (T49.1): replaced ``assert fernet is not None`` with
+    ``assert isinstance(fernet, Fernet)`` to verify the type, not just non-null.
     """
     from synth_engine.shared.exceptions import VaultSealedError
     from synth_engine.shared.security.ale import get_fernet
     from synth_engine.shared.security.vault import VaultState
 
-    # Unseal and verify ALE works
+    # Unseal and verify ALE works — check type, not just non-null
     VaultState.unseal("ale-test-passphrase-2")
     fernet = get_fernet()
-    assert fernet is not None
+    assert isinstance(fernet, Fernet), (
+        f"get_fernet() must return a Fernet instance; got {type(fernet)!r}"
+    )
 
     # Seal and verify ALE fails
     VaultState.seal()

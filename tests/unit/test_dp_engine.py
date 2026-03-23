@@ -15,6 +15,7 @@ Pattern guards applied:
 Task: P4-T4.3b — DP Engine Wiring
 ADR: ADR-0017 (CTGAN + Opacus; RDP accountant)
 ADV-046: parameter validation guards for degenerate inputs added.
+T49.3: added integration-style Opacus test using real Opacus and PyTorch.
 """
 
 from __future__ import annotations
@@ -586,4 +587,132 @@ class TestPrivacyModuleExports:
 
         assert inspect.isclass(DPTrainingWrapper), (
             "DPTrainingWrapper must be a class, not just a truthy object"
+        )
+
+
+# ---------------------------------------------------------------------------
+# T49.3: Integration-style Opacus test using real Opacus and PyTorch (CPU only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.synthesizer
+class TestDPTrainingWrapperOpacusIntegration:
+    """Integration-style tests using real Opacus and PyTorch objects.
+
+    These tests exercise the actual Opacus API compatibility rather than mocked
+    interfaces.  They use a tiny 1-layer linear model and ≤10 rows to keep
+    runtime under 5 seconds on CPU.
+
+    Marked with ``@pytest.mark.synthesizer`` so they can be gated independently
+    in CI environments without the synthesizer dependency group.
+
+    T49.3: Verify our DPTrainingWrapper matches Opacus's actual interface.
+    """
+
+    @pytest.mark.synthesizer
+    def test_wrap_with_real_opacus_returns_dp_optimizer(self) -> None:
+        """wrap() with a real Opacus PrivacyEngine must return a DP-aware optimizer.
+
+        Uses a single-layer linear model trained for 1 step on 10 CPU rows.
+        Verifies the full Opacus API contract:
+        - make_private() returns a DP-wrapped optimizer (not the original)
+        - After one backward pass, epsilon_spent() returns a positive float
+
+        This test guards against API drift between our wrapper and Opacus's
+        actual make_private() and get_epsilon() interfaces.
+        """
+        import torch
+        import torch.nn as nn
+        from torch.utils.data import DataLoader, TensorDataset
+
+        from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
+
+        # Tiny model: 1-layer linear, input_dim=2, output_dim=1.
+        torch.manual_seed(42)
+        model = nn.Linear(2, 1)
+        original_optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+
+        # 10 rows, 2 features — CPU only, no GPU required.
+        x = torch.randn(10, 2)
+        y = torch.randn(10, 1)
+        dataset = TensorDataset(x, y)
+        # batch_size=2 → 5 steps per epoch; sample_rate=0.2 < 1.0 as Opacus requires.
+        dataloader = DataLoader(dataset, batch_size=2)
+
+        wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
+        dp_optimizer = wrapper.wrap(
+            optimizer=original_optimizer,
+            model=model,
+            dataloader=dataloader,
+            max_grad_norm=1.0,
+            noise_multiplier=1.1,
+        )
+
+        # dp_optimizer must not be the original optimizer (Opacus replaces it).
+        assert dp_optimizer is not original_optimizer, (
+            "wrap() must return the DP-wrapped optimizer, not the original"
+        )
+
+        # Run exactly one training step so the accountant has at least one record.
+        batch_x, batch_y = next(iter(dataloader))
+        dp_optimizer.zero_grad()
+        loss = nn.functional.mse_loss(model(batch_x), batch_y)
+        loss.backward()
+        dp_optimizer.step()
+
+        # After one training step, epsilon_spent must return a positive float.
+        epsilon = wrapper.epsilon_spent(delta=1e-5)
+        assert type(epsilon) is float, (
+            f"epsilon_spent() must return strict Python float, got {type(epsilon).__name__}"
+        )
+        assert epsilon > 0.0, (
+            f"epsilon_spent() after one training step must be > 0.0, got {epsilon}"
+        )
+
+    @pytest.mark.synthesizer
+    def test_real_opacus_make_private_signature_matches_wrapper_call(self) -> None:
+        """Opacus PrivacyEngine.make_private() must accept the kwargs our wrapper uses.
+
+        This test verifies the real Opacus 1.5.x API surface has not changed
+        in a way that would break DPTrainingWrapper.wrap().  It calls
+        make_private() with the exact kwargs our wrapper passes and asserts
+        the return value is a 3-tuple.
+
+        API compatibility guard: if Opacus changes make_private()'s signature,
+        this test will fail before any training job runs.
+        """
+        import torch
+        import torch.nn as nn
+        from torch.utils.data import DataLoader, TensorDataset
+
+        try:
+            from opacus import PrivacyEngine
+        except ImportError:
+            pytest.skip("opacus not installed — synthesizer group required")
+
+        torch.manual_seed(42)
+        model = nn.Linear(2, 1)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        x = torch.randn(8, 2)
+        y = torch.randn(8, 1)
+        dataset = TensorDataset(x, y)
+        dataloader = DataLoader(dataset, batch_size=2)
+
+        engine = PrivacyEngine()
+        result = engine.make_private(
+            module=model,
+            optimizer=optimizer,
+            data_loader=dataloader,
+            max_grad_norm=1.0,
+            noise_multiplier=1.1,
+        )
+
+        # Opacus 1.x make_private returns a 3-tuple: (dp_model, dp_optimizer, dp_dl)
+        assert len(result) == 3, (  # type: ignore[arg-type]
+            f"Opacus PrivacyEngine.make_private() must return a 3-tuple, got {len(result)}"  # type: ignore[arg-type]
+        )
+        _dp_model, dp_optimizer, _dp_dataloader = result
+        # The returned optimizer must not be the original (Opacus replaces it).
+        assert dp_optimizer is not optimizer, (
+            "Opacus must return a new DP-wrapped optimizer, not the original"
         )

@@ -3,9 +3,11 @@
 RED phase: these tests must fail before implementation exists.
 
 Task: T40.1 — Replace Shallow Assertions With Value-Checking Tests
+Task: T49.2 — Assertion Hardening: Masking & Subsetting Tests
 """
 
 import re
+from collections.abc import Callable
 
 import pytest
 
@@ -20,6 +22,7 @@ from synth_engine.modules.masking.algorithms import (
 from synth_engine.modules.masking.deterministic import deterministic_hash
 
 _SALT = "test_table.column"
+_ALT_SALT = "other_table.column"
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +61,21 @@ def test_mask_name_max_length_zero_returns_empty_string() -> None:
     """When max_length=0, output is truncated to an empty string."""
     result = mask_name("Alice Smith", _SALT, max_length=0)
     assert result == ""
+
+
+def test_mask_name_salt_sensitivity() -> None:
+    """Different salts produce different outputs for the same name (T49.2).
+
+    Validates that mask_name participates in the column-namespaced salt
+    scheme: the same plaintext name must map to a different fake name when
+    the salt (column identity) changes.
+    """
+    result_primary = mask_name("Alice Smith", _SALT)
+    result_alt = mask_name("Alice Smith", _ALT_SALT)
+    assert result_primary != result_alt, (
+        f"mask_name('Alice Smith', {_SALT!r}) must differ from "
+        f"mask_name('Alice Smith', {_ALT_SALT!r})"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +137,18 @@ def test_mask_first_name_empty_input_is_deterministic() -> None:
     assert mask_first_name("", _SALT) == mask_first_name("", _SALT)
 
 
+def test_mask_first_name_salt_sensitivity() -> None:
+    """Different salts produce different outputs for the same first name (T49.2)."""
+    from synth_engine.modules.masking.algorithms import mask_first_name
+
+    result_primary = mask_first_name("Alice", _SALT)
+    result_alt = mask_first_name("Alice", _ALT_SALT)
+    assert result_primary != result_alt, (
+        f"mask_first_name('Alice', {_SALT!r}) must differ from "
+        f"mask_first_name('Alice', {_ALT_SALT!r})"
+    )
+
+
 # ---------------------------------------------------------------------------
 # mask_last_name (P21-T21.2)
 # ---------------------------------------------------------------------------
@@ -178,6 +208,18 @@ def test_mask_last_name_empty_input_is_deterministic() -> None:
     assert mask_last_name("", _SALT) == mask_last_name("", _SALT)
 
 
+def test_mask_last_name_salt_sensitivity() -> None:
+    """Different salts produce different outputs for the same last name (T49.2)."""
+    from synth_engine.modules.masking.algorithms import mask_last_name
+
+    result_primary = mask_last_name("Smith", _SALT)
+    result_alt = mask_last_name("Smith", _ALT_SALT)
+    assert result_primary != result_alt, (
+        f"mask_last_name('Smith', {_SALT!r}) must differ from "
+        f"mask_last_name('Smith', {_ALT_SALT!r})"
+    )
+
+
 # ---------------------------------------------------------------------------
 # mask_address (P21-T21.2)
 # ---------------------------------------------------------------------------
@@ -227,6 +269,18 @@ def test_mask_address_empty_input_is_deterministic() -> None:
     assert mask_address("", _SALT) == mask_address("", _SALT)
 
 
+def test_mask_address_salt_sensitivity() -> None:
+    """Different salts produce different outputs for the same address (T49.2)."""
+    from synth_engine.modules.masking.algorithms import mask_address
+
+    original = "79402 Peterson Drives Apt. 511, Davisstad, PA 35172"
+    result_primary = mask_address(original, _SALT)
+    result_alt = mask_address(original, _ALT_SALT)
+    assert result_primary != result_alt, (
+        "mask_address must produce different outputs for different salts"
+    )
+
+
 # ---------------------------------------------------------------------------
 # mask_email
 # ---------------------------------------------------------------------------
@@ -247,6 +301,69 @@ def test_mask_email_contains_at_sign() -> None:
     """Masked email contains an '@' character (valid email format)."""
     result = mask_email("alice@example.com", _SALT)
     assert "@" in result
+
+
+def test_mask_email_salt_sensitivity() -> None:
+    """Different salts produce different outputs for the same email (T49.2)."""
+    result_primary = mask_email("alice@example.com", _SALT)
+    result_alt = mask_email("alice@example.com", _ALT_SALT)
+    assert result_primary != result_alt, (
+        "mask_email must produce different outputs for different salts"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parametrized determinism tests — all mask functions at once (T49.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("mask_fn", "value"),
+    [
+        (mask_name, "Alice Smith"),
+        (mask_email, "alice@example.com"),
+        (mask_phone, "555-867-5309"),
+        (mask_ssn, "123-45-6789"),
+        (mask_credit_card, "4111111111111111"),
+    ],
+    ids=["mask_name", "mask_email", "mask_phone", "mask_ssn", "mask_credit_card"],
+)
+def test_mask_function_is_deterministic(mask_fn: Callable[..., str], value: str) -> None:
+    """Each mask function returns the same result for the same (value, salt) pair.
+
+    Parametrized to avoid copy-paste test patterns and ensure all mask functions
+    are verified in a single, readable sweep.  Each ID is human-readable.
+    """
+    result_a = mask_fn(value, _SALT)
+    result_b = mask_fn(value, _SALT)
+    assert result_a == result_b, (
+        f"{mask_fn.__name__}({value!r}, {_SALT!r}) is not deterministic: "
+        f"first call={result_a!r}, second call={result_b!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("mask_fn", "value"),
+    [
+        (mask_name, "Alice Smith"),
+        (mask_email, "alice@example.com"),
+        (mask_phone, "555-867-5309"),
+    ],
+    ids=["mask_name-salt-sensitive", "mask_email-salt-sensitive", "mask_phone-salt-sensitive"],
+)
+def test_mask_function_salt_sensitivity(mask_fn: Callable[..., str], value: str) -> None:
+    """Each mask function produces different output when the salt changes (T49.2).
+
+    Different salt -> different output is a core privacy property: the same
+    plaintext value appearing in different columns must map to different masked
+    values so that cross-column re-identification is not possible.
+    """
+    result_primary = mask_fn(value, _SALT)
+    result_alt = mask_fn(value, _ALT_SALT)
+    assert result_primary != result_alt, (
+        f"{mask_fn.__name__}({value!r}) must produce different output for different salts: "
+        f"{_SALT!r} -> {result_primary!r}, {_ALT_SALT!r} -> {result_alt!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +392,15 @@ def test_mask_ssn_differs_from_original() -> None:
     assert collisions <= 1
 
 
+def test_mask_ssn_salt_sensitivity() -> None:
+    """Different salts produce different SSNs for the same input (T49.2)."""
+    result_primary = mask_ssn("123-45-6789", _SALT)
+    result_alt = mask_ssn("123-45-6789", _ALT_SALT)
+    assert result_primary != result_alt, (
+        "mask_ssn must produce different outputs for different salts"
+    )
+
+
 # ---------------------------------------------------------------------------
 # mask_credit_card — MANDATORY BACKLOG TEST
 # ---------------------------------------------------------------------------
@@ -300,6 +426,15 @@ def test_mask_credit_card_digits_only() -> None:
     """Masked credit card should contain only digits (no dashes or spaces)."""
     result = mask_credit_card("4111111111111111", _SALT)
     assert result.isdigit(), f"Credit card contains non-digit characters: {result}"
+
+
+def test_mask_credit_card_salt_sensitivity() -> None:
+    """Different salts produce different card numbers for the same input (T49.2)."""
+    result_primary = mask_credit_card("4111111111111111", _SALT)
+    result_alt = mask_credit_card("4111111111111111", _ALT_SALT)
+    assert result_primary != result_alt, (
+        "mask_credit_card must produce different outputs for different salts"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +502,15 @@ def test_mask_phone_respects_max_length() -> None:
     """Masked phone is truncated to max_length when provided."""
     result = mask_phone("555-867-5309", _SALT, max_length=10)
     assert len(result) <= 10
+
+
+def test_mask_phone_salt_sensitivity() -> None:
+    """Different salts produce different phone numbers for the same input (T49.2)."""
+    result_primary = mask_phone("555-867-5309", _SALT)
+    result_alt = mask_phone("555-867-5309", _ALT_SALT)
+    assert result_primary != result_alt, (
+        "mask_phone must produce different outputs for different salts"
+    )
 
 
 # ---------------------------------------------------------------------------
