@@ -124,7 +124,7 @@ repos:
   # Supply-chain hardening: pinned to rev tag, never HEAD or branch ref.
   # ---------------------------------------------------------------------------
   - repo: https://github.com/kynan/nbstripout
-    rev: v0.7.1
+    rev: 0.9.1
     hooks:
       - id: nbstripout
 

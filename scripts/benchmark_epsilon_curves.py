@@ -27,7 +27,7 @@ Per-run timeout:
 Usage::
 
     poetry run python3 scripts/benchmark_epsilon_curves.py \\
-        --conn "postgresql://user:pass@localhost/db" \\
+        --conn "postgresql://user:pass@localhost/db" \\  # pragma: allowlist secret
         --table my_table \\
         --grid-config demos/results/grid_config.json \\
         --output-dir demos/results/
@@ -129,7 +129,7 @@ def _sanitize_filename(raw: str, max_len: int = _MAX_FILENAME_SEGMENT_LEN) -> st
 # Security: error message sanitisation
 # ---------------------------------------------------------------------------
 
-#: Pattern matching PostgreSQL DSN credentials (scheme://user:pass@host).
+# Pattern: PostgreSQL DSN creds (scheme://user:pass@host).  # pragma: allowlist secret
 _DSN_CREDENTIALS_RE: re.Pattern[str] = re.compile(
     r"postgresql(\+\w+)?://[^@\s]*@",
     re.IGNORECASE,
@@ -139,9 +139,9 @@ _DSN_CREDENTIALS_RE: re.Pattern[str] = re.compile(
 def _sanitize_error_message(raw: str) -> str:
     """Remove PostgreSQL DSN credentials from an exception message.
 
-    Strips any ``postgresql[+driver]://user:pass@`` or
-    ``postgresql[+driver]://:token@`` prefix from the error string so that
-    database connection strings are never persisted to result artifacts.
+    Strips any ``postgresql[+driver]://...@`` credential prefix  # pragma: allowlist secret
+    from the error string so that database connection strings
+    are never persisted to result artifacts.
 
     Args:
         raw: The raw exception message that may contain a DSN.
@@ -260,7 +260,7 @@ def _load_from_db(connection_string: str, table_name: str) -> pd.DataFrame:
     """Load a table from PostgreSQL into a DataFrame.
 
     Args:
-        connection_string: PostgreSQL DSN (e.g. postgresql://user:pass@host/db).
+        connection_string: PostgreSQL DSN.  # pragma: allowlist secret
         table_name: Name of the table to SELECT from.
 
     Returns:
@@ -808,7 +808,7 @@ def main() -> None:
     parser.add_argument(
         "--conn",
         metavar="DSN",
-        help="PostgreSQL connection string (e.g. postgresql://user:pass@host/db).",
+        help="PostgreSQL connection string.",  # pragma: allowlist secret
     )
     parser.add_argument(
         "--table",
