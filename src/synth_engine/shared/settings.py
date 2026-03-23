@@ -47,6 +47,8 @@ Task: T45.2 — Reintroduce Orphan Task Reaper (TBD-08)
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 Task: T47.7 — Add Parquet Memory Bounds (parquet_max_file_bytes, parquet_max_rows)
+Task: T48.4 — Audit Trail Anchoring (anchor_backend, anchor_file_path,
+              anchor_every_n_events, anchor_every_seconds)
 """
 
 from __future__ import annotations
@@ -521,6 +523,38 @@ class ConclaveSettings(BaseSettings):
             "Maximum number of rows permitted in a loaded Parquet DataFrame. "
             "Row-count check fires after loading; raises DatasetTooLargeError when "
             "the limit is exceeded.  Defaults to 10,000,000.  Must be > 0."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Audit Trail Anchoring (T48.4)
+    # -----------------------------------------------------------------------
+
+    anchor_backend: str = Field(
+        default="local_file",
+        description=(
+            "Anchor backend type for audit trail anchoring. "
+            "Either 'local_file' or 's3_object_lock'. "
+            "Defaults to 'local_file'."
+        ),
+    )
+    anchor_file_path: str = Field(
+        default="logs/audit_anchors.jsonl",
+        description=(
+            "File path for the local-file anchor backend. Defaults to 'logs/audit_anchors.jsonl'."
+        ),
+    )
+    anchor_every_n_events: int = Field(
+        default=1000,
+        gt=0,
+        description=("Publish an anchor every N audit events. Must be > 0.  Defaults to 1000."),
+    )
+    anchor_every_seconds: int = Field(
+        default=86400,
+        gt=0,
+        description=(
+            "Publish an anchor at most once per this many seconds, "
+            "regardless of event count.  Must be > 0.  Defaults to 86400 (24 h)."
         ),
     )
 

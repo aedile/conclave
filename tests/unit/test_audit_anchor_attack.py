@@ -21,10 +21,9 @@ from __future__ import annotations
 import threading
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # AnchorRecord immutability
@@ -95,14 +94,13 @@ def test_anchor_record_timestamp_must_be_utc() -> None:
 
 def test_backend_publish_failure_does_not_raise(tmp_path: pytest.TempPathFactory) -> None:
     """AnchorManager must catch publish() failures and emit WARNING — not propagate."""
-    import logging
 
     from synth_engine.shared.security.audit_anchor import AnchorManager, AnchorRecord
 
     class FailingBackend:
         backend_type = "failing"
 
-        def publish(self, anchor: AnchorRecord) -> None:  # noqa: ARG002
+        def publish(self, anchor: AnchorRecord) -> None:
             raise OSError("disk full")
 
     manager = AnchorManager(
@@ -165,9 +163,7 @@ def test_concurrent_anchor_writes_are_serialized(tmp_path: pytest.TempPathFactor
 
     assert not errors, f"Unexpected errors in threads: {errors}"
     # All 5 calls should anchor because anchor_every_n_events=1
-    assert len(published) == 5, (
-        f"Expected 5 anchor publishes (one per event), got {len(published)}"
-    )
+    assert len(published) == 5, f"Expected 5 anchor publishes (one per event), got {len(published)}"
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +234,6 @@ def test_local_file_backend_emits_attestation_warning(tmp_path: pytest.TempPathF
     A local file can be rewritten if the host is compromised; operators must
     be warned that this backend is weaker than S3 Object Lock.
     """
-    import logging
 
     from synth_engine.shared.security.audit_anchor import AnchorRecord, LocalFileAnchorBackend
 
@@ -252,9 +247,7 @@ def test_local_file_backend_emits_attestation_warning(tmp_path: pytest.TempPathF
         backend_type="local_file",
     )
 
-    with patch(
-        "synth_engine.shared.security.audit_anchor._logger"
-    ) as mock_log:
+    with patch("synth_engine.shared.security.audit_anchor._logger") as mock_log:
         backend.publish(anchor)
         # The WARNING about no external attestation must be emitted
         warning_calls = [

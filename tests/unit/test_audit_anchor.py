@@ -19,14 +19,12 @@ Task: T48.4 — Immutable Audit Trail Anchoring
 from __future__ import annotations
 
 import json
-import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # AnchorRecord
@@ -179,7 +177,12 @@ def test_s3_backend_publish_calls_put_object(tmp_path: Path) -> None:
 
 
 def test_anchor_manager_triggers_on_n_events(tmp_path: Path) -> None:
-    """AnchorManager must call backend.publish() when entry_count crosses n_events threshold."""
+    """AnchorManager must call backend.publish() when entry_count crosses n_events threshold.
+
+    The first-ever call triggers a first-boot anchor.  After that, the count-based
+    threshold fires when entry_count advances by >= anchor_every_n_events since
+    the last anchor.
+    """
     from synth_engine.shared.security.audit_anchor import AnchorManager, AnchorRecord
 
     mock_backend = MagicMock()
@@ -190,17 +193,22 @@ def test_anchor_manager_triggers_on_n_events(tmp_path: Path) -> None:
         anchor_every_seconds=86400,
     )
 
-    # 99 events should NOT trigger
+    # First call triggers first-boot anchor.
+    manager.maybe_anchor(chain_head_hash="a" * 64, entry_count=1)
+    assert mock_backend.publish.call_count == 1, "First-boot anchor must fire"
+    mock_backend.reset_mock()
+
+    # entry_count=99 — only 98 more events since last anchor (threshold=100) — must NOT trigger.
     manager.maybe_anchor(chain_head_hash="a" * 64, entry_count=99)
     mock_backend.publish.assert_not_called()
 
-    # 100 events SHOULD trigger
-    manager.maybe_anchor(chain_head_hash="b" * 64, entry_count=100)
+    # entry_count=101 — 100 more events since last anchor (threshold=100) — MUST trigger.
+    manager.maybe_anchor(chain_head_hash="b" * 64, entry_count=101)
     mock_backend.publish.assert_called_once()
 
     published_anchor: AnchorRecord = mock_backend.publish.call_args[0][0]
     assert published_anchor.chain_head_hash == "b" * 64
-    assert published_anchor.entry_count == 100
+    assert published_anchor.entry_count == 101
     assert published_anchor.backend_type == "mock"
 
 
@@ -231,7 +239,12 @@ def test_anchor_manager_triggers_on_time_interval() -> None:
 
 
 def test_anchor_manager_does_not_trigger_before_threshold() -> None:
-    """AnchorManager must NOT publish before threshold is reached."""
+    """AnchorManager must NOT publish below count threshold after the first-boot anchor.
+
+    The first-ever call anchors immediately (first-boot rule).  After that,
+    subsequent calls with entry_count < anchor_every_n_events must NOT trigger
+    a second publish.
+    """
     from synth_engine.shared.security.audit_anchor import AnchorManager
 
     mock_backend = MagicMock()
@@ -242,7 +255,13 @@ def test_anchor_manager_does_not_trigger_before_threshold() -> None:
         anchor_every_seconds=86400,
     )
 
-    for i in range(1, 500):
+    # First call triggers the first-boot anchor.
+    manager.maybe_anchor(chain_head_hash="c" * 64, entry_count=1)
+    assert mock_backend.publish.call_count == 1, "First-boot anchor must fire on first call"
+
+    # Subsequent calls with count < threshold must NOT trigger.
+    mock_backend.reset_mock()
+    for i in range(2, 500):
         manager.maybe_anchor(chain_head_hash="c" * 64, entry_count=i)
 
     mock_backend.publish.assert_not_called()
@@ -262,9 +281,7 @@ def test_anchor_manager_anchors_immediately_on_first_call() -> None:
 
     # First event — should anchor immediately regardless of threshold
     manager.maybe_anchor(chain_head_hash="d" * 64, entry_count=1)
-    assert mock_backend.publish.call_count == 1, (
-        "First-ever anchor must be published immediately"
-    )
+    assert mock_backend.publish.call_count == 1, "First-ever anchor must be published immediately"
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +342,11 @@ def test_get_anchor_manager_returns_anchor_manager_instance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """get_anchor_manager() returns an AnchorManager with configured backend."""
-    from synth_engine.shared.security.audit_anchor import AnchorManager, get_anchor_manager, reset_anchor_manager
+    from synth_engine.shared.security.audit_anchor import (
+        AnchorManager,
+        get_anchor_manager,
+        reset_anchor_manager,
+    )
 
     reset_anchor_manager()
     monkeypatch.setenv("ANCHOR_BACKEND", "local_file")
