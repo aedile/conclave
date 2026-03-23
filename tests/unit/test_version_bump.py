@@ -375,9 +375,7 @@ class TestBumpVersionTagHint:
         """
         _build_fake_repo(tmp_path, current_version="0.1.0")
         result = _run_bump(["1.0.0"], env={"BUMP_ROOT": str(tmp_path)})
-        assert result.returncode == 0, (
-            f"bump_version.sh failed for stable version: {result.stderr}"
-        )
+        assert result.returncode == 0, f"bump_version.sh failed for stable version: {result.stderr}"
         combined = result.stdout + result.stderr
         assert "git tag v1.0.0" in combined, (
             f"Expected 'git tag v1.0.0' in output for stable version bump, got:\n{combined}"
@@ -396,9 +394,7 @@ class TestBumpVersionTagHint:
         """
         _build_fake_repo(tmp_path, current_version="0.1.0")
         result = _run_bump(["1.0.0rc1"], env={"BUMP_ROOT": str(tmp_path)})
-        assert result.returncode == 0, (
-            f"bump_version.sh failed for RC version: {result.stderr}"
-        )
+        assert result.returncode == 0, f"bump_version.sh failed for RC version: {result.stderr}"
         combined = result.stdout + result.stderr
         assert "git tag v1.0.0-rc.1" in combined, (
             f"Expected 'git tag v1.0.0-rc.1' in output for RC version bump, got:\n{combined}"
