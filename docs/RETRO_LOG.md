@@ -18,14 +18,14 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P46-06~~ | ~~Red-Team T46.4~~ | ADV drain P47 | ~~ADVISORY~~ | ~~MinIO NetworkPolicy — RESOLVED in P47 (minio-policy.yaml)~~ |
 | ~~ADV-P47-01~~ | ~~PM P46 merge~~ | P47 fix | ~~BLOCKER~~ | ~~Production Smoke Test — RESOLVED in P47 (CI dummy secrets provisioning)~~ |
 | ADV-P47-02 | Arch P47 review | — | ADVISORY | `_promote_redis_url_to_tls` logic is duplicated between `shared/tls/config.py` and bootstrapper init. Current duplication is intentional per T46.2 architecture review. Future cleanup should consolidate into a single utility. |
-| ADV-P47-03 | Arch P47 review | — | ADVISORY | No ADR documents the scope-based authorization model introduced in T47.x. An ADR should be drafted in a future phase to codify the authorization design decisions. |
+| ~~ADV-P47-03~~ | ~~Arch P47 review~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Scope-based auth ADR — RESOLVED (ADR-0049 written)~~ |
 | ADV-P47-04 | Red-Team P47 | — | ADVISORY | `/security/shred` and `/security/keys/rotate` are in `AUTH_EXEMPT_PATHS`, so in pass-through mode (empty `JWT_SECRET_KEY`) no auth applies. Scope enforcement (`require_scope`) is bypassed because the auth middleware skips the route entirely. Low risk: pass-through mode is dev-only, and scope enforcement is a defense-in-depth layer. Fix: remove security routes from `AUTH_EXEMPT_PATHS` or add pass-through-mode warning at startup. |
 | ADV-P47-05 | Red-Team P47 | — | ADVISORY | All-or-nothing scope grant: single-operator model issues all scopes (`read`, `write`, `security:admin`, `settings:write`) to every authenticated operator. Fine for current single-tenant deployment; future multi-operator support will need role-based scope assignment. |
 | ~~ADV-P47-06~~ | ~~Red-Team P47~~ | T48.1 | ~~ADVISORY~~ | ~~In-memory rate limiter — RESOLVED in T48.1 (Redis-backed rate limiting)~~ |
-| ADV-P48-01 | Red-Team P48 | — | ADVISORY | X-Forwarded-For trust model relies on trusted reverse proxy stripping/overwriting the header. Document in PRODUCTION_DEPLOYMENT.md that proxy is prerequisite for rate limiting correctness. |
-| ADV-P48-02 | Red-Team P48 | — | ADVISORY | Redis INCR+EXPIRE pipeline is not fully atomic (MULTI/EXEC or Lua script would be). Acceptable tradeoff — standard industry pattern, extremely narrow race window. |
-| ADV-P48-03 | Red-Team P48 | — | ADVISORY | Audit anchor verification is equality-only (current hash vs anchor hash). Does not verify intermediate anchor consistency. Documented limitation; S3 Object Lock provides tamper resistance. |
-| ADV-P48-04 | Red-Team P48 | — | ADVISORY | `ale_key` field retained in ConclaveSettings despite T48.5 removal of env var fallback. Future cleanup should remove or deprecate the field. |
+| ~~ADV-P48-01~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~X-Forwarded-For trust model — RESOLVED (PRODUCTION_DEPLOYMENT.md Appendix B)~~ |
+| ~~ADV-P48-02~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Redis INCR+EXPIRE atomicity — CLOSED as accepted tradeoff (standard industry pattern, documented)~~ |
+| ~~ADV-P48-03~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Anchor verification equality-only — CLOSED as accepted tradeoff (S3 Object Lock, documented in ADR-0048)~~ |
+| ~~ADV-P48-04~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~ale_key field in settings — RESOLVED (field removed from ConclaveSettings)~~ |
 | ADV-P47-07 | Red-Team P47 | — | ADVISORY | TOCTOU in `ModelArtifact.load()`: file size check, then read, then HMAC verify. An attacker with filesystem write access could swap the file between size check and read. Low severity — requires local filesystem access, and HMAC verification would fail on tampered content. |
 
 ---
@@ -50,7 +50,7 @@ T48.3 (Readiness probe), T48.4 (Audit trail anchoring), T48.5 (ALE vault enforce
 - FINDING: Missing anchor settings in .env.example
 - FINDING: Untyped s3_client parameter (justification comment added)
 
-**Open advisory count**: 9 (over Rule 11 threshold of 8 — drain required)
+**Open advisory count**: 4 (under Rule 11 threshold of 8 — drain complete)
 
 **What went well**:
 - Two-wave parallel execution: Wave 1 (T48.1-T48.3 infra) then Wave 2 (T48.4-T48.5 security)
@@ -69,6 +69,24 @@ T48.3 (Readiness probe), T48.4 (Audit trail anchoring), T48.5 (ALE vault enforce
 - Worktree timeout issue suggests large tasks need smaller scope when parallelized
 
 **Test metrics**: 2394 passed, 96.72% coverage (95% gate PASS)
+
+---
+
+### [2026-03-23] Advisory Drain — Pre-Phase 49
+
+**Branch**: `chore/advisory-drain-pre-p49`
+
+**Advisories drained** (5 total, 9→4):
+- ADV-P48-01: X-Forwarded-For trust model (PRODUCTION_DEPLOYMENT.md Appendix B)
+- ADV-P47-03: Scope-based auth ADR gap (ADR-0049 written)
+- ADV-P48-04: Stale ale_key field in ConclaveSettings (field removed)
+- ADV-P48-02: Redis INCR+EXPIRE atomicity (closed as accepted tradeoff)
+- ADV-P48-03: Anchor verification equality-only (closed as accepted tradeoff)
+
+**Remaining open** (4): ADV-P47-02 (TLS duplication), ADV-P47-04 (security routes exempt),
+ADV-P47-05 (all-or-nothing scopes), ADV-P47-07 (TOCTOU — covered by T50.4)
+
+**Open advisory count**: 4 (Rule 11 threshold ≤5 — PASS)
 
 ---
 

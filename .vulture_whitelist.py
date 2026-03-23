@@ -291,14 +291,3 @@ maybe_anchor  # unused method — AnchorManager; called from AuditLogger.log_eve
 verify_chain_against_anchors  # unused function — shared/security/audit_anchor.py; called from scripts/verify-audit-chain.py and tests
 get_anchor_manager  # unused function — shared/security/audit_anchor.py; singleton accessor called from AuditLogger and bootstrapper
 reset_anchor_manager  # unused function — shared/security/audit_anchor.py; used in tests to reset singleton between runs
-
-# ---------------------------------------------------------------------------
-# Category O — T48.5 ALE Vault Dependency Enforcement
-# ale_key field in ConclaveSettings (shared/settings.py) was removed as a
-# configuration knob (T48.5 removes the ALE_KEY env var fallback). The field
-# name appears in the Pydantic model only as dead weight from earlier design;
-# vulture flags the assignment target. Kept for backward-compatible settings
-# parsing if operators still have ALE_KEY in their .env files.
-# ---------------------------------------------------------------------------
-
-ale_key  # unused variable — shared/settings.py ConclaveSettings; env var ALE_KEY parsed but no longer used as fallback
