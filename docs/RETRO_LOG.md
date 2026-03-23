@@ -57,6 +57,13 @@ DISASTER_RECOVERY.md.
 
 **Tests added**: 20 (T51.1), 21 (T51.2), 27 (T51.3), 27 (T51.4) = 95 new tests
 
+**Review findings resolved**:
+- FINDING (QA): `bump_version.sh` step 4 silently failed on refactored `main.py` — removed main.py
+  from bump targets (reads `__version__` dynamically). Fixed test fixture to match real file structure.
+- FINDING (DevOps): `publish-release` job output propagation broken — added `validate-tag` to needs array.
+- ADVISORY (DevOps): Air-gap bundle exposed internal docs — replaced blanket `cp -r docs/` with curated
+  operator-facing doc list (9 files + `docs/api/`).
+
 **Open advisory count**: 3 (ADV-P47-02, ADV-P47-05, ADV-P49-02)
 
 ---
