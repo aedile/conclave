@@ -61,8 +61,13 @@ def test_settings_parses_conclave_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.conclave_env == "production"
 
 
-def test_settings_defaults_conclave_env_to_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.conclave_env defaults to empty string when not set."""
+def test_settings_defaults_conclave_env_to_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ConclaveSettings.conclave_env defaults to 'production' when not set (T50.3).
+
+    The default shifted from '' to 'production' in T50.3 to implement the
+    secure-by-default principle.  An unset CONCLAVE_ENV now means production
+    mode, not development mode.
+    """
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("AUDIT_KEY", "dd" * 32)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
@@ -71,7 +76,7 @@ def test_settings_defaults_conclave_env_to_empty(monkeypatch: pytest.MonkeyPatch
     from synth_engine.shared.settings import ConclaveSettings
 
     s = ConclaveSettings()
-    assert s.conclave_env == ""
+    assert s.conclave_env == "production"
 
 
 def test_settings_parses_force_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -338,11 +343,16 @@ def test_is_production_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_is_production_false_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.is_production() returns False in development mode."""
+    """ConclaveSettings.is_production() returns False in development mode.
+
+    T50.3: Both ENV and CONCLAVE_ENV must be set to 'development' because
+    CONCLAVE_ENV defaults to 'production' — a single ENV=development is
+    insufficient since is_production() uses OR logic.
+    """
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("ENV", "development")
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.shared.settings import ConclaveSettings
 
@@ -350,8 +360,12 @@ def test_is_production_false_in_development(monkeypatch: pytest.MonkeyPatch) -> 
     assert s.is_production() is False
 
 
-def test_is_production_false_when_neither_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.is_production() returns False when neither ENV nor CONCLAVE_ENV set."""
+def test_is_production_true_when_neither_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ConclaveSettings.is_production() returns True when neither ENV nor CONCLAVE_ENV set.
+
+    T50.3: CONCLAVE_ENV defaults to 'production', so an unset configuration
+    is now treated as production mode — the secure-by-default behaviour.
+    """
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.delenv("ENV", raising=False)
@@ -360,7 +374,7 @@ def test_is_production_false_when_neither_set(monkeypatch: pytest.MonkeyPatch) -
     from synth_engine.shared.settings import ConclaveSettings
 
     s = ConclaveSettings()
-    assert s.is_production() is False
+    assert s.is_production() is True
 
 
 def test_is_production_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:

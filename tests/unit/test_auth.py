@@ -682,6 +682,10 @@ def test_auth_exempt_paths_includes_all_required_endpoints() -> None:
 
     This test asserts that the full required set of exempt paths is present,
     preventing a regression where a required endpoint is accidentally removed.
+
+    T50.3 / ADV-P47-04: /security/shred and /security/keys/rotate are NOT
+    in the required set — they must require authentication and were removed
+    from COMMON_INFRA_EXEMPT_PATHS (see test_exempt_paths.py).
     """
     from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
@@ -694,8 +698,6 @@ def test_auth_exempt_paths_includes_all_required_endpoints() -> None:
         "/openapi.json",
         "/license/challenge",
         "/license/activate",
-        "/security/shred",
-        "/security/keys/rotate",
         "/auth/token",
     }
     missing = required_exempt - AUTH_EXEMPT_PATHS

@@ -231,30 +231,31 @@ def _common_patches() -> list[Any]:
 
 
 # ---------------------------------------------------------------------------
-# AC: Security endpoints remain in COMMON_INFRA_EXEMPT_PATHS (structural check)
+# AC: Security endpoints NOT in COMMON_INFRA_EXEMPT_PATHS (ADV-P47-04, T50.3)
 # ---------------------------------------------------------------------------
 
 
-def test_security_shred_is_in_common_infra_exempt_paths() -> None:
-    """COMMON_INFRA_EXEMPT_PATHS must contain /security/shred.
+def test_security_shred_not_in_common_infra_exempt_paths() -> None:
+    """COMMON_INFRA_EXEMPT_PATHS must NOT contain /security/shred.
 
-    Security shred must remain middleware-exempt (emergency use) even after
-    route-level auth is added.  The path must be in the frozenset.
+    ADV-P47-04 / T50.3: /security/shred destroys encryption keys and must
+    require authentication.  Removed from COMMON_INFRA_EXEMPT_PATHS so
+    AuthenticationGateMiddleware enforces 401 for unauthenticated callers.
     """
     from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
 
-    assert "/security/shred" in COMMON_INFRA_EXEMPT_PATHS
+    assert "/security/shred" not in COMMON_INFRA_EXEMPT_PATHS
 
 
-def test_security_keys_rotate_is_in_common_infra_exempt_paths() -> None:
-    """COMMON_INFRA_EXEMPT_PATHS must contain /security/keys/rotate.
+def test_security_keys_rotate_not_in_common_infra_exempt_paths() -> None:
+    """COMMON_INFRA_EXEMPT_PATHS must NOT contain /security/keys/rotate.
 
-    Key rotation must remain middleware-exempt (returns 423 internally if
-    sealed) even after route-level auth is added.
+    ADV-P47-04 / T50.3: /security/keys/rotate is a privileged operation
+    that must require authentication.  Removed from COMMON_INFRA_EXEMPT_PATHS.
     """
     from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
 
-    assert "/security/keys/rotate" in COMMON_INFRA_EXEMPT_PATHS
+    assert "/security/keys/rotate" not in COMMON_INFRA_EXEMPT_PATHS
 
 
 # ---------------------------------------------------------------------------

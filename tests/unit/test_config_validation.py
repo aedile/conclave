@@ -163,7 +163,8 @@ def test_non_production_mode_without_artifact_signing_key_passes(
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    # T50.3: Must also set CONCLAVE_ENV=development because it defaults to 'production'
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
@@ -177,13 +178,16 @@ def test_non_production_mode_without_artifact_signing_key_passes(
 def test_all_vars_present_non_production_passes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """validate_config() passes when all required vars are set (no production mode)."""
+    """validate_config() passes when base vars are set in explicit development mode.
+
+    T50.3: Development mode is now explicit — CONCLAVE_ENV=development must be set.
+    """
     from synth_engine.bootstrapper.config_validation import validate_config
 
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
@@ -333,7 +337,8 @@ def test_non_production_mode_without_masking_salt_passes(
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    # T50.3: Must also override CONCLAVE_ENV since it defaults to 'production'
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("MASKING_SALT", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
@@ -527,8 +532,9 @@ def test_development_ssl_required_false_does_not_warn(
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
+    # T50.3: Must also override CONCLAVE_ENV since it defaults to 'production'
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
@@ -614,8 +620,9 @@ def test_signing_keys_active_present_in_map_passes(
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ARTIFACT_SIGNING_KEYS", keys_dict)
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY_ACTIVE", "00000001")
+    # T50.3: Use explicit development mode to avoid production-required validation
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
 
     result = validate_config()
@@ -636,8 +643,9 @@ def test_empty_signing_keys_without_active_passes(
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
+    # T50.3: Use explicit development mode to avoid production-required validation
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
 
     result = validate_config()

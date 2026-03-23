@@ -64,6 +64,8 @@ Task: T47.4 — Add JWT_SECRET_KEY to production-required validation
 Task: T47.5 — Add OPERATOR_CREDENTIALS_HASH to production-required validation
 Task: ADV-P46-03 — Fix cert readability check (existence + open())
 Task: T48.5 — ALE Vault Dependency Enforcement (vault-sealed startup warning)
+Task: T50.3 — Default to Production Mode (dev-mode startup warning)
+Advisory: ADV-P47-04 — Security route removal from exempt paths (verified here)
 """
 
 from __future__ import annotations
@@ -287,6 +289,27 @@ def _warn_if_vault_sealed() -> None:
         )
 
 
+
+def _warn_if_development_mode() -> None:
+    """Emit a WARNING when the engine boots in development mode.
+
+    Development mode disables authentication (JWT_SECRET_KEY is not required).
+    In containerized environments, a port may be inadvertently exposed, making
+    a silent dev-mode boot a security risk.  This WARNING gives operators a
+    visible, unambiguous signal that authentication is disabled.
+
+    This function does NOT raise SystemExit — development mode is a deliberate
+    choice; the warning is advisory only.
+
+    T50.3: Called by :func:`validate_config` after all error checks pass.
+    Only fires when :func:`_is_production` returns ``False``.
+    """
+    _logger.warning(
+        "Authentication disabled — development mode active. "
+        "Set CONCLAVE_ENV=production for production use."
+    )
+
+
 def validate_config() -> None:
     """Validate required environment variables at application startup.
 
@@ -316,6 +339,9 @@ def validate_config() -> None:
     - Validates ``JWT_SECRET_KEY`` presence in production (T47.4).
     - Validates ``OPERATOR_CREDENTIALS_HASH`` presence and bcrypt format in
       production (T47.5).
+    - Emits a WARNING when running in development mode (T50.3): ``CONCLAVE_ENV``
+      defaults to ``"production"``; set it to ``"development"`` to explicitly
+      opt in to dev mode.
 
     Collects ALL missing variables and cert errors before raising so that the
     operator receives a complete list in a single error message — not just the
@@ -414,3 +440,10 @@ def validate_config() -> None:
     # startup gives operators a clear signal rather than a cryptic
     # VaultSealedError at first DB write.
     _warn_if_vault_sealed()
+
+    # T50.3: Warn when running in development mode.
+    # CONCLAVE_ENV defaults to 'production', so development mode is only active
+    # when explicitly set.  This warning is a safety signal for containerized
+    # environments where a port may be inadvertently exposed.
+    if not _is_production():
+        _warn_if_development_mode()

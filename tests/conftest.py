@@ -7,6 +7,7 @@ Task: T36.1 — Add settings cache-clear autouse fixture
 Task: T39.2 — Add logger-re-enable fixture to counter alembic fileConfig side-effect
 Fix: P47 — Document that .env file suppression is handled by tests/unit/conftest.py
 Fix: P48 — Add SDV FutureWarning suppression to conftest autouse fixture
+Fix: T50.3 — Inject CONCLAVE_ENV=development as test-safe default
 """
 
 from __future__ import annotations
@@ -24,6 +25,11 @@ import pytest
 #: exercise non-DB / non-audit code paths but still trigger ``get_settings()``.
 _TEST_DATABASE_URL: str = "sqlite:///:memory:"
 _TEST_AUDIT_KEY: str = "aa" * 32  # 64 hex chars = 32 bytes  # pragma: allowlist secret
+#: T50.3: CONCLAVE_ENV defaults to 'production' — tests must opt in to dev mode
+#: explicitly.  Injected by the autouse fixture as "development" so that tests
+#: which do not explicitly control CONCLAVE_ENV do not trigger production-mode
+#: validation (which requires JWT_SECRET_KEY, MASKING_SALT, etc.).
+_TEST_CONCLAVE_ENV: str = "development"
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -52,15 +58,19 @@ def _clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     return a stale :class:`ConclaveSettings` instance from a previous test,
     causing flaky failures.
 
-    This fixture also ensures that ``DATABASE_URL`` and ``AUDIT_KEY`` are
-    set to test-safe defaults when not already present in ``os.environ``.  Many
-    tests exercise code that incidentally calls ``get_settings()`` but does not
-    care about the DB or audit key values.  Without the defaults,
-    ``ConclaveSettings`` raises ``ValidationError`` for required-but-absent fields.
+    This fixture also ensures that ``DATABASE_URL``, ``AUDIT_KEY``, and
+    ``CONCLAVE_ENV`` are set to test-safe defaults when not already present in
+    ``os.environ``.  Many tests exercise code that incidentally calls
+    ``get_settings()`` but does not care about these values.  Without the
+    defaults, ``ConclaveSettings`` raises ``ValidationError`` for
+    required-but-absent fields (DATABASE_URL, AUDIT_KEY) or triggers
+    production-mode validation (CONCLAVE_ENV defaults to 'production' per T50.3).
 
-    Tests that explicitly need to control ``DATABASE_URL`` or ``AUDIT_KEY``
-    (e.g., ``test_settings.py``) use ``monkeypatch.setenv`` / ``delenv``
-    which override these defaults within the test scope.
+    Tests that explicitly need to control these variables use
+    ``monkeypatch.setenv`` / ``delenv`` which override these defaults within
+    the test scope.  Tests that exercise production mode must explicitly call
+    ``monkeypatch.delenv("CONCLAVE_ENV")`` (and ``monkeypatch.delenv("ENV")``)
+    to remove the development default injected here.
 
     Note: Suppression of ``.env`` file reading (so that ``monkeypatch.delenv``
     has full effect) is handled by the per-directory conftest at
@@ -87,6 +97,11 @@ def _clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
         monkeypatch.setenv("DATABASE_URL", _TEST_DATABASE_URL)
     if not os.environ.get("AUDIT_KEY"):
         monkeypatch.setenv("AUDIT_KEY", _TEST_AUDIT_KEY)
+    # T50.3: CONCLAVE_ENV defaults to 'production'; inject 'development' so tests
+    # that do not explicitly set CONCLAVE_ENV do not trigger production-mode validation.
+    # Tests that exercise production-mode paths must call monkeypatch.delenv("CONCLAVE_ENV").
+    if not os.environ.get("CONCLAVE_ENV") and not os.environ.get("ENV"):
+        monkeypatch.setenv("CONCLAVE_ENV", _TEST_CONCLAVE_ENV)
 
     yield
 
