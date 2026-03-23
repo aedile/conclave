@@ -126,6 +126,34 @@ def _sanitize_filename(raw: str, max_len: int = _MAX_FILENAME_SEGMENT_LEN) -> st
 
 
 # ---------------------------------------------------------------------------
+# Security: error message sanitisation
+# ---------------------------------------------------------------------------
+
+#: Pattern matching PostgreSQL DSN credentials (scheme://user:pass@host).
+_DSN_CREDENTIALS_RE: re.Pattern[str] = re.compile(
+    r"postgresql(\+\w+)?://[^@\s]*@",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_error_message(raw: str) -> str:
+    """Remove PostgreSQL DSN credentials from an exception message.
+
+    Strips any ``postgresql[+driver]://user:pass@`` or
+    ``postgresql[+driver]://:token@`` prefix from the error string so that
+    database connection strings are never persisted to result artifacts.
+
+    Args:
+        raw: The raw exception message that may contain a DSN.
+
+    Returns:
+        The message with any DSN credential component replaced by
+        ``postgresql://<redacted>@``.
+    """
+    return _DSN_CREDENTIALS_RE.sub("postgresql://<redacted>@", raw)
+
+
+# ---------------------------------------------------------------------------
 # Hardware metadata
 # ---------------------------------------------------------------------------
 
@@ -678,7 +706,7 @@ def run_grid(
                     "status": "FAILED",
                     "wall_time_seconds": round(elapsed, 3),
                     "error_type": type(exc).__name__,
-                    "error_message": str(exc),
+                    "error_message": _sanitize_error_message(str(exc)),
                 }
             )
 

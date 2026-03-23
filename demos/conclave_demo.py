@@ -140,10 +140,11 @@ def run_demo(
 
     # Save model artifact with signing key
     artifact = ModelArtifact(
+        table_name="demo_table",
         model=model,
         column_names=list(source_df.columns),
         column_dtypes={col: str(source_df[col].dtype) for col in source_df.columns},
-        column_nullable={col: bool(source_df[col].isnull().any()) for col in source_df.columns},
+        column_nullables={col: bool(source_df[col].isnull().any()) for col in source_df.columns},
     )
     artifact_path = artifact.save(str(out_path / "demo_model.pkl"), signing_key=signing_key)
 

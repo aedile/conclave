@@ -1,6 +1,6 @@
 """Tests verifying Redis TLS URL promotion is consolidated into shared/task_queue.py.
 
-ADV-P47-02: The ``_promote_redis_url_to_tls`` helper must not be duplicated in
+ADV-P47-02: The ``promote_redis_url_to_tls`` helper must not be duplicated in
 ``bootstrapper/dependencies/redis.py``.  The canonical implementation lives in
 ``shared/task_queue.py`` and the bootstrapper must import from there.
 
@@ -17,7 +17,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_bootstrapper_redis_dep_does_not_define_own_promote_function() -> None:
-    """bootstrapper/dependencies/redis.py must not define its own _promote_redis_url_to_tls.
+    """bootstrapper/dependencies/redis.py must not define its own promote_redis_url_to_tls.
 
     After consolidation the function must be absent from the bootstrapper redis
     module's own source — it should be imported from shared/task_queue.py
@@ -25,17 +25,17 @@ def test_bootstrapper_redis_dep_does_not_define_own_promote_function() -> None:
     """
     from synth_engine.bootstrapper.dependencies import redis as redis_dep
 
-    # If the module defines _promote_redis_url_to_tls itself (rather than
+    # If the module defines promote_redis_url_to_tls itself (rather than
     # importing it), the function's __module__ will be the bootstrapper redis
     # module.  After consolidation the name should either be absent from the
     # module namespace or — if re-exported as a convenience alias — its
     # __module__ must point to shared.task_queue.
-    func = getattr(redis_dep, "_promote_redis_url_to_tls", None)
+    func = getattr(redis_dep, "promote_redis_url_to_tls", None)
 
     if func is not None:
         # The name exists in the namespace — verify it is NOT defined here
         assert func.__module__ != redis_dep.__name__, (
-            "_promote_redis_url_to_tls is defined directly in "
+            "promote_redis_url_to_tls is defined directly in "
             "bootstrapper/dependencies/redis.py instead of being imported "
             "from synth_engine.shared.task_queue (ADV-P47-02)."
         )
@@ -67,15 +67,15 @@ def test_bootstrapper_redis_dep_source_has_no_duplicate_implementation() -> None
 
 
 def test_shared_task_queue_exposes_promote_function() -> None:
-    """shared/task_queue.py must expose _promote_redis_url_to_tls as the canonical impl."""
+    """shared/task_queue.py must expose promote_redis_url_to_tls as the canonical impl."""
     from synth_engine.shared import task_queue
 
-    assert hasattr(task_queue, "_promote_redis_url_to_tls"), (
-        "synth_engine.shared.task_queue must define _promote_redis_url_to_tls "
+    assert hasattr(task_queue, "promote_redis_url_to_tls"), (
+        "synth_engine.shared.task_queue must define promote_redis_url_to_tls "
         "as the single canonical implementation (ADV-P47-02)."
     )
 
-    func = task_queue._promote_redis_url_to_tls
+    func = task_queue.promote_redis_url_to_tls
     assert callable(func)
     # Verify the function is defined in this module (not imported from elsewhere)
     assert func.__module__ == "synth_engine.shared.task_queue"

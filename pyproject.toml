@@ -172,6 +172,7 @@ seaborn = "^0.13"
 jupyter = "^1.0"
 scikit-learn = "^1.5"
 nbstripout = "^0.7"
+scipy = "^1.13"
 
 [build-system]
 requires = ["poetry-core"]

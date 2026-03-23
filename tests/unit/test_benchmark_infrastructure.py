@@ -96,7 +96,10 @@ class TestBenchmarkHarnessRejectionCases:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)  # type: ignore[union-attr]
 
-        with pytest.raises((ValueError, TypeError, FileNotFoundError), match=r".+"):
+        with pytest.raises(
+            (ValueError, TypeError, FileNotFoundError),
+            match=r"source_df|connection_string|table_name",
+        ):
             module.run_grid(  # type: ignore[attr-defined]
                 connection_string=None,
                 table_name=None,
@@ -204,7 +207,7 @@ class TestBenchmarkYAMLSecurity:
         try:
             with pytest.raises(
                 (yaml.constructor.ConstructorError, ValueError, TypeError),
-                match=r".+",
+                match=r"could not determine a constructor|unsafe|python/object",
             ):
                 module.load_grid_config(malicious_path)  # type: ignore[attr-defined]
         finally:

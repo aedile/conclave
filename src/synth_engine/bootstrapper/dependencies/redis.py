@@ -16,7 +16,7 @@ mTLS configuration (T46.2)
 When ``MTLS_ENABLED=true``:
 
 - The ``redis://`` URL scheme is promoted to ``rediss://`` (TLS scheme) using
-  the canonical :func:`synth_engine.shared.task_queue._promote_redis_url_to_tls`
+  the canonical :func:`synth_engine.shared.task_queue.promote_redis_url_to_tls`
   helper (ADV-P47-02: single source of truth, no local duplication).
 - ``ssl_certfile``, ``ssl_keyfile``, ``ssl_ca_certs``, and
   ``ssl_cert_reqs="required"`` are passed to ``redis.Redis.from_url()``
@@ -49,7 +49,7 @@ from __future__ import annotations
 import redis as redis_lib
 
 from synth_engine.shared.settings import get_settings
-from synth_engine.shared.task_queue import _promote_redis_url_to_tls
+from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
 #: Module-level singleton.  Initialized on first call to ``get_redis_client()``.
 #: redis.Redis is typed without type parameters as the installed stubs do not
@@ -79,7 +79,7 @@ def get_redis_client() -> redis_lib.Redis:
 
         tls_kwargs: dict[str, object] = {}
         if settings.mtls_enabled:
-            url = _promote_redis_url_to_tls(url)
+            url = promote_redis_url_to_tls(url)
             tls_kwargs = {
                 "ssl_certfile": settings.mtls_client_cert_path,
                 "ssl_keyfile": settings.mtls_client_key_path,

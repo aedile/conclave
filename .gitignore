@@ -107,6 +107,7 @@ mutants/
 # =============================================================================
 # Generated PNG and PDF figures — large binaries, regenerated from source
 demos/results/*.csv
+demos/results/*.json
 demos/figures/*.png
 demos/figures/*.pdf
 # Allow committed SVG figures (small, diff-friendly) and versioned JSON artifacts
