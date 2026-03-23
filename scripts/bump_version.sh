@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bump_version.sh — Atomically update the version string in all 5 locations.
+# bump_version.sh — Atomically update the version string in all 4 locations.
 #
 # Usage:
 #   ./scripts/bump_version.sh <PEP-440-version>
@@ -15,6 +15,10 @@
 #
 # Hyphens are NOT allowed (use 1.0.0rc1, not 1.0.0-rc.1).
 # A leading "v" is NOT allowed (use 1.0.0, not v1.0.0).
+#
+# NOTE: bootstrapper/main.py is NOT a bump target. It reads the version
+# dynamically from synth_engine.__version__ (i.e. from __init__.py).
+# Bumping __init__.py is sufficient to update the FastAPI app version.
 #
 # This script does NOT commit or tag — that is the operator's responsibility.
 # It does NOT run poetry lock — call that separately if pyproject.toml changed.
@@ -60,19 +64,18 @@ if ! echo "${NEW_VERSION}" | grep -qE "${PEP440_RE}"; then
 fi
 
 # ---------------------------------------------------------------------------
-# Resolve the 5 target file paths
+# Resolve the 4 target file paths
 # ---------------------------------------------------------------------------
 PYPROJECT="${REPO_ROOT}/pyproject.toml"
 INIT_PY="${REPO_ROOT}/src/synth_engine/__init__.py"
 LICENSING_PY="${REPO_ROOT}/src/synth_engine/shared/security/licensing.py"
-MAIN_PY="${REPO_ROOT}/src/synth_engine/bootstrapper/main.py"
 OPENAPI_JSON="${REPO_ROOT}/docs/api/openapi.json"
 
 # ---------------------------------------------------------------------------
 # Pre-flight: verify all target files exist before making any change
 # ---------------------------------------------------------------------------
 MISSING=0
-for FILE in "${PYPROJECT}" "${INIT_PY}" "${LICENSING_PY}" "${MAIN_PY}" "${OPENAPI_JSON}"; do
+for FILE in "${PYPROJECT}" "${INIT_PY}" "${LICENSING_PY}" "${OPENAPI_JSON}"; do
     if [[ ! -f "${FILE}" ]]; then
         echo "ERROR: required file not found: ${FILE}" >&2
         MISSING=1
@@ -114,11 +117,7 @@ perl -i -pe "s/^(__version__ = \")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/" "${INI
 # 3. shared/security/licensing.py: _APP_VERSION: str = "OLD" -> "NEW"
 perl -i -pe "s/^(_APP_VERSION: str = \")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/" "${LICENSING_PY}"
 
-# 4. bootstrapper/main.py: version="OLD" -> version="NEW"
-#    Matches the FastAPI constructor kwarg only (indented line inside create_app).
-perl -i -pe "s/^(        version=\")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/" "${MAIN_PY}"
-
-# 5. docs/api/openapi.json: "version": "OLD" -> "version": "NEW"
+# 4. docs/api/openapi.json: "version": "OLD" -> "version": "NEW"
 perl -i -pe "s/(\"version\": \")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/" "${OPENAPI_JSON}"
 
 # ---------------------------------------------------------------------------
@@ -131,8 +130,10 @@ echo "Updated files:"
 echo "  ${PYPROJECT}"
 echo "  ${INIT_PY}"
 echo "  ${LICENSING_PY}"
-echo "  ${MAIN_PY}"
 echo "  ${OPENAPI_JSON}"
+echo ""
+echo "NOTE: bootstrapper/main.py reads version dynamically from __init__.py"
+echo "      and does NOT need to be updated separately."
 echo ""
 echo "Next steps:"
 echo "  1. Run: poetry lock --no-update   (to refresh the lock file)"

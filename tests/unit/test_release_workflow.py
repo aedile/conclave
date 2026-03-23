@@ -216,6 +216,32 @@ class TestReleaseWorkflowSecurity:
             f"Got: {needs}. Build failure would not block publish."
         )
 
+    def test_publish_explicitly_depends_on_validate_tag(self) -> None:
+        """publish-release must explicitly list ``validate-tag`` in its needs.
+
+        GitHub Actions does NOT implicitly propagate job outputs through a
+        transitive needs chain. If publish-release only declares
+        ``needs: [build-release]``, then ``needs.validate-tag.outputs.*``
+        expressions inside publish-release resolve to empty strings at
+        runtime — even though validate-tag ran earlier in the pipeline.
+
+        Listing validate-tag explicitly in publish-release.needs guarantees
+        that the output context is available and the TAG/VERSION env vars
+        are populated correctly. See P51 DevOps review finding (HIGH).
+        """
+        workflow = _load_workflow()
+        jobs = workflow.get("jobs", {})
+        publish_job = jobs.get("publish-release", {})
+        needs = publish_job.get("needs", [])
+        if isinstance(needs, str):
+            needs = [needs]
+        assert "validate-tag" in needs, (
+            f"publish-release.needs does not include 'validate-tag'. "
+            f"Got: {needs}. "
+            "needs.validate-tag.outputs.* will be empty at runtime without "
+            "an explicit dependency. Add 'validate-tag' to publish-release.needs."
+        )
+
     def test_build_cannot_run_without_validate(self) -> None:
         """build-release must declare ``needs: [validate-tag]``.
 

@@ -174,13 +174,17 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-release]
+    # Explicitly listing validate-tag ensures needs.validate-tag.outputs.*
+    # is available to this job without relying on implicit transitive access
+    # through build-release. This makes the output propagation correct and
+    # explicit. See P51 DevOps review finding (HIGH).
+    needs: [validate-tag, build-release]
     permissions:
       contents: write  # Required: create GitHub Release and upload release assets
 
     env:
-      TAG: ${{ needs.build-release.outputs.tag || needs.validate-tag.outputs.tag }}
-      VERSION: ${{ needs.build-release.outputs.version || needs.validate-tag.outputs.version }}
+      TAG: ${{ needs.validate-tag.outputs.tag }}
+      VERSION: ${{ needs.validate-tag.outputs.version }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:

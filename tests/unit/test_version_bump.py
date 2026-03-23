@@ -3,10 +3,14 @@
 Covers:
 - bump_version.sh rejects malformed and empty version strings (attack tests)
 - bump_version.sh fails cleanly when a target file is missing (attack tests)
-- All 5 version locations are updated after a bump (feature tests)
-- main.py reads __version__ from synth_engine.__init__ (feature tests)
+- All 4 version locations are updated after a bump (feature tests)
+- main.py reads __version__ from synth_engine.__init__ dynamically (feature tests)
 - PEP 440 format is used in pyproject.toml (no hyphens) (feature tests)
 - Idempotency: running twice with the same version is a no-op (feature tests)
+
+NOTE: bootstrapper/main.py is NOT a bump target. It reads the version
+dynamically from synth_engine.__version__ (defined in __init__.py). The 4
+bump targets are: pyproject.toml, __init__.py, licensing.py, openapi.json.
 
 CONSTITUTION Priority 3: TDD RED/GREEN phases
 Task: P51-T51.1 — Semantic Versioning & Version Bump Automation
@@ -29,10 +33,6 @@ BUMP_SCRIPT = REPO_ROOT / "scripts" / "bump_version.sh"
 
 # PEP 440 pattern: X.Y.Z or X.Y.Z(a|b|rc)N
 _PEP440_RE = re.compile(r"^\d+\.\d+\.\d+((a|b|rc)\d+)?$")
-
-# The exact indentation the bump script expects in bootstrapper/main.py.
-# The real FastAPI constructor uses 8-space indented keyword arguments.
-_MAIN_PY_VERSION_LINE_INDENT = "        "
 
 
 def _run_bump(
@@ -146,14 +146,17 @@ class TestBumpVersionHandlesMissingFiles:
 
 
 class TestVersionConsistency:
-    """All 5 version locations must be consistent after a bump."""
+    """All 4 version locations must be consistent after a bump."""
 
-    def test_all_five_locations_have_same_version_after_bump(self, tmp_path: Path) -> None:
-        """bump_version.sh must update all 5 version locations atomically.
+    def test_all_four_locations_have_same_version_after_bump(self, tmp_path: Path) -> None:
+        """bump_version.sh must update all 4 version locations atomically.
 
         Creates a minimal replica of the repo directory structure in tmp_path,
-        runs the bump script with BUMP_ROOT override, then asserts all 5
+        runs the bump script with BUMP_ROOT override, then asserts all 4
         locations contain the new version.
+
+        NOTE: bootstrapper/main.py is NOT in the bump target list — it reads
+        version dynamically from synth_engine.__version__ (__init__.py).
         """
         _build_fake_repo(tmp_path, current_version="0.1.0")
 
@@ -183,15 +186,55 @@ class TestVersionConsistency:
             f"licensing.py not updated: {licensing_text!r}"
         )
 
-        # 4. bootstrapper/main.py  (version= kwarg — indented inside FastAPI constructor)
-        main_text = (tmp_path / "src" / "synth_engine" / "bootstrapper" / "main.py").read_text()
-        assert 'version="1.0.0rc1"' in main_text, f"main.py not updated: {main_text!r}"
-
-        # 5. docs/api/openapi.json
+        # 4. docs/api/openapi.json
         openapi_text = (tmp_path / "docs" / "api" / "openapi.json").read_text()
         openapi = json.loads(openapi_text)
         assert openapi["info"]["version"] == "1.0.0rc1", (
             f"openapi.json not updated: {openapi_text!r}"
+        )
+
+    def test_main_py_is_not_a_bump_target(self, tmp_path: Path) -> None:
+        """bump_version.sh must NOT attempt to modify bootstrapper/main.py.
+
+        main.py reads version dynamically from synth_engine.__version__
+        (defined in __init__.py). Attempting to bump a hardcoded version
+        string in main.py would silently fail since no such string exists
+        in the current codebase.
+        """
+        _build_fake_repo(tmp_path, current_version="0.1.0")
+
+        # Record main.py content before bump
+        main_py = tmp_path / "src" / "synth_engine" / "bootstrapper" / "main.py"
+        content_before = main_py.read_text()
+
+        result = _run_bump(
+            ["1.0.0rc1"],
+            env={"BUMP_ROOT": str(tmp_path)},
+        )
+        assert result.returncode == 0, (
+            f"bump_version.sh failed:\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+        # main.py content must be unchanged — it is not a bump target
+        content_after = main_py.read_text()
+        assert content_before == content_after, (
+            "bump_version.sh modified bootstrapper/main.py — it must not do so. "
+            "main.py reads version dynamically from synth_engine.__version__."
+        )
+
+    def test_bump_script_output_mentions_init_py_not_main_py(self, tmp_path: Path) -> None:
+        """Bump script summary output must list __init__.py but not main.py.
+
+        The summary output communicates to the operator which files were
+        updated. main.py is intentionally absent from the list.
+        """
+        _build_fake_repo(tmp_path, current_version="0.1.0")
+        result = _run_bump(["1.0.0rc1"], env={"BUMP_ROOT": str(tmp_path)})
+        assert result.returncode == 0
+        combined = result.stdout + result.stderr
+        assert "__init__.py" in combined, "Expected __init__.py in bump script output"
+        assert "main.py" not in combined or "NOT" in combined or "dynamically" in combined, (
+            "bump script output must not imply main.py is a bump target"
         )
 
     def test_pep440_format_no_hyphens_in_pyproject(self, tmp_path: Path) -> None:
@@ -320,16 +363,17 @@ class TestVersionBumpScript:
 def _build_fake_repo(root: Path, *, current_version: str) -> None:
     """Create a minimal repo replica in root with the given current_version.
 
-    Creates all 5 version-bearing files in the correct relative paths so
+    Creates the 4 version-bearing files in the correct relative paths so
     bump_version.sh can find and update them via BUMP_ROOT override.
 
-    The fake main.py mirrors the real bootstrapper/main.py's FastAPI
-    constructor indentation (8 spaces) so the bump script's sed pattern
-    matches correctly.
+    bootstrapper/main.py is included for structural completeness (the real
+    repo has it), but it contains a dynamic import of __version__ rather than
+    a hardcoded version string — matching the real file. The bump script does
+    NOT modify main.py; it reads version from __init__.py at runtime.
 
     Args:
         root: Temp directory to build the fake repo in.
-        current_version: The version string to embed in all files.
+        current_version: The version string to embed in all bump-target files.
     """
     # 1. pyproject.toml
     (root / "pyproject.toml").write_text(
@@ -350,15 +394,16 @@ def _build_fake_repo(root: Path, *, current_version: str) -> None:
         f'"""Licensing module."""\n\n_APP_VERSION: str = "{current_version}"\n'
     )
 
-    # 4. bootstrapper/main.py — the version= kwarg is 8-space indented inside
-    #    the FastAPI() constructor, matching the real main.py structure so the
-    #    bump script's perl substitution pattern matches correctly.
+    # 4. bootstrapper/main.py — uses dynamic import, NOT a bump target.
+    #    Included here to mirror the real repo structure. The bump script
+    #    must NOT modify this file.
     boot_dir = src_pkg / "bootstrapper"
     boot_dir.mkdir(parents=True)
     (boot_dir / "main.py").write_text(
+        "import synth_engine\n\n"
         "def create_app():\n"
         "    app = FastAPI(\n"
-        f'        version="{current_version}",\n'
+        "        version=synth_engine.__version__,\n"
         "    )\n"
         "    return app\n"
     )
