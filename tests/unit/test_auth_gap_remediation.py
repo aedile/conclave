@@ -231,31 +231,48 @@ def _common_patches() -> list[Any]:
 
 
 # ---------------------------------------------------------------------------
-# AC: Security endpoints NOT in COMMON_INFRA_EXEMPT_PATHS (ADV-P47-04, T50.3)
+# AC: Security endpoint vault-layer bypass (layered exemption model, P50 fix)
 # ---------------------------------------------------------------------------
 
 
-def test_security_shred_not_in_common_infra_exempt_paths() -> None:
-    """COMMON_INFRA_EXEMPT_PATHS must NOT contain /security/shred.
+def test_security_shred_is_in_seal_exempt_paths() -> None:
+    """/security/shred must be in SEAL_EXEMPT_PATHS (vault/license bypass).
 
-    ADV-P47-04 / T50.3: /security/shred destroys encryption keys and must
-    require authentication.  Removed from COMMON_INFRA_EXEMPT_PATHS so
-    AuthenticationGateMiddleware enforces 401 for unauthenticated callers.
+    After the P50 layered exemption model: /security/shred is no longer in
+    COMMON_INFRA_EXEMPT_PATHS (auth baseline).  Instead it lives in
+    SEAL_EXEMPT_PATHS so that SealGateMiddleware and LicenseGateMiddleware
+    allow emergency shred through, while AuthenticationGateMiddleware still
+    requires JWT auth (the route uses require_scope("security:admin")).
+    """
+    from synth_engine.bootstrapper.dependencies._exempt_paths import SEAL_EXEMPT_PATHS
+
+    assert "/security/shred" in SEAL_EXEMPT_PATHS
+
+
+def test_security_shred_not_in_common_infra_exempt_paths() -> None:
+    """/security/shred must NOT be in COMMON_INFRA_EXEMPT_PATHS (requires JWT auth).
+
+    COMMON_INFRA_EXEMPT_PATHS is the auth baseline.  Security routes must
+    not bypass AuthenticationGateMiddleware (ADV-P47-04, P50 review fix).
     """
     from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
 
     assert "/security/shred" not in COMMON_INFRA_EXEMPT_PATHS
 
 
-def test_security_keys_rotate_not_in_common_infra_exempt_paths() -> None:
-    """COMMON_INFRA_EXEMPT_PATHS must NOT contain /security/keys/rotate.
+def test_security_keys_rotate_not_in_any_exempt_paths() -> None:
+    """/security/keys/rotate must NOT be in COMMON_INFRA_EXEMPT_PATHS or SEAL_EXEMPT_PATHS.
 
-    ADV-P47-04 / T50.3: /security/keys/rotate is a privileged operation
-    that must require authentication.  Removed from COMMON_INFRA_EXEMPT_PATHS.
+    Key rotation requires an unsealed vault and JWT auth.  It must not bypass
+    either SealGateMiddleware or AuthenticationGateMiddleware.
     """
-    from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
+    from synth_engine.bootstrapper.dependencies._exempt_paths import (
+        COMMON_INFRA_EXEMPT_PATHS,
+        SEAL_EXEMPT_PATHS,
+    )
 
     assert "/security/keys/rotate" not in COMMON_INFRA_EXEMPT_PATHS
+    assert "/security/keys/rotate" not in SEAL_EXEMPT_PATHS
 
 
 # ---------------------------------------------------------------------------
