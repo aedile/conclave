@@ -28,15 +28,23 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture(autouse=True)
 def _reset_vault_and_settings(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Seal the vault and clear settings cache after every test.
+    """Unseal vault and clear settings cache; restore sealed state after each test.
 
-    Ensures ALE key state does not bleed between tests.
+    T48.5: ALE now requires an unsealed vault — there is no ALE_KEY fallback.
+    This fixture provides a vault salt and unseals the vault so that
+    EncryptedString operations work throughout this test module.
     """
+    import base64
+    import os
+
     from synth_engine.shared.security.ale import _reset_fernet_cache
     from synth_engine.shared.security.vault import VaultState
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+    VaultState.unseal("connection-encryption-test-passphrase")
     yield
     _reset_fernet_cache()
     VaultState.reset()
@@ -45,16 +53,17 @@ def _reset_vault_and_settings(monkeypatch: pytest.MonkeyPatch) -> Any:
 
 @pytest.fixture
 def ale_key(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Provision a fresh Fernet key in the environment and clear settings cache.
+    """Return a placeholder Fernet key string.
+
+    T48.5: ALE now uses vault KEK rather than ALE_KEY env var.  This fixture
+    is retained for backward compatibility with test signatures that accept
+    it, but setting ALE_KEY has no effect.  The autouse fixture unseals the
+    vault so ALE operations succeed.
 
     Returns:
-        The base64-encoded Fernet key string set as ALE_KEY.
+        A freshly generated Fernet key string (unused by ALE in T48.5+).
     """
-    from synth_engine.shared.settings import get_settings
-
     key = Fernet.generate_key().decode()
-    monkeypatch.setenv("ALE_KEY", key)
-    get_settings.cache_clear()
     return key
 
 

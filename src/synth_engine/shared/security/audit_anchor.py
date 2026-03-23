@@ -180,7 +180,7 @@ class LocalFileAnchorBackend:
 
         Raises:
             OSError: If the file cannot be opened or written.
-        """
+        """  # noqa: DOC502
         _logger.warning(
             "LocalFileAnchorBackend: anchor written to local file '%s'. "
             "WARNING — this provides no external attestation. "
@@ -245,7 +245,7 @@ class S3ObjectLockAnchorBackend:
         Raises:
             Exception: Any boto3 error propagates to the caller
                 (:class:`AnchorManager` catches and logs it).
-        """
+        """  # noqa: DOC502
         from datetime import timedelta
 
         retain_until = anchor.timestamp + timedelta(days=self._retention_days)
@@ -439,6 +439,10 @@ def get_anchor_manager() -> AnchorManager:
 
     Returns:
         The process-wide :class:`AnchorManager` instance.
+
+    Raises:
+        ValueError: If :attr:`ConclaveSettings.anchor_backend` is not
+            ``"local_file"`` and no explicit backend wiring has been provided.
     """
     global _anchor_manager_instance
     with _anchor_manager_lock:

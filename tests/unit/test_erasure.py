@@ -33,7 +33,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from cryptography.fernet import Fernet
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -52,25 +51,30 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True, scope="module")
-def _module_ale_key() -> Any:
-    """Set a valid ALE_KEY for the entire test module.
+def _module_vault_unseal() -> Any:
+    """Unseal the vault for the entire test module (T48.5).
 
     Connection records have ALE-encrypted fields (host, database, etc.).
-    Without ALE_KEY set, inserting a Connection row raises RuntimeError from
-    the ALE type processor.  This fixture ensures a stable key is present for
-    all tests, without interfering with tests in other modules.
+    T48.5 removed the ALE_KEY fallback — the vault must be unsealed for
+    EncryptedString operations to succeed.  This module-scoped fixture
+    unseals the vault once for all tests in this module.
 
     Yields:
-        None — used for side-effect (env var setup) only.
+        None — used for side-effect (vault state) only.
     """
-    key = Fernet.generate_key().decode()
-    original = os.environ.get("ALE_KEY")
-    os.environ["ALE_KEY"] = key
+    import base64
+
+    from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.settings import get_settings
+
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    os.environ["VAULT_SEAL_SALT"] = salt
+    get_settings.cache_clear()
+    VaultState.unseal("erasure-test-module-passphrase")
     yield
-    if original is None:
-        os.environ.pop("ALE_KEY", None)
-    else:
-        os.environ["ALE_KEY"] = original
+    VaultState.reset()
+    os.environ.pop("VAULT_SEAL_SALT", None)
+    get_settings.cache_clear()
 
 
 # ---------------------------------------------------------------------------

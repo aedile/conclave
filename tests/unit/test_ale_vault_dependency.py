@@ -6,7 +6,6 @@ Tests cover:
 - Unsealed vault ALE operations succeed
 - AuditLogger emits ALE_REJECTED_VAULT_SEALED event when sealed
 - config_validation warns when vault is sealed at startup
-- Huey task style: check vault sealed => fail permanently
 - VaultSealedError has correct detail and status_code
 
 CONSTITUTION Priority 3: TDD — Red Phase (feature tests)
@@ -16,6 +15,7 @@ Task: T48.5 — ALE Vault Dependency Enforcement
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from collections.abc import Generator
 
@@ -148,6 +148,7 @@ def test_encrypted_string_none_passthrough_sealed() -> None:
 
 def test_audit_event_emitted_on_ale_rejection_when_sealed(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An audit event must be emitted when ALE operation is rejected due to sealed vault.
 
@@ -156,38 +157,25 @@ def test_audit_event_emitted_on_ale_rejection_when_sealed(
     """
     from synth_engine.shared.exceptions import VaultSealedError
     from synth_engine.shared.security.ale import get_fernet
+    from synth_engine.shared.security.audit import reset_audit_logger
     from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.settings import get_settings
 
     audit_key = os.urandom(32).hex()
     monkeypatch.setenv("AUDIT_KEY", audit_key)
-    from synth_engine.shared.security.audit import reset_audit_logger
-
+    # Force settings to re-read AUDIT_KEY from env after monkeypatch.
+    get_settings.cache_clear()
     reset_audit_logger()
 
     assert VaultState.is_sealed()
 
-    logged_events: list[str] = []
-
-    import logging
-
-    class CapturingHandler(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            logged_events.append(record.getMessage())
-
-    handler = CapturingHandler()
-    logging.getLogger("synth_engine.security.audit").addHandler(handler)
-
-    try:
+    with caplog.at_level(logging.INFO, logger="synth_engine.security.audit"):
         with pytest.raises(VaultSealedError):
             get_fernet()
-    finally:
-        logging.getLogger("synth_engine.security.audit").removeHandler(handler)
 
-    # An ALE_REJECTED_VAULT_SEALED audit event must have been emitted
-    ale_rejection_events = [e for e in logged_events if "ALE_REJECTED_VAULT_SEALED" in e]
-    assert ale_rejection_events, (
-        f"Expected ALE_REJECTED_VAULT_SEALED audit event; got: {logged_events}"
-    )
+    messages = [r.getMessage() for r in caplog.records]
+    ale_rejection_events = [m for m in messages if "ALE_REJECTED_VAULT_SEALED" in m]
+    assert ale_rejection_events, f"Expected ALE_REJECTED_VAULT_SEALED audit event; got: {messages}"
 
 
 # ---------------------------------------------------------------------------
@@ -205,8 +193,6 @@ def test_config_validation_warns_when_vault_sealed_at_startup(
     not a fatal error — startup must succeed — but operators should be warned
     that ALE operations will fail until the vault is unsealed.
     """
-    import logging
-
     from synth_engine.shared.security.vault import VaultState
     from synth_engine.shared.settings import get_settings
 

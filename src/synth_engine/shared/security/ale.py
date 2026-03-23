@@ -4,18 +4,23 @@ Provides a Fernet-based ``EncryptedString`` SQLAlchemy ``TypeDecorator``
 that transparently encrypts string values before writing them to the
 database and decrypts them on read.
 
-Key derivation strategy (vault-first design)
---------------------------------------------
-When the vault is **unsealed**, ``get_fernet()`` derives the ALE encryption
-key from the vault Key Encryption Key (KEK) using HKDF-SHA256.  This ties
-the ALE key lifecycle directly to the vault unseal state: the same operator
-passphrase that unseals the vault consistently produces the same ALE key
-without ever persisting it to disk or environment variables.
+Key derivation strategy (vault-only design — T48.5)
+----------------------------------------------------
+``get_fernet()`` derives the ALE encryption key from the vault Key Encryption
+Key (KEK) using HKDF-SHA256.  This ties the ALE key lifecycle directly to the
+vault unseal state: the same operator passphrase that unseals the vault
+consistently produces the same ALE key without ever persisting it to disk or
+environment variables.
 
-When the vault is **sealed** (e.g. during development, testing, or before
-the first unseal after a restart), ``get_fernet()`` falls back to the
-``ALE_KEY`` environment variable.  This fallback is **development/testing
-only** and must not be relied upon in production.
+When the vault is **sealed**, ``get_fernet()`` raises
+:exc:`~synth_engine.shared.exceptions.VaultSealedError`.  There is **no
+ALE_KEY environment variable fallback**.  This ensures that sealing the vault
+actually protects encrypted database columns — an attacker who forces a vault
+seal cannot fall back to a weaker env-var key.
+
+An audit event with ``event_type="ALE_REJECTED_VAULT_SEALED"`` is emitted
+whenever a sealed-vault rejection occurs, providing observability for operators
+investigating why ALE operations are failing.
 
 HKDF parameters (public, not secret)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -35,6 +40,9 @@ Security properties
 - ``_reset_fernet_cache()`` is retained as a no-op for backward compatibility
   with test fixtures written before vault wiring was added; calling it is
   always safe and has no effect.
+- ``ALE_KEY`` environment variable is intentionally removed as a fallback
+  (T48.5).  Use ``generate_ale_key()`` to provision a test key when writing
+  integration tests that unseal the vault.
 
 Usage
 -----
@@ -50,11 +58,13 @@ CONSTITUTION Priority 0: Security
 Task: P2-T2.2 — Secure Database Layer
 Fix:  P2-debt-D1 — ALE-Vault KEK wiring
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
+Task: T48.5 — ALE Vault Dependency Enforcement (remove ALE_KEY fallback)
 """
 
 from __future__ import annotations
 
 import base64
+import logging
 from typing import Any
 
 from cryptography.fernet import Fernet
@@ -64,8 +74,10 @@ from sqlalchemy import String
 from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.types import TypeDecorator
 
+from synth_engine.shared.exceptions import VaultSealedError
 from synth_engine.shared.security.vault import VaultState
-from synth_engine.shared.settings import get_settings
+
+_logger = logging.getLogger("synth_engine.security.ale")
 
 # ---------------------------------------------------------------------------
 # HKDF parameters — fixed public labels (not secret)
@@ -112,34 +124,42 @@ def _derive_ale_key_from_kek(kek: bytes) -> bytes:
     return hkdf.derive(kek)
 
 
-def _load_ale_key_from_env() -> bytes:
-    """Load and validate the ALE key from :attr:`ConclaveSettings.ale_key`.
+def _emit_ale_sealed_audit_event() -> None:
+    """Emit an ALE_REJECTED_VAULT_SEALED audit event via the audit logger.
 
-    This path is the sealed-vault / development fallback.  In production the
-    vault-KEK path (see :func:`get_fernet`) should be used instead.
+    Called when ``get_fernet()`` rejects an ALE operation because the vault
+    is sealed.  The audit entry provides observability for operators who need
+    to understand why ALE operations are failing.
 
-    Returns:
-        The ALE key as raw bytes suitable for the Fernet constructor.
-
-    Raises:
-        RuntimeError: If the ``ALE_KEY`` environment variable is not set.
+    Failures in audit logging are caught and logged at WARNING to avoid
+    masking the primary VaultSealedError.
     """
-    key = get_settings().ale_key
-    if not key:
-        raise RuntimeError("ALE_KEY environment variable not set")
-    return key.encode()
+    try:
+        from synth_engine.shared.security.audit import get_audit_logger
+
+        get_audit_logger().log_event(
+            event_type="ALE_REJECTED_VAULT_SEALED",
+            actor="ale",
+            resource="ale_key",
+            action="get_fernet",
+            details={"reason": "vault_sealed"},
+        )
+    except Exception as exc:
+        _logger.warning("Failed to emit ALE_REJECTED_VAULT_SEALED audit event: %s", exc)
 
 
 def get_fernet() -> Fernet:
     """Return a Fernet instance for ALE encryption/decryption.
 
-    Key selection (vault-first design)
-    -----------------------------------
-    - **Vault unsealed**: derives the ALE key from the vault KEK via
-      HKDF-SHA256 (see :func:`_derive_ale_key_from_kek`).  This is the
-      production path.
-    - **Vault sealed**: falls back to the ``ALE_KEY`` environment variable.
-      This path is for development and testing only.
+    Key selection (vault-only design — T48.5)
+    ------------------------------------------
+    The ALE key is **always** derived from the vault KEK via HKDF-SHA256.
+    There is no ``ALE_KEY`` environment variable fallback.
+
+    When the vault is sealed, :exc:`~synth_engine.shared.exceptions.VaultSealedError`
+    is raised and an ``ALE_REJECTED_VAULT_SEALED`` audit event is emitted.
+    Unsealing the vault (``POST /unseal``) is the only way to restore ALE
+    functionality.
 
     This function is **not cached** so that it reflects the current vault
     state on every call.  HKDF is fast; the overhead is negligible.
@@ -148,19 +168,19 @@ def get_fernet() -> Fernet:
         A :class:`cryptography.fernet.Fernet` instance ready for use.
 
     Raises:
-        RuntimeError: If the vault is sealed and the ``ALE_KEY`` environment
-            variable is not set.
-        ValueError: If the vault is sealed and the ``ALE_KEY`` value cannot
-            be used to construct a valid :class:`~cryptography.fernet.Fernet`
-            instance (e.g. invalid base64 or wrong key length).
-    """  # noqa: DOC502
-    if not VaultState.is_sealed():
-        kek = VaultState.get_kek()
-        raw_key = _derive_ale_key_from_kek(kek)
-        return Fernet(base64.urlsafe_b64encode(raw_key))
+        VaultSealedError: If the vault is sealed.  Call ``POST /unseal``
+            before performing ALE operations.
+    """
+    if VaultState.is_sealed():
+        _emit_ale_sealed_audit_event()
+        raise VaultSealedError(
+            "Vault is sealed — ALE operations require an unsealed vault. "
+            "Call POST /unseal before performing ALE operations."
+        )
 
-    # Vault sealed: fall back to ALE_KEY env var (development/testing only)
-    return Fernet(_load_ale_key_from_env())
+    kek = VaultState.get_kek()
+    raw_key = _derive_ale_key_from_kek(kek)
+    return Fernet(base64.urlsafe_b64encode(raw_key))
 
 
 def _reset_fernet_cache() -> None:
@@ -180,15 +200,14 @@ class EncryptedString(TypeDecorator[str]):
     """SQLAlchemy TypeDecorator for transparent Fernet field-level encryption.
 
     On write (``process_bind_param``) the plaintext string is UTF-8 encoded
-    and encrypted with the Fernet key sourced from the vault KEK (when
-    unsealed) or ``ALE_KEY`` env var (when sealed).  The resulting token is
-    stored as a base64 URL-safe string.
+    and encrypted with the Fernet key derived from the vault KEK.  The
+    resulting token is stored as a base64 URL-safe string.
 
     On read (``process_result_value``) the stored token is decrypted and
     returned as a UTF-8 decoded string.
 
     ``None`` values are passed through unchanged in both directions to
-    support nullable database columns.
+    support nullable database columns — no vault interaction occurs.
 
     Example::
 
@@ -200,6 +219,10 @@ class EncryptedString(TypeDecorator[str]):
             token: str | None = Field(
                 default=None, sa_column=Column(EncryptedString())
             )
+
+    Raises:
+        VaultSealedError: If the vault is sealed when any non-None value
+            is processed.  ``None`` values pass through without vault access.
     """
 
     impl = String
@@ -215,7 +238,10 @@ class EncryptedString(TypeDecorator[str]):
         Returns:
             A Fernet token encoded as a UTF-8 string, or ``None`` if
             *value* is ``None``.
-        """
+
+        Raises:
+            VaultSealedError: If the vault is sealed and *value* is not ``None``.
+        """  # noqa: DOC502
         if value is None:
             return None
         fernet = get_fernet()
@@ -234,6 +260,7 @@ class EncryptedString(TypeDecorator[str]):
             ``None``.
 
         Raises:
+            VaultSealedError: If the vault is sealed and *value* is not ``None``.
             cryptography.fernet.InvalidToken: If *value* is not a valid
                 Fernet token for the current key — indicating corrupted or
                 tampered ciphertext in the database.
