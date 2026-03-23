@@ -10,6 +10,12 @@ instance managed by ``pytest-postgresql``.  They prove that:
 3. **Vault-wired path** — unsealing the vault causes ALE to derive its key via
    HKDF-SHA256 from the vault KEK; the round-trip still succeeds end-to-end.
 
+After T48.5, all ALE operations require an unsealed vault.  There is no
+``ALE_KEY`` environment variable fallback.  All tests that encrypt non-None
+values now use the ``vault_db_engine`` fixture which unseals the vault.
+The ``NULL`` passthrough test still uses ``db_engine`` because ``None`` values
+bypass the vault entirely.
+
 Requirements
 ------------
 - ``pytest-postgresql`` installed: ``poetry install --with dev,integration``
@@ -22,6 +28,7 @@ Marks: ``integration``
 CONSTITUTION Priority 0: Security — PII never stored as plaintext.
 CONSTITUTION Priority 3: TDD — integration gate for P2-T2.2.
 Task: P2-T2.2 — Secure Database Layer (debt item D2)
+Task: T48.5 — ALE Vault Dependency Enforcement
 """
 
 from __future__ import annotations
@@ -34,7 +41,6 @@ from collections.abc import Generator
 
 import psycopg2
 import pytest
-from cryptography.fernet import Fernet
 from pytest_postgresql import factories
 from sqlalchemy import Column, Engine, text
 from sqlalchemy.orm import Session
@@ -161,16 +167,6 @@ def _create_database(proc: PostgreSQLProc) -> None:
 
 
 @pytest.fixture(scope="module")
-def ale_env_key() -> str:
-    """Generate a fresh Fernet key for the env-fallback ALE path.
-
-    Returns:
-        URL-safe base64-encoded 32-byte Fernet key string.
-    """
-    return Fernet.generate_key().decode()  # pragma: allowlist secret
-
-
-@pytest.fixture(scope="module")
 def _provision_test_db(
     postgresql_proc: PostgreSQLProc,
 ) -> Generator[None]:
@@ -214,26 +210,22 @@ def _provision_test_db(
 def db_engine(
     postgresql_proc: PostgreSQLProc,
     _provision_test_db: None,
-    ale_env_key: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[Engine]:
     """Yield a SQLAlchemy Engine connected to the ephemeral PostgreSQL instance.
 
-    Builds the psycopg2 connection URL from the ``postgresql_proc`` executor
-    attributes, creates the ``SensitiveRecord`` schema, and disposes the engine
-    on exit.
+    This engine is used only for tests that do not require ALE (e.g. NULL
+    passthrough), since T48.5 removed the ALE_KEY env var fallback.  Any test
+    that writes non-None PII must use ``vault_db_engine`` instead.
 
     Args:
         postgresql_proc: pytest-postgresql process executor with connection attrs.
         _provision_test_db: Module-scoped fixture that ensures the DB exists.
-        ale_env_key: Fresh Fernet key injected as ``ALE_KEY`` env var.
-        monkeypatch: pytest monkeypatch for environment variable injection.
+        monkeypatch: pytest monkeypatch (unused; kept for fixture signature compat).
 
     Yields:
         A configured :class:`sqlalchemy.Engine` instance.
     """
-    monkeypatch.setenv("ALE_KEY", ale_env_key)
-
     proc = postgresql_proc
     url = (
         f"postgresql+psycopg2://{proc.user}:{proc.password or ''}"
@@ -267,8 +259,10 @@ def vault_db_engine(
 ) -> Generator[Engine]:
     """Yield a SQLAlchemy Engine with the vault unsealed (HKDF path).
 
-    Unseals ``VaultState`` so that ``get_fernet()`` derives the ALE key via
-    HKDF-SHA256 from the vault KEK.  Tears down by calling ``VaultState.reset()``.
+    After T48.5, all ALE operations that encrypt non-None values require an
+    unsealed vault.  This fixture unseals ``VaultState`` so that
+    ``get_fernet()`` derives the ALE key via HKDF-SHA256 from the vault KEK.
+    Tears down by calling ``VaultState.reset()``.
 
     Args:
         postgresql_proc: pytest-postgresql process executor with connection attrs.
@@ -296,17 +290,20 @@ def vault_db_engine(
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — env-fallback ALE path (vault sealed)
+# Integration tests — vault-wired ALE path (vault unsealed, T48.5)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
-def test_raw_sql_returns_ciphertext(db_engine: Engine) -> None:
+def test_raw_sql_returns_ciphertext(vault_db_engine: Engine) -> None:
     """Raw SQL bypassing the ORM must return Fernet ciphertext, not plaintext.
 
     This test is the definitive proof that PII is never stored as plaintext:
     even with direct database access (e.g. a compromised DBA console), an
     attacker sees only opaque ciphertext.
+
+    After T48.5, the vault must be unsealed for ALE operations; this test
+    uses the vault-wired path (HKDF-SHA256 key derivation from vault KEK).
 
     Arrange: insert a ``SensitiveRecord`` via ORM session.
     Act: query ``pii_value`` directly via ``engine.connect()`` + ``text()``.
@@ -315,12 +312,12 @@ def test_raw_sql_returns_ciphertext(db_engine: Engine) -> None:
     plaintext = "super-secret-pii-value"
     record_id = uuid.uuid4()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         record = SensitiveRecord(id=record_id, pii_value=plaintext)
         session.add(record)
         session.commit()
 
-    with db_engine.connect() as conn:
+    with vault_db_engine.connect() as conn:
         row = conn.execute(
             text("SELECT pii_value FROM sensitiverecord WHERE id = :id"),
             {"id": str(record_id)},
@@ -340,12 +337,14 @@ def test_raw_sql_returns_ciphertext(db_engine: Engine) -> None:
 
 
 @pytest.mark.integration
-def test_orm_query_returns_plaintext(db_engine: Engine) -> None:
+def test_orm_query_returns_plaintext(vault_db_engine: Engine) -> None:
     """ORM query via SQLModel must transparently decrypt the stored ciphertext.
 
     The EncryptedString TypeDecorator's ``process_result_value`` hook fires
     automatically when SQLAlchemy loads a column value.  This test verifies
     the seamless decrypt-on-read behaviour end-to-end against a real database.
+
+    After T48.5, the vault must be unsealed for ALE operations.
 
     Arrange: insert a ``SensitiveRecord`` via ORM session.
     Act: retrieve it with ``session.get(SensitiveRecord, id)``.
@@ -354,12 +353,12 @@ def test_orm_query_returns_plaintext(db_engine: Engine) -> None:
     plaintext = "another-pii-value-for-orm-read"
     record_id = uuid.uuid4()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         record = SensitiveRecord(id=record_id, pii_value=plaintext)
         session.add(record)
         session.commit()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         loaded = session.get(SensitiveRecord, record_id)
 
     assert loaded is not None, "ORM must retrieve the inserted record"
@@ -369,22 +368,24 @@ def test_orm_query_returns_plaintext(db_engine: Engine) -> None:
 
 
 @pytest.mark.integration
-def test_full_roundtrip_write_then_read(db_engine: Engine) -> None:
+def test_full_roundtrip_write_then_read(vault_db_engine: Engine) -> None:
     """Full ALE round-trip: write encrypted, read decrypted, raw is ciphertext.
 
     Combines both assertions in a single test to verify coherence: the same
     record is (a) encrypted at rest, (b) decrypted by the ORM, and (c) the
     raw value carries the canonical Fernet token prefix.
+
+    After T48.5, the vault must be unsealed for ALE operations.
     """
     plaintext = "combined-roundtrip-pii"
     record_id = uuid.uuid4()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         session.add(SensitiveRecord(id=record_id, pii_value=plaintext))
         session.commit()
 
     # Raw assertion — must be ciphertext
-    with db_engine.connect() as conn:
+    with vault_db_engine.connect() as conn:
         raw = conn.execute(
             text("SELECT pii_value FROM sensitiverecord WHERE id = :id"),
             {"id": str(record_id)},
@@ -395,16 +396,11 @@ def test_full_roundtrip_write_then_read(db_engine: Engine) -> None:
     assert raw.startswith("gAAAAA")
 
     # ORM assertion — must be plaintext
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         loaded = session.get(SensitiveRecord, record_id)
 
     assert loaded is not None
     assert loaded.pii_value == plaintext
-
-
-# ---------------------------------------------------------------------------
-# Integration tests — vault-wired ALE path (vault unsealed)
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.integration
@@ -492,6 +488,9 @@ def test_null_roundtrip_returns_none(db_engine: Engine) -> None:
     against a real database column, confirming NULL is not coerced to an
     empty string or any other value.
 
+    NULL values bypass the vault entirely, so this test uses ``db_engine``
+    (vault sealed) to confirm the passthrough works without unsealing.
+
     Arrange: insert a ``NullableSensitiveRecord`` with ``pii_value=None``.
     Act: retrieve it via ORM session.
     Assert: ``loaded.pii_value is None``.
@@ -513,12 +512,14 @@ def test_null_roundtrip_returns_none(db_engine: Engine) -> None:
 
 
 @pytest.mark.integration
-def test_empty_string_roundtrip_returns_empty_string(db_engine: Engine) -> None:
+def test_empty_string_roundtrip_returns_empty_string(vault_db_engine: Engine) -> None:
     """Empty string written to EncryptedString must round-trip back as empty string.
 
     An empty string is a distinct value from NULL.  The TypeDecorator must
     encrypt the empty byte sequence and decrypt it back to the original empty
     string — not coerce it to None or any other sentinel.
+
+    After T48.5, the vault must be unsealed for any non-None ALE operation.
 
     Arrange: insert a ``NullableSensitiveRecord`` with ``pii_value=""``.
     Act: retrieve it via ORM session.
@@ -526,12 +527,12 @@ def test_empty_string_roundtrip_returns_empty_string(db_engine: Engine) -> None:
     """
     record_id = uuid.uuid4()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         record = NullableSensitiveRecord(id=record_id, pii_value="")
         session.add(record)
         session.commit()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         loaded = session.get(NullableSensitiveRecord, record_id)
 
     assert loaded is not None, "ORM must retrieve the inserted record"
@@ -541,13 +542,15 @@ def test_empty_string_roundtrip_returns_empty_string(db_engine: Engine) -> None:
 
 
 @pytest.mark.integration
-def test_cjk_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None:
+def test_cjk_unicode_roundtrip_returns_exact_string(vault_db_engine: Engine) -> None:
     """CJK multi-byte unicode PII must survive the encrypt/decrypt round-trip.
 
     Japanese characters require multi-byte UTF-8 encoding.  This test
     confirms that EncryptedString correctly encodes to bytes before
     encryption and decodes from bytes after decryption — preserving every
     code point of multi-byte unicode PII.
+
+    After T48.5, the vault must be unsealed for any non-None ALE operation.
 
     Arrange: insert a ``NullableSensitiveRecord`` with CJK PII value.
     Act: retrieve it via ORM session.
@@ -556,12 +559,12 @@ def test_cjk_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None:
     cjk_pii = "日本語テスト"
     record_id = uuid.uuid4()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         record = NullableSensitiveRecord(id=record_id, pii_value=cjk_pii)
         session.add(record)
         session.commit()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         loaded = session.get(NullableSensitiveRecord, record_id)
 
     assert loaded is not None, "ORM must retrieve the inserted record"
@@ -571,12 +574,14 @@ def test_cjk_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None:
 
 
 @pytest.mark.integration
-def test_emoji_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None:
+def test_emoji_unicode_roundtrip_returns_exact_string(vault_db_engine: Engine) -> None:
     """Emoji PII (4-byte UTF-8 code points) must survive the round-trip.
 
     Emoji characters sit above the Basic Multilingual Plane and require
     4-byte UTF-8 encoding.  This is the most demanding unicode path for
     the TypeDecorator's encode/decode logic.
+
+    After T48.5, the vault must be unsealed for any non-None ALE operation.
 
     Arrange: insert a ``NullableSensitiveRecord`` with emoji PII.
     Act: retrieve it via ORM session.
@@ -585,12 +590,12 @@ def test_emoji_unicode_roundtrip_returns_exact_string(db_engine: Engine) -> None
     emoji_pii = "🔒 Encrypted PII 🔐"
     record_id = uuid.uuid4()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         record = NullableSensitiveRecord(id=record_id, pii_value=emoji_pii)
         session.add(record)
         session.commit()
 
-    with Session(db_engine) as session:
+    with Session(vault_db_engine) as session:
         loaded = session.get(NullableSensitiveRecord, record_id)
 
     assert loaded is not None, "ORM must retrieve the inserted record"
