@@ -10,10 +10,21 @@ Both endpoints are ops-level operations for emergency security protocols
 (data spillage response, key compromise rotation).  They emit WORM audit
 events on every call.
 
-Both handlers must be accessible while the vault is unsealed; ``/security/shred``
-is special — it seals the vault, so it must also work from any state (even
-already-sealed).  Both paths are added to ``EXEMPT_PATHS`` in the vault
-dependency module so they bypass the ``SealGateMiddleware``.
+Layered exemption model (P50 review fix)
+-----------------------------------------
+``/security/shred`` is special — it seals the vault and must work from ANY
+state (even when already sealed) for emergency response to key compromise.
+``/security/keys/rotate`` requires an unsealed vault to access the current KEK.
+
+Middleware exemption by layer:
+
+- **SealGateMiddleware** (vault gate): only ``/security/shred`` is exempt via
+  ``SEAL_EXEMPT_PATHS``.  ``/security/keys/rotate`` is blocked with 423 when
+  sealed (the correct posture — rotation cannot proceed without the KEK).
+- **LicenseGateMiddleware** (license gate): ``/security/shred`` is exempt via
+  ``SEAL_EXEMPT_PATHS`` so emergency shred works without a license.
+- **AuthenticationGateMiddleware** (auth gate): NEITHER route is exempt.  Both
+  require a valid JWT with ``security:admin`` scope (ADV-P47-04).
 
 Route-level authentication is enforced via the
 :func:`~synth_engine.bootstrapper.dependencies.auth.get_current_operator`
@@ -23,12 +34,6 @@ Scope-based authorization is enforced via
 :func:`~synth_engine.bootstrapper.dependencies.auth.require_scope` on both
 endpoints.  Both ``/security/shred`` and ``/security/keys/rotate`` require the
 ``security:admin`` scope (T47.1).
-
-Note on AUTH_EXEMPT_PATHS: ``/security/shred`` and ``/security/keys/rotate``
-are listed in ``COMMON_INFRA_EXEMPT_PATHS`` (vault middleware bypass) so that
-the shred operation remains reachable even in a sealed state for emergency
-response.  This exemption is at the vault/seal layer — they are NOT exempt
-from JWT authentication or scope enforcement.
 
 The authenticated operator's sub claim is used as the audit actor identity —
 replacing the previous hardcoded ``"operator"`` literal.
@@ -40,6 +45,7 @@ All route handlers are ``async def`` per the T5.2 architecture finding.
 CONSTITUTION Priority 0: Security
 Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
 Task: T47.1 — Scope-based auth for security endpoints
+Task: P50 review fix — restore /security/shred vault-layer bypass (layered model)
 """
 
 from __future__ import annotations

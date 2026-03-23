@@ -9,6 +9,7 @@ T47.6 — Harden Model Artifact Signature Verification
 
 from __future__ import annotations
 
+import io
 import os
 import pickle  # nosec B403 — constructing adversarial payloads for security tests
 import tempfile
@@ -261,19 +262,26 @@ def test_audit_trail_emitted_on_tampering_detection(
 
 
 def test_load_file_exceeding_size_limit_raises(tmp_path: Path) -> None:
-    """load() must raise ValueError when the file exceeds the size limit.
+    """load() must raise ValueError when the buffered read exceeds the size limit.
 
     This prevents memory exhaustion attacks via crafted oversized artifacts.
-    The check must happen before reading the file contents.
+    After the TOCTOU fix (T50.4), the size check operates on len(raw) after a
+    bounded read — not on os.path.getsize().  We mock builtins.open to return
+    an oversized buffer so the test runs in milliseconds without writing 2 GiB.
     """
     oversized_file = tmp_path / "oversized.pkl"
-    # Write a valid-looking but tiny file and then test with a mocked size.
-    # We mock os.path.getsize to avoid writing gigabytes in tests.
     oversized_file.write_bytes(b"\x00" * 64)
 
-    # Simulate a file that reports 3 GiB in size
-    three_gib = 3 * 1024 * 1024 * 1024
-    with unittest.mock.patch("os.path.getsize", return_value=three_gib):
+    _max = 2 * 1024 * 1024 * 1024
+    oversized_data = b"\x00" * (_max + 1)
+    _real_open = open
+
+    def _mock_open(path: str, mode: str = "r", **kwargs: object) -> object:  # type: ignore[override]
+        if "rb" in mode and str(oversized_file) in str(path):
+            return io.BytesIO(oversized_data)
+        return _real_open(path, mode, **kwargs)  # type: ignore[call-overload]
+
+    with unittest.mock.patch("builtins.open", side_effect=_mock_open):
         with pytest.raises(ValueError, match="[Ff]ile.*too large|size.*limit|2.*GiB|2.*GB"):
             ModelArtifact.load(str(oversized_file), signing_key=_VALID_KEY_32)
 

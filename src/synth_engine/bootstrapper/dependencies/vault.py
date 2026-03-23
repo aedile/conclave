@@ -22,7 +22,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from synth_engine.bootstrapper.dependencies._exempt_paths import (
-    COMMON_INFRA_EXEMPT_PATHS as EXEMPT_PATHS,
+    SEAL_EXEMPT_PATHS as EXEMPT_PATHS,
 )
 from synth_engine.shared.security.vault import VaultState
 

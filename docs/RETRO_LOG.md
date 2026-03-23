@@ -19,19 +19,63 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P47-01~~ | ~~PM P46 merge~~ | P47 fix | ~~BLOCKER~~ | ~~Production Smoke Test — RESOLVED in P47 (CI dummy secrets provisioning)~~ |
 | ADV-P47-02 | Arch P47 review | — | ADVISORY | `_promote_redis_url_to_tls` logic is duplicated between `shared/tls/config.py` and bootstrapper init. Current duplication is intentional per T46.2 architecture review. Future cleanup should consolidate into a single utility. |
 | ~~ADV-P47-03~~ | ~~Arch P47 review~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Scope-based auth ADR — RESOLVED (ADR-0049 written)~~ |
-| ADV-P47-04 | Red-Team P47 | — | ADVISORY | `/security/shred` and `/security/keys/rotate` are in `AUTH_EXEMPT_PATHS`, so in pass-through mode (empty `JWT_SECRET_KEY`) no auth applies. Scope enforcement (`require_scope`) is bypassed because the auth middleware skips the route entirely. Low risk: pass-through mode is dev-only, and scope enforcement is a defense-in-depth layer. Fix: remove security routes from `AUTH_EXEMPT_PATHS` or add pass-through-mode warning at startup. |
+| ~~ADV-P47-04~~ | ~~Red-Team P47~~ | T50.3 | ~~ADVISORY~~ | ~~`/security/shred` and `/security/keys/rotate` removed from `AUTH_EXEMPT_PATHS` — RESOLVED in T50.3 (_exempt_paths.py)~~ |
 | ADV-P47-05 | Red-Team P47 | — | ADVISORY | All-or-nothing scope grant: single-operator model issues all scopes (`read`, `write`, `security:admin`, `settings:write`) to every authenticated operator. Fine for current single-tenant deployment; future multi-operator support will need role-based scope assignment. |
 | ~~ADV-P47-06~~ | ~~Red-Team P47~~ | T48.1 | ~~ADVISORY~~ | ~~In-memory rate limiter — RESOLVED in T48.1 (Redis-backed rate limiting)~~ |
 | ~~ADV-P48-01~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~X-Forwarded-For trust model — RESOLVED (PRODUCTION_DEPLOYMENT.md Appendix B)~~ |
 | ~~ADV-P48-02~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Redis INCR+EXPIRE atomicity — CLOSED as accepted tradeoff (standard industry pattern, documented)~~ |
 | ~~ADV-P48-03~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Anchor verification equality-only — CLOSED as accepted tradeoff (S3 Object Lock, documented in ADR-0048)~~ |
 | ~~ADV-P48-04~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~ale_key field in settings — RESOLVED (field removed from ConclaveSettings)~~ |
-| ADV-T49-01 | Dev T49.5 | — | ADVISORY | mutmut 3.x + CPython 3.14 segfault incompatibility: all target mutants exit with SIGSEGV (-11) rather than normal test failure (exit code 1). 0 mutants survived; 200/200 detected via process crash. Mutation hardening tests added to verify behavioral correctness without trampoline. Track mutmut issue for Python 3.14 fix upstream. |
-| ADV-P47-07 | Red-Team P47 | — | ADVISORY | TOCTOU in `ModelArtifact.load()`: file size check, then read, then HMAC verify. An attacker with filesystem write access could swap the file between size check and read. Low severity — requires local filesystem access, and HMAC verification would fail on tampered content. |
+| ~~ADV-T49-01~~ | ~~Dev T49.5~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutmut 3.x + CPython 3.14 segfault incompatibility: all target mutants exit with SIGSEGV (-11) rather than normal test failure (exit code 1). 0 mutants survived; 200/200 detected via process crash. Mutation hardening tests added to verify behavioral correctness without trampoline. RESOLVED by ADR-0052 (accepted gap with manual hardening tests).~~ |
+| ~~ADV-P47-07~~ | ~~Red-Team P47~~ | T50.4 | ~~ADVISORY~~ | ~~TOCTOU in `ModelArtifact.load()`: RESOLVED in T50.4. Removed `os.path.exists()` and `os.path.getsize()` pre-checks; file now read with bounded `f.read(_MAX_ARTIFACT_SIZE_BYTES + 1)`, size checked on `len(raw)` after read. No TOCTOU race window.~~ |
 | ADV-P49-02 | Red-Team P49 | — | ADVISORY | Audit event HMAC signature does not cover the `details` field. An attacker with log store access could modify `details` without invalidating the signature. Chain hash covers it transitively but is re-computable. Pre-existing issue, not introduced by P49. |
-| ADV-P49-03 | DevOps P49 | — | ADVISORY | mutmut CI gate not wired into `.github/workflows/ci.yml`. Blocked by ADV-T49-01 (Python 3.14 segfault). Constitution Priority 0.5 gap — documented but not programmatically enforced. |
+| ~~ADV-P49-03~~ | ~~DevOps P49~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutmut CI gate not wired into `.github/workflows/ci.yml`. Blocked by ADV-T49-01 (Python 3.14 segfault). RESOLVED by ADR-0052 (gate deferred until upstream mutmut supports Python 3.14).~~ |
 
 ---
+
+### [2026-03-23] Phase 50 — T50.3: Default to Production Mode
+
+**Branch**: `feat/P50-production-security-fixes`
+
+**Tasks completed**: T50.3 (Default to production mode — secure-by-default hardening)
+
+**T50.3 — Default to Production Mode**:
+- Changed `conclave_env` field default from `""` to `"production"` in `shared/settings.py`
+- A fresh deployment with no `.env` now boots in production mode (auth enforced), not dev mode
+- Added `_warn_if_development_mode()` to `config_validation.py`: emits WARNING mentioning `CONCLAVE_ENV=production` when dev mode is active
+- Removed `/security/keys/rotate` from `COMMON_INFRA_EXEMPT_PATHS` (ADV-P47-04)
+- Updated `tests/conftest.py` autouse fixture to inject `CONCLAVE_ENV=development` as test-safe default
+- Migrated 8 existing test files: added `CONCLAVE_ENV=development` alongside `ENV=development` in dev-mode test cases
+
+**Review fix — Layered Exemption Model**:
+- DevOps and Architecture reviewers both found FINDING: removing `/security/shred` from
+  `COMMON_INFRA_EXEMPT_PATHS` broke the emergency shred design (sealed-state inaccessibility)
+- Fix: introduced `SEAL_EXEMPT_PATHS` (= COMMON + `/security/shred`) for vault/license gates
+- Auth gate still uses `COMMON_INFRA_EXEMPT_PATHS` (security routes require JWT — ADV-P47-04 preserved)
+- Updated `vault.py` and `licensing.py` to import `SEAL_EXEMPT_PATHS`; `security.py` docstring updated
+- 17 new attack tests (`test_layered_exemption_attack.py`), updated `test_exempt_paths.py`
+
+**Advisories drained**: ADV-P47-04 (security routes in AUTH_EXEMPT_PATHS — RESOLVED via layered exemption)
+
+**Tests added**: 12 attack tests (`test_production_mode_default_attack.py`), 19 feature tests (`test_production_mode_default_feature.py`), 17 layered-exemption attack tests
+
+**Open advisory count**: 3 (ADV-P47-02, ADV-P47-05, ADV-P49-02)
+
+### [2026-03-23] Phase 50 — ADR-0052: mutmut / Python 3.14 Gap
+
+**Branch**: `feat/P50-production-security-fixes`
+
+**Tasks completed**: ADR-0052 documentation (mutmut Python 3.14 compatibility gap)
+
+**ADR-0052**: Accepts the mutmut / CPython 3.14 SIGSEGV incompatibility as a known gap.
+- Constitution Priority 4 mutation gate deferred pending upstream mutmut support for Python 3.14
+- Manual hardening tests from T49.5 (19 tests in `test_mutation_hardening_t49_5.py`) serve as partial mitigation
+- `pyproject.toml` `[tool.mutmut]` config retained for re-activation when upstream support lands
+- Re-evaluation triggers documented in ADR-0052 (upstream release, Python downgrade proposal, alternative tool evaluation, Phase 55 threshold review)
+
+**Advisories drained**: ADV-T49-01 (mutmut segfault — RESOLVED), ADV-P49-03 (mutmut CI gate not wired — RESOLVED)
+
+**Open advisory count**: 3 (ADV-P47-02, ADV-P47-05, ADV-P49-02)
 
 ### [2026-03-23] Phase 49 — Test Quality Hardening
 

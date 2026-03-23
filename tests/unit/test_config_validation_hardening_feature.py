@@ -87,8 +87,9 @@ def test_empty_jwt_secret_dev_warns(
     )
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
+    # T50.3: Must also override CONCLAVE_ENV since it defaults to 'production'
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", "")
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
@@ -141,8 +142,9 @@ def test_empty_operator_hash_dev_warns(
     )
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
+    # T50.3: Must also override CONCLAVE_ENV since it defaults to 'production'
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "")
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
@@ -176,8 +178,9 @@ def test_invalid_hash_dev_warns(
     )
     monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
     monkeypatch.setenv("ENV", "development")
+    # T50.3: Must also override CONCLAVE_ENV since it defaults to 'production'
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "not-a-bcrypt-hash")
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
     monkeypatch.delenv("MASKING_SALT", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
@@ -222,8 +225,9 @@ def test_mtls_cert_readable_passes(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(ca))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(client_cert))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(client_key))
+    # T50.3: Use explicit development mode to avoid production-required validation
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 

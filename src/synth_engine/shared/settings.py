@@ -49,6 +49,7 @@ Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 Task: T47.7 — Add Parquet Memory Bounds (parquet_max_file_bytes, parquet_max_rows)
 Task: T48.4 — Audit Trail Anchoring (anchor_backend, anchor_file_path,
               anchor_every_n_events, anchor_every_seconds)
+Task: T50.3 — Default to Production Mode (secure-by-default)
 """
 
 from __future__ import annotations
@@ -224,9 +225,11 @@ class ConclaveSettings(BaseSettings):
     # -----------------------------------------------------------------------
 
     conclave_env: str = Field(
-        default="",
+        default="production",
         description=(
             "Deployment environment name (e.g. 'production'). "
+            "Defaults to 'production' — secure-by-default (T50.3). "
+            "Set to 'development' to enable development mode explicitly. "
             "Checked alongside ENV by is_production()."
         ),
     )
