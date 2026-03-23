@@ -7,6 +7,15 @@ This module validates:
 - Job dependency chain is correctly wired (build-release needs validate-tag, etc.).
 - Negative cases: missing keys, unpinned actions, forbidden global write perms.
 
+Implementation note — PyYAML `on` keyword coercion:
+  PyYAML's `safe_load` converts the bare YAML keyword `on` to Python `True`
+  because `on` / `off` / `yes` / `no` are Boolean synonyms in YAML 1.1
+  (the version PyYAML implements). GitHub Actions parsers use YAML 1.2 where
+  this coercion does not apply. `_load_workflow()` normalizes the parsed dict
+  by replacing the `True` key with `"on"` so tests can use the expected string
+  key. This normalization is local to the test helpers and does not affect the
+  actual workflow file.
+
 Google-style docstrings are applied throughout.
 
 T51.2 — GitHub Actions Release Workflow
@@ -22,41 +31,52 @@ import pytest
 import yaml
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Constants
 # ---------------------------------------------------------------------------
 
 WORKFLOW_PATH = Path(__file__).parents[2] / ".github" / "workflows" / "release.yml"
 
 # Pattern that matches a correctly SHA-pinned action reference.
-# Acceptable: <owner>/<repo>@<40-hex-chars>  (with an optional comment)
+# Acceptable: <owner>/<repo>@<40-hex-chars>
 # Rejected:   @main, @master, @v4, @v4.2.2, @latest
 _SHA_RE = re.compile(r"^[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$")
 
-# Actions that are permitted to have no SHA (Docker/system-level steps run: ...)
-# i.e. steps that use `run:` rather than `uses:`. We only check `uses:` values.
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _load_workflow() -> dict[str, Any]:
-    """Load and parse the release workflow YAML.
+    """Load and parse the release workflow YAML with PyYAML boolean normalisation.
+
+    PyYAML's `safe_load` converts the YAML 1.1 keyword ``on`` to Python
+    ``True``.  GitHub Actions uses YAML 1.2 where ``on`` is a plain string.
+    This function normalises the top-level key so that tests can reference
+    ``workflow["on"]`` as expected.
 
     Returns:
-        Parsed YAML content as a dictionary.
+        Parsed and normalised YAML content as a dictionary.
 
     Raises:
         FileNotFoundError: If the workflow file does not exist.
         yaml.YAMLError: If the file is not valid YAML.
     """
-    return yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+    raw: dict[Any, Any] = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    # PyYAML coerces `on:` → True. Re-key it to the canonical string "on".
+    if True in raw and "on" not in raw:
+        raw["on"] = raw.pop(True)
+    return raw  # type: ignore[return-value]
 
 
 def _collect_uses_values(data: Any) -> list[str]:
-    """Recursively collect every `uses:` value in a parsed YAML structure.
+    """Recursively collect every ``uses:`` value in a parsed YAML structure.
 
     Args:
         data: Arbitrary parsed YAML value (dict, list, or scalar).
 
     Returns:
-        Flat list of strings that appeared as values under `uses:` keys.
+        Flat list of strings that appeared as values under ``uses:`` keys.
     """
     results: list[str] = []
     if isinstance(data, dict):
@@ -91,9 +111,9 @@ class TestReleaseWorkflowSecurity:
         )
 
     def test_no_unpinned_action_uses_main(self) -> None:
-        """No `uses:` line may reference @main or @master.
+        """No ``uses:`` line may reference @main or @master.
 
-        @main references are mutable; they bypass supply-chain integrity
+        ``@main`` references are mutable; they bypass supply-chain integrity
         guarantees and violate the SHA-pinning mandate established in T3.5.1.
         """
         workflow = _load_workflow()
@@ -105,32 +125,32 @@ class TestReleaseWorkflowSecurity:
         )
 
     def test_no_bare_version_tag_actions(self) -> None:
-        """No `uses:` line may reference a bare semver tag without a SHA.
+        """No ``uses:`` line may reference a bare semver tag without a SHA.
 
-        Bare tags like @v4 or @v4.2.2 are mutable pointers that can be
-        force-pushed by the action author, enabling supply-chain attacks.
+        Bare tags like ``@v4`` or ``@v4.2.2`` are mutable pointers that can
+        be force-pushed by the action author, enabling supply-chain attacks.
         Every action must be pinned to a 40-character commit SHA.
         """
         workflow = _load_workflow()
         uses_values = _collect_uses_values(workflow)
-        # A bare tag looks like @v<digits> or @v<digits>.<digits>... with no SHA
         bare_tag_re = re.compile(r"@v\d+(\.\d+)*$")
         violations = [u for u in uses_values if bare_tag_re.search(u)]
         assert violations == [], (
             f"Bare version-tag action references found: {violations}. "
-            "Replace with SHA-pinned references (e.g., actions/checkout@<40-char-sha>)."
+            "Replace with SHA-pinned references (e.g. actions/checkout@<40-char-sha>)."
         )
 
     def test_all_uses_values_are_sha_pinned(self) -> None:
-        """Every `uses:` value must be pinned to a 40-character commit SHA.
+        """Every ``uses:`` value must be pinned to a 40-character commit SHA.
 
         This is the positive form of the supply-chain hardening test. Each
         action reference is matched against the canonical SHA pattern.
         """
         workflow = _load_workflow()
         uses_values = _collect_uses_values(workflow)
-        # Must have at least one uses value (the workflow uses actions)
-        assert len(uses_values) >= 1, "Workflow has no `uses:` references — cannot validate pinning."
+        assert len(uses_values) >= 1, (
+            "Workflow has no `uses:` references — cannot validate pinning."
+        )
         violations = [u for u in uses_values if not _SHA_RE.match(u)]
         assert violations == [], (
             f"Non-SHA-pinned action references found: {violations}. "
@@ -138,15 +158,14 @@ class TestReleaseWorkflowSecurity:
         )
 
     def test_no_global_write_permissions(self) -> None:
-        """Global `permissions: write-all` or `contents: write` must not appear.
+        """Global ``permissions: write-all`` or ``contents: write`` must not appear.
 
         Per the task spec, permissions must be scoped per-job. A global
-        `contents: write` block grants excessive scope to ALL jobs including
+        ``contents: write`` block grants excessive scope to ALL jobs including
         potential future additions, violating the principle of least privilege.
         """
         workflow = _load_workflow()
         global_perms = workflow.get("permissions", {})
-        # Global block must not grant write on contents
         if isinstance(global_perms, dict):
             contents_perm = global_perms.get("contents", "read")
             assert contents_perm != "write", (
@@ -160,7 +179,7 @@ class TestReleaseWorkflowSecurity:
             )
 
     def test_trigger_is_tag_push_only(self) -> None:
-        """The workflow must trigger only on `v*` tag pushes.
+        """The workflow must trigger only on ``v*`` tag pushes.
 
         A release workflow that triggers on branch pushes would run on every
         commit to main, creating spurious release artifacts and cluttering the
@@ -174,7 +193,6 @@ class TestReleaseWorkflowSecurity:
             f"Expected trigger `on.push.tags: ['v*']`, got: {tags}. "
             "Release workflow must only trigger on version tag pushes."
         )
-        # Must NOT trigger on branches
         branches = push_block.get("branches", [])
         assert branches == [], (
             f"Release workflow has branch triggers: {branches}. "
@@ -182,10 +200,10 @@ class TestReleaseWorkflowSecurity:
         )
 
     def test_publish_cannot_run_without_build(self) -> None:
-        """publish-release must declare `needs: [build-release]`.
+        """publish-release must declare ``needs: [build-release]``.
 
         If publish-release can run without build-release completing, a build
-        failure would not prevent a broken/empty release from being published.
+        failure would not prevent a broken or empty release from being published.
         """
         workflow = _load_workflow()
         jobs = workflow.get("jobs", {})
@@ -199,10 +217,10 @@ class TestReleaseWorkflowSecurity:
         )
 
     def test_build_cannot_run_without_validate(self) -> None:
-        """build-release must declare `needs: [validate-tag]`.
+        """build-release must declare ``needs: [validate-tag]``.
 
         If build-release can run without validate-tag, invalid tags could
-        trigger an expensive build before validation fails.
+        trigger an expensive Docker build before validation fails.
         """
         workflow = _load_workflow()
         jobs = workflow.get("jobs", {})
@@ -218,14 +236,14 @@ class TestReleaseWorkflowSecurity:
     def test_invalid_tag_format_fails_validate_job(self) -> None:
         """The validate-tag job must contain a step that checks the tag format.
 
-        A workflow that accepts any tag (e.g. `not-a-version` or `release-foo`)
-        provides no version-format guarantee and produces confusingly named artifacts.
+        A workflow that accepts any tag (e.g. ``not-a-version`` or
+        ``release-foo``) provides no version-format guarantee and produces
+        confusingly named artifacts.
         """
         workflow = _load_workflow()
         jobs = workflow.get("jobs", {})
         validate_job = jobs.get("validate-tag", {})
         steps = validate_job.get("steps", [])
-        # The validate step must have some shell command that checks the tag format
         step_names = [s.get("name", "") for s in steps]
         step_runs = [s.get("run", "") for s in steps]
         all_content = " ".join(step_names + step_runs).lower()
@@ -252,11 +270,15 @@ class TestReleaseWorkflowStructure:
         """Workflow must have name, on, and jobs keys at the top level.
 
         These are the three non-optional top-level keys in every GitHub
-        Actions workflow file.
+        Actions workflow file. Note: PyYAML normalisation converts the bare
+        ``on:`` YAML key to the string ``"on"`` before this assertion runs.
         """
         workflow = _load_workflow()
         assert "name" in workflow, "Workflow missing top-level `name:` key."
-        assert "on" in workflow, "Workflow missing top-level `on:` key."
+        assert "on" in workflow, (
+            "Workflow missing top-level `on:` key. "
+            "(PyYAML boolean normalisation: True → 'on' was applied.)"
+        )
         assert "jobs" in workflow, "Workflow missing top-level `jobs:` key."
 
     def test_workflow_has_three_required_jobs(self) -> None:
@@ -269,26 +291,22 @@ class TestReleaseWorkflowStructure:
         required_jobs = {"validate-tag", "build-release", "publish-release"}
         missing = required_jobs - set(jobs.keys())
         assert missing == set(), (
-            f"Required jobs missing from workflow: {missing}. "
-            f"Defined jobs: {set(jobs.keys())}."
+            f"Required jobs missing from workflow: {missing}. Defined jobs: {set(jobs.keys())}."
         )
 
-    def test_build_release_job_has_contents_write_permission(self) -> None:
-        """The build-release or publish-release job must have `contents: write`.
+    def test_publish_release_job_has_contents_write_permission(self) -> None:
+        """The publish-release job must have ``permissions.contents: write``.
 
         Creating a GitHub Release and uploading assets requires write access
         to repository contents. Per the task spec, this must be scoped to the
-        job, not granted globally.
+        publish-release job, not granted globally.
         """
         workflow = _load_workflow()
         jobs = workflow.get("jobs", {})
-        # Either build-release or publish-release can hold the write permission
-        # (task spec assigns it to publish-release)
         publish_perms = jobs.get("publish-release", {}).get("permissions", {})
         build_perms = jobs.get("build-release", {}).get("permissions", {})
         has_write = (
-            publish_perms.get("contents") == "write"
-            or build_perms.get("contents") == "write"
+            publish_perms.get("contents") == "write" or build_perms.get("contents") == "write"
         )
         assert has_write, (
             "Neither publish-release nor build-release has `permissions.contents: write`. "
@@ -296,11 +314,11 @@ class TestReleaseWorkflowStructure:
         )
 
     def test_build_release_installs_dev_and_synthesizer_deps(self) -> None:
-        """build-release must install dependencies with --with dev,synthesizer.
+        """build-release must install dependencies with ``--with dev,synthesizer``.
 
         The SBOM generation step requires the synthesizer group to enumerate
-        all dependencies including SDV/CTGAN. Installing only --with dev would
-        produce an incomplete SBOM.
+        all dependencies including SDV/CTGAN. Installing only ``--with dev``
+        would produce an incomplete SBOM.
         """
         workflow = _load_workflow()
         jobs = workflow.get("jobs", {})
@@ -309,8 +327,11 @@ class TestReleaseWorkflowStructure:
             s.get("run", "") for s in build_steps if "install" in s.get("name", "").lower()
         ]
         all_install_text = " ".join(install_runs)
-        assert "--with dev,synthesizer" in all_install_text or "--with synthesizer" in all_install_text, (
-            f"build-release does not install synthesizer dependency group. "
+        has_synthesizer = (
+            "--with dev,synthesizer" in all_install_text or "--with synthesizer" in all_install_text
+        )
+        assert has_synthesizer, (
+            f"build-release does not install the synthesizer dependency group. "
             f"Install steps found: {install_runs}. "
             "SBOM generation requires `poetry install --with dev,synthesizer`."
         )
@@ -363,7 +384,7 @@ class TestReleaseWorkflowStructure:
         )
 
     def test_publish_release_uses_gh_release_create(self) -> None:
-        """publish-release must create the GitHub Release using `gh release create`.
+        """publish-release must create the GitHub Release using ``gh release create``.
 
         Using the GitHub CLI ensures consistent release creation with proper
         checksums, notes, and asset attachment in a single atomic operation.
@@ -397,12 +418,11 @@ class TestReleaseWorkflowStructure:
     def test_build_release_uploads_artifacts(self) -> None:
         """build-release must upload artifacts so publish-release can download them.
 
-        GitHub Actions jobs run in isolated environments. Artifacts produced by
-        build-release must be uploaded for publish-release to access them.
+        GitHub Actions jobs run in isolated environments. Artifacts produced
+        by build-release must be uploaded for publish-release to access them.
         """
         workflow = _load_workflow()
         uses_values = _collect_uses_values(workflow.get("jobs", {}).get("build-release", {}))
-        # actions/upload-artifact SHA from ci.yml: bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         has_upload = any("upload-artifact" in u for u in uses_values)
         assert has_upload, (
             "build-release does not use actions/upload-artifact. "
@@ -426,13 +446,16 @@ class TestReleaseWorkflowStructure:
     def test_workflow_name_is_descriptive(self) -> None:
         """Workflow name must be non-empty and descriptive (not a default placeholder).
 
-        An empty or generic name ('CI', 'workflow') makes the GitHub Actions
-        UI difficult to navigate when multiple workflows exist.
+        An empty or generic name makes the GitHub Actions UI difficult to
+        navigate when multiple workflows exist.
         """
         workflow = _load_workflow()
         name = workflow.get("name", "")
-        assert isinstance(name, str) and len(name) >= 5, (  # noqa: PLR2004
-            f"Workflow name '{name}' is too short or missing. "
+        assert isinstance(name, str), (
+            f"Workflow name '{name}' is not a string — `name:` key is malformed."
+        )
+        assert len(name) >= 5, (
+            f"Workflow name '{name}' is too short (< 5 chars). "
             "Use a descriptive name like 'Release' or 'Release Engineering'."
         )
         forbidden = {"ci", "workflow", "untitled", "test"}
