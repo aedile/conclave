@@ -159,6 +159,8 @@ def test_validate_config_passes_when_mtls_cert_files_exist(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(mtls_cert_files["ca"]))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(mtls_cert_files["cert"]))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(mtls_cert_files["key"]))
+    # T50.3: conclave_env defaults to 'production' — must be explicit for dev-mode tests
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.bootstrapper.config_validation import validate_config
 
@@ -176,6 +178,8 @@ def test_validate_config_does_not_check_cert_files_when_mtls_disabled(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", "/nonexistent/ca.crt")
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", "/nonexistent/cert.crt")
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", "/nonexistent/key.key")
+    # T50.3: conclave_env defaults to 'production' — must be explicit for dev-mode tests
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.bootstrapper.config_validation import validate_config
 

@@ -744,9 +744,9 @@ class TestE2eValidationDoc:
     """Validate that the E2E validation documentation exists."""
 
     def test_e2e_validation_doc_exists(self) -> None:
-        """docs/E2E_VALIDATION.md must exist."""
-        doc_path = REPO_ROOT / "docs" / "E2E_VALIDATION.md"
-        assert doc_path.is_file(), "docs/E2E_VALIDATION.md not found"
+        """docs/archive/E2E_VALIDATION.md must exist (archived in docs cleanup phase)."""
+        doc_path = REPO_ROOT / "docs" / "archive" / "E2E_VALIDATION.md"
+        assert doc_path.is_file(), "docs/archive/E2E_VALIDATION.md not found"
 
     def test_e2e_doc_contains_docker_compose_step(self) -> None:
         """docs/E2E_VALIDATION.md must document the Docker infrastructure step.
