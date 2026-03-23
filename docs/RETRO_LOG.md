@@ -33,6 +33,34 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-23] Phase 51 — Release Engineering
+
+**Branch**: `feat/P51-release-engineering`
+
+**Tasks completed**: T51.1 (Version bump + bump script), T51.2 (Release workflow),
+T51.3 (Air-gap validation), T51.4 (DR dry run)
+
+**T51.1**: Bumped `0.1.0` → `1.0.0rc1` across 5 locations (pyproject.toml, __init__.py,
+licensing.py, main.py, openapi.json). Refactored `main.py` to read `__version__` from
+`__init__.py`. Created `scripts/bump_version.sh` with PEP 440 validation and atomic updates.
+
+**T51.2**: Created `.github/workflows/release.yml` — 3-job pipeline (validate-tag → build-release
+→ publish-release) triggered on `v*` tags. All actions SHA-pinned. SBOM includes synthesizer deps.
+
+**T51.3**: Created `scripts/validate_airgap.sh` — bundle extraction, image loading, compose up,
+health check, teardown. Fixed `build_airgap.sh` to exclude `docker-compose.override.yml`.
+Added `make load-images` and `make validate-airgap` targets.
+
+**T51.4**: Created `scripts/dr_dry_run.sh` — 3 DR scenarios (DB backup/restore, service recovery,
+Redis recovery). All data uses `dr_test_` prefix. Backups to `/tmp/` only. Section 8 added to
+DISASTER_RECOVERY.md.
+
+**Tests added**: 20 (T51.1), 21 (T51.2), 27 (T51.3), 27 (T51.4) = 95 new tests
+
+**Open advisory count**: 3 (ADV-P47-02, ADV-P47-05, ADV-P49-02)
+
+---
+
 ### [2026-03-23] Phase 50 — T50.3: Default to Production Mode
 
 **Branch**: `feat/P50-production-security-fixes`

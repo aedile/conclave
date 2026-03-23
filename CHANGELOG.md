@@ -10,7 +10,7 @@ For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`
 
 ---
 
-## Phase 51 — Release Engineering (in progress)
+## Phase 51 — Release Engineering
 *2026-03-23 | PR TBD*
 
 - Version bump: `0.1.0` → `1.0.0rc1` (PEP 440) across all 5 locations. `main.py` now reads
@@ -20,6 +20,13 @@ For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`
 - Added `.github/workflows/release.yml`: three-job release pipeline triggered on `v*` tag pushes.
   Jobs: `validate-tag` → `build-release` (Docker image, air-gap bundle, CycloneDX SBOM, sha256sums)
   → `publish-release` (GitHub Release with all assets). All `uses:` SHA-pinned (T51.2).
+- Added `scripts/validate_airgap.sh`: end-to-end air-gap bundle validation (extract → load images
+  → compose up → health check → teardown). Fixed `build_airgap.sh` to exclude
+  `docker-compose.override.yml` from production bundles. Added `make load-images` and
+  `make validate-airgap` targets (T51.3).
+- Added `scripts/dr_dry_run.sh`: disaster recovery dry run with 3 scenarios — database
+  backup/restore, service recovery, Redis recovery. All test data uses `dr_test_` prefix;
+  backups written only to `/tmp/`. Section 8 added to DISASTER_RECOVERY.md (T51.4).
 
 ## Phase 50 — Production Security Fixes
 *2026-03-23 | PR [#183](../../pull/183)*
