@@ -278,10 +278,15 @@ class ModelArtifact:
         Returns:
             The deserialised :class:`ModelArtifact` instance.
 
+        Note:
+            :exc:`FileNotFoundError` propagates naturally from the underlying
+            ``open()`` call when no file exists at ``path`` — it is not raised
+            explicitly, eliminating the TOCTOU race between a pre-check and the
+            actual open (T50.4, ADV-P47-07).
+
         Raises:
             ValueError: If ``signing_key`` is an empty bytes value (``b""``),
                 shorter than 32 bytes, or if the artifact file exceeds 2 GiB.
-            FileNotFoundError: If no file exists at ``path``.
             SecurityError: If HMAC verification fails for any reason:
                 wrong key, tampered payload, signed file loaded without a key,
                 or unsigned file loaded with a key.
