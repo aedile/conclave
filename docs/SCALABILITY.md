@@ -1,9 +1,6 @@
 # Conclave Engine — Scalability Reference
 
-This document describes the capacity limits, resource constraints, and hardware
-sizing recommendations for the Conclave Engine. All figures are derived from the
-actual source code configuration and empirical benchmarks. Operators should use
-these numbers to plan hardware provisioning and set expectations before deploying.
+Capacity limits, resource constraints, and hardware sizing. All figures are derived from source code configuration and empirical benchmarks.
 
 ---
 
@@ -11,8 +8,7 @@ these numbers to plan hardware provisioning and set expectations before deployin
 
 ### Pool Configuration
 
-The SQLAlchemy engine factory (`src/synth_engine/shared/db.py`) configures a
-`QueuePool` with the following constants:
+The SQLAlchemy engine factory (`src/synth_engine/shared/db.py`) uses a `QueuePool`:
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
@@ -22,32 +18,19 @@ The SQLAlchemy engine factory (`src/synth_engine/shared/db.py`) configures a
 
 ### PgBouncer Dependency
 
-The production deployment connects the application to PostgreSQL **through
-PgBouncer** (transaction-mode pooler), not directly. This is why the
-`_POOL_SIZE` and `_MAX_OVERFLOW` values are intentionally modest:
+Production connects through PgBouncer (transaction-mode pooler), not directly to PostgreSQL. The pool values are intentionally modest because PgBouncer handles external multiplexing.
 
-- PgBouncer handles external multiplexing. Many application-side SQLAlchemy
-  connections may share a smaller number of actual server-side PostgreSQL backend
-  processes.
-- Without PgBouncer, each `get_engine()` call (if not cached) would allocate a
-  fresh 15-connection pool. The engine cache (`_engine_cache` and
-  `_async_engine_cache`) prevents this by returning the same engine instance for
-  the same URL, but PgBouncer remains the primary scale-out mechanism.
-- **If PgBouncer is removed or misconfigured**, the application will still
-  function, but each concurrent request may hold one of the 15 available
-  connections. Under load, new requests will queue waiting for a connection. At
-  150+ concurrent requests with slow queries, pool exhaustion is likely.
+- The engine cache (`_engine_cache`, `_async_engine_cache`) returns the same engine for the same URL, preventing redundant pool allocation.
+- **Without PgBouncer**, each concurrent request may hold one of the 15 connections. At 150+ concurrent requests with slow queries, pool exhaustion is likely.
 
 ### Connection Pool Exhaustion
 
-Symptoms of pool exhaustion:
+Symptoms:
+- Requests hang with no response.
+- Logs show: `TimeoutError: QueuePool limit of size 5 overflow 10 reached`.
+- Grafana shows elevated `db_connection_wait_seconds`.
 
-- Requests hang with no response for several seconds.
-- Application logs show: `TimeoutError: QueuePool limit of size 5 overflow 10 reached`.
-- Grafana shows elevated `db_connection_wait_seconds` (if instrumented).
-
-Mitigation: increase PgBouncer's `pool_size` parameter before adjusting
-`_POOL_SIZE` in application code. PgBouncer is the correct scaling point.
+Mitigation: increase PgBouncer's `pool_size` before adjusting application-level `_POOL_SIZE`.
 
 ---
 
@@ -55,35 +38,19 @@ Mitigation: increase PgBouncer's `pool_size` parameter before adjusting
 
 ### Single Huey Worker Serializes Jobs
 
-The Conclave Engine runs **one Huey worker process** that executes synthesis
-tasks sequentially. This is a deliberate architectural constraint:
-
-- Huey's default behavior with a single worker process processes one task at a
-  time from the queue.
-- Multiple synthesis jobs submitted simultaneously will queue in Redis and execute
-  one after another — they do not run in parallel.
-- CTGAN training is CPU- and memory-intensive. Parallel training jobs would
-  compete for RAM and CPU, degrading all jobs.
-
-**Practical limits:**
+Conclave runs **one Huey worker process** — synthesis tasks execute sequentially. Multiple jobs queue in Redis and run one after another. This is deliberate: parallel CTGAN training jobs would compete for RAM and CPU, degrading all jobs.
 
 | Scenario | Behavior |
 |----------|----------|
 | 1 job running | Normal operation |
 | 2–10 jobs queued | Jobs execute in order; queue visible via `GET /jobs` |
-| 100+ jobs queued | Queue grows; Redis memory usage increases ~KB per queued task |
+| 100+ jobs queued | Queue grows; Redis memory increases ~KB per queued task |
 
-To process multiple jobs concurrently, you would need to run multiple Huey
-worker processes. This is not the default configuration and has not been tested.
-If you require parallel synthesis, contact the development team.
+Multiple Huey workers would enable concurrency but is untested. Contact the development team if parallel synthesis is required.
 
 ### Job Timeout
 
-The SSE stream times out after 3600 poll cycles at 1 second per cycle — a
-maximum stream lifetime of **1 hour per job**. If a synthesis job takes longer
-than 1 hour, the SSE connection will close with a timeout error event. The job
-itself continues running in Huey; you can reconnect the stream or poll `GET /jobs/<id>`
-for status.
+The SSE stream times out after 3600 poll cycles at 1 second each — **1 hour maximum stream lifetime per job**. If a job exceeds 1 hour, the SSE connection closes with a timeout error. The job continues running in Huey; reconnect the stream or poll `GET /jobs/<id>` for status.
 
 ---
 
@@ -91,8 +58,7 @@ for status.
 
 ### Polling Architecture
 
-The Server-Sent Events (SSE) endpoint (`/jobs/<job-id>/stream`) uses database
-polling rather than WebSockets or persistent pub/sub:
+The SSE endpoint (`/jobs/<job-id>/stream`) uses database polling:
 
 | Parameter | Value | Source |
 |-----------|-------|--------|
@@ -101,9 +67,7 @@ polling rather than WebSockets or persistent pub/sub:
 
 ### Concurrent Client Scaling
 
-Each connected SSE client issues one database query per second via
-`asyncio.to_thread` (to avoid blocking the event loop). This is a
-**SELECT by primary key** — the cheapest possible query.
+Each SSE client issues one SELECT-by-primary-key per second via `asyncio.to_thread`.
 
 | Concurrent SSE clients | Estimated DB queries/sec | Notes |
 |------------------------|--------------------------|-------|
@@ -112,16 +76,9 @@ Each connected SSE client issues one database query per second via
 | 100 | ~100 queries/sec | Moderate; monitor PgBouncer queue depth |
 | 500 | ~500 queries/sec | Heavy; verify PgBouncer and PostgreSQL can sustain |
 
-**PostgreSQL throughput reference:** A well-tuned PostgreSQL instance on
-modern hardware handles 5,000–50,000 simple SELECT operations per second,
-depending on indexing, connection overhead, and hardware. 500 SSE clients at
-100 queries/sec is within range but warrants monitoring.
+A well-tuned PostgreSQL instance handles 5,000–50,000 simple SELECTs per second. **Recommended production maximum without dedicated tuning: 100 concurrent SSE clients.** Beyond this:
 
-**Recommended maximum for production without dedicated tuning: 100 concurrent
-SSE clients.** Beyond this, operators should:
-
-1. Reduce polling frequency by adjusting `_POLL_INTERVAL_S` (requires code
-   change — not an environment variable).
+1. Reduce polling frequency by adjusting `_POLL_INTERVAL_S` (code change required).
 2. Add a caching layer in front of the job status query.
 3. Scale PgBouncer's connection pool.
 
@@ -131,30 +88,19 @@ SSE clients.** Beyond this, operators should:
 
 ### Memory Model
 
-CTGAN (via SDV's `CTGANSynthesizer`) loads the **entire training DataFrame into
-memory** before training begins. There is no streaming or chunked training path.
+CTGAN loads the **entire training DataFrame into memory** before training. No streaming or chunked training path exists.
 
-The synthesis engine (`modules/synthesizer/`) includes an OOM pre-flight
-guardrail that estimates memory requirements before starting. The estimate uses
-a **6x overhead factor** over the raw DataFrame byte size:
-
-- 1x for the raw DataFrame itself
-- ~5x for gradient buffers, optimizer state, VGM normalization buffers, and
-  intermediate tensors during backpropagation
-
-**Formula:**
+The synthesis engine includes an OOM pre-flight guardrail using a **6x overhead factor**:
 
 ```
 estimated_ram_bytes = df_rows * df_columns * bytes_per_float32 * 6
 ```
 
-If `estimated_ram_bytes > available_system_ram`, the job raises
-`OOMGuardrailError` and fails cleanly before training starts.
+The 6x covers: 1x raw DataFrame + ~5x gradient buffers, optimizer state, VGM normalization buffers, and intermediate tensors. If `estimated_ram_bytes > available_system_ram`, the job raises `OOMGuardrailError` before training starts.
 
 ### Memory by Dataset Size
 
-The following estimates assume 10 columns of mixed numeric/categorical data.
-Actual consumption depends on column count, data types, and epoch count.
+Assumes 10 columns of mixed numeric/categorical data. Actual consumption depends on column count, data types, and epoch count.
 
 | Dataset Rows | Approx Raw DataFrame Size | Estimated Training RAM (6x) |
 |-------------|--------------------------|------------------------------|
@@ -165,26 +111,15 @@ Actual consumption depends on column count, data types, and epoch count.
 | 5,000,000 | ~800 MB | ~4.8 GB |
 | 10,000,000 | ~1.6 GB | ~9.6 GB |
 
-**Note:** These are estimates for the training loop only. The Docker container
-also needs RAM for the FastAPI process, Python interpreter, and other services
-sharing the host. Add 512 MB–1 GB overhead for the application itself.
+Add 512 MB–1 GB for the FastAPI process, Python interpreter, and other co-located services.
 
 ### GPU Memory (DP-SGD Training)
 
-When Opacus DP-SGD is enabled (Phase 30+), discriminator-level DP-SGD is applied
-directly to the `OpacusCompatibleDiscriminator`. GPU memory usage scales with the
-Discriminator architecture and batch size. For typical datasets with fewer than
-100 features, DP-SGD GPU overhead is under 200 MB above the base CTGAN memory.
-The CTGAN model training is the primary GPU consumer. See ADR-0036 for the
-discriminator-level DP-SGD architecture.
+Opacus DP-SGD (Phase 30+) is applied directly to `OpacusCompatibleDiscriminator`. For typical datasets with fewer than 100 features, DP-SGD GPU overhead is under 200 MB above base CTGAN memory. See ADR-0036.
 
 ---
 
 ## 5. Recommended Hardware by Dataset Size
-
-The following tiers are based on the memory model above and practical
-experience running CTGAN training jobs. "Small" datasets train quickly on any
-modern server; "Large" datasets require significant resources.
 
 ### Tier 1: Small Datasets (up to 100,000 rows)
 
@@ -208,8 +143,7 @@ Suitable for: development, testing, compliance audits on small PII tables.
 | GPU | Recommended (NVIDIA GPU with ≥8 GB VRAM) |
 | PgBouncer pool_size | 20–50 server connections |
 
-Suitable for: production deployments with customer or transaction data.
-GPU significantly reduces training time from hours to minutes at 300 epochs.
+Suitable for: production deployments with customer or transaction data. GPU reduces training time from hours to minutes at 300 epochs.
 
 ### Tier 3: Large Datasets (1,000,000 – 10,000,000 rows)
 
@@ -221,23 +155,17 @@ GPU significantly reduces training time from hours to minutes at 300 epochs.
 | GPU | Required (NVIDIA A100 or equivalent with ≥40 GB VRAM) |
 | PgBouncer pool_size | 50–100 server connections |
 
-Suitable for: large-scale PII masking projects, data lake synthesis pipelines.
-Training at 300 epochs on 10M rows will take multiple hours even on high-end
-GPU hardware. Consider reducing epoch count or using `num_rows` sampling.
+Suitable for: large-scale PII masking, data lake synthesis pipelines. Training 10M rows at 300 epochs takes multiple hours even on high-end GPU. Consider reducing epoch count or using `num_rows` sampling.
 
 ### Maximum Tested Dataset Size
 
-The maximum dataset size validated in the Conclave Engine integration test suite
-is **1,000,000 rows with 20 columns** on a machine with 32 GB RAM and an
-NVIDIA A10 GPU. Larger datasets have been tested experimentally to 5M rows with
-64 GB RAM but are not part of the automated test suite.
+**1,000,000 rows with 20 columns** on 32 GB RAM + NVIDIA A10 GPU. Experimentally tested to 5M rows with 64 GB RAM but not part of the automated test suite.
 
 ---
 
 ## 6. Expected Synthesis Latency
 
-Latency is dominated by the CTGAN training loop. Sampling (generation) after
-training is fast (<5 seconds for up to 100,000 synthetic rows).
+Latency is dominated by the CTGAN training loop. Sampling after training is fast (<5 seconds for up to 100,000 synthetic rows).
 
 ### Training Latency Ranges (300 epochs)
 
@@ -248,22 +176,15 @@ training is fast (<5 seconds for up to 100,000 synthetic rows).
 | 500,000 rows | 3–8 hours | 30–90 minutes |
 | 1,000,000 rows | 8–20+ hours | 2–5 hours |
 
-**Reducing epoch count trades synthesis quality for speed.** For exploratory
-work or pipeline testing, 10–50 epochs often produces acceptable distributions
-in a fraction of the time. For compliance-grade synthesis, 300+ epochs is
-recommended.
+Reducing epoch count trades synthesis quality for speed. For exploratory work, 10–50 epochs often produces acceptable distributions. For compliance-grade synthesis, 300+ epochs is recommended.
 
 ### DP-SGD Overhead
 
-Enabling Opacus DP-SGD adds a per-batch overhead for per-sample gradient
-clipping and noise injection. Empirically, DP-SGD training is approximately
-**2–4x slower** than vanilla CTGAN training on the same hardware and dataset.
+Opacus DP-SGD adds per-batch overhead for per-sample gradient clipping and noise injection. Empirically, **2–4x slower** than vanilla CTGAN on the same hardware and dataset.
 
 ---
 
 ## 7. Memory Footprint Per 1M Rows
-
-Based on the 6x overhead model and empirical observations:
 
 | Measurement | Value |
 |-------------|-------|
@@ -273,9 +194,7 @@ Based on the 6x overhead model and empirical observations:
 | MinIO ephemeral storage for 1M-row Parquet | ~200–400 MB (depends on compression) |
 | Total system RAM requirement | ~1.5–2 GB for training alone |
 
-For multi-table synthesis (topological training of FK-linked tables), multiply
-the per-table estimate by the number of tables. Tables are trained sequentially,
-so peak RAM is the maximum of any single table's requirement — not the sum.
+For multi-table synthesis, tables are trained sequentially — peak RAM is the maximum of any single table's requirement, not the sum.
 
 ---
 
@@ -286,5 +205,5 @@ so peak RAM is the maximum of any single table's requirement — not the sum.
 - `src/synth_engine/modules/synthesizer/dp_training.py` — Discriminator-level DP-SGD training (ADR-0036)
 - `docs/DISASTER_RECOVERY.md` Section 2 — OOM event recovery procedures
 - `docs/OPERATOR_MANUAL.md` Section 1 — Hardware requirements table
-- `docs/archive/DP_QUALITY_REPORT.md` — Empirical epsilon benchmarks on 500-row dataset
+- `docs/DP_QUALITY_REPORT.md` — Empirical epsilon benchmarks on 500-row dataset
 - `docs/adr/ADR-0017-synthesizer-dp-library-selection.md` — CTGAN/Opacus selection rationale

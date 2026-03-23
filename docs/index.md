@@ -1,8 +1,6 @@
 # Conclave Engine — Documentation Index
 
-This is the central navigation page for all Conclave Engine documentation.
-Documents are organized by primary audience. Many documents are relevant to
-multiple audiences; cross-references are noted.
+Central navigation for all Conclave Engine documentation, organized by primary audience.
 
 **Total documents indexed: 123**
 
@@ -18,51 +16,43 @@ multiple audiences; cross-references are noted.
 | Understand hardware requirements | [SCALABILITY.md](SCALABILITY.md) |
 | Recover from a disaster | [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) |
 | Activate a license | [LICENSING.md](LICENSING.md) |
-| Understand the architecture | [archive/ARCHITECTURAL_REQUIREMENTS.md](archive/ARCHITECTURAL_REQUIREMENTS.md) |
+| Understand the architecture | [ARCHITECTURAL_REQUIREMENTS.md](ARCHITECTURAL_REQUIREMENTS.md) |
 | Review an architectural decision | [ADR index](#architectural-decision-records-adrs) |
 | Check a dependency for CVEs | [DEPENDENCY_AUDIT_POLICY.md](DEPENDENCY_AUDIT_POLICY.md) |
-| Read the project backlog | [archive/BACKLOG.md](archive/BACKLOG.md) |
+| Read the project backlog | [BACKLOG.md](BACKLOG.md) |
 
 ---
 
 ## Operator Documentation
 
-Operators run the system in production. These documents are written for
-people who need to deploy, configure, monitor, and recover Conclave Engine
-installations.
-
 | Document | Description |
 |----------|-------------|
-| [OPERATOR_MANUAL.md](OPERATOR_MANUAL.md) | Primary reference for day-to-day operations: startup, vault unseal, job creation, monitoring, security considerations, DP configuration |
-| [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md) | Step-by-step first-time deployment playbook: TLS setup, firewall rules, vault ceremony, secret provisioning, first synthesis job |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Diagnostic flowcharts for 10 failure scenarios: stuck tasks, storage failures, connection pool exhaustion, OOM events, budget exhaustion |
-| [SCALABILITY.md](SCALABILITY.md) | Capacity limits and hardware sizing: pool configuration, concurrent job limits, SSE client scaling, memory model, latency ranges |
-| [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) | Recovery procedures: failed subsetting jobs, OOM events, cryptographic key loss, PostgreSQL backup/restore, Redis failure, container crashes |
-| [LICENSING.md](LICENSING.md) | License activation protocol for air-gapped environments, QR code workflow, key rotation |
-| [archive/DP_QUALITY_REPORT.md](archive/DP_QUALITY_REPORT.md) | Empirical benchmark of epsilon/delta tradeoffs at various noise multiplier settings; use to calibrate DP parameters for your dataset |
-| [archive/E2E_VALIDATION.md](archive/E2E_VALIDATION.md) | End-to-end validation procedures: smoke tests, synthesis quality checks, output verification steps |
-| [infrastructure_security.md](infrastructure_security.md) | Infrastructure security configuration reference: network isolation, capability model, secret management patterns |
+| [OPERATOR_MANUAL.md](OPERATOR_MANUAL.md) | Primary reference: startup, vault unseal, job creation, monitoring, DP configuration |
+| [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md) | First-time deployment playbook: TLS, firewall, vault ceremony, secret provisioning |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Diagnostic flowcharts for 10 failure scenarios |
+| [SCALABILITY.md](SCALABILITY.md) | Capacity limits, hardware sizing, memory model, latency ranges |
+| [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) | Recovery procedures: OOM, key loss, PostgreSQL backup, Redis failure |
+| [LICENSING.md](LICENSING.md) | License activation protocol, QR code workflow, key rotation |
+| [DP_QUALITY_REPORT.md](DP_QUALITY_REPORT.md) | Empirical epsilon/delta benchmarks; use to calibrate DP parameters |
+| [E2E_VALIDATION.md](E2E_VALIDATION.md) | End-to-end validation: smoke tests, synthesis quality checks, output verification |
+| [infrastructure_security.md](infrastructure_security.md) | Infrastructure security: network isolation, capability model, secret management |
 
 ---
 
 ## Developer Documentation
 
-Developers extend, maintain, and test the Conclave Engine codebase.
-
 | Document | Description |
 |----------|-------------|
-| [../CLAUDE.md](../CLAUDE.md) | Agent directives, TDD workflow, quality gates, git workflow, module placement rules — the primary developer reference |
-| [../CONSTITUTION.md](../CONSTITUTION.md) | Constitutional directives: security priority, quality gates, development workflow, enforcement mechanisms |
-| [archive/ARCHITECTURAL_REQUIREMENTS.md](archive/ARCHITECTURAL_REQUIREMENTS.md) | Modular monolith rules, import boundaries, cross-module constraints, module responsibility table |
-| [archive/BUSINESS_REQUIREMENTS.md](archive/BUSINESS_REQUIREMENTS.md) | Business context: why privacy-preserving synthetic data, target users, compliance drivers |
-| [DEPENDENCY_AUDIT.md](DEPENDENCY_AUDIT.md) | Full audit table of all direct dependencies with runtime usage, transitive counts, and group assignments |
+| [../CLAUDE.md](../CLAUDE.md) | Agent directives, TDD workflow, quality gates, git workflow, module placement rules |
+| [../CONSTITUTION.md](../CONSTITUTION.md) | Constitutional directives: security priority, quality gates, enforcement |
+| [ARCHITECTURAL_REQUIREMENTS.md](ARCHITECTURAL_REQUIREMENTS.md) | Modular monolith rules, import boundaries, module responsibility table |
+| [BUSINESS_REQUIREMENTS.md](BUSINESS_REQUIREMENTS.md) | Business context: why privacy-preserving synthetic data, target users, compliance drivers |
+| [DEPENDENCY_AUDIT.md](DEPENDENCY_AUDIT.md) | Full audit table of direct dependencies with transitive counts and group assignments |
 | [DEPENDENCY_AUDIT_POLICY.md](DEPENDENCY_AUDIT_POLICY.md) | pip-audit usage policy, severity tiers, exemption process, new-dependency checklist |
-| [RETRO_LOG.md](RETRO_LOG.md) | Living retrospective ledger: advisories, findings, phase exit criteria — read before starting any task |
+| [RETRO_LOG.md](RETRO_LOG.md) | Living retrospective ledger: advisories, findings, phase exit criteria |
 | [TEAM_BLUEPRINT.md](archive/TEAM_BLUEPRINT.md) | Team roles, review agent responsibilities, PR process (archived) |
 
 ### Backlog Documents
-
-The backlog is split into per-phase files for navigability:
 
 | Document | Phases |
 |----------|--------|
@@ -116,19 +106,17 @@ The backlog is split into per-phase files for navigability:
 | [backlog/phase-45.md](backlog/phase-45.md) | Phase 45 — Webhook Callbacks, Idempotency & Reaper |
 | [backlog/phase-46.md](backlog/phase-46.md) | Phase 46 — mTLS Inter-Container Communication |
 | [backlog/deferred-items.md](backlog/deferred-items.md) | Deferred and parked items |
-| [archive/BACKLOG.md](archive/BACKLOG.md) | Backlog summary and current phase status |
+| [BACKLOG.md](BACKLOG.md) | Backlog summary and current phase status |
 
 ### Retrospective Archives
 
 | Document | Coverage |
 |----------|----------|
-| [retro_archive/phases-0-to-7.md](retro_archive/phases-0-to-7.md) | Phases 0 through 7 retrospective entries |
-| [retro_archive/phases-8-to-14.md](retro_archive/phases-8-to-14.md) | Phases 8 through 14 retrospective entries |
-| [RETRO_LOG.md](RETRO_LOG.md) | Current (active) retrospective log — Phases 15 onwards |
+| [retro_archive/phases-0-to-7.md](retro_archive/phases-0-to-7.md) | Phases 0 through 7 |
+| [retro_archive/phases-8-to-14.md](retro_archive/phases-8-to-14.md) | Phases 8 through 14 |
+| [RETRO_LOG.md](RETRO_LOG.md) | Current (active) — Phases 15 onwards |
 
 ### Review Prompt Templates
-
-These prompts are used by AI reviewer agents:
 
 | Document | Reviewer Role |
 |----------|---------------|
@@ -143,22 +131,15 @@ These prompts are used by AI reviewer agents:
 
 ### Archived Documents
 
-Historical records no longer actively maintained. Not indexed — see `docs/archive/` for
-the full list. Archived documents include superseded requirement drafts, the original
-execution plan, and Phase 0.8 spike findings (ML memory, FPE, and topological subsetting).
+Historical records no longer actively maintained. Not indexed — see `docs/archive/` for the full list. Includes superseded requirement drafts, the original execution plan, and Phase 0.8 spike findings.
 
 ---
 
 ## Architect Documentation
 
-Architects evaluate and maintain the system's structural integrity. These
-documents define and justify key architectural decisions.
-
 ### Architectural Decision Records (ADRs)
 
-ADRs are append-only records of significant technical decisions. New decisions
-get new ADR numbers; existing ADRs are never deleted. Superseded or retired ADRs
-are annotated with a status notice at the top.
+ADRs are append-only records of significant technical decisions. Superseded or retired ADRs are annotated with a status notice at the top.
 
 | ADR | Title | Status |
 |-----|-------|--------|
@@ -213,26 +194,23 @@ are annotated with a status notice at the top.
 
 ## Security Documentation
 
-Security personnel review deployment posture, access controls, and compliance
-evidence.
-
 | Document | Description |
 |----------|-------------|
-| [infrastructure_security.md](infrastructure_security.md) | Infrastructure security controls: network segmentation, container capabilities, secret management, mTLS considerations |
-| [OPERATOR_MANUAL.md](OPERATOR_MANUAL.md) (Section 8) | Security considerations: TLS termination, network isolation, secret management, capability model, artifact signing, reverse proxy requirements |
+| [infrastructure_security.md](infrastructure_security.md) | Network segmentation, container capabilities, secret management, mTLS |
+| [OPERATOR_MANUAL.md](OPERATOR_MANUAL.md) (Section 8) | TLS termination, network isolation, artifact signing, reverse proxy requirements |
 | [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md) (Steps 2–4) | TLS setup, firewall rules, vault initialization ceremony |
 | [DEPENDENCY_AUDIT_POLICY.md](DEPENDENCY_AUDIT_POLICY.md) | pip-audit CVE scanning policy, severity tiers, exemption process |
 | [DEPENDENCY_AUDIT.md](DEPENDENCY_AUDIT.md) | Current dependency audit table with supply chain notes |
 | [LICENSING.md](LICENSING.md) | License JWT validation, offline activation, key rotation |
-| [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) (Section 3) | Cryptographic key recovery, lost passphrase procedures, ALE key shredding |
+| [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) (Section 3) | Cryptographic key recovery, lost passphrase, ALE key shredding |
 | [OPERATOR_MANUAL.md](OPERATOR_MANUAL.md) (Section 9.6) | Opacus `secure_mode` operational notes and threat model |
-| [adr/ADR-0006-application-level-encryption.md](adr/ADR-0006-application-level-encryption.md) | ALE design rationale |
-| [adr/ADR-0008-zero-trust-token-binding.md](adr/ADR-0008-zero-trust-token-binding.md) | Zero-trust token binding decision |
-| [adr/ADR-0009-vault-unseal-pattern.md](adr/ADR-0009-vault-unseal-pattern.md) | Vault unseal pattern and KEK derivation |
-| [adr/ADR-0010-worm-audit-logger.md](adr/ADR-0010-worm-audit-logger.md) | WORM audit log design |
-| [adr/ADR-0017-synthesizer-dp-library-selection.md](adr/ADR-0017-synthesizer-dp-library-selection.md) | DP library selection and `secure_mode` decision |
-| [adr/ADR-0022-offline-license-activation.md](adr/ADR-0022-offline-license-activation.md) | Offline license activation security model |
-| [adr/ADR-0034-shredded-lifecycle-state-and-audit-tolerance.md](adr/ADR-0034-shredded-lifecycle-state-and-audit-tolerance.md) | Cryptographic erasure and audit tolerance |
+| [adr/ADR-0006](adr/ADR-0006-application-level-encryption.md) | ALE design rationale |
+| [adr/ADR-0008](adr/ADR-0008-zero-trust-token-binding.md) | Zero-trust token binding decision |
+| [adr/ADR-0009](adr/ADR-0009-vault-unseal-pattern.md) | Vault unseal pattern and KEK derivation |
+| [adr/ADR-0010](adr/ADR-0010-worm-audit-logger.md) | WORM audit log design |
+| [adr/ADR-0017](adr/ADR-0017-synthesizer-dp-library-selection.md) | DP library selection and `secure_mode` decision |
+| [adr/ADR-0022](adr/ADR-0022-offline-license-activation.md) | Offline license activation security model |
+| [adr/ADR-0034](adr/ADR-0034-shredded-lifecycle-state-and-audit-tolerance.md) | Cryptographic erasure and audit tolerance |
 
 ---
 
@@ -247,17 +225,13 @@ evidence.
 | Review prompt templates | 8 |
 | Archived documents | 6 (not indexed — see `docs/archive/`) |
 | ADRs (including template) | 46 |
-| Security cross-references | (subset of above) |
 | **Total** | **123** |
 
 ---
 
 ## Maintenance Notes
 
-- This index is manually maintained. When adding a new document to `docs/`, add
-  a row to the appropriate section above.
+- This index is manually maintained. When adding a document to `docs/`, add a row to the appropriate section.
 - ADR status values: `Accepted`, `Superseded`, `Retired`, `Template`.
-- A `Superseded` ADR has been replaced by a newer decision. The original file is
-  retained but marked with a supersession notice.
-- A `Retired` ADR documented a decision that is no longer separately tracked
-  (e.g., content moved to `pyproject.toml` comments). The file is retained.
+- `Superseded`: replaced by a newer decision; original file retained with a supersession notice.
+- `Retired`: decision no longer separately tracked (e.g., content moved to `pyproject.toml`); file retained.
