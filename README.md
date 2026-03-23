@@ -83,7 +83,7 @@ graph TD
 - Cross-module database queries are forbidden. Each module owns its own data access.
 - The bootstrapper is the sole composition root. Business logic has no framework knowledge.
 
-44 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
+50 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
 
 ---
 
@@ -280,6 +280,33 @@ Full evidence in [docs/archive/E2E_VALIDATION.md](docs/archive/E2E_VALIDATION.md
 
 ---
 
+## Demos & Benchmarks
+
+Phase 52 will publish three runnable Jupyter notebooks with real, reproducible benchmark
+results against the `sample_data/` fixtures. All epsilon values are post-hoc measured by
+the Opacus RDP accountant — not configured targets. Results that look bad stay in.
+
+**Notebooks** (files created when Phase 52 is implemented, targeting `demos/`):
+
+| Notebook | Audience | What It Shows |
+|----------|----------|---------------|
+| `demos/epsilon_curves.ipynb` | Privacy engineers, reviewers | Parameterized epsilon curves across 45 noise-multiplier/epoch/sample-size combinations; KS statistics, correlation preservation, FK integrity |
+| `demos/quickstart.ipynb` | Data architects | Three-cell demo: connect → synthesize → compare. Side-by-side distribution overlays, correlation heatmaps |
+| `demos/training_data.ipynb` | AI/ML builders | Train on synthetic, test on real. Utility curve showing privacy-utility tradeoff by epsilon level |
+
+**Methodology note**: The benchmark harness trains CTGAN at configurable noise multipliers,
+epoch counts, and sample sizes. Epsilon is measured after training by the Opacus RDP
+accountant using delta = 1e-5 (matching the production constant). All runs use fixed random
+seeds (torch, numpy, Python) for reproducibility. GPU acceleration is detected at runtime
+but CPU-only is the fully supported path.
+
+**Existing DP quality evidence**: See [docs/archive/DP_QUALITY_REPORT.md](docs/archive/DP_QUALITY_REPORT.md)
+for the current micro-benchmark results and recommended epsilon ranges by use case.
+
+Full setup instructions (Docker Compose, demo dependency group, seeding): `demos/README.md` (files created when Phase 52 is implemented).
+
+---
+
 ## Quality and Development Process
 
 Every commit passes all gates before merge:
@@ -305,16 +332,16 @@ Development follows attack-first TDD (Red → Green → Refactor). Every task re
 
 A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.md), [`CLAUDE.md`](CLAUDE.md), backlog tasks, architecture specifications). AI agents executed every development task: writing failing tests first, implementing minimal passing code, running all quality gates, and submitting for multi-agent review before merge. No code was written outside this process.
 
-**Timeline**: March 9–18, 2026 — 10 calendar days from first commit to Phase 32.
+**Timeline**: March 9–23, 2026 — 14 calendar days from first commit to Phase 49.
 
 | Metric | Value |
 |--------|-------|
-| Commits | 523 |
-| Pull requests merged | 127 |
-| Architecture Decision Records | 44 |
-| Production source lines | ~15,500 |
-| Test lines | ~45,700 |
-| Test coverage | 98% integration |
+| Commits | 972 |
+| Pull requests merged | 179 |
+| Architecture Decision Records | 50 |
+| Production source lines | ~23,000 |
+| Test lines | ~80,000 |
+| Test coverage | 96.76% |
 
 Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_STORY.md).
 
@@ -334,11 +361,11 @@ Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_S
 | [Dependency Audit](docs/DEPENDENCY_AUDIT.md) | Supply chain audit and dependency provenance |
 | [Business Requirements](docs/archive/BUSINESS_REQUIREMENTS.md) | Full product BRD (archived) |
 | [Architectural Requirements](docs/archive/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification (archived; see ADRs) |
-| [Architecture Decision Records](docs/adr/) | 44 ADRs covering every significant design decision |
+| [Architecture Decision Records](docs/adr/) | 50 ADRs covering every significant design decision |
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, development history |
 | [Development Story](docs/archive/DEVELOPMENT_STORY.md) | How this codebase was built (archived) |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
-| [Changelog](CHANGELOG.md) | Phase-by-phase release notes, Phase 1–43 |
+| [Changelog](CHANGELOG.md) | Phase-by-phase release notes, Phase 1–49 |
 | [API Reference](docs/api/API_REFERENCE.md) | REST API endpoint reference (static OpenAPI export) |
 
 ---
