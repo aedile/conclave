@@ -2,30 +2,18 @@
 
 **An enterprise-grade, air-gapped synthetic data generation engine.**
 
-Conclave transforms production databases into privacy-safe synthetic replicas — inside your
-perimeter, on your hardware, with zero network calls out. It serves data scientists who
-need statistically faithful training data, QA engineers who need a structurally intact
-subset of a production schema, and compliance officers who need mathematical proof that
-no real PII left the building.
+Conclave transforms production databases into privacy-safe synthetic replicas — inside your perimeter, on your hardware, with zero network calls out. For data scientists who need statistically faithful training data, QA engineers who need a structurally intact production subset, and compliance officers who need mathematical proof that no real PII left the building.
 
 ---
 
 ## The Problem
 
-Production data is the only data that accurately reflects real user behavior. It is also the
-data you cannot freely share.
+Production data accurately reflects real user behavior. It is also the data you cannot freely share.
 
-- **Regulation** (GDPR, CCPA, HIPAA) prohibits moving raw PII into development, QA, or ML
-  training environments — even internally.
-- **Basic masking breaks referential integrity.** Swap a customer name in one table; the
-  foreign-key join to the orders table returns garbage. Tests fail. Models learn noise.
-- **SaaS data platforms require your data to leave your network.** That is categorically
-  disqualified in defense, intelligence, healthcare, and critical infrastructure.
-- **Air-gapped deployments need an entirely self-contained stack.** No license call-home,
-  no model registry cloud pull, no telemetry ping.
-
-Conclave solves all four. It runs entirely on your compute, ingests data read-only, and
-produces output that is statistically comparable to production but contains no real PII.
+- **Regulation** (GDPR, CCPA, HIPAA) prohibits moving raw PII into development, QA, or ML training — even internally.
+- **Basic masking breaks referential integrity.** Swap a customer name in one table; the FK join to orders returns garbage.
+- **SaaS data platforms require your data to leave your network** — disqualified in defense, intelligence, healthcare, and critical infrastructure.
+- **Air-gapped deployments need a fully self-contained stack.** No license call-home, no model registry pull, no telemetry ping.
 
 ---
 
@@ -46,43 +34,20 @@ flowchart LR
     J --> K[(Target\nPostgreSQL)]
 ```
 
-**Ingestion & Pre-flight** — Connects read-only to source PostgreSQL. Runs a privilege
-pre-flight check; if the account can write, the job is refused before any data is touched.
-
-**Schema Reflection & DAG** — Reflects the full schema, builds a directed acyclic graph of
-foreign key relationships using Kahn's topological sort. Virtual FK support for schemas
-without formal constraints.
-
-**FK-Aware Subsetting** — Traverses the FK graph from a seed query, following parent-child
-chains to extract a surgically precise percentage of records. Zero orphan rows guaranteed.
-
-**Deterministic Masking** — HMAC-SHA256 seeded Faker replaces PII with realistic-but-fake
-values. The same real value always produces the same fake value across all tables, so
-join integrity is preserved. Output is not reversible.
-
-**Statistical Profiling** — Computes histograms, covariance matrices, and nullability rates
-per column. `ProfileDelta` measures drift between source and synthetic output.
-
-**DP-CTGAN Training** — Custom CTGAN training loop with Opacus DP-SGD integration. Phase 30
-applies DP-SGD directly to the `OpacusCompatibleDiscriminator` (ADR-0036), making epsilon
-accounting reflect actual Discriminator gradient steps — not a proxy model. The Generator is
-trained without DP (it never sees real data directly), following the standard DP-GAN threat
-model. Proxy-model fallback (`_activate_opacus_proxy`) is available for environments where
-Opacus cannot instrument the Discriminator. See ADR-0036 for discriminator-level DP rationale
-and ADR-0025 for the historical proxy-model approach.
-
-**Privacy Budget Accounting** — the privacy accountant module (`spend_budget()`/`reset_budget()`) tracks epsilon/delta consumption per
-table per run. Any job that would exceed the configured budget is blocked before training starts.
-
-**Saga-Pattern Egress** — Writes to the target database transactionally. If anything fails
-mid-write, the target is wiped clean. No partial datasets.
+- **Ingestion & Pre-flight** — Read-only connection to source PostgreSQL. Privilege pre-flight check: write access → immediate rejection before any data is touched.
+- **Schema Reflection & DAG** — Reflects the full schema; builds a FK directed acyclic graph via Kahn's topological sort. Virtual FK support for schemas without formal constraints.
+- **FK-Aware Subsetting** — Traverses the FK graph from a seed query; extracts a precise percentage of records. Zero orphan rows guaranteed.
+- **Deterministic Masking** — HMAC-SHA256 seeded Faker replaces PII with realistic-but-fake values. Same real value → same fake value across all tables. Join integrity preserved; not reversible.
+- **Statistical Profiling** — Computes histograms, covariance matrices, and nullability rates per column. `ProfileDelta` measures drift between source and synthetic output.
+- **DP-CTGAN Training** — Custom CTGAN loop with Opacus DP-SGD on the `OpacusCompatibleDiscriminator` (ADR-0036). Epsilon accounting reflects actual Discriminator gradient steps. Generator trains without DP (it never sees real data directly — standard DP-GAN threat model). Proxy-model fallback available; see ADR-0025.
+- **Privacy Budget Accounting** — `spend_budget()`/`reset_budget()` tracks epsilon/delta per table per run. Jobs exceeding budget are blocked before training starts.
+- **Saga-Pattern Egress** — Transactional writes to target. Failure mid-write → target wiped clean. No partial datasets.
 
 ---
 
 ## Architecture
 
-Conclave is a **Python Modular Monolith** — a single deployable unit with strict internal
-module boundaries enforced by `import-linter` contracts at CI time.
+Conclave is a **Python Modular Monolith** — one deployable unit with strict module boundaries enforced by `import-linter` at CI time.
 
 ```mermaid
 graph TD
@@ -114,52 +79,42 @@ graph TD
     modules --> shared
 ```
 
-**Key design decisions:**
-
-- Modules cannot import from each other. Cross-module communication goes through `shared/`
-  value objects or IoC callbacks injected by the bootstrapper. This is enforced at CI time,
-  not just by convention.
+- Modules cannot import from each other — only through `shared/` value objects or IoC callbacks injected by the bootstrapper.
 - Cross-module database queries are forbidden. Each module owns its own data access.
-- The bootstrapper is the sole composition root. Business logic has no knowledge of the
-  framework.
+- The bootstrapper is the sole composition root. Business logic has no framework knowledge.
 
-Detailed rationale is captured across 44 Architecture Decision Records in
-[`docs/adr/`](docs/adr/). The full architecture specification is in
-[`docs/ARCHITECTURAL_REQUIREMENTS.md`](docs/ARCHITECTURAL_REQUIREMENTS.md).
+44 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
 
 ---
 
 ## Security
 
-Security is Priority Zero — it overrides every other consideration. See
-[`CONSTITUTION.md`](CONSTITUTION.md) for the binding governance framework and
-[`docs/infrastructure_security.md`](docs/infrastructure_security.md) for infrastructure detail.
+Security is Priority Zero. See [`CONSTITUTION.md`](CONSTITUTION.md) and [`docs/infrastructure_security.md`](docs/infrastructure_security.md).
 
 | Control | Implementation |
 |---------|----------------|
-| Read-only ingestion | Pre-flight `SELECT FOR UPDATE` privilege check; superuser account → immediate reject |
-| PII never in plaintext at rest | Application-Level Encryption (ALE) via Fernet + HKDF-SHA256 derived from Vault KEK |
-| Vault unseal pattern | Operator passphrase derives KEK at runtime; never persisted to disk or env |
+| Read-only ingestion | Pre-flight privilege check; superuser → immediate reject |
+| PII never in plaintext at rest | ALE via Fernet + HKDF-SHA256 from Vault KEK |
+| Vault unseal | Operator passphrase derives KEK at runtime; never persisted |
 | Deterministic masking | HMAC-SHA256 seeded Faker; same input → same output; not reversible |
-| Differential Privacy | DP-SGD via Opacus `PrivacyEngine` on the CTGAN Discriminator (Phase 30); Epsilon/Delta budget enforced per training run; proxy-model fallback available — see DP Maturity below |
-| WORM audit log | Cryptographically signed, append-only audit trail |
-| HMAC artifact signing | Model artifacts signed at save; tampering raises `SecurityError` at load time |
-| Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net deployment |
+| Differential Privacy | DP-SGD via Opacus on CTGAN Discriminator; Epsilon/Delta budget enforced per run |
+| WORM audit log | Cryptographically signed, append-only |
+| HMAC artifact signing | Signed at save; tampering raises `SecurityError` at load |
+| Air-gap enforcement | No external network calls; `make build-airgap-bundle` for sneaker-net |
 | Supply chain | All GitHub Actions SHA-pinned; Trivy container scan in CI |
 | Secret scanning | `gitleaks` + `detect-secrets` on every commit; hooks cannot be bypassed |
-| Request body limits | `RequestBodyLimitMiddleware`: 1 MB limit, JSON depth 100 |
-| Content Security Policy | CSP middleware: `script-src`, `font-src`, `connect-src` all `'self'` |
-| OWASP ZAP baseline scan | Automated ZAP scan in CI against the running FastAPI app |
-| NIST SP 800-88 erasure | Cryptographic shredding validated against NIST SP 800-88 Rev 1 guidelines |
-| Offline license activation | RS256 JWT with hardware binding; no license server call-home required |
-| Startup config validation | `validate_config()` at boot; missing required env vars → immediate process exit |
+| Request body limits | `RequestBodyLimitMiddleware`: 1 MB, JSON depth 100 |
+| Content Security Policy | `script-src`, `font-src`, `connect-src` all `'self'` |
+| OWASP ZAP baseline | Automated ZAP scan in CI against the running FastAPI app |
+| NIST SP 800-88 erasure | Cryptographic shredding per NIST SP 800-88 Rev 1 |
+| Offline license | RS256 JWT with hardware binding; no call-home |
+| Config validation | `validate_config()` at boot; missing required vars → immediate exit |
 
 ### DP Maturity
 
-**Current**: Discriminator-level DP-SGD (Phase 30). Proxy-model fallback available for
-environments where Opacus cannot instrument the Discriminator.
+**Current**: Discriminator-level DP-SGD (Phase 30). Proxy-model fallback available.
 
-Production-scale epsilon results from the 1M-row load test (2026-03-20, CPU-only, macOS ARM64):
+Production epsilon results from the 1M-row load test (2026-03-20, CPU-only, macOS ARM64):
 
 | Table | Source Rows | noise_multiplier (σ) | actual_epsilon | Privacy Level |
 |-------|------------|----------------------|----------------|--------------|
@@ -168,73 +123,55 @@ Production-scale epsilon results from the 1M-row load test (2026-03-20, CPU-only
 | order_items | 611,540 | 10.0 | 0.169 | Excellent |
 | payments | 175,000 | N/A | N/A | No DP (enable_dp=False) |
 
-Higher σ → lower ε → stronger privacy guarantee. All three DP-enabled jobs trained to COMPLETE
-with correct end-to-end DP accounting. The micro-benchmark script
-(`poetry run python3 scripts/benchmark_dp_quality.py`) was executed on 2026-03-21 and the
-discriminator-level DP acceptance criterion PASSED at all five noise levels tested.
-See [docs/DP_QUALITY_REPORT.md](docs/DP_QUALITY_REPORT.md) for full micro-benchmark results,
-honest analysis of the epsilon calibration, and recommended epsilon ranges by use case.
+Micro-benchmark (`scripts/benchmark_dp_quality.py`, run 2026-03-21) PASSED at all five noise levels. See [docs/archive/DP_QUALITY_REPORT.md](docs/archive/DP_QUALITY_REPORT.md).
 
-| Aspect | Phase 30 Implementation | Proxy-model Fallback |
-|--------|------------------------|---------------------|
-| DP accounting scope | Direct DP-SGD on `OpacusCompatibleDiscriminator` — real Discriminator gradient steps | Proxy linear model trained on the same preprocessed data as the CTGAN |
-| Epsilon measurement | End-to-end epsilon accounting on the generative model itself; reflects actual Discriminator updates on real training data | Opacus gradient-step accounting on proxy model; proportional to dataset size, batch size, and training steps |
-| Privacy guarantee | Mathematically rigorous end-to-end differential privacy (standard DP-GAN threat model; Generator does not directly see real data) | Practical approximation — meaningful epsilon bound, but does not account for Discriminator gradient updates |
-| Reference | ADR-0036 — Discriminator-Level DP-SGD Architecture | ADR-0025 — Custom CTGAN Training Loop (proxy-model rationale and limitations) |
+| Aspect | Phase 30 (Discriminator-level) | Proxy-model Fallback |
+|--------|-------------------------------|---------------------|
+| DP scope | Direct DP-SGD on `OpacusCompatibleDiscriminator` | Proxy linear model on same preprocessed data |
+| Epsilon | End-to-end on real Discriminator gradient steps | Proportional to dataset/batch/steps; doesn't account for Discriminator updates |
+| Guarantee | Mathematically rigorous end-to-end DP | Practical approximation |
+| Reference | ADR-0036 | ADR-0025 |
 
-The masking pipeline, the privacy budget accountant, HMAC-sealed model artifacts, and the WORM audit log
-are not affected by this distinction — they provide independent, fully realized security controls.
+The masking pipeline, privacy budget accountant, HMAC-sealed artifacts, and WORM audit log are independent of this distinction.
 
 ---
 
 ## Compliance
 
-Conclave is designed for regulated environments. The engine implements configurable data
-retention TTLs, a GDPR Article 17 / CCPA erasure endpoint, a legal hold mechanism for
-e-discovery, and a cryptographically immutable audit trail.
-
-| Compliance property | Mechanism |
-|---------------------|-----------|
+| Property | Mechanism |
+|----------|-----------|
 | Data minimization | Read-only ingestion; PII never written to disk in raw form |
-| Storage limitation | Configurable TTLs: job records (90 days default), artifacts (30 days default) |
-| Audit trail retention | WORM audit log retained 3 years (1,095 days) by default; never deleted within retention period |
-| Right to erasure (GDPR Art. 17 / CCPA § 1798.105) | `DELETE /compliance/erasure` endpoint with cascade deletion and compliance receipt |
-| Legal hold | `legal_hold` flag on job records; prevents purge regardless of TTL |
-| Formal privacy guarantee | (ε, δ)-DP on synthesized output — synthesized data is not PII under GDPR Recital 26 |
+| Storage limitation | Configurable TTLs: job records (90 days), artifacts (30 days) |
+| Audit trail | WORM log retained 3 years (1,095 days); never deleted within retention |
+| Right to erasure (GDPR Art. 17 / CCPA § 1798.105) | `DELETE /compliance/erasure` with cascade deletion and compliance receipt |
+| Legal hold | `legal_hold` flag prevents purge regardless of TTL |
+| Formal privacy guarantee | (ε, δ)-DP on synthesized output — not PII under GDPR Recital 26 |
 
-Retention periods are configurable via `JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, and
-`ARTIFACT_RETENTION_DAYS` environment variables. See
-[`docs/DATA_COMPLIANCE.md`](docs/DATA_COMPLIANCE.md) for the full compliance policy,
-GDPR/CCPA/HIPAA retention guidance, data flow description, and operator responsibilities.
+Configurable via `JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, `ARTIFACT_RETENTION_DAYS`. See [`docs/DATA_COMPLIANCE.md`](docs/DATA_COMPLIANCE.md).
 
 ---
 
 ## The Interface
 
-The React SPA provides real-time monitoring of synthesis jobs via Server-Sent Events.
-All UI components meet WCAG 2.1 AA: labeled forms, required field indicators, semantic
-headings, full keyboard navigation, 4.5:1 contrast ratios.
+React SPA with real-time job monitoring via SSE. All components meet WCAG 2.1 AA: labeled forms, semantic headings, full keyboard navigation, 4.5:1 contrast ratios.
 
-**Vault unseal** — before any data operations, the operator enters a passphrase to derive
-the ALE key at runtime. The passphrase is never stored.
+**Vault unseal** — operator enters a passphrase to derive the ALE key at runtime. Never stored.
 
 ![Vault Unseal Page](docs/screenshots/01-unseal-page.png)
 
-**Dashboard — sealed state.** The engine refuses all data operations until the vault is unsealed.
+**Dashboard — sealed.** All data operations refused until vault is unsealed.
 
 ![Dashboard Sealed](docs/screenshots/02-dashboard-sealed.png)
 
-**Dashboard — ready.** Job creation and monitoring. SSE streams progress in real time.
+**Dashboard — ready.** Job creation and monitoring; SSE streams progress in real time.
 
 ![Dashboard Empty](docs/screenshots/02-dashboard-empty.png)
 
-**Dashboard — active jobs.** Training progress (blue), completed (green), failed with
-error message (red).
+**Dashboard — active jobs.** Training (blue), completed (green), failed (red).
 
 ![Dashboard with Jobs](docs/screenshots/03-dashboard-with-jobs.png)
 
-**Error handling.** Failures surface immediately with actionable messages — including OOM
-pre-flight rejections before any training begins.
+**Error handling.** Failures surface immediately — including OOM pre-flight rejections before training begins.
 
 ![Error Toast](docs/screenshots/04-error-toast.png)
 
@@ -276,33 +213,30 @@ poetry run alembic upgrade head
 
 ```bash
 poetry run uvicorn synth_engine.bootstrapper.main:create_app --factory --reload
-# API available at http://localhost:8000
+# API at http://localhost:8000
 ```
 
 ### 5. Run the frontend
 
 ```bash
 cd frontend && npm ci && npm run dev
-# SPA available at http://localhost:5173 — proxies API calls to :8000
+# SPA at http://localhost:5173 — proxies API calls to :8000
 ```
 
-### Air-gap bundle (for offline deployment)
+### Air-gap bundle
 
 ```bash
 make build-airgap-bundle
+# Versioned tarball: Python wheels, Docker images, config for sneaker-net deployment
 ```
 
-Produces a versioned tarball containing all Python wheels, Docker images, and
-configuration for sneaker-net deployment onto an isolated network.
-
-Full production deployment instructions are in the
-[Operator Manual](docs/OPERATOR_MANUAL.md).
+Full production deployment in the [Operator Manual](docs/OPERATOR_MANUAL.md).
 
 ---
 
 ## Masking Evidence
 
-This is a live run against real Docker infrastructure. Not a mock.
+Live run against real Docker infrastructure. Not a mock.
 
 Source (real PII):
 
@@ -322,19 +256,15 @@ Target (masked):
   2 | David      | Owens       | lauradavis@example.com       | 204-28-8133
 ```
 
-Every PII column replaced. `Johnson` always maps to `Beck` — across every row,
-every table, every run — so join integrity holds. The mapping is not reversible.
+Every PII column replaced. `Johnson` always maps to `Beck` — across every row, every table, every run — so join integrity holds. Not reversible.
 
-FK traversal from this run: 50 customers → 116 orders → 396 order items + 116 payments.
-Zero orphan rows. See [full E2E validation evidence](docs/E2E_VALIDATION.md).
+FK traversal: 50 customers → 116 orders → 396 order items + 116 payments. Zero orphan rows. See [full E2E validation](docs/archive/E2E_VALIDATION.md).
 
 ---
 
 ## Validated Scale
 
-The 1M-row load test (2026-03-20) validated Conclave at production scale on CPU-only
-hardware (macOS ARM64, 10 cores, 24 GB RAM). All four synthesis jobs completed without
-errors, with correct DP accounting and artifact shredding.
+1M-row load test (2026-03-20, CPU-only, macOS ARM64, 10 cores, 24 GB RAM).
 
 | Table | Source Rows | Synth Rows | Training Time | Throughput |
 |-------|------------|------------|---------------|------------|
@@ -344,56 +274,38 @@ errors, with correct DP accounting and artifact shredding.
 | payments | 175,000 | 175,000 | 1 h 5 min | 45 rows/s |
 | **Total** | **1,011,540** | **600,000** | **~4 h 12 min** | — |
 
-These numbers are CPU-only baselines. GPU-accelerated training will be substantially faster.
-The total training time would compress significantly with a CUDA-capable device — the
-discriminator-level DP-SGD training loop is the primary bottleneck, and it is GPU-bound once
-CTGAN's embedding step is complete.
+CPU-only baseline. GPU will be substantially faster — the discriminator-level DP-SGD loop is GPU-bound once CTGAN's embedding completes.
 
-Full evidence is in [docs/E2E_VALIDATION.md](docs/E2E_VALIDATION.md).
+Full evidence in [docs/archive/E2E_VALIDATION.md](docs/archive/E2E_VALIDATION.md).
 
 ---
 
 ## Quality and Development Process
 
-Every commit passes all gates before it can merge:
+Every commit passes all gates before merge:
 
 ```bash
-poetry run ruff check src/ tests/              # linting
-poetry run ruff format --check src/ tests/     # formatting
-poetry run mypy src/                           # strict type checking
-poetry run bandit -c pyproject.toml -r src/    # security scan
-poetry run pytest tests/unit/ \
-    --cov=src/synth_engine --cov-fail-under=95 \
-    -W error                                   # unit tests, 95% coverage gate
-poetry run pytest tests/integration/ -v        # integration tests (separate gate)
-poetry run python -m importlinter              # module boundary enforcement
-pre-commit run --all-files                     # all hooks including gitleaks
+poetry run ruff check src/ tests/
+poetry run ruff format --check src/ tests/
+poetry run mypy src/
+poetry run bandit -c pyproject.toml -r src/
+poetry run pytest tests/unit/ --cov=src/synth_engine --cov-fail-under=95 -W error
+poetry run pytest tests/integration/ -v
+poetry run python -m importlinter
+pre-commit run --all-files
 ```
 
-Coverage is enforced at 95% minimum. Integration tests are a separate gate — unit test
-mocks do not substitute for tests against real infrastructure (pytest-postgresql).
+95% coverage enforced. Integration tests are a separate gate — unit mocks do not substitute for real infrastructure (pytest-postgresql).
 
-The development workflow is TDD (Red → Green → Refactor) enforced by convention and
-by the review process. Every task is reviewed in parallel by specialized agents:
-QA, DevOps, and Red-Team (always); Architecture (when source changes); UI/UX (when frontend
-changes) — before any merge. Review findings are tracked
-as open advisories in a living retrospective log. The full workflow is documented in
-[`CLAUDE.md`](CLAUDE.md) and governed by [`CONSTITUTION.md`](CONSTITUTION.md).
+Development follows attack-first TDD (Red → Green → Refactor). Every task reviewed in parallel by QA, DevOps, and Red-Team (always); Architecture (source changes); UI/UX (frontend). Findings tracked as open advisories in the retrospective log. Full workflow in [`CLAUDE.md`](CLAUDE.md), governed by [`CONSTITUTION.md`](CONSTITUTION.md).
 
 ---
 
 ## How This Was Built
 
-Conclave was written by AI agents operating under a Constitutional governance framework.
-A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.md),
-[`CLAUDE.md`](CLAUDE.md), backlog tasks, and architecture specifications), then AI agents
-executed every development task: writing failing tests first, implementing the minimal code
-to pass them, running all quality gates, and submitting work for multi-agent review before
-merge. No code was written outside this process.
+A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.md), [`CLAUDE.md`](CLAUDE.md), backlog tasks, architecture specifications). AI agents executed every development task: writing failing tests first, implementing minimal passing code, running all quality gates, and submitting for multi-agent review before merge. No code was written outside this process.
 
 **Timeline**: March 9–18, 2026 — 10 calendar days from first commit to Phase 32.
-
-**By the numbers** (at Phase 32 completion, commit `3fa02cd`; verifiable from `git log`):
 
 | Metric | Value |
 |--------|-------|
@@ -402,15 +314,9 @@ merge. No code was written outside this process.
 | Architecture Decision Records | 44 |
 | Production source lines | ~15,500 |
 | Test lines | ~45,700 |
-| Reported test coverage | 98% integration |
+| Test coverage | 98% integration |
 
-Every architectural decision was documented in an ADR before implementation. Every
-non-trivial design choice — library selection, DP threat model, module boundary exceptions —
-required written rationale. The retrospective log records every review finding and advisory
-raised across all 32 phases (at Phase 32 completion).
-
-The full account of how this project was structured, what worked, and what the process
-looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STORY.md).
+Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_STORY.md).
 
 ---
 
@@ -419,21 +325,21 @@ looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STO
 | Document | Contents |
 |----------|----------|
 | [Operator Manual](docs/OPERATOR_MANUAL.md) | Production deployment, hardware requirements, service configuration |
-| [Data Compliance](docs/DATA_COMPLIANCE.md) | Retention policy, GDPR/CCPA/HIPAA guidance, erasure procedure, audit trail guarantees |
-| [DP Quality Report](docs/DP_QUALITY_REPORT.md) | Micro-benchmark results (T42.3, 2026-03-21); epsilon vs. quality curves; recommended epsilon ranges by use case |
-| [E2E Validation](docs/E2E_VALIDATION.md) | Full end-to-end pipeline validation evidence |
+| [Data Compliance](docs/DATA_COMPLIANCE.md) | Retention policy, GDPR/CCPA/HIPAA guidance, erasure procedure, audit trail |
+| [DP Quality Report](docs/archive/DP_QUALITY_REPORT.md) | Micro-benchmark results; epsilon vs. quality curves; recommended ranges by use case |
+| [E2E Validation](docs/archive/E2E_VALIDATION.md) | Full end-to-end pipeline validation evidence |
 | [Disaster Recovery](docs/DISASTER_RECOVERY.md) | Incident response and recovery procedures |
-| [Licensing](docs/LICENSING.md) | Offline license activation and hardware binding guide |
-| [Infrastructure Security](docs/infrastructure_security.md) | Infrastructure security controls and threat model |
+| [Licensing](docs/LICENSING.md) | Offline license activation and hardware binding |
+| [Infrastructure Security](docs/infrastructure_security.md) | Security controls and threat model |
 | [Dependency Audit](docs/DEPENDENCY_AUDIT.md) | Supply chain audit and dependency provenance |
-| [Business Requirements](docs/BUSINESS_REQUIREMENTS.md) | Full product BRD — the "why" behind every capability |
-| [Architectural Requirements](docs/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification and module boundary contracts |
+| [Business Requirements](docs/archive/BUSINESS_REQUIREMENTS.md) | Full product BRD (archived) |
+| [Architectural Requirements](docs/archive/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification (archived; see ADRs) |
 | [Architecture Decision Records](docs/adr/) | 44 ADRs covering every significant design decision |
-| [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, and development history |
-| [Development Story](docs/DEVELOPMENT_STORY.md) | How this codebase was built — methodology, process, and retrospective |
+| [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, development history |
+| [Development Story](docs/archive/DEVELOPMENT_STORY.md) | How this codebase was built (archived) |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
-| [Changelog](CHANGELOG.md) | Phase-by-phase release notes from Phase 1 through Phase 43 |
-| [API Reference](docs/api/API_REFERENCE.md) | REST API endpoint reference (static export from OpenAPI schema) |
+| [Changelog](CHANGELOG.md) | Phase-by-phase release notes, Phase 1–43 |
+| [API Reference](docs/api/API_REFERENCE.md) | REST API endpoint reference (static OpenAPI export) |
 
 ---
 

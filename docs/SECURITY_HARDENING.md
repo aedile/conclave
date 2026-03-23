@@ -1,12 +1,8 @@
 # Security Hardening Guide
 
-This guide covers the security hardening posture for production deployments of
-the Conclave Engine. It documents the CORS policy, DDoS mitigation stack, TLS
-configuration, vault passphrase management, and key rotation procedures.
+Security hardening for production deployments: CORS, DDoS mitigation, TLS, vault passphrase management, and key rotation.
 
-Cross-reference with [docs/infrastructure_security.md](infrastructure_security.md)
-for host-level controls (disk encryption, Linux capabilities, secrets management,
-network isolation).
+Cross-reference: [docs/infrastructure_security.md](infrastructure_security.md) for host-level controls (disk encryption, Linux capabilities, secrets management, network isolation).
 
 ---
 
@@ -14,12 +10,7 @@ network isolation).
 
 ### 1.1 Default Posture — Same-Origin Only
 
-The Conclave Engine does **not** emit CORS headers by default. This is correct
-and intentional for air-gapped and same-origin deployments.
-
-The `CSPMiddleware` (`src/synth_engine/bootstrapper/dependencies/csp.py`)
-enforces a strict Content-Security-Policy that limits all resource loading to
-the same origin:
+The engine emits **no** CORS headers by default. `CSPMiddleware` (`bootstrapper/dependencies/csp.py`) enforces:
 
 ```text
 default-src 'self'
@@ -33,31 +24,20 @@ base-uri 'self'
 form-action 'self'
 ```
 
-The `connect-src 'self'` directive means the browser's `fetch`/`XHR` will only
-send requests to the same origin as the page. This is the primary defense
-against cross-origin data exfiltration. No `Access-Control-Allow-Origin` header
-is emitted because no cross-origin requests are expected.
+`connect-src 'self'` blocks cross-origin fetch/XHR. No `Access-Control-Allow-Origin` header is emitted because no cross-origin requests are expected.
 
 ### 1.2 When CORS Must Be Configured
 
-CORS headers are only required when the frontend (React SPA) is served from a
-**different domain** than the Conclave API. In standard deployments, the frontend
-is served by the `app` service on the same host and port (`:8000`), so CORS is
-not needed.
+CORS is only needed when the frontend is served from a **different domain** than the API. Standard deployments serve both on the same host/port (`:8000`).
 
-CORS must be explicitly enabled if you deploy:
-
-- A frontend on a CDN (e.g., `https://app.example.com`) pointing to an API on
-  `https://api.example.com`.
-- A native desktop or mobile client calling the API from a different origin.
-- An integration test runner on a different host calling the API directly.
+Enable CORS for:
+- Frontend on a CDN (e.g., `https://app.example.com`) vs. API on `https://api.example.com`
+- Native desktop/mobile clients on a different origin
+- Integration test runners on a different host
 
 ### 1.3 How to Enable CORS
 
-FastAPI supports CORS via Starlette's `CORSMiddleware`. To enable it, add the
-middleware in `src/synth_engine/bootstrapper/middleware.py` before calling
-`setup_middleware()`, or add it to the `create_app()` factory in
-`src/synth_engine/bootstrapper/main.py`:
+Add `CORSMiddleware` in `bootstrapper/main.py`:
 
 ```python
 from starlette.middleware.cors import CORSMiddleware
@@ -68,103 +48,67 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
     allow_credentials=True,
-    max_age=600,  # seconds the browser may cache the preflight response
+    max_age=600,
 )
 ```
 
-**Production rules for CORS configuration:**
+**Production rules:**
 
 | Rule | Rationale |
 |------|-----------|
-| Never set `allow_origins=["*"]` | Wildcard origin combined with `allow_credentials=True` is rejected by browsers and exposes the API to any site |
-| Enumerate allowed origins explicitly | Allowlist specific domains; reject all others |
-| Do not allow unnecessary HTTP methods | Only allow `GET`, `POST`, `DELETE` — never `TRACE` or `CONNECT` |
-| Keep `max_age` short | 600 seconds (10 minutes) balances preflight overhead against the ability to revoke CORS quickly |
-| Re-test after proxy changes | Reverse proxies (nginx, Caddy) may strip or add headers that interfere with CORS preflight responses |
+| Never `allow_origins=["*"]` | Wildcard + `allow_credentials=True` is rejected by browsers and exposes the API |
+| Enumerate origins explicitly | Allowlist specific domains only |
+| Omit `TRACE`/`CONNECT` methods | Only `GET`, `POST`, `DELETE` |
+| Keep `max_age=600` | 10 minutes balances preflight overhead vs. revocation speed |
+| Re-test after proxy changes | Reverse proxies may strip/add headers that interfere with preflight |
 
 ### 1.4 CORS and the Reverse Proxy
 
-If a reverse proxy (nginx, Caddy) sits in front of the engine, ensure the proxy
-does not inject `Access-Control-Allow-Origin: *` unconditionally. Proxy-level
-CORS headers override application-level headers and can silently widen the
-allowed-origins set.
-
-The sample nginx configuration in
-[docs/OPERATOR_MANUAL.md Section 8.8](OPERATOR_MANUAL.md) strips the
-`Forwarded` header and re-sets `X-Forwarded-For`. That configuration must also
-**not** add CORS headers unless cross-origin access is required.
+Ensure nginx/Caddy does **not** inject `Access-Control-Allow-Origin: *` unconditionally — proxy-level headers override application-level headers and silently widen the allowed-origins set. See [docs/OPERATOR_MANUAL.md Section 8.8](OPERATOR_MANUAL.md).
 
 ---
 
 ## 2. DDoS Mitigation Stack
 
-The engine implements a layered DDoS mitigation strategy across the application
-and infrastructure layers.
-
 ### 2.1 Application Layer — Request Body Limits
 
-`RequestBodyLimitMiddleware`
-(`src/synth_engine/bootstrapper/dependencies/request_limits.py`) rejects
-requests before they reach route handlers:
+`RequestBodyLimitMiddleware` (`bootstrapper/dependencies/request_limits.py`) rejects before route handlers:
 
-| Limit | Value | HTTP Response | Purpose |
-|-------|-------|---------------|---------|
-| Body size | 1 MiB (`MAX_BODY_BYTES`) | 413 Payload Too Large | Prevent memory exhaustion from large payloads |
-| JSON nesting depth | 100 levels (`MAX_JSON_DEPTH`) | 400 Bad Request | Prevent recursive-parser stack overflows (CVE-2020-36327-style) |
-
-This middleware is the **second** layer in the ASGI stack (registered second-to-last
-in LIFO order). `RateLimitGateMiddleware` is the **outermost** layer (registered
-last in LIFO order) and fires first on every request — before size and depth
-checks, vault gate, license gate, or any route handler. This ensures brute-force
-and DoS protection activates before any expensive downstream work.
+| Limit | Value | HTTP Response |
+|-------|-------|---------------|
+| Body size | 1 MiB | 413 Payload Too Large |
+| JSON nesting depth | 100 levels | 400 Bad Request |
 
 ### 2.2 Application Layer — Rate Limiting
 
-`RateLimitGateMiddleware`
-(`src/synth_engine/bootstrapper/dependencies/rate_limit.py`) enforces
-per-endpoint, per-identity rate limits using a `FixedWindowRateLimiter` backed
-by in-memory storage (the `limits` library). This requires no external
-dependencies and is safe for air-gapped deployments.
+`RateLimitGateMiddleware` (`bootstrapper/dependencies/rate_limit.py`) is the **outermost** layer — fires before any other check. Uses Redis-backed `INCR`+`EXPIRE` pipeline for distributed, atomic counting across all workers/pods (T48.1). Falls back to in-memory `FixedWindowRateLimiter` when Redis is unavailable (safe for air-gapped/single-node deployments).
 
-Default limits (configurable via `ConclaveSettings` in
-`src/synth_engine/shared/settings.py`):
+Default limits (configurable via `ConclaveSettings`):
 
 | Endpoint | Rate Limit | Key | Environment Variable |
 |----------|-----------|-----|----------------------|
 | `POST /unseal` | 5 req/min | Client IP | `RATE_LIMIT_UNSEAL_PER_MINUTE` |
 | `POST /auth/token` | 10 req/min | Client IP | `RATE_LIMIT_AUTH_PER_MINUTE` |
-| `GET /jobs/{id}/download` | 10 req/min | Operator JWT `sub` | `RATE_LIMIT_DOWNLOAD_PER_MINUTE` |
-| All other endpoints | 60 req/min | Operator JWT `sub` | `RATE_LIMIT_GENERAL_PER_MINUTE` |
+| `GET /jobs/{id}/download` | 10 req/min | JWT `sub` | `RATE_LIMIT_DOWNLOAD_PER_MINUTE` |
+| All other endpoints | 60 req/min | JWT `sub` | `RATE_LIMIT_GENERAL_PER_MINUTE` |
 
-Clients that exceed a limit receive HTTP 429 with a `Retry-After` header and an
-RFC 7807 Problem Details body.
+Exceeded limits return HTTP 429 with `Retry-After` and RFC 7807 body.
 
-**Tuning rate limits for production:**
-
-In-process rate limits are per-uvicorn-worker and reset on process restart. They
-are additive to—not a replacement for—infrastructure-layer limits. Tighten
-application-layer limits beyond the defaults only if your threat model requires
-it. Excessive tightening will block legitimate operators.
+**Tuning:** With Redis, limits are shared across all workers/pods. Without Redis (fallback), limits are per-uvicorn-worker and reset on restart. Application limits supplement — not replace — infrastructure limits. Tighten beyond defaults only if your threat model requires it.
 
 ```bash
 # .env
-RATE_LIMIT_UNSEAL_PER_MINUTE=3          # Tighter brute-force protection
-RATE_LIMIT_AUTH_PER_MINUTE=5            # Tighter credential-stuffing protection
-RATE_LIMIT_GENERAL_PER_MINUTE=30        # Reduce for high-value deployments
-RATE_LIMIT_DOWNLOAD_PER_MINUTE=5        # Reduce bandwidth exposure
+RATE_LIMIT_UNSEAL_PER_MINUTE=3
+RATE_LIMIT_AUTH_PER_MINUTE=5
+RATE_LIMIT_GENERAL_PER_MINUTE=30
+RATE_LIMIT_DOWNLOAD_PER_MINUTE=5
 ```
 
 ### 2.3 Infrastructure Layer — nginx Rate Limiting
 
-Place an nginx reverse proxy in front of the engine (see Section 3 for TLS
-configuration). nginx applies rate limiting at the kernel accept level — before
-any Python code runs — making it the most cost-effective DDoS mitigation layer.
-
-**Recommended nginx `nginx.conf` additions:**
+nginx applies rate limiting at the kernel accept level, before any Python code runs.
 
 ```nginx
-# Define a shared memory zone for rate limiting.
-# 10m ~ 160,000 IP addresses; adjust for your expected client population.
 limit_req_zone $binary_remote_addr zone=conclave_api:10m rate=30r/m;
 limit_req_zone $binary_remote_addr zone=conclave_unseal:10m rate=3r/m;
 limit_conn_zone $binary_remote_addr zone=conclave_conn:10m;
@@ -173,23 +117,19 @@ server {
     listen 443 ssl;
     server_name conclave.example.com;
 
-    # --- TLS (see Section 3) ---
     ssl_certificate     /etc/ssl/certs/conclave.crt;
     ssl_certificate_key /etc/ssl/private/conclave.key;
 
-    # --- Connection limits ---
-    limit_conn conclave_conn 20;          # Max 20 concurrent connections per IP
-    client_max_body_size 1m;              # Mirror the application-layer 1 MiB limit
-    client_body_timeout 10s;             # Drop slow-read attacks
+    limit_conn conclave_conn 20;
+    client_max_body_size 1m;
+    client_body_timeout 10s;
     client_header_timeout 10s;
-    keepalive_timeout 15s;               # Close idle connections promptly
+    keepalive_timeout 15s;
     send_timeout 10s;
 
-    # --- General API rate limit ---
     location / {
         limit_req zone=conclave_api burst=10 nodelay;
         limit_req_status 429;
-
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Real-IP       $remote_addr;
@@ -197,11 +137,9 @@ server {
         proxy_set_header Forwarded       "";
     }
 
-    # --- Tighter limit for the unseal endpoint ---
     location = /unseal {
         limit_req zone=conclave_unseal burst=2 nodelay;
         limit_req_status 429;
-
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Real-IP       $remote_addr;
@@ -213,21 +151,7 @@ server {
 
 ### 2.4 Infrastructure Layer — Slow-Read Attack Mitigation (uvicorn)
 
-Slow-read (Slowloris-style) attacks hold HTTP connections open by sending
-request headers or body data at a very low rate, eventually exhausting the
-server's connection pool.
-
-uvicorn exposes two keep-alive timeout settings:
-
-| Flag | Default | Recommended (Production) | Purpose |
-|------|---------|--------------------------|---------|
-| `--timeout-keep-alive` | 5 s | 5 s (keep default) | Maximum idle time between keep-alive requests before closing the connection |
-| `--timeout-graceful-shutdown` | 30 s | 30 s (keep default) | Time uvicorn waits for in-flight requests to finish during shutdown |
-
-The current `Dockerfile` `CMD` does not pass `--timeout-keep-alive` explicitly;
-uvicorn uses its built-in default of 5 seconds, which is a reasonable production
-value. To harden further, set it explicitly in `docker-compose.yml` or a
-`docker-compose.override.yml`:
+uvicorn defaults to `--timeout-keep-alive=5s`, which is a safe production value. To set explicitly:
 
 ```yaml
 services:
@@ -242,28 +166,20 @@ services:
       - --timeout-keep-alive
       - "5"
       - --workers
-      - "1"   # Single worker — required for in-memory rate limiter correctness
+      - "1"   # Safe to increase when Redis-backed rate limiting is active (T48.1)
 ```
 
-**Important:** The in-process `RateLimitGateMiddleware` uses `MemoryStorage`,
-which is per-process. Running multiple uvicorn workers means each worker
-maintains a separate rate-limit bucket. Keep `--workers 1` (the default when
-`--workers` is not specified) or switch to a Redis-backed rate limit store
-before scaling out.
+**Important:** With Redis-backed rate limiting (T48.1, default), limits are shared across workers/pods — scaling `--workers` is safe. Without Redis (in-memory fallback), each worker maintains separate buckets; keep `--workers 1` in that case.
 
 ### 2.5 Infrastructure Layer — Cloud WAF (Optional)
-
-If the engine is deployed in a cloud environment (AWS, GCP, Azure), a WAF
-(Web Application Firewall) provides a fourth layer of DDoS mitigation:
 
 | Cloud | Service | Recommended Rules |
 |-------|---------|-------------------|
 | AWS | AWS WAF + Shield Standard | IP rate-based rules, SQL injection, XSS managed rule groups |
-| GCP | Cloud Armor | Rate limiting policies, OWASP top-10 preconfigured rules |
+| GCP | Cloud Armor | Rate limiting, OWASP top-10 preconfigured rules |
 | Azure | Azure Front Door + WAF | Managed ruleset, custom rate limit rules |
 
-For air-gapped deployments without cloud access, rely on the nginx + application
-layers described above.
+For air-gapped deployments, rely on nginx + application layers above.
 
 ---
 
@@ -271,58 +187,35 @@ layers described above.
 
 ### 3.1 TLS Termination Architecture
 
-The engine's `app` service does **not** terminate TLS. Uvicorn listens on port
-8000 over plain HTTP on the internal Docker bridge network. TLS is terminated by
-a reverse proxy (nginx or Caddy) before traffic reaches the engine.
+The `app` service does **not** terminate TLS. Uvicorn listens on port 8000 over plain HTTP on the internal Docker bridge. TLS is terminated by nginx or Caddy.
 
-This architecture is intentional:
-
-- The Python application process is not responsible for key material rotation.
-- TLS configuration changes (cipher suites, certificates) do not require
-  application restarts.
-- The nginx/Caddy process runs with minimal privileges and a smaller attack
-  surface than the Python application.
-
-**Never expose port 8000 to the internet.** Bind it to `127.0.0.1` or an
-internal Docker network interface and let the reverse proxy handle public TLS.
+**Never expose port 8000 to the internet.** Bind it to `127.0.0.1` or an internal Docker network.
 
 ### 3.2 Recommended TLS Configuration (nginx)
 
-Use TLS 1.2 and 1.3 only. Disable older protocol versions and weak cipher
-suites. The following nginx configuration follows Mozilla's "Intermediate"
-compatibility profile, which balances modern security with broad client support:
+Use TLS 1.2 and 1.3 only (Mozilla "Intermediate" profile):
 
 ```nginx
-# TLS protocol versions
 ssl_protocols TLSv1.2 TLSv1.3;
-
-# Cipher suite order: prefer AEAD ciphers; disable 3DES, RC4, export ciphers
 ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
-ssl_prefer_server_ciphers off;  # TLS 1.3 ignores this; TLS 1.2 clients may reorder — all listed suites are AEAD so client preference is acceptable
+ssl_prefer_server_ciphers off;
 
-# HSTS — instruct browsers to always use HTTPS for this domain
-# Note: consider adding the `preload` directive (e.g. "max-age=63072000; includeSubDomains; preload")
-# for internet-facing deployments to be included in browser preload lists.
-# Tradeoff: once submitted to preload lists, removing HSTS requires a multi-month waiting period.
-# Do NOT add `preload` for internal or air-gapped deployments.
+# HSTS — omit `preload` for air-gapped/internal deployments
 add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
 
-# OCSP stapling — cache certificate status checks at the server
 ssl_stapling on;
 ssl_stapling_verify on;
 ssl_trusted_certificate /etc/ssl/certs/chain.pem;
-resolver 127.0.0.1;  # Use a local resolver for air-gapped deployments
+resolver 127.0.0.1;  # Use local resolver for air-gapped deployments
 
-# Session tickets — disabled to preserve forward secrecy across restarts
-ssl_session_tickets off;
+ssl_session_tickets off;      # Preserve forward secrecy across restarts
 ssl_session_cache shared:SSL:10m;
 ssl_session_timeout 1d;
 
-# DH params for DHE cipher suites
 ssl_dhparam /etc/nginx/dhparam.pem;  # Generate: openssl dhparam -out dhparam.pem 4096
 ```
 
-Generate a new 4096-bit DH parameter file before deploying:
+Generate DH parameters before deploying:
 
 ```bash
 openssl dhparam -out /etc/nginx/dhparam.pem 4096
@@ -330,40 +223,28 @@ openssl dhparam -out /etc/nginx/dhparam.pem 4096
 
 ### 3.3 Certificate Provisioning
 
-For internet-facing deployments, use Let's Encrypt (Certbot) or your
-organization's PKI to provision certificates. For air-gapped environments,
-issue certificates from an internal CA:
+Internet-facing: use Let's Encrypt (Certbot) or your org's PKI.
+
+Air-gapped (internal CA):
 
 ```bash
-# Generate a private key
 openssl genrsa -out conclave.key 4096
-
-# Generate a CSR
 openssl req -new -key conclave.key -out conclave.csr \
   -subj "/CN=conclave.internal/O=Conclave Engine"
-
-# Issue from internal CA (on the CA host)
 openssl x509 -req -in conclave.csr -CA ca.crt -CAkey ca.key \
   -CAcreateserial -out conclave.crt -days 825 -sha256
 ```
 
 ### 3.4 PostgreSQL TLS
 
-The engine enforces SSL for PostgreSQL connections by default
-(`CONCLAVE_SSL_REQUIRED=true` in `ConclaveSettings`). In Docker bridge network
-deployments, internal PostgreSQL traffic flows over an isolated network that
-does not reach the host interface, and SSL may be relaxed to `false`:
-
-**Docker bridge deployments only — never use for cross-host configurations.**
+SSL is enforced by default (`CONCLAVE_SSL_REQUIRED=true`). On Docker bridge networks where app and postgres are co-located, it may be relaxed:
 
 ```bash
-# .env — Docker bridge network (internal traffic only)
+# .env — Docker bridge only; never for cross-host
 CONCLAVE_SSL_REQUIRED=false
 ```
 
-For deployments where the `app` service and `postgres` service are on separate
-hosts, leave `CONCLAVE_SSL_REQUIRED=true` and provision a TLS certificate for
-PostgreSQL:
+For cross-host deployments, leave `CONCLAVE_SSL_REQUIRED=true` and provision PostgreSQL TLS:
 
 ```bash
 # postgresql.conf
@@ -376,32 +257,25 @@ ssl_key_file  = '/etc/ssl/private/server.key'
 
 ## 4. Vault Passphrase Management
 
-The engine boots **sealed**. All non-exempt API endpoints return `423 Locked`
-until the vault is unsealed. The vault implementation is in
-`src/synth_engine/shared/security/vault.py`.
+The engine boots **sealed**. All non-exempt endpoints return `423 Locked` until unsealed. Implementation: `shared/security/vault.py`.
 
 ### 4.1 KEK Derivation
 
-The operator passphrase is never stored. `VaultState.unseal()` runs
-PBKDF2-HMAC-SHA256 with 600,000 iterations to derive a 32-byte Key Encryption
-Key (KEK) held exclusively in process memory as a zeroed-on-seal `bytearray`.
+The operator passphrase is never stored. `VaultState.unseal()` runs PBKDF2-HMAC-SHA256 (600,000 iterations) to derive a 32-byte KEK held in process memory as a zeroed-on-seal `bytearray`.
 
-The `VAULT_SEAL_SALT` environment variable provides a 16-byte base64url-encoded
-PBKDF2 salt. The salt is **not secret** — it prevents rainbow-table attacks and
-must remain stable across restarts so the same passphrase always produces the
-same KEK.
+`VAULT_SEAL_SALT` (16-byte base64url, not secret) prevents rainbow-table attacks and must remain stable across restarts so the same passphrase always produces the same KEK.
 
-### 4.2 Passphrase Selection Requirements
+### 4.2 Passphrase Requirements
 
 | Requirement | Rationale |
 |-------------|-----------|
-| Minimum 20 characters | With 600,000 PBKDF2 iterations, a 20+ character passphrase raises brute-force cost to infeasible levels |
-| High entropy — not a dictionary word | PBKDF2 does not resist low-entropy passphrases; the algorithm's cost is tuned for strong passphrases |
-| Unique per deployment | Never reuse passphrases across environments (development, staging, production) |
-| Stored out-of-band | Store in a hardware security module (HSM), password manager, or on a printed card in a physical safe — never in `.env` |
-| Known to at least two operators | A single point of failure risks permanent data loss if the sole operator is unavailable |
+| Minimum 20 characters | 600,000 PBKDF2 iterations makes brute-force infeasible against strong passphrases |
+| High entropy — not a dictionary word | PBKDF2 cost is tuned for strong passphrases |
+| Unique per deployment | Never reuse across environments |
+| Stored out-of-band | HSM, password manager, or printed card in a physical safe — never in `.env` |
+| Known to at least two operators | Prevents permanent data loss if sole operator is unavailable |
 
-Generate a cryptographically random passphrase:
+Generate a passphrase:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -409,29 +283,18 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ### 4.3 Timing Side-Channel Mitigation
 
-`VaultState.unseal()` performs the PBKDF2 derivation **before** checking for an
-empty passphrase. This was introduced in T38.2 to eliminate a timing oracle: an
-attacker cannot distinguish an empty passphrase (previously ~µs) from a wrong
-passphrase (~100 ms at 600,000 iterations) by measuring response time. Both
-paths now incur the full PBKDF2 cost before any error is raised.
+`VaultState.unseal()` runs PBKDF2 derivation **before** checking for an empty passphrase (T38.2). Both empty and wrong passphrases incur the full ~100 ms cost, eliminating the timing oracle.
 
 ### 4.4 Seal Before Maintenance
 
-Always seal the vault before performing maintenance operations that require
-elevated system access. The only way to seal the vault is `POST /security/shred`:
-
-> **WARNING: `POST /security/shred` is a destructive operation.** It zeroizes
-> the in-memory vault KEK, rendering all ALE-encrypted database ciphertext
-> permanently unrecoverable until the vault is re-unsealed with the original
-> passphrase. Ensure you have the original passphrase available before proceeding.
+> **WARNING: `POST /security/shred` is destructive.** It zeroizes the in-memory KEK, rendering all ALE-encrypted data permanently unrecoverable until re-unsealed with the original passphrase.
 
 ```bash
 curl -X POST http://localhost:8000/security/shred \
   -H "Authorization: Bearer ${TOKEN}"
 ```
 
-After sealing, all non-exempt routes return `423 Locked`. The operator must
-re-unseal with the original passphrase to restore access to encrypted data:
+Re-unseal after maintenance:
 
 ```bash
 curl -X POST http://localhost:8000/unseal \
@@ -441,14 +304,12 @@ curl -X POST http://localhost:8000/unseal \
 
 ### 4.5 Emergency Re-Seal
 
-If an operator suspects the KEK has been compromised:
+If KEK compromise is suspected:
 
-1. Seal the vault immediately (`POST /security/shred` — see Section 4.4 warning above).
-2. Restart the `app` container to force a fresh process (the KEK is never
-   written to disk; the in-memory copy is zeroed by `VaultState.seal()`).
-3. Rotate the ALE encryption key (see Section 5).
-4. Generate a new `VAULT_SEAL_SALT` and update `.env` — this changes the KEK
-   derived from the same passphrase.
+1. Seal immediately (`POST /security/shred`).
+2. Restart the `app` container (in-memory KEK is zeroed; never written to disk).
+3. Rotate the ALE key (Section 5).
+4. Generate a new `VAULT_SEAL_SALT` and update `.env`.
 5. Change the passphrase.
 6. Re-unseal with the new passphrase.
 
@@ -456,129 +317,62 @@ If an operator suspects the KEK has been compromised:
 
 ## 5. Key Rotation Procedures
 
-### 5.1 Application-Level Encryption (ALE) Key Rotation
+### 5.1 ALE Key Rotation
 
-The ALE key encrypts sensitive database columns using Fernet (AES-128-CBC +
-HMAC-SHA256). Key rotation is implemented in
-`src/synth_engine/shared/security/rotation.py` and exposed via the
-`POST /security/keys/rotate` API endpoint.
+The ALE key encrypts sensitive DB columns (Fernet: AES-128-CBC + HMAC-SHA256). Implementation: `shared/security/rotation.py`. Endpoint: `POST /security/keys/rotate`.
 
-**When to rotate:**
+**When to rotate:** suspected compromise, scheduled policy (every 90 days), or staff change involving key material access.
 
-- Suspected key compromise.
-- Scheduled rotation policy (recommended: every 90 days in production).
-- After a staff change that involved access to key material.
+**How it works:** The operator provides `new_passphrase` (recorded in audit trail for intent). The server generates the new Fernet key internally:
 
-**How rotation works:**
-
-The operator does **not** generate a new Fernet key and pass it to the API.
-The server generates the new key internally. The operator only supplies a
-`new_passphrase` string, which is recorded in the audit trail to document
-operator intent. The actual rotation flow is:
-
-1. The operator sends `POST /security/keys/rotate` with `{"new_passphrase": "<new-passphrase>"}`.
-2. The server verifies the vault is unsealed (rotation requires the current KEK).
-3. The server calls `Fernet.generate_key()` internally to produce a fresh random ALE key.
-4. The new Fernet key is wrapped (encrypted) with the current vault KEK so it
-   is never stored in the Huey/Redis broker in plaintext.
-5. A Huey background task (`rotate_ale_keys_task`) is enqueued and returns `202 Accepted` immediately.
-6. The worker unwraps the new key using the vault KEK and re-encrypts all
-   ALE-protected columns.
-
-**Rotation procedure:**
+1. Server calls `Fernet.generate_key()`.
+2. New key is KEK-wrapped (never stored in plaintext in Redis).
+3. Huey task `rotate_ale_keys_task` is enqueued — returns `202 Accepted`.
+4. Worker re-encrypts all ALE columns: discovers via SQLModel metadata, re-encrypts in batches of 1,000, all-or-nothing transaction.
 
 ```bash
-# 1. Ensure the vault is unsealed
+# 1. Ensure vault is unsealed
 curl http://localhost:8000/health
 
-# 2. Trigger the rotation via the API — the server generates the new Fernet
-#    key internally; new_passphrase is recorded in the audit trail only
+# 2. Trigger rotation
 curl -X POST http://localhost:8000/security/keys/rotate \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d "{\"new_passphrase\": \"<new-operator-passphrase>\"}"
 ```
 
-The rotation task runs asynchronously in the Huey worker process.
-`rotate_ale_keys_task()` (in `shared/security/rotation.py`):
-
-1. Discovers all `EncryptedString` columns via SQLModel metadata introspection
-   (`find_encrypted_columns()`).
-2. Re-encrypts every non-NULL value from the old Fernet key to the new one in
-   a single database transaction (`re_encrypt_column_values()`).
-3. The entire operation is all-or-nothing: any failure rolls back all changes,
-   preventing partial-rotation states.
-4. Rows are processed in batches of 1,000 to avoid OOM on large tables.
-
 **After rotation:**
 
-1. The new `ALE_KEY` is generated ephemerally inside the Huey worker and is
-   never written to any log, task result, or externally readable store. It is
-   accessible only via KEK derivation from the vault passphrase. **The vault
-   passphrase is the sole recovery mechanism.** If the vault passphrase is lost,
-   all ALE-encrypted data is permanently unrecoverable. Ensure the passphrase is
-   stored in a separate, durable secrets store (e.g., a hardware security module
-   or an offline password manager) before triggering rotation.
-2. Restart the `app` and Huey worker services so they pick up the new key from
-   the vault.
-3. Verify the audit log for the `KEY_ROTATION_REQUESTED` event.
+1. The new ALE key is never written to any log or external store. **The vault passphrase is the sole recovery mechanism.** If lost, all ALE-encrypted data is permanently unrecoverable.
+2. Restart `app` and Huey worker services.
+3. Verify `KEY_ROTATION_REQUESTED` in the audit log.
 
 ### 5.2 Model Artifact Signing Key Rotation
 
-Model artifacts are signed with an HMAC-SHA256 key (`ARTIFACT_SIGNING_KEY`).
-Rotating this key does not re-sign existing artifacts — artifacts signed with
-the old key will fail signature verification after rotation.
+Rotating `ARTIFACT_SIGNING_KEY` does **not** re-sign existing artifacts — they will fail verification.
 
-**Rotation procedure:**
-
-1. Generate a new key:
-
-   ```bash
-   python3 -c "import secrets; print(secrets.token_hex(32))"
-   ```
-
+1. Generate: `python3 -c "import secrets; print(secrets.token_hex(32))"`
 2. Update `ARTIFACT_SIGNING_KEY` in your secrets store.
-3. Restart the `app` service. New artifacts will be signed with the new key.
-4. Re-run any synthesis jobs whose artifacts must remain accessible after
-   rotation (existing artifacts signed with the old key will be rejected).
+3. Restart `app`. New artifacts use the new key.
+4. Re-run synthesis jobs whose artifacts must remain accessible.
 
 ### 5.3 JWT Secret Key Rotation
 
-The JWT secret key (`JWT_SECRET_KEY`) signs operator access tokens.
+Rotating `JWT_SECRET_KEY` immediately invalidates all existing tokens.
 
-**Rotation procedure:**
-
-1. Generate a new secret:
-
-   ```bash
-   python3 -c "import secrets; print(secrets.token_hex(32))"
-   ```
-
+1. Generate: `python3 -c "import secrets; print(secrets.token_hex(32))"`
 2. Update `JWT_SECRET_KEY` in your secrets store.
-3. Restart the `app` service. All existing tokens signed with the old key are
-   immediately invalidated — operators must re-authenticate.
-4. Notify operators of the forced logout before rotating in production.
+3. **Notify operators** of forced logout before rotating in production.
+4. Restart `app`.
 
 ### 5.4 Audit Key Rotation
 
-The `AUDIT_KEY` is used to HMAC-sign audit log entries for tamper detection.
-Rotating this key does not invalidate existing audit entries — they retain their
-original signatures. Verification of historical entries must use the key that
-was active at the time of writing.
+`AUDIT_KEY` HMAC-signs audit log entries. Rotation does not invalidate existing entries — verify historical entries with the key that was active at write time.
 
-**Rotation procedure:**
-
-1. Archive the current `AUDIT_KEY` value alongside the audit log entries it
-   signed (e.g., in a secure key escrow). You will need the original key to
-   verify historical entries.
-2. Generate a new key:
-
-   ```bash
-   python3 -c "import os; print(os.urandom(32).hex())"
-   ```
-
+1. Archive the current `AUDIT_KEY` alongside the signed entries (needed for historical verification).
+2. Generate: `python3 -c "import os; print(os.urandom(32).hex())"`
 3. Update `AUDIT_KEY` in your secrets store.
-4. Restart the `app` service. New audit entries will be signed with the new key.
+4. Restart `app`.
 
 ---
 

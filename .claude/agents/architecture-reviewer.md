@@ -14,7 +14,7 @@ Before starting your review, read:
 1. `CONSTITUTION.md` — particularly Priority 2 (Architecture) and Priority 6 (Clean Code)
 2. `CLAUDE.md` — the Architecture Constraints and File Placement Rules sections
 3. `docs/adr/` — read any ADR files to understand decisions already made
-4. `docs/ARCHITECTURAL_REQUIREMENTS.md` — the full system architecture document
+4. `docs/archive/ARCHITECTURAL_REQUIREMENTS.md` — the full system architecture document
 
 Key project facts:
 - **Modular Monolith** — a singular deployable unit with strict internal boundaries
