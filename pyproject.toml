@@ -178,9 +178,9 @@ external = ["DOC"]
 # S106: hardcoded-password-in-argument — secret_key/access_key in unit tests are test-only
 # S108: insecure /tmp usage — mocked paths in unit tests are not real filesystem calls
 # RUF002: ambiguous unicode in docstrings — pre-existing test docstrings use EN DASH notation
-# S603/S607: subprocess call with full resolved path — shellcheck tests invoke a trusted binary
-#            via shutil.which; the executable is not user-supplied or externally controlled
-"tests/**" = ["S101", "S105", "S106", "S108", "S603", "S607", "RUF002"]
+# S603/S607: subprocess/shellcheck invocations in validation tests (trusted static lists, not user input)
+# RUF012: ClassVar annotation on test class-level constants is an ergonomic choice, not a safety issue
+"tests/**" = ["S101", "S105", "S106", "S108", "RUF002", "S603", "S607", "RUF012"]
 # S603/S607: subprocess without shell=True / partial path — pre-existing scripts
 # UP006/UP035: typing.List is deprecated — scripts pre-date pyproject.toml; modernise in Task 2.x
 "scripts/**" = ["S603", "S607", "UP006", "UP035"]

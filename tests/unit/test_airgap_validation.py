@@ -13,7 +13,6 @@ Task: P51-T51.3 — Air-Gap Deployment Validation Script
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -29,32 +28,6 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 VALIDATE_SCRIPT = REPO_ROOT / "scripts" / "validate_airgap.sh"
 BUILD_SCRIPT = REPO_ROOT / "scripts" / "build_airgap.sh"
 MAKEFILE = REPO_ROOT / "Makefile"
-
-
-def _run_shellcheck(script: Path) -> subprocess.CompletedProcess[str]:
-    """Run shellcheck on a script using its full resolved path.
-
-    Uses shutil.which to resolve the full executable path, satisfying
-    bandit S603/S607 (no partial path, no untrusted input).
-
-    Args:
-        script: Absolute path to the shell script to check.
-
-    Returns:
-        CompletedProcess with returncode, stdout, and stderr populated.
-
-    Raises:
-        pytest.skip: If shellcheck is not installed on this machine.
-    """
-    shellcheck_bin = shutil.which("shellcheck")
-    if shellcheck_bin is None:
-        pytest.skip("shellcheck not installed — skipping shellcheck tests")
-    return subprocess.run(
-        [shellcheck_bin, str(script)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +160,11 @@ class TestValidateAirgapAttack:
         shellcheck catches common bash pitfalls: unquoted variables, word
         splitting, subshell issues, and other correctness problems.
         """
-        result = _run_shellcheck(VALIDATE_SCRIPT)
+        result = subprocess.run(
+            ["shellcheck", str(VALIDATE_SCRIPT)],
+            capture_output=True,
+            text=True,
+        )
         assert result.returncode == 0, (
             f"shellcheck found errors in validate_airgap.sh:\n{result.stdout}\n{result.stderr}"
         )
@@ -215,7 +192,11 @@ class TestBuildAirgapAttack:
 
     def test_build_script_passes_shellcheck(self) -> None:
         """build_airgap.sh must pass shellcheck with no errors."""
-        result = _run_shellcheck(BUILD_SCRIPT)
+        result = subprocess.run(
+            ["shellcheck", str(BUILD_SCRIPT)],
+            capture_output=True,
+            text=True,
+        )
         assert result.returncode == 0, (
             f"shellcheck found errors in build_airgap.sh:\n{result.stdout}\n{result.stderr}"
         )
@@ -346,8 +327,8 @@ class TestValidateAirgapFeatures:
         assert "mktemp" in content or "TMPDIR" in content or "tmp" in content.lower(), (
             "validate_airgap.sh must extract bundle to a temp directory"
         )
-        tar_patterns = ("tar -xz", "tar xz", "tar -xzf", "tar xzf")
-        assert any(p in content for p in tar_patterns), (
+        tar_cmds = ("tar -xz", "tar xz", "tar -xzf", "tar xzf")
+        assert any(cmd in content for cmd in tar_cmds), (
             "validate_airgap.sh must extract the bundle with tar"
         )
 
