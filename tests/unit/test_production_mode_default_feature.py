@@ -132,14 +132,25 @@ def test_production_all_vars_present_passes(monkeypatch: pytest.MonkeyPatch) -> 
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
     # No CONCLAVE_ENV set — defaults to production
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
-    monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
-    monkeypatch.setenv("JWT_SECRET_KEY", "supersecretkey-for-production")
+    monkeypatch.setenv(
+        "ARTIFACT_SIGNING_KEY",
+        "cafecafecafecafecafecafecafecafe",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "MASKING_SALT",
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
+    )
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY", "supersecretkey-for-production"
+    )  # pragma: allowlist secret
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", _VALID_BCRYPT_HASH)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
@@ -165,8 +176,11 @@ def test_dev_mode_warning_contains_production_guidance(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
     monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
@@ -199,8 +213,11 @@ def test_dev_mode_via_env_also_emits_warning(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
     monkeypatch.setenv("ENV", "development")
     monkeypatch.setenv("CONCLAVE_ENV", "development")  # override the default
     monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
@@ -231,13 +248,24 @@ def test_production_mode_does_not_emit_dev_mode_warning(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
-    monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
-    monkeypatch.setenv("JWT_SECRET_KEY", "supersecretkey-for-production")
+    monkeypatch.setenv(
+        "ARTIFACT_SIGNING_KEY",
+        "cafecafecafecafecafecafecafecafe",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "MASKING_SALT",
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY", "supersecretkey-for-production"
+    )  # pragma: allowlist secret
     monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", _VALID_BCRYPT_HASH)
     monkeypatch.setenv("CONCLAVE_TLS_CERT_PATH", "/etc/ssl/conclave/conclave.crt")
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)

@@ -35,10 +35,19 @@ def _minimal_prod_base(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Used to isolate which variable triggers the failure under test.
     """
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
-    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
-    monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "ARTIFACT_SIGNING_KEY",
+        "cafecafecafecafecafecafecafecafe",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "MASKING_SALT",
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
+    )
     # Remove both env var alternatives so default kicks in
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ENV", raising=False)
@@ -246,8 +255,11 @@ def test_operator_relying_on_old_dev_default_now_gets_startup_failure(
 
     # Simulate an operator who configured the minimum they thought was needed
     # for development — no CONCLAVE_ENV, base vars only
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
     # They never set CONCLAVE_ENV (old default: '' → dev mode, auth skipped)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ENV", raising=False)
@@ -258,8 +270,14 @@ def test_operator_relying_on_old_dev_default_now_gets_startup_failure(
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
     monkeypatch.delenv("MTLS_ENABLED", raising=False)
     # In production mode, ARTIFACT_SIGNING_KEY and MASKING_SALT are also required
-    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafecafecafecafecafecafecafecafe")
-    monkeypatch.setenv("MASKING_SALT", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+    monkeypatch.setenv(
+        "ARTIFACT_SIGNING_KEY",
+        "cafecafecafecafecafecafecafecafe",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "MASKING_SALT",
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
 
     with pytest.raises(SystemExit), caplog_context():
         validate_config()
@@ -283,8 +301,11 @@ def test_old_dev_default_upgrade_path_requires_explicit_development(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
     monkeypatch.setenv("CONCLAVE_ENV", "development")  # explicit dev mode
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
@@ -318,8 +339,11 @@ def test_development_mode_emits_warning(
     """
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
-    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )  # pragma: allowlist secret
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
     monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
