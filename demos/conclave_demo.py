@@ -22,6 +22,10 @@ from __future__ import annotations
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 # ---------------------------------------------------------------------------
 # sys.path adjustment — allows direct execution and notebook imports
@@ -31,6 +35,28 @@ _SRC_DIR = _REPO_ROOT / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+try:
+    from typing import TypedDict
+except ImportError:
+    from typing_extensions import TypedDict  # type: ignore[assignment]
+
+
+class RunDemoResult(TypedDict):
+    """Return value contract for :func:`run_demo`.
+
+    Attributes:
+        synthetic_df: The generated synthetic DataFrame.
+        actual_epsilon: Privacy budget consumed (epsilon value).
+        artifact_path: Path to the saved model artifact, or a placeholder
+            string when a temporary directory was used and has been cleaned up.
+        row_count: Number of rows in the synthetic DataFrame.
+    """
+
+    synthetic_df: pd.DataFrame
+    actual_epsilon: float
+    artifact_path: str
+    row_count: int
+
 
 def run_demo(
     signing_key: bytes,
@@ -39,7 +65,7 @@ def run_demo(
     epochs: int = 5,
     noise_multiplier: float = 1.0,
     output_dir: str | None = None,
-) -> dict[str, object]:
+) -> RunDemoResult:
     """Run a minimal synthesis demo using isolated SQLite-backed budget tracking.
 
     Generates synthetic data from a fictional dataset, saves and reloads the
@@ -56,12 +82,13 @@ def run_demo(
             directory if not provided.
 
     Returns:
-        Dict with keys: synthetic_df (DataFrame), actual_epsilon (float),
+        RunDemoResult with keys: synthetic_df (DataFrame), actual_epsilon (float),
         artifact_path (str), row_count (int).
 
     Raises:
         ValueError: If signing_key is empty or shorter than 32 bytes.
         ImportError: If the synthesizer group is not installed.
+        RuntimeError: If the model artifact cannot be reloaded after saving.
     """
     if not signing_key:
         raise ValueError("signing_key must not be empty.")
@@ -150,9 +177,13 @@ def run_demo(
 
     # Reload artifact — MUST pass signing_key; omitting it is forbidden
     _loaded = ModelArtifact.load(artifact_path, signing_key=signing_key)
-    assert _loaded is not None, "ModelArtifact.load() must return a non-None artifact"
+    if _loaded is None:
+        raise RuntimeError(
+            "ModelArtifact.load() returned None — artifact may be corrupt or the "
+            "signing key does not match the key used to save the artifact."
+        )
 
-    result: dict[str, object] = {
+    result: RunDemoResult = {
         "synthetic_df": synth_df,
         "actual_epsilon": actual_epsilon,
         "artifact_path": artifact_path,
