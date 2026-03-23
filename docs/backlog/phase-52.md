@@ -6,7 +6,7 @@ Two audience-specific notebooks (data architects, AI/ML builders). All results c
 as versioned artifacts with honest analysis — results that look bad stay in.
 
 **Prerequisite**: Phase 50 merged (security fixes resolve expired advisories). Phase 51
-recommended (release engineering).
+recommended if specced (release engineering — not yet in backlog).
 
 **ADR**: None required — no architectural changes. Demo dependency group is additive and
 isolated.
@@ -42,13 +42,18 @@ isolated.
 
 1. `[tool.poetry.group.demos]` dependency group added to `pyproject.toml` with:
    `matplotlib`, `seaborn`, `jupyter`, `scikit-learn`, `nbstripout`.
-2. `nbstripout` added to `.pre-commit-config.yaml` to strip all notebook cell outputs
-   before commit.
-3. `demos/` top-level directory created with `demos/results/` and `demos/figures/` in
-   `.gitignore` for generated output, but `demos/*.ipynb`, `demos/*.py`,
-   `demos/README.md` committed.
+2. `nbstripout` added to `.pre-commit-config.yaml` with a pinned `rev` tag (e.g.,
+   `v0.7.1`) to strip all notebook cell outputs before commit. Consistent with the
+   project's supply chain hardening policy — `HEAD` or branch refs are forbidden.
+3. `demos/` top-level directory created. `.gitignore` updated to exclude generated output
+   (`demos/results/*.csv` and `demos/figures/`) while allowing committed versioned JSON
+   artifacts via negation rules (`!demos/results/*_v1.json`,
+   `!demos/results/grid_config.json`). Files `demos/*.ipynb`, `demos/*.py`, and
+   `demos/README.md` are committed normally.
 4. `scripts/benchmark_epsilon_curves.py` created — parameterized harness that:
    - Accepts: PostgreSQL connection string, table name, parameter grid config (JSON/YAML).
+   - Parameter grid config YAML parsing MUST use `yaml.safe_load()` only. `yaml.load()`
+     without SafeLoader is forbidden. Bandit B506 enforces this.
    - Trains CTGAN at configurable noise multipliers x epoch counts x sample sizes.
    - Records per-run: actual epsilon (from Opacus RDP accountant), wall time (start = first
      training epoch, stop = final sample generation), KS statistic per numeric column,
@@ -71,7 +76,9 @@ isolated.
    names (path traversal prevention).
 6. `demos/conclave_demo.py` convenience wrapper created for notebook use — orchestrates
    synthesis via direct Python imports (not API calls), using an isolated SQLite or fresh
-   PostgreSQL instance for privacy budget (never touches production ledger).
+   PostgreSQL instance for privacy budget (never touches production ledger). The wrapper
+   MUST require and pass the artifact signing key to `ModelArtifact.load()`; it MUST NOT
+   call `load()` without a signing key.
 
 ### Files to Create/Modify
 
@@ -90,7 +97,9 @@ isolated.
 - `test_benchmark_epsilon_delta_matches_production_constant` — assert benchmark delta
   equals production `_DP_EPSILON_DELTA`.
 - `test_benchmark_run_produces_identical_metrics_given_fixed_seed` — run twice with same
-  seed; assert metrics match within tolerance.
+  seed on CPU; assert metrics match within tolerance. Test MUST be marked
+  `@pytest.mark.cpu_only` or skip on GPU (cuDNN non-determinism documented in results
+  metadata).
 - `test_benchmark_harness_records_failure_row_on_run_error` — inject failure; verify
   failure row recorded, not omitted.
 - `test_results_artifact_contains_schema_version_field` — parse results; assert
@@ -98,6 +107,9 @@ isolated.
 - `test_committed_results_contain_no_real_column_names` — assert column identifiers match
   fixture schema only.
 - `test_parameter_grid_is_committed_alongside_results` — grid config must be an artifact.
+- `test_benchmark_harness_rejects_malicious_yaml_config` — pass a YAML document with
+  `!!python/object/apply:os.system` payload; assert it is rejected (safe_load must raise
+  or refuse to deserialize the object).
 
 ---
 
@@ -109,9 +121,10 @@ isolated.
 
 1. Benchmarks MUST run against `sample_data/` fixtures (publicly committable, all fictional
    Faker-generated data) — never against production data.
-2. Seed PostgreSQL with scaled-up sample data: 1K, 10K, 50K rows per table using
-   `scripts/seed_sample_data.py` with configurable row counts. 100K deferred to
-   GPU-available hardware.
+2. `scripts/seed_sample_data.py` already supports `--customers` and `--orders` CLI flags
+   (from T18.3). The actual work is to verify it scales to 50K rows per table and add any
+   missing table support (e.g., `--order-items`, `--payments` if not present). 100K deferred
+   to GPU-available hardware.
 3. Parameter grid for `customers` table (most PII-dense): noise multipliers
    (0.5, 1.0, 2.0, 5.0, 10.0) x epoch counts (50, 100, 200) x sample sizes
    (1K, 10K, 50K) = 45 cells.
@@ -128,7 +141,8 @@ isolated.
 
 ### Acceptance Criteria
 
-1. Scaled sample data generation script supports configurable row counts (1K, 10K, 50K).
+1. Verify existing `scripts/seed_sample_data.py` scales to 50K rows per table. Add missing
+   table flags if needed. No rewrite required if existing script handles the scale.
 2. Full parameter grid executed for `customers` (45 cells) and `orders` (12 cells).
 3. Every grid cell has a result row — no omissions. Failed cells have failure rows with
    error details.
@@ -143,7 +157,7 @@ isolated.
 
 ### Files to Create/Modify
 
-- Modify: `scripts/seed_sample_data.py` (add configurable row counts)
+- Modify (if needed): `scripts/seed_sample_data.py`
 - Create: `demos/results/benchmark_customers_v1.json`
 - Create: `demos/results/benchmark_orders_v1.json`
 - Create: `demos/results/grid_config.json`
@@ -250,8 +264,9 @@ isolated.
 2. No hardcoded credentials in notebook source cells.
 3. Notebook executes cleanly from fresh kernel against the Docker Compose PostgreSQL
    instance seeded with sample data.
-4. All model artifact loading uses `ModelArtifact.load()` (HMAC-verified), never raw
-   `pickle.load()`.
+4. All model artifact loading MUST call `ModelArtifact.load(path, signing_key=...)` with
+   `ARTIFACT_SIGNING_KEY` from the environment. Unsigned loading (`signing_key=None`) is
+   forbidden in demo code. Never use raw `pickle.load()`.
 5. `demos/README.md` includes setup instructions (docker compose, seed data, install demos
    group, run notebook).
 
@@ -289,7 +304,9 @@ isolated.
    - Synthetic: Train on synthetic (various epsilon levels), test on real.
    - Augmented: Train on real + synthetic combined, test on real.
 7. scikit-learn is in the `demos` dependency group — not in production.
-8. All model artifact loading through verified production path only.
+8. All model artifact loading MUST call `ModelArtifact.load(path, signing_key=...)` with
+   `ARTIFACT_SIGNING_KEY` from the environment — not in unsigned mode. Never use raw
+   `pickle.load()`.
 
 ### Acceptance Criteria
 

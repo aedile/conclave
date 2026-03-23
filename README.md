@@ -83,7 +83,7 @@ graph TD
 - Cross-module database queries are forbidden. Each module owns its own data access.
 - The bootstrapper is the sole composition root. Business logic has no framework knowledge.
 
-51 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
+50 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
 
 ---
 
@@ -286,13 +286,13 @@ Phase 52 will publish three runnable Jupyter notebooks with real, reproducible b
 results against the `sample_data/` fixtures. All epsilon values are post-hoc measured by
 the Opacus RDP accountant — not configured targets. Results that look bad stay in.
 
-**Notebooks** (coming in Phase 52, targeting `demos/`):
+**Notebooks** (files created when Phase 52 is implemented, targeting `demos/`):
 
 | Notebook | Audience | What It Shows |
 |----------|----------|---------------|
-| [`demos/epsilon_curves.ipynb`](demos/epsilon_curves.ipynb) | Privacy engineers, reviewers | Parameterized epsilon curves across 45 noise-multiplier/epoch/sample-size combinations; KS statistics, correlation preservation, FK integrity |
-| [`demos/quickstart.ipynb`](demos/quickstart.ipynb) | Data architects | Three-cell demo: connect → synthesize → compare. Side-by-side distribution overlays, correlation heatmaps |
-| [`demos/training_data.ipynb`](demos/training_data.ipynb) | AI/ML builders | Train on synthetic, test on real. Utility curve showing privacy-utility tradeoff by epsilon level |
+| `demos/epsilon_curves.ipynb` | Privacy engineers, reviewers | Parameterized epsilon curves across 45 noise-multiplier/epoch/sample-size combinations; KS statistics, correlation preservation, FK integrity |
+| `demos/quickstart.ipynb` | Data architects | Three-cell demo: connect → synthesize → compare. Side-by-side distribution overlays, correlation heatmaps |
+| `demos/training_data.ipynb` | AI/ML builders | Train on synthetic, test on real. Utility curve showing privacy-utility tradeoff by epsilon level |
 
 **Methodology note**: The benchmark harness trains CTGAN at configurable noise multipliers,
 epoch counts, and sample sizes. Epsilon is measured after training by the Opacus RDP
@@ -303,7 +303,7 @@ but CPU-only is the fully supported path.
 **Existing DP quality evidence**: See [docs/archive/DP_QUALITY_REPORT.md](docs/archive/DP_QUALITY_REPORT.md)
 for the current micro-benchmark results and recommended epsilon ranges by use case.
 
-Full setup instructions (Docker Compose, demo dependency group, seeding): [`demos/README.md`](demos/README.md).
+Full setup instructions (Docker Compose, demo dependency group, seeding): `demos/README.md` (files created when Phase 52 is implemented).
 
 ---
 
@@ -336,9 +336,9 @@ A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.
 
 | Metric | Value |
 |--------|-------|
-| Commits | 970 |
-| Pull requests merged | 90 |
-| Architecture Decision Records | 51 |
+| Commits | 972 |
+| Pull requests merged | 179 |
+| Architecture Decision Records | 50 |
 | Production source lines | ~23,000 |
 | Test lines | ~80,000 |
 | Test coverage | 96.76% |
@@ -361,7 +361,7 @@ Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_S
 | [Dependency Audit](docs/DEPENDENCY_AUDIT.md) | Supply chain audit and dependency provenance |
 | [Business Requirements](docs/archive/BUSINESS_REQUIREMENTS.md) | Full product BRD (archived) |
 | [Architectural Requirements](docs/archive/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification (archived; see ADRs) |
-| [Architecture Decision Records](docs/adr/) | 51 ADRs covering every significant design decision |
+| [Architecture Decision Records](docs/adr/) | 50 ADRs covering every significant design decision |
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, development history |
 | [Development Story](docs/archive/DEVELOPMENT_STORY.md) | How this codebase was built (archived) |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
