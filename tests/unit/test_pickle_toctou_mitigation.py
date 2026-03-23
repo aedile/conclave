@@ -21,8 +21,6 @@ from __future__ import annotations
 
 import io
 import os
-import pickle  # nosec B403 — constructing adversarial payloads for security tests
-import tempfile
 import unittest.mock
 from pathlib import Path
 
@@ -30,7 +28,6 @@ import pandas as pd
 import pytest
 
 from synth_engine.modules.synthesizer.models import ModelArtifact
-from synth_engine.shared.exceptions import ArtifactTamperingError
 from synth_engine.shared.security import SecurityError
 
 pytestmark = pytest.mark.unit
@@ -104,9 +101,10 @@ def test_file_not_found_raises_file_not_found_error(tmp_path: Path) -> None:
 
     # Verify os.path.exists is NOT called during load() — if it were called, we
     # would detect a TOCTOU pre-check that still exists.
-    with unittest.mock.patch("os.path.exists", side_effect=AssertionError(
-        "os.path.exists() must not be called in ModelArtifact.load() — TOCTOU pre-check detected"
-    )):
+    with unittest.mock.patch(
+        "os.path.exists",
+        side_effect=AssertionError("os.path.exists() must not be called in ModelArtifact.load()"),
+    ):
         with pytest.raises(FileNotFoundError):
             ModelArtifact.load(missing, signing_key=_VALID_KEY)
 
@@ -118,9 +116,10 @@ def test_file_not_found_no_signing_key_raises_file_not_found_error(tmp_path: Pat
     """
     missing = str(tmp_path / "does_not_exist_unsigned.pkl")
 
-    with unittest.mock.patch("os.path.exists", side_effect=AssertionError(
-        "os.path.exists() must not be called in ModelArtifact.load() — TOCTOU pre-check detected"
-    )):
+    with unittest.mock.patch(
+        "os.path.exists",
+        side_effect=AssertionError("os.path.exists() must not be called in ModelArtifact.load()"),
+    ):
         with pytest.raises(FileNotFoundError):
             ModelArtifact.load(missing)
 
@@ -144,9 +143,10 @@ def test_size_check_uses_buffer_not_disk_stat(tmp_path: Path) -> None:
     save_path = tmp_path / "artifact.pkl"
     artifact.save(str(save_path), signing_key=_VALID_KEY)
 
-    with unittest.mock.patch("os.path.getsize", side_effect=AssertionError(
-        "os.path.getsize() must not be called in ModelArtifact.load() — TOCTOU pre-stat detected"
-    )):
+    with unittest.mock.patch(
+        "os.path.getsize",
+        side_effect=AssertionError("os.path.getsize() must not be called in ModelArtifact.load()"),
+    ):
         # Must succeed: no os.path.getsize() call expected
         loaded = ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
 
@@ -171,7 +171,7 @@ def test_oversized_buffer_raises_value_error_via_bounded_read(tmp_path: Path) ->
     # which is one byte over the limit.
     oversized_data = b"\x00" * (_MAX_ARTIFACT_SIZE_BYTES + 1)
 
-    original_open = open  # noqa: WPS442
+    original_open = open
 
     def _mock_open(path: str, mode: str = "r", **kwargs: object) -> object:  # type: ignore[override]
         if "rb" in mode and str(save_path) in str(path):
@@ -193,15 +193,16 @@ def test_oversized_buffer_error_message_mentions_size_limit(tmp_path: Path) -> N
     artifact.save(str(save_path), signing_key=_VALID_KEY)
 
     oversized_data = b"\x00" * (_MAX_ARTIFACT_SIZE_BYTES + 1)
-    original_open = open  # noqa: WPS442
+    original_open = open
 
     def _mock_open(path: str, mode: str = "r", **kwargs: object) -> object:  # type: ignore[override]
         if "rb" in mode and str(save_path) in str(path):
             return io.BytesIO(oversized_data)
         return original_open(path, mode, **kwargs)  # type: ignore[call-overload]
 
+    _size_match = r"[Ff]ile.*too large|size.*limit|2.*GiB|2.*GB"
     with unittest.mock.patch("builtins.open", side_effect=_mock_open):
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match=_size_match) as exc_info:
             ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
 
     error_text = str(exc_info.value)

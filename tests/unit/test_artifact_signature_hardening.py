@@ -274,7 +274,7 @@ def test_load_file_exceeding_size_limit_raises(tmp_path: Path) -> None:
 
     _max = 2 * 1024 * 1024 * 1024
     oversized_data = b"\x00" * (_max + 1)
-    _real_open = open  # noqa: WPS442
+    _real_open = open
 
     def _mock_open(path: str, mode: str = "r", **kwargs: object) -> object:  # type: ignore[override]
         if "rb" in mode and str(oversized_file) in str(path):
