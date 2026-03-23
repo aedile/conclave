@@ -75,8 +75,6 @@ class ConclaveSettings(BaseSettings):
             Required in all deployment modes.
         audit_key: Hex-encoded 32-byte HMAC key for audit event signing.
             Required in all deployment modes.
-        ale_key: Fernet key for Application-Level Encryption.
-            Optional — vault KEK path is preferred in production.
         artifact_signing_key: Hex-encoded HMAC key for ModelArtifact pickle signing.
             Required in production mode only.
         artifact_signing_key: Hex-encoded HMAC key for Parquet artifact
@@ -212,13 +210,6 @@ class ConclaveSettings(BaseSettings):
     masking_salt: str | None = Field(
         default=None,
         description=("Secret salt for deterministic HMAC masking. Required in production mode."),
-    )
-    ale_key: str | None = Field(
-        default=None,
-        description=(
-            "Fernet key for Application-Level Encryption. "
-            "Optional — vault KEK path preferred in production."
-        ),
     )
     license_public_key: str | None = Field(
         default=None,
