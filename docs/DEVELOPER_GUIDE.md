@@ -909,7 +909,7 @@ Section 1.
 | `CONSTITUTION.md` | Absolute project rules, priority hierarchy (0–9), enforcement table |
 | `CLAUDE.md` | PM and developer agent directives, TDD mandate, quality gate commands, PII rules |
 | `docs/RETRO_LOG.md` | Living ledger of phase retrospectives and open advisory items |
-| `docs/BACKLOG.md` | High-level backlog overview |
+| `docs/archive/BACKLOG.md` | High-level backlog overview |
 | `docs/backlog/phase-<N>.md` | Per-phase task specifications |
 | `docs/index.md` | Central documentation index (92 documents) |
 
@@ -988,7 +988,7 @@ All ADRs live in `docs/adr/`. Key ones for onboarding:
 | `docs/LICENSING.md` | Offline license activation workflow |
 | `docs/infrastructure_security.md` | LUKS volumes, network isolation, security posture |
 | `docs/DEPENDENCY_AUDIT_POLICY.md` | Dependency review requirements and cadence |
-| `docs/E2E_VALIDATION.md` | End-to-end validation run record (Phase 28+) |
+| `docs/archive/E2E_VALIDATION.md` | End-to-end validation run record (Phase 28+) |
 
 ---
 

@@ -286,5 +286,5 @@ so peak RAM is the maximum of any single table's requirement — not the sum.
 - `src/synth_engine/modules/synthesizer/dp_training.py` — Discriminator-level DP-SGD training (ADR-0036)
 - `docs/DISASTER_RECOVERY.md` Section 2 — OOM event recovery procedures
 - `docs/OPERATOR_MANUAL.md` Section 1 — Hardware requirements table
-- `docs/DP_QUALITY_REPORT.md` — Empirical epsilon benchmarks on 500-row dataset
+- `docs/archive/DP_QUALITY_REPORT.md` — Empirical epsilon benchmarks on 500-row dataset
 - `docs/adr/ADR-0017-synthesizer-dp-library-selection.md` — CTGAN/Opacus selection rationale

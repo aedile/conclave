@@ -6,7 +6,7 @@ primary pull request(s) merged for that phase.
 
 For architectural decisions, see [`docs/adr/`](docs/adr/).
 For the full development retrospective, see [`docs/RETRO_LOG.md`](docs/RETRO_LOG.md).
-For a narrative account of the project, see [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STORY.md).
+For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_STORY.md).
 
 ---
 

@@ -18,10 +18,10 @@ multiple audiences; cross-references are noted.
 | Understand hardware requirements | [SCALABILITY.md](SCALABILITY.md) |
 | Recover from a disaster | [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) |
 | Activate a license | [LICENSING.md](LICENSING.md) |
-| Understand the architecture | [ARCHITECTURAL_REQUIREMENTS.md](ARCHITECTURAL_REQUIREMENTS.md) |
+| Understand the architecture | [archive/ARCHITECTURAL_REQUIREMENTS.md](archive/ARCHITECTURAL_REQUIREMENTS.md) |
 | Review an architectural decision | [ADR index](#architectural-decision-records-adrs) |
 | Check a dependency for CVEs | [DEPENDENCY_AUDIT_POLICY.md](DEPENDENCY_AUDIT_POLICY.md) |
-| Read the project backlog | [BACKLOG.md](BACKLOG.md) |
+| Read the project backlog | [archive/BACKLOG.md](archive/BACKLOG.md) |
 
 ---
 
@@ -39,8 +39,8 @@ installations.
 | [SCALABILITY.md](SCALABILITY.md) | Capacity limits and hardware sizing: pool configuration, concurrent job limits, SSE client scaling, memory model, latency ranges |
 | [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) | Recovery procedures: failed subsetting jobs, OOM events, cryptographic key loss, PostgreSQL backup/restore, Redis failure, container crashes |
 | [LICENSING.md](LICENSING.md) | License activation protocol for air-gapped environments, QR code workflow, key rotation |
-| [DP_QUALITY_REPORT.md](DP_QUALITY_REPORT.md) | Empirical benchmark of epsilon/delta tradeoffs at various noise multiplier settings; use to calibrate DP parameters for your dataset |
-| [E2E_VALIDATION.md](E2E_VALIDATION.md) | End-to-end validation procedures: smoke tests, synthesis quality checks, output verification steps |
+| [archive/DP_QUALITY_REPORT.md](archive/DP_QUALITY_REPORT.md) | Empirical benchmark of epsilon/delta tradeoffs at various noise multiplier settings; use to calibrate DP parameters for your dataset |
+| [archive/E2E_VALIDATION.md](archive/E2E_VALIDATION.md) | End-to-end validation procedures: smoke tests, synthesis quality checks, output verification steps |
 | [infrastructure_security.md](infrastructure_security.md) | Infrastructure security configuration reference: network isolation, capability model, secret management patterns |
 
 ---
@@ -53,8 +53,8 @@ Developers extend, maintain, and test the Conclave Engine codebase.
 |----------|-------------|
 | [../CLAUDE.md](../CLAUDE.md) | Agent directives, TDD workflow, quality gates, git workflow, module placement rules — the primary developer reference |
 | [../CONSTITUTION.md](../CONSTITUTION.md) | Constitutional directives: security priority, quality gates, development workflow, enforcement mechanisms |
-| [ARCHITECTURAL_REQUIREMENTS.md](ARCHITECTURAL_REQUIREMENTS.md) | Modular monolith rules, import boundaries, cross-module constraints, module responsibility table |
-| [BUSINESS_REQUIREMENTS.md](BUSINESS_REQUIREMENTS.md) | Business context: why privacy-preserving synthetic data, target users, compliance drivers |
+| [archive/ARCHITECTURAL_REQUIREMENTS.md](archive/ARCHITECTURAL_REQUIREMENTS.md) | Modular monolith rules, import boundaries, cross-module constraints, module responsibility table |
+| [archive/BUSINESS_REQUIREMENTS.md](archive/BUSINESS_REQUIREMENTS.md) | Business context: why privacy-preserving synthetic data, target users, compliance drivers |
 | [DEPENDENCY_AUDIT.md](DEPENDENCY_AUDIT.md) | Full audit table of all direct dependencies with runtime usage, transitive counts, and group assignments |
 | [DEPENDENCY_AUDIT_POLICY.md](DEPENDENCY_AUDIT_POLICY.md) | pip-audit usage policy, severity tiers, exemption process, new-dependency checklist |
 | [RETRO_LOG.md](RETRO_LOG.md) | Living retrospective ledger: advisories, findings, phase exit criteria — read before starting any task |
@@ -116,7 +116,7 @@ The backlog is split into per-phase files for navigability:
 | [backlog/phase-45.md](backlog/phase-45.md) | Phase 45 — Webhook Callbacks, Idempotency & Reaper |
 | [backlog/phase-46.md](backlog/phase-46.md) | Phase 46 — mTLS Inter-Container Communication |
 | [backlog/deferred-items.md](backlog/deferred-items.md) | Deferred and parked items |
-| [BACKLOG.md](BACKLOG.md) | Backlog summary and current phase status |
+| [archive/BACKLOG.md](archive/BACKLOG.md) | Backlog summary and current phase status |
 
 ### Retrospective Archives
 

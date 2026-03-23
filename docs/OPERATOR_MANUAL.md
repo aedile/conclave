@@ -723,7 +723,7 @@ after training.
 ### 9.2 Recommended Epsilon Ranges by Use Case
 
 The following ranges are based on the empirical benchmark in
-`docs/DP_QUALITY_REPORT.md` (500-row dataset, 10 epochs). Recalibrate for
+`docs/archive/DP_QUALITY_REPORT.md` (500-row dataset, 10 epochs). Recalibrate for
 production datasets by running the benchmark script.
 
 | Use Case | Recommended Epsilon | Rationale |

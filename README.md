@@ -125,7 +125,7 @@ graph TD
 
 Detailed rationale is captured across 44 Architecture Decision Records in
 [`docs/adr/`](docs/adr/). The full architecture specification is in
-[`docs/ARCHITECTURAL_REQUIREMENTS.md`](docs/ARCHITECTURAL_REQUIREMENTS.md).
+[`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
 
 ---
 
@@ -172,7 +172,7 @@ Higher σ → lower ε → stronger privacy guarantee. All three DP-enabled jobs
 with correct end-to-end DP accounting. The micro-benchmark script
 (`poetry run python3 scripts/benchmark_dp_quality.py`) was executed on 2026-03-21 and the
 discriminator-level DP acceptance criterion PASSED at all five noise levels tested.
-See [docs/DP_QUALITY_REPORT.md](docs/DP_QUALITY_REPORT.md) for full micro-benchmark results,
+See [docs/archive/DP_QUALITY_REPORT.md](docs/archive/DP_QUALITY_REPORT.md) for full micro-benchmark results,
 honest analysis of the epsilon calibration, and recommended epsilon ranges by use case.
 
 | Aspect | Phase 30 Implementation | Proxy-model Fallback |
@@ -326,7 +326,7 @@ Every PII column replaced. `Johnson` always maps to `Beck` — across every row,
 every table, every run — so join integrity holds. The mapping is not reversible.
 
 FK traversal from this run: 50 customers → 116 orders → 396 order items + 116 payments.
-Zero orphan rows. See [full E2E validation evidence](docs/E2E_VALIDATION.md).
+Zero orphan rows. See [full E2E validation evidence](docs/archive/E2E_VALIDATION.md).
 
 ---
 
@@ -349,7 +349,7 @@ The total training time would compress significantly with a CUDA-capable device 
 discriminator-level DP-SGD training loop is the primary bottleneck, and it is GPU-bound once
 CTGAN's embedding step is complete.
 
-Full evidence is in [docs/E2E_VALIDATION.md](docs/E2E_VALIDATION.md).
+Full evidence is in [docs/archive/E2E_VALIDATION.md](docs/archive/E2E_VALIDATION.md).
 
 ---
 
@@ -410,7 +410,7 @@ required written rationale. The retrospective log records every review finding a
 raised across all 32 phases (at Phase 32 completion).
 
 The full account of how this project was structured, what worked, and what the process
-looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STORY.md).
+looked like in practice is in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_STORY.md).
 
 ---
 
@@ -420,17 +420,17 @@ looked like in practice is in [`docs/DEVELOPMENT_STORY.md`](docs/DEVELOPMENT_STO
 |----------|----------|
 | [Operator Manual](docs/OPERATOR_MANUAL.md) | Production deployment, hardware requirements, service configuration |
 | [Data Compliance](docs/DATA_COMPLIANCE.md) | Retention policy, GDPR/CCPA/HIPAA guidance, erasure procedure, audit trail guarantees |
-| [DP Quality Report](docs/DP_QUALITY_REPORT.md) | Micro-benchmark results (T42.3, 2026-03-21); epsilon vs. quality curves; recommended epsilon ranges by use case |
-| [E2E Validation](docs/E2E_VALIDATION.md) | Full end-to-end pipeline validation evidence |
+| [DP Quality Report](docs/archive/DP_QUALITY_REPORT.md) | Micro-benchmark results (T42.3, 2026-03-21); epsilon vs. quality curves; recommended epsilon ranges by use case |
+| [E2E Validation](docs/archive/E2E_VALIDATION.md) | Full end-to-end pipeline validation evidence |
 | [Disaster Recovery](docs/DISASTER_RECOVERY.md) | Incident response and recovery procedures |
 | [Licensing](docs/LICENSING.md) | Offline license activation and hardware binding guide |
 | [Infrastructure Security](docs/infrastructure_security.md) | Infrastructure security controls and threat model |
 | [Dependency Audit](docs/DEPENDENCY_AUDIT.md) | Supply chain audit and dependency provenance |
-| [Business Requirements](docs/BUSINESS_REQUIREMENTS.md) | Full product BRD — the "why" behind every capability |
-| [Architectural Requirements](docs/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification and module boundary contracts |
+| [Business Requirements](docs/archive/BUSINESS_REQUIREMENTS.md) | Full product BRD — the "why" behind every capability |
+| [Architectural Requirements](docs/archive/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification and module boundary contracts |
 | [Architecture Decision Records](docs/adr/) | 44 ADRs covering every significant design decision |
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, and development history |
-| [Development Story](docs/DEVELOPMENT_STORY.md) | How this codebase was built — methodology, process, and retrospective |
+| [Development Story](docs/archive/DEVELOPMENT_STORY.md) | How this codebase was built — methodology, process, and retrospective |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
 | [Changelog](CHANGELOG.md) | Phase-by-phase release notes from Phase 1 through Phase 43 |
 | [API Reference](docs/api/API_REFERENCE.md) | REST API endpoint reference (static export from OpenAPI schema) |

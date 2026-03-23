@@ -13,8 +13,8 @@ Before writing any code, you MUST read and understand these foundational documen
 
 1. `CONSTITUTION.md` — The binding contract for this project. Security is Priority 0.
 2. `CLAUDE.md` — Development workflow rules, directory structures, and TDD mandates.
-3. `docs/ARCHITECTURAL_REQUIREMENTS.md` - The system is a Python Modular Monolith. Cross-module database queries are forbidden.
-4. `docs/BUSINESS_REQUIREMENTS.md` - Understand the "why" behind the privacy and synthetic data generation features.
+3. `docs/archive/ARCHITECTURAL_REQUIREMENTS.md` - The system is a Python Modular Monolith. Cross-module database queries are forbidden.
+4. `docs/archive/BUSINESS_REQUIREMENTS.md` - Understand the "why" behind the privacy and synthetic data generation features.
 
 Key project facts:
 - **Architecture**: Python Modular Monolith with strict logical separation (Bootstrapper, Ingestion, Profiler, Synthesizer, Masking, Privacy, Shared).
