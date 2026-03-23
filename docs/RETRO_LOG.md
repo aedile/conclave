@@ -17,10 +17,10 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P46-05~~ | ~~Arch T46.3~~ | ADV drain P47 | ~~ADVISORY~~ | ~~Prometheus metrics naming — RESOLVED in P47 (ADR-0045 amendment)~~ |
 | ~~ADV-P46-06~~ | ~~Red-Team T46.4~~ | ADV drain P47 | ~~ADVISORY~~ | ~~MinIO NetworkPolicy — RESOLVED in P47 (minio-policy.yaml)~~ |
 | ~~ADV-P47-01~~ | ~~PM P46 merge~~ | P47 fix | ~~BLOCKER~~ | ~~Production Smoke Test — RESOLVED in P47 (CI dummy secrets provisioning)~~ |
-| ADV-P47-02 | Arch P47 review | — | ADVISORY | `_promote_redis_url_to_tls` logic is duplicated between `shared/tls/config.py` and bootstrapper init. Current duplication is intentional per T46.2 architecture review. Future cleanup should consolidate into a single utility. |
+| ~~ADV-P47-02~~ | ~~Arch P47 review~~ | P52 inline | ~~ADVISORY~~ | ~~`_promote_redis_url_to_tls` duplication — RESOLVED in P52 (bootstrapper/dependencies/redis.py now imports from shared/task_queue.py)~~ |
 | ~~ADV-P47-03~~ | ~~Arch P47 review~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Scope-based auth ADR — RESOLVED (ADR-0049 written)~~ |
 | ~~ADV-P47-04~~ | ~~Red-Team P47~~ | T50.3 | ~~ADVISORY~~ | ~~`/security/shred` and `/security/keys/rotate` removed from `AUTH_EXEMPT_PATHS` — RESOLVED in T50.3 (_exempt_paths.py)~~ |
-| ADV-P47-05 | Red-Team P47 | — | ADVISORY | All-or-nothing scope grant: single-operator model issues all scopes (`read`, `write`, `security:admin`, `settings:write`) to every authenticated operator. Fine for current single-tenant deployment; future multi-operator support will need role-based scope assignment. |
+| ~~ADV-P47-05~~ | ~~Red-Team P47~~ | — | ~~ADVISORY~~ | ~~All-or-nothing scope grant — CLOSED as accepted design (single-operator MVP). Already documented in ADR-0049 §4 "Default scope issuance" and §Consequences/Negative. Future multi-operator support tracked as post-MVP backlog item.~~ |
 | ~~ADV-P47-06~~ | ~~Red-Team P47~~ | T48.1 | ~~ADVISORY~~ | ~~In-memory rate limiter — RESOLVED in T48.1 (Redis-backed rate limiting)~~ |
 | ~~ADV-P48-01~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~X-Forwarded-For trust model — RESOLVED (PRODUCTION_DEPLOYMENT.md Appendix B)~~ |
 | ~~ADV-P48-02~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Redis INCR+EXPIRE atomicity — CLOSED as accepted tradeoff (standard industry pattern, documented)~~ |
@@ -28,8 +28,68 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P48-04~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~ale_key field in settings — RESOLVED (field removed from ConclaveSettings)~~ |
 | ~~ADV-T49-01~~ | ~~Dev T49.5~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutmut 3.x + CPython 3.14 segfault incompatibility: all target mutants exit with SIGSEGV (-11) rather than normal test failure (exit code 1). 0 mutants survived; 200/200 detected via process crash. Mutation hardening tests added to verify behavioral correctness without trampoline. RESOLVED by ADR-0052 (accepted gap with manual hardening tests).~~ |
 | ~~ADV-P47-07~~ | ~~Red-Team P47~~ | T50.4 | ~~ADVISORY~~ | ~~TOCTOU in `ModelArtifact.load()`: RESOLVED in T50.4. Removed `os.path.exists()` and `os.path.getsize()` pre-checks; file now read with bounded `f.read(_MAX_ARTIFACT_SIZE_BYTES + 1)`, size checked on `len(raw)` after read. No TOCTOU race window.~~ |
-| ADV-P49-02 | Red-Team P49 | — | ADVISORY | Audit event HMAC signature does not cover the `details` field. An attacker with log store access could modify `details` without invalidating the signature. Chain hash covers it transitively but is re-computable. Pre-existing issue, not introduced by P49. |
+| ~~ADV-P49-02~~ | ~~Red-Team P49~~ | — | ~~ADVISORY~~ | ~~Audit HMAC does not cover `details` field — CLOSED as accepted limitation. Fix would break all existing signatures (backward-incompatible). Chain hash provides transitive coverage. Pre-existing design, not a regression. Risk: attacker with log store write access could modify details without invalidating per-event HMAC, but chain hash integrity check would detect tampering on re-verification.~~ |
 | ~~ADV-P49-03~~ | ~~DevOps P49~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutmut CI gate not wired into `.github/workflows/ci.yml`. Blocked by ADV-T49-01 (Python 3.14 segfault). RESOLVED by ADR-0052 (gate deferred until upstream mutmut supports Python 3.14).~~ |
+| ~~ADV-P51-01~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~Release tag regex not end-anchored — RESOLVED in P52 (release.yml grep pattern end-anchored with `$`)~~ |
+| ~~ADV-P51-02~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~bump_version.sh tag hint unconditionally applies RC transform to stable versions — RESOLVED in P52 (conditional tag hint)~~ |
+
+---
+
+### [2026-03-23] Phase 52 — T52.1: Benchmark Infrastructure
+
+**Branch**: `feat/P52-demo-benchmark-suite`
+
+**Tasks completed**: T52.1 (Benchmark Infrastructure)
+
+**T52.1 — Benchmark Infrastructure**:
+Created the foundation for the Demo & Benchmark Suite:
+
+- `scripts/benchmark_epsilon_curves.py` — Parameterized benchmark harness.
+  Accepts noise_multiplier x epochs x sample_size parameter grids, records
+  per-run epsilon (from Opacus), wall time, KS statistic per numeric column,
+  chi-squared p-value per categorical column, MAE, correlation matrix delta,
+  FK orphan rate, and hardware metadata (CPU, RAM, OS, GPU if available).
+  Outputs structured JSON + CSV to configurable output directory.
+  Idempotent (skips completed combinations on resume). Per-run timeout (default
+  1800s) writes TIMEOUT result row and continues. YAML loading uses
+  yaml.safe_load() only (Bandit B506). Output filenames sanitized from
+  parameter config, never from dataset columns (path-traversal prevention).
+  `_BENCHMARK_DP_DELTA = 1e-5` explicitly matches production constant.
+
+- `demos/conclave_demo.py` — Convenience wrapper for interactive demos.
+  Uses isolated temp directory (never production ledger). Requires and passes
+  artifact signing_key to ModelArtifact.load(); loading without key is
+  forbidden at the code level.
+
+- `demos/` directory structure with README.md placeholder, `__init__.py`,
+  `figures/` and `results/` sub-directories.
+
+- `pyproject.toml`: Added `[tool.poetry.group.demos]` optional group
+  (matplotlib ^3.9, seaborn ^0.13, jupyter ^1.0, scikit-learn ^1.5,
+  nbstripout ^0.7); added `cpu_only` pytest marker.
+
+- `.pre-commit-config.yaml`: Added nbstripout hook at rev v0.7.1 (pinned —
+  supply-chain hardening, never HEAD or branch refs).
+
+- `.gitignore`: Added demos/figures/*.png and .pdf (ignored), with
+  `!*.svg` and `!*_v1.json` exceptions for committed artifacts.
+
+**Tests added**: 10 attack/negative tests (Rule 22 compliance):
+test_demo_dependencies_not_imported_in_production_modules,
+test_benchmark_harness_rejects_run_without_dataset_fixture,
+test_benchmark_harness_records_failure_row_on_run_error,
+test_benchmark_harness_rejects_malicious_yaml_config,
+test_bandit_scan_passes_on_benchmark_harness,
+test_results_artifact_contains_schema_version_field,
+test_committed_results_contain_no_real_column_names,
+test_parameter_grid_is_committed_alongside_results,
+test_benchmark_epsilon_delta_matches_production_constant,
+test_benchmark_run_produces_identical_metrics_given_fixed_seed
+
+**Gate #1 results**: 2639 passed, 6 skipped, 96.83% unit coverage (>= 95%).
+Integration tests: 212 passed, 17 skipped.
+
+**Open advisory count at T52.1**: 0 open advisories.
 
 ---
 
@@ -64,7 +124,7 @@ DISASTER_RECOVERY.md.
 - ADVISORY (DevOps): Air-gap bundle exposed internal docs — replaced blanket `cp -r docs/` with curated
   operator-facing doc list (9 files + `docs/api/`).
 
-**Open advisory count**: 3 (ADV-P47-02, ADV-P47-05, ADV-P49-02)
+**Open advisory count at P51 close**: 3 (ADV-P47-02, ADV-P47-05, ADV-P49-02) — all resolved inline during P52
 
 ---
 
