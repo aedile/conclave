@@ -19,6 +19,7 @@ Covers:
 CONSTITUTION Priority 3: TDD Red/Green/Refactor.
 Task: P7-T7.2 — Custom CTGAN Training Loop
 Task: P26-T26.6 — Split from test_dp_training.py for maintainability
+T49.3: _make_training_df and _make_mock_ctgan_model extracted to helpers_synthesizer.
 """
 
 from __future__ import annotations
@@ -29,32 +30,21 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from tests.unit.helpers_synthesizer import make_mock_ctgan_model, make_training_df
+
 pytestmark = pytest.mark.unit
 
 # ---------------------------------------------------------------------------
-# Helpers (duplicated from test_dp_training_init.py for file independence)
+# Module-level aliases for backward-compatible call sites in this file.
+# These avoid renaming every call site while eliminating the duplicate definitions.
 # ---------------------------------------------------------------------------
+_make_training_df = make_training_df
+_make_mock_ctgan_model = make_mock_ctgan_model
 
 
-def _make_training_df(n: int = 50) -> pd.DataFrame:
-    """Return a simple fictional training DataFrame for test fixtures.
-
-    Args:
-        n: Number of rows.
-
-    Returns:
-        DataFrame with columns: id (int), age (int), dept (str).
-    """
-    import numpy as np
-
-    rng = np.random.default_rng(42)
-    return pd.DataFrame(
-        {
-            "id": range(1, n + 1),
-            "age": rng.integers(18, 80, size=n).tolist(),
-            "dept": rng.choice(["Engineering", "Marketing", "Sales"], size=n).tolist(),
-        }
-    )
+# ---------------------------------------------------------------------------
+# Helper unique to this module
+# ---------------------------------------------------------------------------
 
 
 def _make_mock_sdv_synthesizer(processed_df: pd.DataFrame | None = None) -> MagicMock:
@@ -100,25 +90,6 @@ def _make_mock_sdv_synthesizer(processed_df: pd.DataFrame | None = None) -> Magi
     mock_synth._data_processor = mock_proc
 
     return mock_synth
-
-
-def _make_mock_ctgan_model(n_rows: int = 50) -> MagicMock:
-    """Return a mock CTGAN model that produces a known sample DataFrame.
-
-    Args:
-        n_rows: Number of rows CTGAN.sample() will return.
-
-    Returns:
-        MagicMock standing in for ctgan.synthesizers.ctgan.CTGAN.
-    """
-    mock_ctgan = MagicMock()
-    mock_ctgan.sample.return_value = pd.DataFrame(
-        {
-            "age": list(range(n_rows)),
-            "dept": ["Engineering"] * n_rows,
-        }
-    )
-    return mock_ctgan
 
 
 # ---------------------------------------------------------------------------

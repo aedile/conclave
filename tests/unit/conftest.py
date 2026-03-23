@@ -7,6 +7,9 @@ Fix: P47 — Suppress .env file reading in unit tests so that
      ``monkeypatch.setenv`` / ``monkeypatch.delenv`` have full, reliable effect
      on every ``ConclaveSettings`` construction — regardless of whether the
      field's value is also present in the local ``.env`` file.
+
+T49.3: Added ``jwt_secret_key_env`` opt-in fixture for tests that need a
+       valid ``JWT_SECRET_KEY`` set in the environment via monkeypatch.
 """
 
 from __future__ import annotations
@@ -14,6 +17,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
+#: A test-safe JWT secret long enough to satisfy HS256 requirements.
+#: Used by the opt-in ``jwt_secret_key_env`` fixture.
+#: This is a deterministic test credential — not a production secret.
+_TEST_JWT_SECRET: str = "test-secret-key-that-is-long-enough-for-hs256"  # pragma: allowlist secret
 
 
 @pytest.fixture(autouse=True)
@@ -52,3 +60,31 @@ def _suppress_env_file_in_unit_tests(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(ConclaveSettings, "__init__", _init_no_env_file)
     except ImportError:
         pass  # Module not yet loaded during discovery
+
+
+@pytest.fixture
+def jwt_secret_key_env(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Set JWT_SECRET_KEY to a test-safe value for the duration of the test.
+
+    This is an opt-in fixture — tests must request it explicitly by name.
+    It is NOT autouse, preventing unexpected side effects on tests that
+    exercise the absent-JWT_SECRET_KEY code path.
+
+    The fixture uses ``monkeypatch`` only — no direct ``os.environ`` mutation.
+    The monkeypatch machinery guarantees the value is removed after the test.
+
+    Args:
+        monkeypatch: The pytest monkeypatch fixture for reversible env mutation.
+
+    Returns:
+        The JWT secret string injected into the environment, so tests can use
+        it to construct valid tokens.
+
+    Example::
+
+        def test_valid_token_accepted(jwt_secret_key_env: str) -> None:
+            token = build_token(secret=jwt_secret_key_env)
+            ...
+    """
+    monkeypatch.setenv("JWT_SECRET_KEY", _TEST_JWT_SECRET)
+    return _TEST_JWT_SECRET

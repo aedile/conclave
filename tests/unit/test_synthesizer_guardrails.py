@@ -531,3 +531,89 @@ def test_raises_value_error_for_negative_overhead_factor() -> None:
             dtype_bytes=1,
             overhead_factor=-1.0,
         )
+
+
+# ---------------------------------------------------------------------------
+# T49.3 Edge cases: exception and zero-memory paths
+# ---------------------------------------------------------------------------
+
+
+def test_psutil_raises_exception_propagates_cleanly() -> None:
+    """When psutil.virtual_memory() raises, the original exception propagates unchanged.
+
+    The guardrail must not swallow or wrap unexpected OS-level errors from
+    psutil.  If the system cannot report available memory, the caller must
+    receive the original exception — not a silent pass or a confusing
+    secondary exception.
+
+    Negative test: psutil failure must not silently allow training to proceed.
+    """
+    with (
+        patch(
+            "synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec",
+            return_value=None,
+        ),
+        patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil,
+    ):
+        mock_psutil.virtual_memory.side_effect = OSError("Cannot read /proc/meminfo")
+        with pytest.raises(OSError, match="Cannot read /proc/meminfo"):
+            check_memory_feasibility(
+                rows=10,
+                columns=1,
+                dtype_bytes=1,
+                overhead_factor=1.0,
+            )
+
+
+def test_torch_cuda_raises_exception_propagates_as_runtime_error() -> None:
+    """When torch.cuda.is_available() raises RuntimeError, the error propagates unchanged.
+
+    A buggy or misconfigured CUDA driver can raise RuntimeError on is_available().
+    The guardrail does not catch driver errors — they propagate to the caller,
+    ensuring transparent failure rather than a silent pass with a corrupted
+    memory budget.
+
+    Negative test: CUDA driver failure must not be silently swallowed or
+    cause a secondary, confusing exception.
+    """
+    torch_mock = MagicMock()
+    torch_mock.cuda.is_available.side_effect = RuntimeError("CUDA driver not loaded")
+    spec_mock = MagicMock()
+    spec_mock.return_value = MagicMock()  # non-None => torch found
+
+    with (
+        patch("synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec", spec_mock),
+        patch.dict(sys.modules, {"torch": torch_mock}),  # type: ignore[arg-type]
+    ):
+        with pytest.raises(RuntimeError, match="CUDA driver not loaded"):
+            check_memory_feasibility(
+                rows=10,
+                columns=1,
+                dtype_bytes=1,
+                overhead_factor=1.0,
+            )
+
+
+def test_available_memory_zero_triggers_oom_rejection() -> None:
+    """When available memory is 0, any positive-byte job must raise OOMGuardrailError.
+
+    available=0 means the safe_capacity is 0.85 * 0 = 0.  Any estimated > 0
+    satisfies the strict-greater-than check and must be rejected immediately.
+
+    Negative test: zero available memory is the extreme OOM scenario.
+    """
+    with (
+        patch(
+            "synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec",
+            return_value=None,
+        ),
+        patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil,
+    ):
+        mock_psutil.virtual_memory.return_value = _mock_vmem(0)
+        with pytest.raises(OOMGuardrailError):
+            check_memory_feasibility(
+                rows=1,
+                columns=1,
+                dtype_bytes=1,
+                overhead_factor=1.0,
+            )
