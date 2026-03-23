@@ -8,6 +8,7 @@ These tests import directly from dp_accounting — not through job_orchestration
 to confirm the extraction is complete and the module is independently usable.
 
 Task: T43.1 — Extract dp_accounting.py from job_orchestration.py
+Task: T49.1 — Assertion Hardening: verify failure propagation (not just logging)
 """
 
 from __future__ import annotations
@@ -340,6 +341,118 @@ class TestHandleDpAccountingBehaviour:
         # The error message must be the fixed sentinel constant
         assert raised_msg == _BUDGET_SPEND_FAILED_MSG
 
+    def test_unknown_exception_from_spend_budget_fn_does_not_propagate_raw(self) -> None:
+        """Unexpected spend_budget_fn errors must NOT propagate as the raw exception type.
+
+        If an arbitrary exception (e.g., MemoryError, OSError) escapes the budget
+        spend, the caller must receive AuditWriteError — never the raw exception.
+        Propagating raw exceptions would leak internal state and bypass the sentinel
+        error message, making automated incident triage harder.
+        """
+        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.shared.exceptions import AuditWriteError
+
+        job = _make_synthesis_job(id=1)
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.return_value = 0.5
+
+        for exc_type, exc_args in [
+            (MemoryError, ("out of memory",)),
+            (OSError, ("I/O error",)),
+            (KeyError, ("missing key",)),
+        ]:
+            mock_budget_fn = MagicMock(side_effect=exc_type(*exc_args))
+
+            with (
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                    mock_budget_fn,
+                ),
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    return_value=MagicMock(),
+                ),
+            ):
+                with pytest.raises(AuditWriteError):
+                    _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
+
+    def test_epsilon_measurement_error_not_silently_logged(self) -> None:
+        """EpsilonMeasurementError must propagate to the caller — not just be logged.
+
+        A regression guard: if the implementation ever silently catches
+        EpsilonMeasurementError and only logs it, the caller cannot react
+        correctly (e.g. the job would appear successful while epsilon is unknown).
+        """
+        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.shared.exceptions import EpsilonMeasurementError
+
+        job = _make_synthesis_job(id=1)
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.side_effect = ValueError("dp engine failure")
+
+        # Confirm that the exception is NOT silently swallowed
+        raised = False
+        try:
+            with (
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                    None,
+                ),
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    return_value=MagicMock(),
+                ),
+            ):
+                _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
+        except EpsilonMeasurementError:
+            raised = True
+
+        assert raised, (
+            "EpsilonMeasurementError must propagate to the caller, "
+            "not be silently caught and logged"
+        )
+
+    def test_budget_exhaustion_error_not_silently_logged(self) -> None:
+        """BudgetExhaustionError must propagate to the caller — not just be logged.
+
+        A regression guard: the budget must be enforced by propagation so that
+        the orchestration layer can mark the job as FAILED. Silent swallowing
+        would allow the job to continue consuming budget past the limit.
+        """
+        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.shared.exceptions import BudgetExhaustionError
+
+        job = _make_synthesis_job(id=1)
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.return_value = 999.0
+        mock_budget_fn = MagicMock(
+            side_effect=BudgetExhaustionError(
+                requested_epsilon=Decimal("1.0"),
+                total_spent=Decimal("1.0"),
+                total_allocated=Decimal("1.0"),
+            )
+        )
+
+        raised = False
+        try:
+            with (
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                    mock_budget_fn,
+                ),
+                patch(
+                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    return_value=MagicMock(),
+                ),
+            ):
+                _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
+        except BudgetExhaustionError:
+            raised = True
+
+        assert raised, (
+            "BudgetExhaustionError must propagate to the caller, not be silently caught and logged"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Behaviour: DpAccountingStep imported from dp_accounting works end-to-end
@@ -412,7 +525,12 @@ class TestDpAccountingStepFromDpAccountingModule:
         assert result.error_msg == "Privacy budget exhausted"
 
     def test_step_returns_failure_on_epsilon_measurement_error(self) -> None:
-        """DpAccountingStep.execute() must return failure when epsilon_spent() raises."""
+        """DpAccountingStep.execute() must return failure when epsilon_spent() raises.
+
+        Hardened (T49.1): replaced ``is not None`` with exact sentinel match to
+        confirm the error message is the expected human-readable string, not an
+        accidentally swallowed value or an empty string.
+        """
         from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
 
         mock_wrapper = MagicMock()
@@ -430,12 +548,20 @@ class TestDpAccountingStepFromDpAccountingModule:
             result = DpAccountingStep().execute(ctx)
 
         assert result.success is False
-        assert result.error_msg is not None
-        assert "epsilon" in result.error_msg.lower() or "privacy budget" in result.error_msg.lower()
+        assert result.error_msg == (
+            "DP epsilon measurement failed — privacy budget cannot be verified"
+        ), f"Expected exact sentinel message; got: {result.error_msg!r}"
 
     def test_step_returns_failure_on_audit_write_error(self) -> None:
-        """DpAccountingStep.execute() must return failure when WORM audit write fails."""
-        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+        """DpAccountingStep.execute() must return failure when WORM audit write fails.
+
+        Hardened (T49.1): kept ``is not None`` check and added length check to
+        confirm the error message is non-empty and contains the sentinel word.
+        """
+        from synth_engine.modules.synthesizer.dp_accounting import (
+            _AUDIT_RECONCILIATION_MSG,
+            DpAccountingStep,
+        )
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 1.5
@@ -458,5 +584,7 @@ class TestDpAccountingStepFromDpAccountingModule:
             result = DpAccountingStep().execute(ctx)
 
         assert result.success is False
-        assert result.error_msg is not None
-        assert "reconciliation" in result.error_msg.lower()
+        assert result.error_msg == _AUDIT_RECONCILIATION_MSG, (
+            f"error_msg must equal the _AUDIT_RECONCILIATION_MSG sentinel; "
+            f"got: {result.error_msg!r}"
+        )
