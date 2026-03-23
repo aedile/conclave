@@ -11,36 +11,14 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 # ---------------------------------------------------------------------------
-# Shared helpers (also used by the errors and dp split files)
+# Shared helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_synthesis_job(**kwargs: Any) -> Any:
-    """Create a SynthesisJob instance with default values overridden by kwargs."""
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
-
-    defaults: dict[str, Any] = {
-        "id": 1,
-        "status": "QUEUED",
-        "current_epoch": 0,
-        "total_epochs": 10,
-        "num_rows": 100,
-        "artifact_path": None,
-        "output_path": None,
-        "error_msg": None,
-        "table_name": "persons",
-        "parquet_path": "/data/persons.parquet",
-        "checkpoint_every_n": 5,
-    }
-    defaults.update(kwargs)
-    return SynthesisJob(**defaults)
-
+from tests.unit.helpers_synthesizer import _make_synthesis_job
 
 # ---------------------------------------------------------------------------
 # SynthesisJob model tests

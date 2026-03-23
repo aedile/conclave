@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,37 +46,9 @@ from synth_engine.modules.privacy.ledger import (  # noqa: F401 — imported to 
 from synth_engine.shared.db import get_async_engine, get_async_session
 
 # ---------------------------------------------------------------------------
-# Helpers shared with test_synthesizer_tasks.py
+# Shared helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_synthesis_job(**kwargs: Any) -> Any:
-    """Create a SynthesisJob with default values overridden by kwargs.
-
-    Args:
-        **kwargs: Fields to override on the SynthesisJob defaults.
-
-    Returns:
-        A SynthesisJob instance.
-    """
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
-
-    defaults: dict[str, Any] = {
-        "id": 1,
-        "status": "QUEUED",
-        "current_epoch": 0,
-        "total_epochs": 10,
-        "num_rows": 100,
-        "artifact_path": None,
-        "output_path": None,
-        "error_msg": None,
-        "table_name": "persons",
-        "parquet_path": "/data/persons.parquet",
-        "checkpoint_every_n": 5,
-    }
-    defaults.update(kwargs)
-    return SynthesisJob(**defaults)
-
+from tests.unit.helpers_synthesizer import _make_synthesis_job
 
 # ---------------------------------------------------------------------------
 # Async engine fixture (SQLite in-memory for accountant tests)
