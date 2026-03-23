@@ -13,6 +13,10 @@
 # The resulting bundle can be transferred to an air-gapped host and loaded
 # with `docker load -i dist/images/<name>.tar`.
 #
+# NOTE: docker-compose.override.yml is intentionally excluded from the bundle.
+# That file contains dev-only settings (hot-reload, Jaeger) that must not
+# reach production air-gapped hosts.
+#
 # Prerequisites: docker, git, sha256sum (or shasum -a 256 on macOS)
 # =============================================================================
 set -euo pipefail
@@ -102,15 +106,24 @@ done
 
 # ---------------------------------------------------------------------------
 # Copy artefacts into dist/
+#
+# IMPORTANT: docker-compose.override.yml is deliberately NOT copied here.
+# It is a dev-only file containing hot-reload mounts and Jaeger tracing
+# profiles that are inappropriate for production air-gap bundles.
 # ---------------------------------------------------------------------------
 
 log "Copying Compose files"
 cp docker-compose.yml "${DIST_DIR}/"
-cp docker-compose.override.yml "${DIST_DIR}/"
 
-if [[ -f ".env.dev" ]]; then
-    log "Copying .env.dev"
-    cp .env.dev "${DIST_DIR}/"
+# Copy optional GPU/CPU compose variants if present
+if [[ -f "docker-compose.cpu.yml" ]]; then
+    log "Copying docker-compose.cpu.yml"
+    cp docker-compose.cpu.yml "${DIST_DIR}/"
+fi
+
+if [[ -f "docker-compose.gpu.yml" ]]; then
+    log "Copying docker-compose.gpu.yml"
+    cp docker-compose.gpu.yml "${DIST_DIR}/"
 fi
 
 log "Copying scripts/"

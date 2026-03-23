@@ -52,7 +52,7 @@ def _run_bump(
         CompletedProcess with returncode, stdout, and stderr attributes.
     """
     merged_env = {**os.environ, **(env or {})}
-    return subprocess.run(  # noqa: S603 — calling our own known script, not user input
+    return subprocess.run(
         [str(BUMP_SCRIPT), *args],
         capture_output=True,
         text=True,

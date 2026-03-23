@@ -214,7 +214,7 @@ class TestImportBoundaryEnforcement:
         if lint_imports is None:
             pytest.skip("lint-imports binary not found — import-linter not installed")
 
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [lint_imports],
             capture_output=True,
             text=True,

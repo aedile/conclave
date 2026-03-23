@@ -13,6 +13,7 @@ Task: P51-T51.3 — Air-Gap Deployment Validation Script
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -28,6 +29,32 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 VALIDATE_SCRIPT = REPO_ROOT / "scripts" / "validate_airgap.sh"
 BUILD_SCRIPT = REPO_ROOT / "scripts" / "build_airgap.sh"
 MAKEFILE = REPO_ROOT / "Makefile"
+
+
+def _run_shellcheck(script: Path) -> subprocess.CompletedProcess[str]:
+    """Run shellcheck on a script using its full resolved path.
+
+    Uses shutil.which to resolve the full executable path, satisfying
+    bandit S603/S607 (no partial path, no untrusted input).
+
+    Args:
+        script: Absolute path to the shell script to check.
+
+    Returns:
+        CompletedProcess with returncode, stdout, and stderr populated.
+
+    Raises:
+        pytest.skip: If shellcheck is not installed on this machine.
+    """
+    shellcheck_bin = shutil.which("shellcheck")
+    if shellcheck_bin is None:
+        pytest.skip("shellcheck not installed — skipping shellcheck tests")
+    return subprocess.run(
+        [shellcheck_bin, str(script)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,12 +116,8 @@ class TestValidateAirgapAttack:
         on the operator's machine — a resource leak and potential security issue.
         """
         content = VALIDATE_SCRIPT.read_text()
-        assert "trap" in content, (
-            "validate_airgap.sh must use 'trap' for EXIT cleanup"
-        )
-        assert "EXIT" in content, (
-            "validate_airgap.sh must trap the EXIT signal specifically"
-        )
+        assert "trap" in content, "validate_airgap.sh must use 'trap' for EXIT cleanup"
+        assert "EXIT" in content, "validate_airgap.sh must trap the EXIT signal specifically"
 
     def test_validate_script_uses_distinct_project_name(self) -> None:
         """The script must use '--project-name conclave-validation' or equivalent.
@@ -115,9 +138,7 @@ class TestValidateAirgapAttack:
         a cryptic failure deep in the script.
         """
         content = VALIDATE_SCRIPT.read_text()
-        assert "docker" in content, (
-            "validate_airgap.sh must reference docker"
-        )
+        assert "docker" in content, "validate_airgap.sh must reference docker"
         # Must check for docker availability — look for command -v or which
         assert "command -v" in content or "which docker" in content, (
             "validate_airgap.sh must verify docker is in PATH before proceeding"
@@ -131,9 +152,7 @@ class TestValidateAirgapAttack:
         """
         content = VALIDATE_SCRIPT.read_text()
         # Must contain a numeric timeout value (60s as specified)
-        assert "60" in content, (
-            "validate_airgap.sh must implement a 60-second health check timeout"
-        )
+        assert "60" in content, "validate_airgap.sh must implement a 60-second health check timeout"
 
     def test_validate_script_checks_minimum_tar_file_count(self) -> None:
         """The script must verify at least 3 .tar files exist in images/.
@@ -146,9 +165,7 @@ class TestValidateAirgapAttack:
             "validate_airgap.sh must verify the images/ directory contents"
         )
         # Must check for at least some minimum count — look for count/3
-        assert "3" in content, (
-            "validate_airgap.sh must verify at least 3 image tar files exist"
-        )
+        assert "3" in content, "validate_airgap.sh must verify at least 3 image tar files exist"
 
     def test_validate_script_verifies_required_files(self) -> None:
         """The script must verify docker-compose.yml and VERSION exist in the bundle.
@@ -170,11 +187,7 @@ class TestValidateAirgapAttack:
         shellcheck catches common bash pitfalls: unquoted variables, word
         splitting, subshell issues, and other correctness problems.
         """
-        result = subprocess.run(
-            ["shellcheck", str(VALIDATE_SCRIPT)],
-            capture_output=True,
-            text=True,
-        )
+        result = _run_shellcheck(VALIDATE_SCRIPT)
         assert result.returncode == 0, (
             f"shellcheck found errors in validate_airgap.sh:\n{result.stdout}\n{result.stderr}"
         )
@@ -195,18 +208,14 @@ class TestBuildAirgapAttack:
         """
         content = BUILD_SCRIPT.read_text()
         # The line 'cp docker-compose.override.yml "${DIST_DIR}/"' must be gone
-        assert 'cp docker-compose.override.yml' not in content, (
+        assert "cp docker-compose.override.yml" not in content, (
             "build_airgap.sh must NOT copy docker-compose.override.yml — "
             "this dev-only file has no place in a production air-gap bundle"
         )
 
     def test_build_script_passes_shellcheck(self) -> None:
         """build_airgap.sh must pass shellcheck with no errors."""
-        result = subprocess.run(
-            ["shellcheck", str(BUILD_SCRIPT)],
-            capture_output=True,
-            text=True,
-        )
+        result = _run_shellcheck(BUILD_SCRIPT)
         assert result.returncode == 0, (
             f"shellcheck found errors in build_airgap.sh:\n{result.stdout}\n{result.stderr}"
         )
@@ -218,7 +227,7 @@ class TestBuildAirgapAttack:
         compose file — the bundle must remain deployable.
         """
         content = BUILD_SCRIPT.read_text()
-        assert 'cp docker-compose.yml' in content, (
+        assert "cp docker-compose.yml" in content, (
             "build_airgap.sh must copy docker-compose.yml into the bundle"
         )
 
@@ -246,9 +255,7 @@ class TestMakefileTargets:
     def test_makefile_has_validate_airgap_target(self) -> None:
         """Makefile must define a validate-airgap target."""
         content = MAKEFILE.read_text()
-        assert "validate-airgap:" in content, (
-            "Makefile must define a 'validate-airgap' target"
-        )
+        assert "validate-airgap:" in content, "Makefile must define a 'validate-airgap' target"
 
     def test_makefile_load_images_iterates_dist_images(self) -> None:
         """make load-images must load from dist/images/*.tar.
@@ -275,8 +282,7 @@ class TestMakefileTargets:
         for line in content.splitlines():
             if line.startswith("load-images:"):
                 assert "##" in line, (
-                    "load-images target must have a '##' help comment "
-                    "for display by 'make help'"
+                    "load-images target must have a '##' help comment for display by 'make help'"
                 )
                 break
         else:
@@ -302,9 +308,7 @@ class TestValidateAirgapFeatures:
     def test_validate_script_loads_docker_images(self) -> None:
         """The script must load Docker images using 'docker load'."""
         content = VALIDATE_SCRIPT.read_text()
-        assert "docker load" in content, (
-            "validate_airgap.sh must load images via 'docker load'"
-        )
+        assert "docker load" in content, "validate_airgap.sh must load images via 'docker load'"
 
     def test_validate_script_starts_compose_stack(self) -> None:
         """The script must start the stack via 'docker compose ... up -d'."""
@@ -312,9 +316,7 @@ class TestValidateAirgapFeatures:
         assert "docker compose" in content or "docker-compose" in content, (
             "validate_airgap.sh must use docker compose to start the stack"
         )
-        assert "up" in content, (
-            "validate_airgap.sh must run 'up' to start the stack"
-        )
+        assert "up" in content, "validate_airgap.sh must run 'up' to start the stack"
 
     def test_validate_script_performs_health_check(self) -> None:
         """The script must poll the /health endpoint."""
@@ -344,7 +346,8 @@ class TestValidateAirgapFeatures:
         assert "mktemp" in content or "TMPDIR" in content or "tmp" in content.lower(), (
             "validate_airgap.sh must extract bundle to a temp directory"
         )
-        assert "tar -xz" in content or "tar xz" in content or "tar -xzf" in content or "tar xzf" in content, (
+        tar_patterns = ("tar -xz", "tar xz", "tar -xzf", "tar xzf")
+        assert any(p in content for p in tar_patterns), (
             "validate_airgap.sh must extract the bundle with tar"
         )
 
