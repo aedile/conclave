@@ -299,8 +299,7 @@ class TestAuthGateDoesNotExemptSecurityRoutes:
         from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
         assert "/security/shred" not in AUTH_EXEMPT_PATHS, (
-            "/security/shred must require JWT auth. "
-            "It must NOT be in AUTH_EXEMPT_PATHS."
+            "/security/shred must require JWT auth. It must NOT be in AUTH_EXEMPT_PATHS."
         )
 
     def test_auth_exempt_paths_does_not_contain_security_keys_rotate(self) -> None:
@@ -308,6 +307,5 @@ class TestAuthGateDoesNotExemptSecurityRoutes:
         from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
         assert "/security/keys/rotate" not in AUTH_EXEMPT_PATHS, (
-            "/security/keys/rotate must require JWT auth. "
-            "It must NOT be in AUTH_EXEMPT_PATHS."
+            "/security/keys/rotate must require JWT auth. It must NOT be in AUTH_EXEMPT_PATHS."
         )
