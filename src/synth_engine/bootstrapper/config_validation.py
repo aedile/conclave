@@ -289,7 +289,6 @@ def _warn_if_vault_sealed() -> None:
         )
 
 
-
 def _warn_if_development_mode() -> None:
     """Emit a WARNING when the engine boots in development mode.
 

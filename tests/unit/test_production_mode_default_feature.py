@@ -215,9 +215,9 @@ def test_dev_mode_via_env_also_emits_warning(
 
     assert result is None
     warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any(
-        "development" in msg.lower() for msg in warning_messages
-    ), f"Expected dev-mode WARNING, got: {warning_messages}"
+    assert any("development" in msg.lower() for msg in warning_messages), (
+        f"Expected dev-mode WARNING, got: {warning_messages}"
+    )
 
 
 def test_production_mode_does_not_emit_dev_mode_warning(
