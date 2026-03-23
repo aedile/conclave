@@ -46,6 +46,7 @@ COMPOSE_FILE=""
 # Cleanup — always runs on EXIT
 # ---------------------------------------------------------------------------
 
+# shellcheck disable=SC2317  # false positive: cleanup is invoked via trap EXIT
 cleanup() {
     local exit_code=$?
 

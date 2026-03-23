@@ -64,7 +64,7 @@ cd "${REPO_ROOT}" || exit 1
 # Cleanup trap — runs on EXIT (normal, error, or SIGINT)
 # Drops the test table, deletes the Redis key, and removes the backup file.
 # ---------------------------------------------------------------------------
-# shellcheck disable=SC2329  # false positive: cleanup is invoked via trap EXIT
+# shellcheck disable=SC2317,SC2329  # false positive: cleanup is invoked via trap EXIT
 cleanup() {
     print_info "Running cleanup..."
 
