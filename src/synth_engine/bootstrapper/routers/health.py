@@ -75,10 +75,8 @@ async def _check_database() -> bool:
     will catch misconfiguration independently).
 
     Returns:
-        ``True`` when the database responds successfully.
-
-    Raises:
-        Exception: Any connection or query error; callers catch all exceptions.
+        ``True`` when the database responds successfully.  Propagates any
+        connection or query exception to the caller for failure handling.
     """
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
@@ -107,10 +105,8 @@ async def _check_redis() -> bool:
     ``asyncio.to_thread`` so it does not block the event loop.
 
     Returns:
-        ``True`` when Redis responds to PING.
-
-    Raises:
-        Exception: Any connection or Redis error; callers catch all exceptions.
+        ``True`` when Redis responds to PING.  Propagates any connection
+        or Redis exception to the caller for failure handling.
     """
     from synth_engine.bootstrapper.dependencies.redis import get_redis_client
 
@@ -129,10 +125,8 @@ async def _check_minio() -> bool | None:
     Returns:
         ``True`` when the bucket is reachable, ``None`` when MinIO is not
         configured or credentials are not available (skip — not a failure).
-
-    Raises:
-        Exception: Any network or S3 error when MinIO is configured; callers
-            catch all exceptions.
+        Propagates any network or S3 exception (when MinIO is configured) to
+        the caller for failure handling.
     """
     try:
         import boto3
@@ -157,10 +151,8 @@ async def _check_minio() -> bool | None:
         """Run head_bucket synchronously (for asyncio.to_thread).
 
         Returns:
-            True when the bucket exists and is reachable.
-
-        Raises:
-            Exception: When the bucket is unreachable or access is denied.
+            True when the bucket exists and is reachable.  Propagates any
+            S3 exception (botocore.ClientError) when the bucket is unreachable.
         """
         s3 = boto3.client(
             "s3",
@@ -194,7 +186,8 @@ async def _run_check_with_timeout(
         The coroutine's return value on success.
 
     Raises:
-        Exception: When the check fails or times out.
+        TimeoutError: When the check exceeds _CHECK_TIMEOUT_SECONDS.
+        Exception: When the check fails with a non-timeout error.
     """
     try:
         result: bool | None = await asyncio.wait_for(coro, timeout=_CHECK_TIMEOUT_SECONDS)

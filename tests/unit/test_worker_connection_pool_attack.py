@@ -254,7 +254,7 @@ class TestPoolConfigurationForPostgres:
         mock_engine = MagicMock(spec=Engine)
         mock_engine.pool = MagicMock(spec=QueuePool)
 
-        pg_url = "postgresql://user:pw@localhost/testdb"
+        pg_url = "postgresql://user:pw@localhost/testdb"  # pragma: allowlist secret
 
         with patch("synth_engine.shared.db.create_engine", return_value=mock_engine) as mock_ce:
             from synth_engine.shared.db import get_worker_engine
@@ -285,7 +285,7 @@ class TestPoolConfigurationForPostgres:
         mock_engine = MagicMock(spec=Engine)
         mock_engine.pool = MagicMock(spec=QueuePool)
 
-        pg_url = "postgresql://user:pw@localhost/testdb"
+        pg_url = "postgresql://user:pw@localhost/testdb"  # pragma: allowlist secret
 
         with patch("synth_engine.shared.db.create_engine", return_value=mock_engine) as mock_ce:
             from synth_engine.shared.db import get_worker_engine
@@ -306,7 +306,7 @@ class TestPoolConfigurationForPostgres:
         mock_engine = MagicMock(spec=Engine)
         mock_engine.pool = MagicMock(spec=QueuePool)
 
-        pg_url = "postgresql://user:pw@localhost/testdb"
+        pg_url = "postgresql://user:pw@localhost/testdb"  # pragma: allowlist secret
 
         with patch("synth_engine.shared.db.create_engine", return_value=mock_engine) as mock_ce:
             from synth_engine.shared.db import get_worker_engine
@@ -332,7 +332,7 @@ class TestPoolConfigurationForPostgres:
         mock_engine = MagicMock(spec=Engine)
         mock_engine.pool = MagicMock(spec=QueuePool)
 
-        pg_url = "postgresql://user:pw@localhost/testdb"
+        pg_url = "postgresql://user:pw@localhost/testdb"  # pragma: allowlist secret
 
         with patch("synth_engine.shared.db.create_engine", return_value=mock_engine) as mock_ce:
             from synth_engine.shared.db import get_worker_engine
@@ -363,7 +363,7 @@ class TestPoolConfigurationForPostgres:
         mock_engine = MagicMock(spec=Engine)
         mock_engine.pool = MagicMock(spec=QueuePool)
 
-        pg_url = "postgresql://user:pw@localhost/testdb"
+        pg_url = "postgresql://user:pw@localhost/testdb"  # pragma: allowlist secret
 
         with patch("synth_engine.shared.db.create_engine", return_value=mock_engine) as mock_ce:
             from synth_engine.shared.db import get_worker_engine
@@ -392,7 +392,7 @@ class TestPoolConfigurationForPostgres:
         mock_engine = MagicMock(spec=Engine)
         mock_engine.pool = MagicMock(spec=QueuePool)
 
-        pg_url = "postgresql://user:pw@localhost/testdb"
+        pg_url = "postgresql://user:pw@localhost/testdb"  # pragma: allowlist secret
 
         with patch("synth_engine.shared.db.create_engine", return_value=mock_engine) as mock_ce:
             from synth_engine.shared.db import get_worker_engine

@@ -325,11 +325,8 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         Returns:
             A tuple of ``(count, allowed)`` where ``count`` is the current
             request count in the window and ``allowed`` is ``True`` when
-            ``count <= limit``.
-
-        Raises:
-            redis.RedisError: Propagated to the caller for graceful degradation
-                handling in :meth:`dispatch`.
+            ``count <= limit``.  Propagates ``redis.RedisError`` to the
+            caller for graceful degradation handling in :meth:`dispatch`.
         """
         # Parse limit count from "N/period" format (e.g. "5/minute" -> limit=5)
         limit_count = int(limit_str.split("/")[0])
