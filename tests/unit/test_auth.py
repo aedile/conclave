@@ -682,6 +682,10 @@ def test_auth_exempt_paths_includes_all_required_endpoints() -> None:
 
     This test asserts that the full required set of exempt paths is present,
     preventing a regression where a required endpoint is accidentally removed.
+
+    Updated in P50 review fix: /security/shred and /security/keys/rotate are
+    removed from the required set because they must NOT bypass authentication.
+    Both routes require JWT auth with security:admin scope (ADV-P47-04).
     """
     from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
@@ -694,12 +698,19 @@ def test_auth_exempt_paths_includes_all_required_endpoints() -> None:
         "/openapi.json",
         "/license/challenge",
         "/license/activate",
-        "/security/shred",
-        "/security/keys/rotate",
         "/auth/token",
     }
     missing = required_exempt - AUTH_EXEMPT_PATHS
     assert not missing, f"AUTH_EXEMPT_PATHS is missing required paths: {missing}"
+
+    # SECURITY: both security routes must require JWT auth — they must NOT
+    # bypass AuthenticationGateMiddleware (ADV-P47-04, P50 review fix).
+    assert "/security/shred" not in AUTH_EXEMPT_PATHS, (
+        "/security/shred must NOT be in AUTH_EXEMPT_PATHS (requires JWT auth)"
+    )
+    assert "/security/keys/rotate" not in AUTH_EXEMPT_PATHS, (
+        "/security/keys/rotate must NOT be in AUTH_EXEMPT_PATHS (requires JWT auth)"
+    )
 
 
 # ---------------------------------------------------------------------------

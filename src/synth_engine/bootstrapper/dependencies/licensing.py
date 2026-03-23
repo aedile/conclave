@@ -20,7 +20,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from synth_engine.bootstrapper.dependencies._exempt_paths import (
-    COMMON_INFRA_EXEMPT_PATHS as LICENSE_EXEMPT_PATHS,
+    SEAL_EXEMPT_PATHS as LICENSE_EXEMPT_PATHS,
 )
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.shared.security.licensing import LicenseState

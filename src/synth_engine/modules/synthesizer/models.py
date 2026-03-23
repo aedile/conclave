@@ -37,13 +37,13 @@ signature verification.
 Task: P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
 Task: P8-T8.2  — Security Hardening (ADV-040: HMAC-SHA256 pickle signing)
 Task: T47.6    — Harden Model Artifact Signature Verification
+Task: T50.4    — Pickle TOCTOU Mitigation (ADV-P47-07: bounded read, no pre-stat)
 ADR: ADR-0017 (CTGAN + Opacus; per-table training strategy)
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) ensures only self-produced artifacts are trusted before unpickling
 from dataclasses import dataclass, field
 from typing import Any
@@ -278,10 +278,15 @@ class ModelArtifact:
         Returns:
             The deserialised :class:`ModelArtifact` instance.
 
+        Note:
+            :exc:`FileNotFoundError` propagates naturally from the underlying
+            ``open()`` call when no file exists at ``path`` — it is not raised
+            explicitly, eliminating the TOCTOU race between a pre-check and the
+            actual open (T50.4, ADV-P47-07).
+
         Raises:
             ValueError: If ``signing_key`` is an empty bytes value (``b""``),
                 shorter than 32 bytes, or if the artifact file exceeds 2 GiB.
-            FileNotFoundError: If no file exists at ``path``.
             SecurityError: If HMAC verification fails for any reason:
                 wrong key, tampered payload, signed file loaded without a key,
                 or unsigned file loaded with a key.
@@ -291,19 +296,15 @@ class ModelArtifact:
         if signing_key is not None:
             _validate_signing_key(signing_key, context="load")
 
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"ModelArtifact file not found: {path}")
+        with open(path, "rb") as f:  # FileNotFoundError propagates naturally — no TOCTOU pre-check
+            raw = f.read(_MAX_ARTIFACT_SIZE_BYTES + 1)
 
-        file_size = os.path.getsize(path)
-        if file_size > _MAX_ARTIFACT_SIZE_BYTES:
+        if len(raw) > _MAX_ARTIFACT_SIZE_BYTES:
             raise ValueError(
-                f"File too large: {file_size} bytes exceeds the 2 GiB size limit "
+                f"File too large: {len(raw)} bytes exceeds the 2 GiB size limit "
                 f"({_MAX_ARTIFACT_SIZE_BYTES} bytes).  Artifact rejected to prevent "
                 "memory exhaustion."
             )
-
-        with open(path, "rb") as f:
-            raw = f.read()
 
         if signing_key is not None:
             if len(raw) <= HMAC_DIGEST_SIZE:

@@ -1,4 +1,4 @@
-"""Unit tests for the extracted dp_accounting module (T43.1).
+"""Unit tests for the extracted dp_accounting module (T43.1, T50.1).
 
 Verifies that dp_accounting.py is a first-class module containing all DP
 accounting logic: _AUDIT_RECONCILIATION_MSG constant, _handle_dp_accounting()
@@ -7,8 +7,15 @@ function, and DpAccountingStep class.
 These tests import directly from dp_accounting — not through job_orchestration —
 to confirm the extraction is complete and the module is independently usable.
 
+T50.1 (fail-closed): The broad ``except Exception`` block that previously wrapped
+unexpected exceptions from ``spend_budget_fn`` as ``AuditWriteError`` has been
+removed.  Those tests have been replaced with tests documenting the new behaviour:
+unexpected exceptions now propagate naturally so the caller can observe the true
+failure cause.  See also ``test_dp_budget_fail_closed.py`` for the attack tests.
+
 Task: T43.1 — Extract dp_accounting.py from job_orchestration.py
 Task: T49.1 — Assertion Hardening: verify failure propagation (not just logging)
+Task: T50.1 — DP Budget Deduction: Fail Closed
 """
 
 from __future__ import annotations
@@ -283,20 +290,19 @@ class TestHandleDpAccountingBehaviour:
         # spend_budget_fn must NOT have been called when actual_epsilon is None
         mock_budget_fn.assert_not_called()
 
-    def test_raises_audit_write_error_when_spend_budget_fn_raises_connection_error(
+    def test_connection_error_from_spend_budget_fn_propagates_as_connection_error(
         self,
     ) -> None:
-        """_handle_dp_accounting must raise AuditWriteError when spend_budget_fn raises.
+        """_handle_dp_accounting must NOT catch ConnectionError from spend_budget_fn.
 
-        Covers the ``except Exception`` path (ADV-P38-01): unexpected errors from
-        spend_budget_fn (e.g. ConnectionError) must be wrapped as AuditWriteError
-        so the job is marked FAILED with a sentinel message — not a raw exc string.
+        T50.1 (fail-closed): The broad ``except Exception`` block has been removed.
+        Unexpected exceptions from ``spend_budget_fn`` propagate to the caller so
+        the orchestration layer can observe the true failure cause and fail the job.
+
+        Replaces: test_raises_audit_write_error_when_spend_budget_fn_raises_connection_error
+        (which documented the OLD, incorrect wrapping behaviour).
         """
-        from synth_engine.modules.synthesizer.dp_accounting import (
-            _BUDGET_SPEND_FAILED_MSG,
-            _handle_dp_accounting,
-        )
-        from synth_engine.shared.exceptions import AuditWriteError
+        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
 
         job = _make_synthesis_job(id=1)
         mock_wrapper = MagicMock()
@@ -312,26 +318,22 @@ class TestHandleDpAccountingBehaviour:
                 "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
-            pytest.raises(AuditWriteError) as excinfo,
+            pytest.raises(ConnectionError, match="DB unreachable"),
         ):
             _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
 
-        raised_msg = str(excinfo.value)
-        # Raw exception detail must not appear in the AuditWriteError message
-        assert "DB unreachable" not in raised_msg
-        # The error message must be the fixed sentinel constant
-        assert raised_msg == _BUDGET_SPEND_FAILED_MSG
+    def test_unexpected_exceptions_from_spend_budget_fn_propagate_as_their_own_type(
+        self,
+    ) -> None:
+        """Unexpected spend_budget_fn exceptions must propagate as their original type.
 
-    def test_unknown_exception_from_spend_budget_fn_does_not_propagate_raw(self) -> None:
-        """Unexpected spend_budget_fn errors must NOT propagate as the raw exception type.
+        T50.1 (fail-closed): each exception type must propagate as-is so the
+        caller can identify the true failure cause.
 
-        If an arbitrary exception (e.g., MemoryError, OSError) escapes the budget
-        spend, the caller must receive AuditWriteError — never the raw exception.
-        Propagating raw exceptions would leak internal state and bypass the sentinel
-        error message, making automated incident triage harder.
+        Replaces: test_unknown_exception_from_spend_budget_fn_does_not_propagate_raw
+        (which documented the OLD, incorrect wrapping behaviour).
         """
         from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
-        from synth_engine.shared.exceptions import AuditWriteError
 
         job = _make_synthesis_job(id=1)
         mock_wrapper = MagicMock()
@@ -353,9 +355,9 @@ class TestHandleDpAccountingBehaviour:
                     "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
                     return_value=MagicMock(),
                 ),
+                pytest.raises(exc_type),
             ):
-                with pytest.raises(AuditWriteError):
-                    _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
+                _handle_dp_accounting(job=job, dp_wrapper=mock_wrapper, job_id=1)
 
     def test_epsilon_measurement_error_not_silently_logged(self) -> None:
         """EpsilonMeasurementError must propagate to the caller — not just be logged.
@@ -568,4 +570,47 @@ class TestDpAccountingStepFromDpAccountingModule:
         assert result.error_msg == _AUDIT_RECONCILIATION_MSG, (
             f"error_msg must equal the _AUDIT_RECONCILIATION_MSG sentinel; "
             f"got: {result.error_msg!r}"
+        )
+
+    def test_step_returns_failure_on_unexpected_exception_from_spend_budget_fn(
+        self,
+    ) -> None:
+        """DpAccountingStep.execute() must return failure on any unexpected exception.
+
+        T50.1 (fail-closed): When spend_budget_fn raises an unexpected exception
+        (e.g. ConnectionError, RuntimeError), it propagates through
+        _handle_dp_accounting and must be caught by DpAccountingStep.execute()'s
+        catch-all, which returns StepResult(success=False) with a sanitised message.
+
+        The catch-all must NOT re-raise, must NOT return success=True, and the
+        error_msg must be a safe sentinel (not the raw exception message).
+        """
+        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+
+        mock_wrapper = MagicMock()
+        mock_wrapper.epsilon_spent.return_value = 0.7
+        mock_budget_fn = MagicMock(side_effect=ConnectionError("connection refused"))
+
+        ctx = _make_job_context(dp_wrapper=mock_wrapper)
+
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                mock_budget_fn,
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                return_value=MagicMock(),
+            ),
+        ):
+            result = DpAccountingStep().execute(ctx)
+
+        assert result.success is False, (
+            "DpAccountingStep must return success=False when spend_budget_fn raises"
+        )
+        assert result.error_msg is not None
+        assert len(result.error_msg) > 0
+        # Raw exception detail must not appear in the sanitised error message
+        assert "connection refused" not in (result.error_msg or ""), (
+            "Raw exception message must not appear in StepResult.error_msg"
         )

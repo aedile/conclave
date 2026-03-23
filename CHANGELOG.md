@@ -10,6 +10,111 @@ For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`
 
 ---
 
+## Phase 50 — Production Security Fixes (in progress)
+*2026-03-23 | PR TBD*
+
+- DP budget enforcement changed to fail-closed: `BudgetExhaustionError` and `EpsilonMeasurementError`
+  always block synthesis, no silent pass-through (ADR-0050).
+- `CONCLAVE_ENV` defaults to `"production"`; fresh deployments boot with auth enforced (T50.3).
+- Removed `/security/shred` and `/security/keys/rotate` from `AUTH_EXEMPT_PATHS` (ADV-P47-04).
+- TOCTOU in `ModelArtifact.load()` eliminated: replaced `os.path.exists()` pre-check with bounded
+  `f.read(_MAX_ARTIFACT_SIZE_BYTES + 1)` and post-read `len(raw)` guard (T50.4, ADR-0052 mutmut
+  Python 3.14 gap accepted).
+
+## Documentation Cleanup & Tightening
+*2026-03-23 | PR [#180](../../pull/180)*
+
+- Archived 8 historical files to `docs/archive/`: DEVELOPMENT_STORY, BACKLOG, DOCUMENT_INDEX,
+  E2E_VALIDATION, DP_QUALITY_REPORT, e2e_load_test_results.json, ARCHITECTURAL_REQUIREMENTS,
+  BUSINESS_REQUIREMENTS. All cross-references updated.
+- Tightened 15 active documentation files; total active-docs reduction ~9,400 → ~6,400 lines (~32%).
+- Every command, config value, code block, security warning, and deployment step preserved.
+  Only filler, redundancy, and verbose preambles removed.
+
+## Phase 49 — Test Quality Hardening
+*2026-03-23 | PR [#179](../../pull/179)*
+
+- Hardened security-critical assertions: `test_download_hmac_signing.py` 4→20 tests;
+  value assertions added to `test_audit.py`, `test_dp_accounting.py`, and `test_ale.py` (T49.1).
+- Salt-sensitivity sweeps on all masking functions; parametrized subsetting negative cases
+  (mid-stream failure, DB disconnect); settings router value assertions (T49.2).
+- Mock reduction: shared `helpers_synthesizer.py` extracted; opt-in `jwt_secret_key_env` fixture;
+  2 Opacus integration tests; 3 guardrails edge cases added (T49.3).
+- `test_synthesizer_tasks.py` (2738 lines) split into 3 files; all 107 tests preserved (T49.4).
+- mutmut 3.x configured for `shared/security/` and `modules/privacy/`; 200 mutants generated,
+  0 survived; Python 3.14 SIGSEGV incompatibility accepted in ADR-0047 (T49.5).
+- Test metrics: 2466 passed, 1 skipped — coverage 96.76%.
+
+## Advisory Drain — Pre-Phase 49
+*2026-03-23 | PR [#178](../../pull/178)*
+
+- Drained 5 advisories (9→4 open): X-Forwarded-For trust model (PRODUCTION_DEPLOYMENT.md
+  Appendix B), scope-based auth ADR gap (ADR-0049 written), stale `ale_key` field removed
+  from `ConclaveSettings`, Redis INCR+EXPIRE atomicity closed as accepted tradeoff,
+  anchor verification equality-only closed as accepted tradeoff.
+
+## Phase 48 — Production-Critical Infrastructure Fixes
+*2026-03-23 | PR [#177](../../pull/177)*
+
+- Redis-backed rate limiting replacing the in-process deque fallback; sync Redis pipeline
+  dispatched via `asyncio.to_thread()` to avoid blocking the event loop (T48.1).
+- Huey worker connection pooling: dedicated async engine per worker, not shared with API
+  process; readiness probe reuses shared engine (T48.2, T48.3).
+- Audit trail anchoring wired end-to-end: `AuditLogger` → `AnchorManager.maybe_anchor()`
+  called on every `log_event()` invocation; Rule 8 wiring gap fixed (T48.4).
+- ALE vault enforcement: `ALE_KEY` env-var fallback path removed; all connection encryption
+  now requires an unsealed vault (T48.5).
+- Review findings resolved: Rule 8 wiring BLOCKER, async dispatch, `docker_secrets.py`
+  extraction, stale docstrings, `/ready` engine reuse, `.env.example` anchor settings.
+
+## Phase 47 — Auth & Safety Ops
+*2026-03-22 | PR [#174](../../pull/174)*
+
+- Scope enforcement added to security routes (`security:admin`) and settings routes
+  (`settings:write`); `AUTH_EXEMPT_PATHS` audited and tightened (T47.1, T47.3).
+- `JWT_SECRET_KEY` and `OPERATOR_CREDENTIALS_HASH` added to production-required startup
+  validation; bcrypt structural pre-check (`$2b$`, ≥59 chars) prevents hash oracle exposure (T47.4, T47.5).
+- Artifact signature hardening: versioned `KEY_ID || HMAC-SHA256` enforced; collect-all
+  config validation reports all missing vars in one startup attempt (T47.6).
+- Parquet memory bounds, asyncpg TLS 1.3 pin, Redis healthcheck, shutdown cleanup (T47.7, T47.8, T47.10).
+- `BudgetExhaustionError` restructured: `str(exc)` always returns a safe generic constant;
+  epsilon values stored as typed `Decimal` attributes, never surfaced in HTTP responses (T47.9).
+- Test metrics: 2272 passed, 1 skipped — coverage 97.40%.
+
+## Phase 46 — mTLS Inter-Container Communication
+*2026-03-22 | PR [#173](../../pull/173)*
+
+- Internal ECDSA P-256 CA and leaf certificates for app, postgres, pgbouncer, and redis;
+  idempotent generation script with air-gap compatibility (T46.1).
+- mTLS wired on all container-to-container connections: `sslmode=verify-full` for psycopg2/asyncpg,
+  `rediss://` URL promotion, TLS params for singleton Redis client (T46.2, ADR-0045).
+- Certificate rotation script with backup, chain validation, and expiry check; Prometheus
+  `conclave_cert_expiry_days` gauge wired at startup (T46.3).
+- K8s NetworkPolicy manifests: default-deny baseline with per-service allow rules for
+  app, pgbouncer, postgres, redis, and monitoring (T46.4).
+
+## Phase 45 — Webhook Callbacks, Idempotency Middleware & Orphan Task Reaper
+*2026-03-22 | PR [#170](../../pull/170)*
+
+- `IdempotencyMiddleware` reintroduced (TBD-07) using Redis `SET NX EX` with per-operator key
+  scoping and graceful Redis degradation (T45.1, ADR-0044).
+- `OrphanTaskReaper` wired as a Huey periodic task: detects and marks jobs stuck in
+  `PENDING`/`RUNNING` beyond their TTL (T45.2).
+- Webhook callbacks with SSRF protection: `shared/ssrf.py` blocks RFC 1918 / loopback / IPv4-mapped
+  IPv6 addresses; `set_webhook_delivery_fn` IoC hook wired in bootstrapper (T45.3).
+- IPv4-mapped IPv6 SSRF bypass (`::ffff:10.0.0.1`) patched; callback URLs stripped of
+  query params before logging (token leakage prevention).
+
+## Phase 44 — Comprehensive Documentation Audit & Cleanup
+*2026-03-21 | PR [#169](../../pull/169)*
+
+- Audited 70+ documents across root docs, all ADRs, operational docs, archive, backlog,
+  and agent prompts (T44.1–T44.4).
+- Fixed 2 BLOCKERs (stale backlog completion markers, document index gaps) and 6 advisory
+  items inline; vault re-seal endpoint documentation corrected.
+- Produced `DOCUMENT_INDEX.md`: 149-file document registry with lifecycle statuses (T44.5).
+- All ADR statuses reconciled; stale "Deferred" labels updated to reflect delivered state.
+
 ## Advisory Drain — Pre-Phase 44
 *2026-03-21 | PR [#168](../../pull/168)*
 
@@ -424,5 +529,5 @@ For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`
 
 ---
 
-*This changelog covers Phase 0.8 through Phase 45 (as of 2026-03-21).*
+*This changelog covers Phase 0.8 through Phase 50 (as of 2026-03-23).*
 *For the most current state, refer to `git log` and the merged PR list.*

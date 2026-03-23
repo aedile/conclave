@@ -272,6 +272,8 @@ def test_mtls_enabled_implies_ssl_regardless_of_conclave_ssl_required(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(ca))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(cert))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(key))
+    # T50.3: Use explicit development mode to avoid production-required validation
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     import logging
 
