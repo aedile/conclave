@@ -26,6 +26,36 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-22] Phase 49 — Framework Amendments (Architecture Review)
+
+**Branch**: `docs/framework-amendments` (docs-only)
+
+**What**: Framework amendments from staff-level architecture review (2026-03-22). No production
+code or test changes — governance and documentation only.
+
+**Amendments**:
+1. **Priority Sequencing (ADR-0046)**: New Constitution Priority 2.5 — PM must verify all
+   lower-numbered Constitutional priorities are implemented or deferred with ADR before
+   approving phase plans targeting higher-numbered work. Addresses finding that Security
+   (Priority 0) features shipped at Phase 39/48.
+2. **Assertion Quality Gate**: Constitution Priority 4 amended — tests must contain specific
+   value assertions; truthiness/type/existence checks alone are insufficient.
+3. **Mutation Testing Gate (ADR-0047)**: Constitution Priority 4 amended — mutmut must
+   achieve 60% mutation score (targeting 70% by Phase 55) on security-critical modules
+   (shared/security/, modules/privacy/).
+4. **Security Advisory TTL (Rule 26)**: BLOCKER/security advisories must resolve within
+   2 phases or auto-promote to merge-blocking gate.
+5. **Governance Pruning**: All 7 rules with [sunset: Phase 50] extended to Phase 60 —
+   RETRO_LOG evidence supports all rules (Rule 6, 8, 9, 11, 12, 16, 17). No rules deleted.
+
+**Agent updates**:
+- spec-challenger: Added challenge area #8 (Priority Compliance)
+- phase-boundary-auditor: Added Assertion Specificity sweep to test audit
+
+**Source**: Staff-level architecture review, 2026-03-22
+
+---
+
 ### [2026-03-22] Phase 47 — Auth & Safety Ops Retrospective
 
 **Branch**: `feat/P47-auth-safety-ops` (29 commits)

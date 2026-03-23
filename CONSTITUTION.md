@@ -42,11 +42,16 @@ This section governs how you write and manage code.
      1. **Red:** Write a new, failing test (unit or integration) that clearly defines the requirement or bug.
      2. **Green:** Write the _minimum_ amount of code necessary to make the failing test pass.
      3. **Refactor:** Improve the code's quality, clarity, and performance while ensuring all tests continue to pass.
-3. **Comprehensive Testing (Priority 4):**
+3. **Priority Sequencing (Priority 2.5):**
+   - Before approving a phase plan, the PM _MUST_ verify that all Constitutional requirements with a lower priority number are either (a) fully implemented with passing enforcement gates, or (b) explicitly deferred with an ADR documenting the deferral rationale and timeline.
+   - A phase targeting Priority N work _MUST NOT_ be approved while any Priority 0 through N-1 requirement remains unimplemented without a deferral ADR.
+4. **Comprehensive Testing (Priority 4):**
    - No change is complete until it is covered by robust, passing tests.
    - You _WILL_ maintain a comprehensive test suite with **95%+ test coverage**.
    - No regressions _WILL_ be introduced. All existing tests _MUST_ pass before your work on a task is considered finished.
-4. **Code Quality (Priority 5):**
+   - Tests _MUST_ contain at least one specific value assertion per test function. Assertions that only check truthiness (`is not None`), type (`isinstance`), or existence (`in`) without also asserting a specific expected value are insufficient as the sole assertion in any test.
+   - Mutation testing (`mutmut`) _MUST_ achieve the configured mutation score threshold on security-critical modules (`shared/security/`, `modules/privacy/`). Initial threshold: 60%, targeting 70% by Phase 55.
+5. **Code Quality (Priority 5):**
    - You _WILL_ write clean, maintainable, efficient, and well-factored code.
    - You _WILL_ adhere to all existing coding standards, style guides, and architectural patterns of the project.
    - You _WILL_ use type hints throughout all Python code (mypy strict mode).
@@ -102,6 +107,9 @@ This principle governs the Constitution itself and all future amendments.
 | 0 | Auth coverage | `red-team-reviewer` on every phase [ADVISORY — no programmatic gate: `test_all_routes_require_auth()` does not exist] |
 | 0 | Attack test coverage | `test: add negative/attack tests` commit required before `test: add failing tests` — auditable in git log [ADVISORY — no programmatic gate: commit ordering is convention-enforced only] |
 | 0 | Spec challenge | `spec-challenger` output incorporated before development — auditable in developer brief [ADVISORY — no programmatic gate: incorporation is convention-enforced only] |
+| 2.5 | Priority sequencing | spec-challenger priority-compliance sweep + PM phase-plan checklist |
+| 4 | Assertion quality | phase-boundary-auditor assertion-specificity sweep |
+| 4 | Mutation score | `mutmut run --paths-to-mutate=src/synth_engine/shared/security/ src/synth_engine/modules/privacy/` in CI |
 | 9 | UI/UX / Accessibility | `ui-ux-reviewer` agent spawned conditionally on frontend changes — findings committed |
 
 ## **Final Mandate: Conflict and Blockers**

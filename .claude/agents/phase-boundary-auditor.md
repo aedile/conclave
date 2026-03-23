@@ -42,6 +42,7 @@ Analyze test quality and flag bloat patterns:
 - **redundant-invariant-tests**: Multiple tests asserting the same invariant from different angles? ADVISORY — suggest consolidation.
 - **dead-fixtures**: Fixtures defined but never used (check `conftest.py` files for fixtures not referenced by any test)? FINDING.
 - **production-to-test-ratio**: Production-to-test LOC ratio for this phase: report it. If >1:2.5, justify.
+- **Assertion Specificity**: Scan test files changed in this phase. Flag any test function where the only assertions are `is not None`, `isinstance()`, or `field in dict` without a corresponding value assertion. Classification: FINDING.
 
 How to execute:
 ```bash
@@ -67,22 +68,36 @@ Report pass/fail count and any failures. If the E2E suite is not available (miss
 
 ## 4. Automation Cleanup
 
-Perform housekeeping on the local development environment:
+Perform housekeeping on the local development environment. **This is not advisory — actually execute the cleanup.**
 
-- **merged-branches**: List and delete merged local branches (except `main` and the current branch). Report what was deleted.
-- **stale-worktrees**: List worktree directories in `.claude/worktrees/` that are >2 phases old. Report candidates for cleanup.
-- **orphaned-branches**: Report orphaned `worktree-agent-*` branches that no longer have a corresponding worktree.
+- **merged-branches**: Delete merged local branches (except `main` and the current branch). Report what was deleted.
+- **stale-worktrees**: Remove worktree directories in `.claude/worktrees/` whose branches have been merged or that are not associated with a currently running agent. Use `git worktree remove <path>` for each. If removal fails (locked/dirty), report as ADVISORY and skip.
+- **orphaned-branches**: Delete `worktree-agent-*` branches that no longer have a corresponding worktree directory. Use `git branch -D <branch>` for each.
+
+**Safety rule**: Never remove a worktree whose branch has uncommitted changes (`git worktree list --porcelain` shows `dirty`). Never remove a worktree if its agent process may still be running — check for lock files at `<worktree-path>/.git/locked`. When in doubt, skip and report as ADVISORY.
 
 How to execute:
 ```bash
-# List merged branches (excluding main and current)
-git branch --merged main | grep -v "main\|^\*"
+# 1. Delete merged local branches (excluding main and current)
+git branch --merged main | grep -v "main\|^\*" | xargs -r git branch -d
 
-# List worktree directories
-ls -la .claude/worktrees/ 2>/dev/null
+# 2. Remove stale worktrees (check for locks first)
+for wt in .claude/worktrees/agent-*; do
+  if [ ! -f "$wt/.git/locked" ] && ! git worktree list --porcelain | grep -A2 "worktree.*$wt" | grep -q "dirty"; then
+    git worktree remove "$wt" 2>/dev/null && echo "Removed worktree: $wt" || echo "ADVISORY: could not remove $wt"
+  else
+    echo "SKIP (locked/dirty): $wt"
+  fi
+done
 
-# List worktree-agent branches
-git branch | grep "worktree-agent-"
+# 3. Delete orphaned worktree-agent branches (no matching worktree)
+for branch in $(git branch | grep "worktree-agent-"); do
+  branch=$(echo "$branch" | tr -d ' +*')
+  agent_id=$(echo "$branch" | sed 's/worktree-agent-/agent-/')
+  if [ ! -d ".claude/worktrees/$agent_id" ]; then
+    git branch -D "$branch" && echo "Deleted orphan branch: $branch"
+  fi
+done
 ```
 
 ## Output Format
@@ -108,8 +123,8 @@ e2e-playwright:            PASS/FAIL/SKIP — <pass/fail count or skip reason>
 
 ### Automation Cleanup
 merged-branches:           PASS — <deleted N branches / none to delete>
-stale-worktrees:           PASS/ADVISORY — <list candidates or "none">
-orphaned-branches:         PASS/ADVISORY — <list or "none">
+stale-worktrees:           PASS — <removed N / skipped N locked> or "none to remove"
+orphaned-branches:         PASS — <deleted N branches> or "none to delete"
 
 Overall: PASS/FINDING — <brief summary>
 ```
