@@ -30,6 +30,48 @@ Drain (delete) rows when their target task is completed.
 
 ---
 
+### [2026-03-23] Documentation Cleanup & Tightening
+
+**Branch**: `chore/docs-cleanup-and-tightening`
+
+**Motivation**: Reduce agent context load at outset scan. Too much verbose documentation
+consuming tokens before agents reach actionable content.
+
+**Wave 1 — Archive** (8 files moved to `docs/archive/`):
+DEVELOPMENT_STORY, BACKLOG, DOCUMENT_INDEX, E2E_VALIDATION, DP_QUALITY_REPORT,
+e2e_load_test_results.json, ARCHITECTURAL_REQUIREMENTS, BUSINESS_REQUIREMENTS.
+All cross-references updated in active docs.
+
+**Wave 2 — Tighten top 3 docs**:
+| File | Before | After | Reduction |
+|------|--------|-------|-----------|
+| OPERATOR_MANUAL | 1330 | 898 | -32% |
+| DEVELOPER_GUIDE | 1102 | 779 | -29% |
+| PRODUCTION_DEPLOYMENT | 934 | 674 | -28% |
+
+**Wave 3 — Tighten remaining active docs**:
+| File | Before | After | Reduction |
+|------|--------|-------|-----------|
+| SECURITY_HARDENING | 597 | 391 | -34% |
+| DISASTER_RECOVERY | 561 | 347 | -38% |
+| REQUEST_FLOW | 560 | 400 | -29% |
+| TROUBLESHOOTING | 469 | 366 | -22% |
+| DATA_COMPLIANCE | 384 | 280 | -27% |
+| SCALABILITY | 290 | 209 | -28% |
+| LICENSING | 284 | 222 | -22% |
+| infrastructure_security | 215 | 156 | -27% |
+| index.md | 263 | 237 | -10% |
+| README | 442 | 348 | -21% |
+| DEPENDENCY_AUDIT_POLICY | 152 | 116 | -24% |
+| DEPENDENCY_AUDIT | 123 | 99 | -20% |
+
+**Total active docs reduction**: ~9,400 → ~6,400 lines (~32% overall, excluding RETRO_LOG and CHANGELOG).
+
+**What was preserved**: Every command, config value, code block, security warning,
+deployment step, and cross-reference. Only filler, redundancy, and verbose preambles were cut.
+
+---
+
 ### [2026-03-23] Phase 48 — Production-Critical Infrastructure Fixes
 
 **Branch**: `feat/P48-production-infra-fixes` (22+ commits)
