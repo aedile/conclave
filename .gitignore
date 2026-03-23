@@ -98,3 +98,6 @@ sbom.json
 
 # mutmut mutation testing cache — regenerated every test run
 .mutmut-cache
+
+# mutmut mutation testing sandbox — regenerated every run
+mutants/
