@@ -169,7 +169,9 @@ class TestReadSecret:
             secret_path = Path(tmpdir) / "my_secret"
             secret_path.write_text("supersecretvalue\n", encoding="utf-8")
 
-            with patch("synth_engine.bootstrapper.main._SECRETS_DIR", Path(tmpdir)):
+            # Patch the canonical location: docker_secrets._SECRETS_DIR
+            # (main re-exports _read_secret from docker_secrets).
+            with patch("synth_engine.bootstrapper.docker_secrets._SECRETS_DIR", Path(tmpdir)):
                 result = _read_secret("my_secret")
 
         assert result == "supersecretvalue"
@@ -179,7 +181,7 @@ class TestReadSecret:
         from synth_engine.bootstrapper.main import _read_secret
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("synth_engine.bootstrapper.main._SECRETS_DIR", Path(tmpdir)):
+            with patch("synth_engine.bootstrapper.docker_secrets._SECRETS_DIR", Path(tmpdir)):
                 with pytest.raises(RuntimeError, match="not found"):
                     _read_secret("nonexistent_secret")
 
@@ -191,7 +193,7 @@ class TestReadSecret:
             secret_path = Path(tmpdir) / "padded_secret"
             secret_path.write_text("  myvalue  \n\n", encoding="utf-8")
 
-            with patch("synth_engine.bootstrapper.main._SECRETS_DIR", Path(tmpdir)):
+            with patch("synth_engine.bootstrapper.docker_secrets._SECRETS_DIR", Path(tmpdir)):
                 result = _read_secret("padded_secret")
 
         assert result == "myvalue"
@@ -260,9 +262,9 @@ class TestBuildEphemeralStorageClient:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             secrets_dir = self._make_secret_files(tmpdir)
-            # Patch boto3.client to prevent real network calls
+            # Patch the canonical location: docker_secrets._SECRETS_DIR
             with (
-                patch("synth_engine.bootstrapper.main._SECRETS_DIR", secrets_dir),
+                patch("synth_engine.bootstrapper.docker_secrets._SECRETS_DIR", secrets_dir),
                 patch("boto3.client", return_value=MagicMock()),
             ):
                 result = build_ephemeral_storage_client()
@@ -288,7 +290,7 @@ class TestBuildEphemeralStorageClient:
             )
 
             with (
-                patch("synth_engine.bootstrapper.main._SECRETS_DIR", secrets_dir),
+                patch("synth_engine.bootstrapper.docker_secrets._SECRETS_DIR", secrets_dir),
                 patch("boto3.client") as mock_boto3_client,
             ):
                 mock_boto3_client.return_value = MagicMock()
@@ -308,7 +310,7 @@ class TestBuildEphemeralStorageClient:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Empty secrets dir — no secret files
-            with patch("synth_engine.bootstrapper.main._SECRETS_DIR", Path(tmpdir)):
+            with patch("synth_engine.bootstrapper.docker_secrets._SECRETS_DIR", Path(tmpdir)):
                 with pytest.raises(RuntimeError, match="not found"):
                     build_ephemeral_storage_client()
 

@@ -7,7 +7,10 @@ Dependency checks
 -----------------
 Three checks are performed concurrently via ``asyncio.gather``:
 
-1. **database** — executes ``SELECT 1`` via an async SQLAlchemy engine.
+1. **database** — executes ``SELECT 1`` via the shared async SQLAlchemy engine
+   from :func:`~synth_engine.shared.db.get_async_engine`.  The shared engine
+   has ``pool_pre_ping=True`` and is reused across probes (no per-probe
+   engine creation overhead).
 2. **cache** — sends ``PING`` to Redis via the sync client (run in thread).
 3. **object_store** — calls ``head_bucket`` on the configured MinIO bucket
    (run in thread).  Skipped and reported as ``"skipped"`` when MinIO is not
@@ -44,6 +47,7 @@ Response schema (both 200 and 503)::
 
 CONSTITUTION Priority 0: Security — no info leakage, exempt from auth/seal gates
 Task: T48.3 — Readiness Probe & External Dependency Health Checks
+Task: P48 review F5 — Reuse shared async engine in /ready probe
 """
 
 from __future__ import annotations
@@ -69,18 +73,22 @@ router = APIRouter(tags=["ops"])
 async def _check_database() -> bool:
     """Execute a minimal liveness query against the configured database.
 
-    Runs ``SELECT 1`` via a short-lived async SQLAlchemy engine.  If the
-    database URL is not configured, the check is skipped and returns ``True``
-    (no database configured is not a readiness failure — the startup validator
-    will catch misconfiguration independently).
+    Reuses the shared async engine from :func:`~synth_engine.shared.db.get_async_engine`
+    (which has ``pool_pre_ping=True``) rather than creating a new engine on
+    every probe invocation.  This avoids connection pool churn and prevents
+    exhausting available database connections under high probe frequency.
+
+    If the database URL is not configured, the check is skipped and returns
+    ``True`` (no database configured is not a readiness failure — the startup
+    validator will catch misconfiguration independently).
 
     Returns:
         ``True`` when the database responds successfully.  Propagates any
         connection or query exception to the caller for failure handling.
     """
     from sqlalchemy import text
-    from sqlalchemy.ext.asyncio import create_async_engine
 
+    from synth_engine.shared.db import get_async_engine
     from synth_engine.shared.settings import get_settings
 
     settings = get_settings()
@@ -89,13 +97,10 @@ async def _check_database() -> bool:
         # No database configured — not a readiness failure for this check.
         return True
 
-    engine = create_async_engine(database_url, pool_size=1, max_overflow=0)
-    try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        return True
-    finally:
-        await engine.dispose()
+    engine = get_async_engine(database_url)
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
+    return True
 
 
 async def _check_redis() -> bool:
@@ -118,8 +123,8 @@ async def _check_redis() -> bool:
 async def _check_minio() -> bool | None:
     """Check reachability of the configured MinIO bucket.
 
-    Reads the MinIO endpoint and bucket name from ``main.py`` module constants
-    (``_MINIO_ENDPOINT`` and ``_EPHEMERAL_BUCKET``).  When Docker secrets are
+    Reads the MinIO endpoint and bucket name from
+    :mod:`~synth_engine.bootstrapper.docker_secrets`.  When Docker secrets are
     not present, the check is skipped and ``None`` is returned.
 
     Returns:
@@ -135,9 +140,9 @@ async def _check_minio() -> bool | None:
         return None
 
     try:
-        from synth_engine.bootstrapper.main import (
-            _EPHEMERAL_BUCKET,
-            _MINIO_ENDPOINT,
+        from synth_engine.bootstrapper.docker_secrets import (
+            EPHEMERAL_BUCKET,
+            MINIO_ENDPOINT,
             _read_secret,
         )
 
@@ -156,11 +161,11 @@ async def _check_minio() -> bool | None:
         """
         s3 = boto3.client(
             "s3",
-            endpoint_url=_MINIO_ENDPOINT,
+            endpoint_url=MINIO_ENDPOINT,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
         )
-        s3.head_bucket(Bucket=_EPHEMERAL_BUCKET)
+        s3.head_bucket(Bucket=EPHEMERAL_BUCKET)
         return True
 
     result: bool = await asyncio.to_thread(_head_bucket)

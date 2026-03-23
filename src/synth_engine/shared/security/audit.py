@@ -22,11 +22,15 @@ Security properties
 - A module-level singleton (protected by ``threading.Lock``) ensures the
   hash chain is continuous across all requests for the lifetime of the
   process.  See ADR-0010 for full rationale.
+- After each event is logged, ``AnchorManager.maybe_anchor`` is called
+  (best-effort) to publish periodic tamper-evident anchors to an
+  external store.  Anchoring failures never block event logging.
 
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
 Task: P2-D3  — AuditLogger singleton & cross-request chain integrity
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
+Task: T48.4 — Immutable Audit Trail Anchoring (Rule 8 wiring)
 """
 
 from __future__ import annotations
@@ -93,6 +97,7 @@ class AuditLogger:
     def __init__(self, audit_key: bytes) -> None:
         self._audit_key = audit_key
         self._prev_hash: str = _GENESIS_HASH
+        self._entry_count: int = 0
         self._log = logging.getLogger(_AUDIT_LOGGER_NAME)
         self._lock: threading.Lock = threading.Lock()
 
@@ -141,6 +146,11 @@ class AuditLogger:
         signs it, advances the chain, and logs the JSON representation
         to ``synth_engine.security.audit`` at INFO level.
 
+        After logging, calls ``AnchorManager.maybe_anchor`` (best-effort) to
+        publish a tamper-evident anchor when the configured threshold is
+        reached.  Anchoring failures are caught and logged at WARNING so they
+        never interrupt event logging.
+
         This method is thread-safe: an instance-level ``threading.Lock``
         serialises concurrent callers, preserving chain order even when
         called from multiple async route handlers.
@@ -173,9 +183,27 @@ class AuditLogger:
 
             # Advance the chain: next event's prev_hash = SHA-256 of this event's JSON
             self._prev_hash = hashlib.sha256(event.model_dump_json().encode()).hexdigest()
+            self._entry_count += 1
+
+            # Capture consistent snapshot for anchoring (inside lock for consistency).
+            chain_head = self._prev_hash
+            entry_count = self._entry_count
 
             self._log.info(event.model_dump_json())
-            return event
+
+        # Call maybe_anchor outside the lock: AnchorManager has its own locking.
+        # Lazy import avoids circular import (audit_anchor imports nothing from audit).
+        # Best-effort: anchoring failures must never break event logging.
+        try:
+            from synth_engine.shared.security.audit_anchor import get_anchor_manager
+
+            get_anchor_manager().maybe_anchor(chain_head, entry_count)
+        except Exception as exc:  # broad catch intentional: anchoring is best-effort
+            logging.getLogger(_AUDIT_LOGGER_NAME).warning(
+                "Audit anchoring failed (best-effort — event logging unaffected): %s", exc
+            )
+
+        return event
 
     def verify_event(self, event: AuditEvent) -> bool:
         """Verify that *event*'s signature was produced by this logger's key.

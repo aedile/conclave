@@ -11,10 +11,13 @@ Each concern is delegated to a focused submodule:
 - :mod:`.lifecycle` — Lifespan hooks and ops route registration.
 - :mod:`.router_registry` — Domain router and exception handler wiring.
 
-The Docker-secrets cluster (``_read_secret``, ``_SECRETS_DIR``,
-``_MINIO_ENDPOINT``, ``_EPHEMERAL_BUCKET``, ``MinioStorageBackend``, and
-``build_ephemeral_storage_client``) remains in this module so that existing
-test patches against ``synth_engine.bootstrapper.main.*`` work unchanged.
+Docker-secrets cluster
+----------------------
+``_read_secret``, ``_SECRETS_DIR``, ``_MINIO_ENDPOINT``, and
+``_EPHEMERAL_BUCKET`` now live in :mod:`.docker_secrets` and are
+re-exported here so that existing code referencing
+``synth_engine.bootstrapper.main._read_secret`` (including test patches
+against ``main._SECRETS_DIR``) continues to resolve correctly.
 
 Webhook IoC wiring (Rule 8 — T45.3, P45 review F3)
 ---------------------------------------------------
@@ -38,7 +41,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
@@ -46,6 +48,16 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 from sqlmodel import Session, select
 
+from synth_engine.bootstrapper.docker_secrets import (  # noqa: F401 — re-exported for test patches
+    _SECRETS_DIR,
+    _read_secret,
+)
+from synth_engine.bootstrapper.docker_secrets import (
+    EPHEMERAL_BUCKET as _EPHEMERAL_BUCKET,
+)
+from synth_engine.bootstrapper.docker_secrets import (
+    MINIO_ENDPOINT as _MINIO_ENDPOINT,
+)
 from synth_engine.bootstrapper.factories import (  # noqa: F401 — re-exported for test patches
     build_dp_wrapper,
     build_spend_budget_fn,
@@ -77,48 +89,12 @@ if TYPE_CHECKING:
 _SERVICE_NAME = "conclave-engine"
 _logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Docker secrets cluster — kept here so test patches resolve against this
-# module's namespace (patch("synth_engine.bootstrapper.main._SECRETS_DIR")).
-# ---------------------------------------------------------------------------
-
-#: Default MinIO endpoint for the ephemeral storage bucket.
-_MINIO_ENDPOINT = "http://minio-ephemeral:9000"
-
-#: Ephemeral bucket name — backed by tmpfs in Docker Compose.
-_EPHEMERAL_BUCKET = "synth-ephemeral"
-
-#: Docker secrets directory — credentials mounted here at runtime.
-_SECRETS_DIR = Path("/run/secrets")
-
 # Deferred import so environments without the synthesizer group don't fail.
 # Bound at module scope for patch("synth_engine.bootstrapper.main.MinioStorageBackend").
 try:
     from synth_engine.modules.synthesizer.storage import MinioStorageBackend
 except ImportError:  # pragma: no cover — synthesizer group not installed
     MinioStorageBackend = None  # type: ignore[assignment,misc]  # conditional import fallback: None when synthesizer group absent; type narrowed at call sites
-
-
-def _read_secret(name: str) -> str:
-    """Read a Docker secret from ``_SECRETS_DIR``.
-
-    Args:
-        name: Secret filename (e.g. ``"minio_ephemeral_access_key"``).
-
-    Returns:
-        Secret value stripped of leading/trailing whitespace.
-
-    Raises:
-        RuntimeError: If the secret file does not exist or cannot be read.
-    """
-    secret_path = _SECRETS_DIR / name
-    try:
-        return secret_path.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise RuntimeError(
-            f"Docker secret '{name}' not found at {secret_path}. "
-            "Ensure the secret is mounted at /run/secrets/ by Docker Compose."
-        ) from exc
 
 
 def build_ephemeral_storage_client() -> EphemeralStorageClient:

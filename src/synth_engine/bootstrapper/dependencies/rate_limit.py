@@ -44,6 +44,9 @@ Uses Redis ``INCR`` + ``EXPIRE`` via a pipeline for distributed, atomic
 counting.  This ensures rate limits are shared across all workers/pods in a
 multi-process deployment.
 
+The synchronous ``_redis_hit()`` call is dispatched via ``asyncio.to_thread()``
+so the event loop is never blocked on network I/O to Redis.
+
 Redis key format: ``ratelimit:{window_seconds}:{identity_key}``
 The ``ratelimit:`` prefix isolates these keys from:
 - Idempotency middleware (``idempotency:`` prefix)
@@ -91,6 +94,7 @@ Task: T48.1 — Redis-Backed Rate Limiting
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import math
@@ -224,8 +228,10 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
     """ASGI middleware enforcing per-IP and per-operator rate limits.
 
     Uses Redis ``INCR`` + ``EXPIRE`` via a pipeline for distributed counting
-    across multiple workers/pods.  Degrades gracefully to in-memory counting
-    when Redis is unavailable, with a WARNING log.
+    across multiple workers/pods.  The synchronous Redis call is dispatched
+    via ``asyncio.to_thread()`` so the event loop is never blocked on I/O.
+    Degrades gracefully to in-memory counting when Redis is unavailable,
+    with a WARNING log.
 
     Must be registered as the OUTERMOST middleware in ``setup_middleware()``
     (added last in LIFO ordering) to protect against DoS and brute-force
@@ -407,7 +413,9 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Gate every request through the appropriate rate limit tier.
 
-        Attempts Redis-backed distributed counting first.  On ``redis.RedisError``
+        Attempts Redis-backed distributed counting first via
+        ``asyncio.to_thread()`` to avoid blocking the event loop on the
+        synchronous Redis pipeline call.  On ``redis.RedisError``
         (connection failure, timeout, auth error), falls back to in-memory
         counting with a WARNING log.  The hashed identity key is logged instead
         of the raw value to prevent PII leakage (CONSTITUTION Priority 0).
@@ -428,10 +436,12 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         limit_str = f"{limit.amount}/{limit.multiples or 1}minute"
 
         # Attempt Redis-backed counting first.
+        # asyncio.to_thread() prevents blocking the event loop on the sync
+        # Redis pipeline call (FINDING fix from P48 review).
         count: int
         allowed: bool
         try:
-            count, allowed = self._redis_hit(limit_str, key)
+            count, allowed = await asyncio.to_thread(self._redis_hit, limit_str, key)
         except redis_lib.RedisError as e:
             # Graceful degradation: Redis unavailable — fall back to in-memory.
             # Hash the key before logging (CONSTITUTION Priority 0: no PII in logs).

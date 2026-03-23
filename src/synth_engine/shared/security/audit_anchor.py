@@ -223,7 +223,7 @@ class S3ObjectLockAnchorBackend:
 
     def __init__(
         self,
-        s3_client: Any,
+        s3_client: Any,  # boto3 has no py.typed; see ADR-0048
         bucket: str,
         prefix: str,
         retention_days: int,
