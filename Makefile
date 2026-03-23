@@ -5,6 +5,8 @@
 #   make              → show this help message
 #   make build        → build the conclave-engine Docker image
 #   make build-airgap-bundle → create an offline deployable tar.gz bundle
+#   make load-images  → load Docker images from an extracted air-gap bundle
+#   make validate-airgap → validate an air-gap bundle end-to-end
 #   make ci-local     → run all local CI gates (mirrors GitHub Actions)
 # =============================================================================
 
@@ -41,6 +43,20 @@ build: ## Build the conclave-engine:latest Docker image
 .PHONY: build-airgap-bundle
 build-airgap-bundle: build ## Build image then create the air-gap tar.gz bundle
 	bash scripts/build_airgap.sh
+
+# ---------------------------------------------------------------------------
+# load-images — load Docker images from an extracted air-gap bundle
+# ---------------------------------------------------------------------------
+.PHONY: load-images
+load-images: ## Load Docker images from air-gap bundle (dist/images/*.tar)
+	@for f in dist/images/*.tar; do echo "Loading $$f ..."; docker load -i "$$f"; done
+
+# ---------------------------------------------------------------------------
+# validate-airgap — validate an air-gap bundle end-to-end
+# ---------------------------------------------------------------------------
+.PHONY: validate-airgap
+validate-airgap: ## Validate air-gap bundle end-to-end (builds bundle if needed)
+	bash scripts/validate_airgap.sh
 
 # ---------------------------------------------------------------------------
 # smoke-test — run production smoke test via Docker

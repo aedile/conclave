@@ -48,6 +48,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 from sqlmodel import Session, select
 
+import synth_engine
 from synth_engine.bootstrapper.docker_secrets import (  # noqa: F401 — re-exported for test patches
     _SECRETS_DIR,
     _read_secret,
@@ -274,7 +275,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Conclave Engine",
         description="Air-Gapped Synthetic Data Generation Engine",
-        version="0.1.0",
+        version=synth_engine.__version__,
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=_lifespan,

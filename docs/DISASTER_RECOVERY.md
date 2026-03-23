@@ -345,3 +345,35 @@ docker compose up -d --force-recreate
 ```
 
 Monitor `conclave_cert_expiry_days` (Prometheus) and alert rules in OPERATOR_MANUAL.md Section 13.5 for advance warning.
+---
+
+## 8. DR Dry Run Validation (T51.4)
+
+Before an incident, operators should verify their DR procedures work against the local stack.
+
+### 8.1 Running the Dry Run
+
+```bash
+# Start the full stack first
+docker compose up -d
+
+# Run all three DR scenarios
+./scripts/dr_dry_run.sh
+```
+
+The script runs three scenarios and prints `[PASS]` or `[FAIL]` for each:
+
+| Scenario | What it validates |
+|----------|------------------|
+| 1: DB Backup & Restore | `pg_dump` + `pg_restore` round-trip on synthetic data |
+| 2: Service Recovery | App container stop/start + `/ready` health poll |
+| 3: Redis Recovery | Stop/start + ephemeral key disappears (no persistence) |
+
+The script exits non-zero if any scenario fails. All test data uses a `dr_test_<timestamp>` prefix and is cleaned up on exit (trapped).
+
+### 8.2 Safety Properties
+
+- Test data: all ephemeral `dr_test_` tables and Redis keys — **never real PII**
+- Backup files: written only to `/tmp/` — **never to `data/`, `output/`, or committed paths**
+- Cleanup: `trap EXIT` ensures all resources are removed even on script failure
+- Credentials: accessed via `docker compose exec` inside the postgres container — no hardcoded secrets

@@ -5,13 +5,21 @@
 # This script:
 #   1. Pulls (or verifies local presence of) each required Docker image.
 #   2. Saves each image as a .tar file into dist/images/.
-#   3. Copies Compose files, scripts, and docs into dist/.
+#   3. Copies Compose files, scripts, and curated operator docs into dist/.
 #   4. Writes a VERSION file derived from git-describe.
 #   5. Compresses everything into a single .tar.gz in the workspace root.
 #   6. Prints a sha256 checksum of the bundle.
 #
 # The resulting bundle can be transferred to an air-gapped host and loaded
 # with `docker load -i dist/images/<name>.tar`.
+#
+# NOTE: docker-compose.override.yml is intentionally excluded from the bundle.
+# That file contains dev-only settings (hot-reload, Jaeger) that must not
+# reach production air-gapped hosts.
+#
+# NOTE: Only operator-facing documentation is copied into docs/. Internal
+# backlog files, retro archives, and development prompts are excluded to
+# avoid exposing roadmap detail to customers.
 #
 # Prerequisites: docker, git, sha256sum (or shasum -a 256 on macOS)
 # =============================================================================
@@ -102,22 +110,58 @@ done
 
 # ---------------------------------------------------------------------------
 # Copy artefacts into dist/
+#
+# IMPORTANT: docker-compose.override.yml is deliberately NOT copied here.
+# It is a dev-only file containing hot-reload mounts and Jaeger tracing
+# profiles that are inappropriate for production air-gap bundles.
 # ---------------------------------------------------------------------------
 
 log "Copying Compose files"
 cp docker-compose.yml "${DIST_DIR}/"
-cp docker-compose.override.yml "${DIST_DIR}/"
 
-if [[ -f ".env.dev" ]]; then
-    log "Copying .env.dev"
-    cp .env.dev "${DIST_DIR}/"
+# Copy optional GPU/CPU compose variants if present
+if [[ -f "docker-compose.cpu.yml" ]]; then
+    log "Copying docker-compose.cpu.yml"
+    cp docker-compose.cpu.yml "${DIST_DIR}/"
+fi
+
+if [[ -f "docker-compose.gpu.yml" ]]; then
+    log "Copying docker-compose.gpu.yml"
+    cp docker-compose.gpu.yml "${DIST_DIR}/"
 fi
 
 log "Copying scripts/"
 cp -r scripts/ "${DIST_DIR}/scripts/"
 
-log "Copying docs/"
-cp -r docs/ "${DIST_DIR}/docs/"
+# ---------------------------------------------------------------------------
+# Copy curated operator documentation only.
+#
+# Internal backlog files, retro archives, ADRs, and development prompts are
+# intentionally excluded from the bundle. Only operator-facing docs that an
+# air-gap customer needs on a restricted host are included.
+# ---------------------------------------------------------------------------
+
+log "Copying curated operator docs/"
+mkdir -p "${DIST_DIR}/docs"
+for doc in \
+    OPERATOR_MANUAL.md \
+    DISASTER_RECOVERY.md \
+    PRODUCTION_DEPLOYMENT.md \
+    TROUBLESHOOTING.md \
+    SECURITY_HARDENING.md \
+    DATA_COMPLIANCE.md \
+    LICENSING.md \
+    infrastructure_security.md \
+    SCALABILITY.md; do
+    if [[ -f "docs/${doc}" ]]; then
+        cp "docs/${doc}" "${DIST_DIR}/docs/"
+    fi
+done
+
+# Include the OpenAPI spec so operators can inspect the API surface offline.
+if [[ -d "docs/api" ]]; then
+    cp -r docs/api/ "${DIST_DIR}/docs/api/"
+fi
 
 # ---------------------------------------------------------------------------
 # Write VERSION file
