@@ -361,7 +361,10 @@ def test_vault_exempt_paths_contains_security_shred() -> None:
 
 
 def test_vault_exempt_paths_does_not_contain_keys_rotate() -> None:
-    """/security/keys/rotate must NOT be in vault EXEMPT_PATHS — rotation requires unsealed vault."""
+    """/security/keys/rotate must NOT be in vault EXEMPT_PATHS.
+
+    Rotation requires an unsealed vault.
+    """
     from synth_engine.bootstrapper.dependencies.vault import EXEMPT_PATHS
 
     assert "/security/keys/rotate" not in EXEMPT_PATHS
