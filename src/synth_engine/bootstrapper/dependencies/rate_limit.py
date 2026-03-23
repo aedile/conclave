@@ -38,13 +38,28 @@ signature check.  This avoids double-verification overhead and ensures the
 rate-limit key is stable across token refresh cycles.  When no token is
 present (unconfigured JWT mode), the client IP is used as the fallback key.
 
-Technology
-----------
-Uses the ``limits`` library (same underlying engine as ``slowapi``) with a
-``FixedWindowRateLimiter`` and ``MemoryStorage`` backend.  The in-memory
-backend requires no external dependencies (no Redis), is safe for air-gapped
-deployments, and resets on process restart — appropriate for the application
-layer where per-instance rate limiting is additive to reverse-proxy limits.
+Technology (T48.1)
+------------------
+Uses Redis ``INCR`` + ``EXPIRE`` via a pipeline for distributed, atomic
+counting.  This ensures rate limits are shared across all workers/pods in a
+multi-process deployment.
+
+The synchronous ``_redis_hit()`` call is dispatched via ``asyncio.to_thread()``
+so the event loop is never blocked on network I/O to Redis.
+
+Redis key format: ``ratelimit:{window_seconds}:{identity_key}``
+The ``ratelimit:`` prefix isolates these keys from:
+- Idempotency middleware (``idempotency:`` prefix)
+- Huey task queue (``huey.`` prefix)
+
+Graceful degradation (T48.1)
+-----------------------------
+When Redis is unavailable (``redis.RedisError`` from the pipeline), the
+middleware falls back to a per-instance ``FixedWindowRateLimiter`` backed
+by ``MemoryStorage``.  A WARNING is logged (with hashed key, not raw
+identity) and the request is handled by the in-memory limiter.  This means
+per-instance limits still apply, but distributed counting is suspended until
+Redis recovers.
 
 Middleware ordering
 -------------------
@@ -62,6 +77,9 @@ Rate-limited requests receive HTTP 429 Too Many Requests with an RFC 7807
 Problem Details body and a ``Retry-After`` header indicating seconds until
 the current window resets.
 
+Allowed requests receive an ``X-RateLimit-Remaining`` header indicating
+how many requests remain in the current window.
+
 Configuration
 -------------
 All four rate limit tiers are configurable via :class:`ConclaveSettings`
@@ -71,16 +89,19 @@ fields (``RATE_LIMIT_UNSEAL_PER_MINUTE``, ``RATE_LIMIT_AUTH_PER_MINUTE``,
 CONSTITUTION Priority 0: Security — brute-force and DoS protection
 CONSTITUTION Priority 3: TDD
 Task: T39.3 — Add Rate Limiting Middleware
+Task: T48.1 — Redis-Backed Rate Limiting
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import math
 import time
 
 import jwt as pyjwt
+import redis as redis_lib
 from fastapi.responses import JSONResponse
 from limits import RateLimitItem, parse
 from limits.storage import MemoryStorage
@@ -89,6 +110,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from synth_engine.bootstrapper.dependencies.redis import get_redis_client
 from synth_engine.shared.settings import get_settings
 
 _logger = logging.getLogger(__name__)
@@ -100,6 +122,15 @@ _IP_KEYED_PATHS: frozenset[str] = frozenset({"/unseal", "/auth/token"})
 #: Uses endswith() to enforce the specific /jobs/{id}/download route contract.
 _DOWNLOAD_PATH_SUFFIX: str = "/download"
 
+#: Redis key prefix that isolates rate limit keys from other middleware keys.
+#: - Idempotency middleware uses 'idempotency:' prefix
+#: - Huey task queue uses 'huey.' prefix
+#: This ensures no collision between middleware namespaces (T48.1 attack mitigation).
+_REDIS_KEY_PREFIX: str = "ratelimit:"
+
+#: Window duration in seconds for the per-minute rate limit.
+_WINDOW_SECONDS: int = 60
+
 
 def _extract_client_ip(request: Request) -> str:
     """Extract the client IP address from the request.
@@ -109,6 +140,9 @@ def _extract_client_ip(request: Request) -> str:
     Falls back to ``request.client.host`` when the header is absent.  Returns
     ``"unknown"`` when neither source is available (e.g. test clients without
     a bound socket).
+
+    The leftmost-IP trust model is consistent with standard proxy conventions
+    and is preserved in the Redis-backed implementation (T48.1).
 
     Args:
         request: Incoming HTTP request.
@@ -120,7 +154,9 @@ def _extract_client_ip(request: Request) -> str:
     if forwarded_for:
         # X-Forwarded-For may be a comma-separated list; the leftmost IP is the
         # real client (each proxy appends its own IP to the right).
-        return forwarded_for.split(",")[0].strip()
+        first_ip = forwarded_for.split(",")[0].strip()
+        if first_ip:
+            return first_ip
     if request.client is not None:
         return request.client.host
     return "unknown"
@@ -191,6 +227,12 @@ def _build_429_response(retry_after_seconds: int) -> JSONResponse:
 class RateLimitGateMiddleware(BaseHTTPMiddleware):
     """ASGI middleware enforcing per-IP and per-operator rate limits.
 
+    Uses Redis ``INCR`` + ``EXPIRE`` via a pipeline for distributed counting
+    across multiple workers/pods.  The synchronous Redis call is dispatched
+    via ``asyncio.to_thread()`` so the event loop is never blocked on I/O.
+    Degrades gracefully to in-memory counting when Redis is unavailable,
+    with a WARNING log.
+
     Must be registered as the OUTERMOST middleware in ``setup_middleware()``
     (added last in LIFO ordering) to protect against DoS and brute-force
     attacks before any downstream processing.
@@ -202,6 +244,10 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
 
     Args:
         app: The next ASGI application in the stack.
+        redis_client: Sync Redis client to use for distributed counting.
+            When ``None`` (default), the shared client from
+            :func:`~synth_engine.bootstrapper.dependencies.redis.get_redis_client`
+            is used.  Inject a mock in tests.
         unseal_limit: Requests per minute allowed on /unseal per IP.
             Defaults to ``ConclaveSettings.rate_limit_unseal_per_minute``.
         auth_limit: Requests per minute allowed on /auth/token per IP.
@@ -214,7 +260,9 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
             ``ConclaveSettings.rate_limit_download_per_minute``.
 
     Attributes:
-        _limiter: Fixed-window rate limiter backed by in-memory storage.
+        _redis: Sync Redis client for distributed counting.
+        _fallback_storage: In-memory storage for graceful degradation.
+        _fallback_limiter: Fixed-window rate limiter backed by in-memory storage.
         _unseal_limit: Parsed rate limit item for the /unseal endpoint.
         _auth_limit: Parsed rate limit item for the /auth/token endpoint.
         _general_limit: Parsed rate limit item for all other endpoints.
@@ -225,6 +273,7 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         self,
         app: object,
         *,
+        redis_client: redis_lib.Redis | None = None,
         unseal_limit: int | None = None,
         auth_limit: int | None = None,
         general_limit: int | None = None,
@@ -245,12 +294,58 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
             else settings.rate_limit_download_per_minute
         )
 
-        self._storage = MemoryStorage()
-        self._limiter: FixedWindowRateLimiter = FixedWindowRateLimiter(self._storage)
+        # Use injected Redis client when provided (enables test injection and
+        # connection pool reuse from bootstrapper/dependencies/redis.py).
+        # Only call get_redis_client() when no client is explicitly provided.
+        if redis_client is not None:
+            self._redis: redis_lib.Redis = redis_client
+        else:
+            self._redis = get_redis_client()
+
+        # Fallback in-memory limiter — used when Redis is unavailable.
+        self._fallback_storage = MemoryStorage()
+        self._fallback_limiter: FixedWindowRateLimiter = FixedWindowRateLimiter(
+            self._fallback_storage
+        )
+
         self._unseal_limit: RateLimitItem = parse(f"{_unseal}/minute")
         self._auth_limit: RateLimitItem = parse(f"{_auth}/minute")
         self._general_limit: RateLimitItem = parse(f"{_general}/minute")
         self._download_limit: RateLimitItem = parse(f"{_download}/minute")
+
+    def _redis_hit(self, limit_str: str, identity_key: str) -> tuple[int, bool]:
+        """Atomically increment the Redis counter and check the limit.
+
+        Uses a Redis pipeline to issue ``INCR`` and ``EXPIRE`` as a single
+        atomic batch, preventing the scenario where a key exists without a TTL
+        (which would permanently block the identity).
+
+        Redis key format: ``ratelimit:{window_seconds}:{identity_key}``
+
+        Args:
+            limit_str: Rate limit string in ``N/period`` format (e.g.
+                ``"5/minute"``).  Used to derive the limit count and key.
+            identity_key: The identity bucket (e.g. ``"ip:10.0.0.1"`` or
+                ``"op:operator-123"``).
+
+        Returns:
+            A tuple of ``(count, allowed)`` where ``count`` is the current
+            request count in the window and ``allowed`` is ``True`` when
+            ``count <= limit``.  Propagates ``redis.RedisError`` to the
+            caller for graceful degradation handling in :meth:`dispatch`.
+        """
+        # Parse limit count from "N/period" format (e.g. "5/minute" -> limit=5)
+        limit_count = int(limit_str.split("/")[0])
+        redis_key = f"{_REDIS_KEY_PREFIX}{_WINDOW_SECONDS}:{identity_key}"
+
+        with self._redis.pipeline() as pipe:
+            pipe.incr(redis_key)
+            pipe.expire(redis_key, _WINDOW_SECONDS)
+            results = pipe.execute()
+
+        count: int = int(results[0])
+        allowed: bool = count <= limit_count
+        return count, allowed
 
     def _resolve_limit_and_key(self, request: Request) -> tuple[RateLimitItem, str]:
         """Determine the applicable rate limit tier and identity key.
@@ -300,7 +395,7 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
             Non-negative integer seconds until reset.
         """
         try:
-            stats = self._limiter.get_window_stats(limit, key)
+            stats = self._fallback_limiter.get_window_stats(limit, key)
             # Cast reset_time to float: limits library does not ship py.typed,
             # so stats attributes are typed as Any in the pre-commit mypy env.
             reset_time: float = float(stats.reset_time)
@@ -318,9 +413,16 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Gate every request through the appropriate rate limit tier.
 
+        Attempts Redis-backed distributed counting first via
+        ``asyncio.to_thread()`` to avoid blocking the event loop on the
+        synchronous Redis pipeline call.  On ``redis.RedisError``
+        (connection failure, timeout, auth error), falls back to in-memory
+        counting with a WARNING log.  The hashed identity key is logged instead
+        of the raw value to prevent PII leakage (CONSTITUTION Priority 0).
+
         Requests that exceed the applicable rate limit receive a 429 RFC 7807
-        response with a ``Retry-After`` header.  All other requests are passed
-        to the next middleware or route handler unchanged.
+        response with ``Retry-After`` and ``X-RateLimit-Remaining: 0`` headers.
+        Allowed requests receive an ``X-RateLimit-Remaining`` header.
 
         Args:
             request: Incoming HTTP request.
@@ -328,15 +430,34 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
 
         Returns:
             A 429 JSONResponse (RFC 7807) if the rate limit is exceeded,
-            otherwise the downstream response.
+            otherwise the downstream response with rate limit headers added.
         """
         limit, key = self._resolve_limit_and_key(request)
-        allowed = self._limiter.hit(limit, key)
+        limit_str = f"{limit.amount}/{limit.multiples or 1}minute"
+
+        # Attempt Redis-backed counting first.
+        # asyncio.to_thread() prevents blocking the event loop on the sync
+        # Redis pipeline call (FINDING fix from P48 review).
+        count: int
+        allowed: bool
+        try:
+            count, allowed = await asyncio.to_thread(self._redis_hit, limit_str, key)
+        except redis_lib.RedisError as e:
+            # Graceful degradation: Redis unavailable — fall back to in-memory.
+            # Hash the key before logging (CONSTITUTION Priority 0: no PII in logs).
+            hashed_key = hashlib.sha256(key.encode()).hexdigest()[:12]
+            _logger.warning(
+                "rate_limit: redis fallback for key=%s path=%s: %s",
+                hashed_key,
+                request.url.path,
+                e,
+            )
+            allowed = self._fallback_limiter.hit(limit, key)
+            count = limit.amount if not allowed else 0
 
         if not allowed:
             retry_after = self._compute_retry_after(limit, key)
-            # Hash the key before logging to avoid emitting raw client IPs or
-            # operator identifiers in log files (CONSTITUTION Priority 0: privacy).
+            # Hash the key before logging (CONSTITUTION Priority 0: no PII in logs).
             hashed_key = hashlib.sha256(key.encode()).hexdigest()[:12]
             _logger.warning(
                 "rate_limit: exceeded for key=%s path=%s retry_after=%ds",
@@ -344,6 +465,11 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
                 request.url.path,
                 retry_after,
             )
-            return _build_429_response(retry_after)
+            error_response: Response = _build_429_response(retry_after)
+            error_response.headers["X-RateLimit-Remaining"] = "0"
+            return error_response
 
-        return await call_next(request)
+        downstream: Response = await call_next(request)
+        remaining = max(0, limit.amount - count)
+        downstream.headers["X-RateLimit-Remaining"] = str(remaining)
+        return downstream

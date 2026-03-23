@@ -63,6 +63,7 @@ Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 Task: T47.4 — Add JWT_SECRET_KEY to production-required validation
 Task: T47.5 — Add OPERATOR_CREDENTIALS_HASH to production-required validation
 Task: ADV-P46-03 — Fix cert readability check (existence + open())
+Task: T48.5 — ALE Vault Dependency Enforcement (vault-sealed startup warning)
 """
 
 from __future__ import annotations
@@ -262,6 +263,30 @@ def _validate_mtls_cert_files(errors: list[str]) -> None:
             )
 
 
+def _warn_if_vault_sealed() -> None:
+    """Emit a WARNING if the vault is sealed at startup.
+
+    ALE operations (EncryptedString TypeDecorator) require an unsealed vault
+    (T48.5).  When the vault is sealed at startup, all ALE reads and writes
+    will raise VaultSealedError until ``POST /unseal`` is called.  Emitting
+    a WARNING here gives operators a clear signal rather than a cryptic error
+    at first DB access.
+
+    This function does NOT raise SystemExit — a sealed vault at startup is
+    expected (the application boots sealed; /unseal is called by the operator
+    as a post-startup step).
+    """
+    from synth_engine.shared.security.vault import VaultState
+
+    if VaultState.is_sealed():
+        _logger.warning(
+            "Vault is sealed at startup — ALE (Application-Level Encryption) "
+            "operations will fail until the vault is unsealed. "
+            "Call POST /unseal with the operator passphrase to enable ALE. "
+            "See docs/OPERATIONAL_RUNBOOK.md for unseal instructions."
+        )
+
+
 def validate_config() -> None:
     """Validate required environment variables at application startup.
 
@@ -383,3 +408,9 @@ def validate_config() -> None:
         ssl_required=settings.conclave_ssl_required,
         tls_cert_configured=tls_cert_configured,
     )
+
+    # T48.5: Warn when the vault is sealed at startup.
+    # ALE operations will fail until /unseal is called; surfacing this at
+    # startup gives operators a clear signal rather than a cryptic
+    # VaultSealedError at first DB write.
+    _warn_if_vault_sealed()

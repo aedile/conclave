@@ -21,8 +21,54 @@ Drain (delete) rows when their target task is completed.
 | ADV-P47-03 | Arch P47 review | — | ADVISORY | No ADR documents the scope-based authorization model introduced in T47.x. An ADR should be drafted in a future phase to codify the authorization design decisions. |
 | ADV-P47-04 | Red-Team P47 | — | ADVISORY | `/security/shred` and `/security/keys/rotate` are in `AUTH_EXEMPT_PATHS`, so in pass-through mode (empty `JWT_SECRET_KEY`) no auth applies. Scope enforcement (`require_scope`) is bypassed because the auth middleware skips the route entirely. Low risk: pass-through mode is dev-only, and scope enforcement is a defense-in-depth layer. Fix: remove security routes from `AUTH_EXEMPT_PATHS` or add pass-through-mode warning at startup. |
 | ADV-P47-05 | Red-Team P47 | — | ADVISORY | All-or-nothing scope grant: single-operator model issues all scopes (`read`, `write`, `security:admin`, `settings:write`) to every authenticated operator. Fine for current single-tenant deployment; future multi-operator support will need role-based scope assignment. |
-| ADV-P47-06 | Red-Team P47 | T48.1 | ADVISORY | In-memory rate limiter ineffective in multi-pod Kubernetes deployments. Already addressed by T48.1 (Redis-backed rate limiting). |
+| ~~ADV-P47-06~~ | ~~Red-Team P47~~ | T48.1 | ~~ADVISORY~~ | ~~In-memory rate limiter — RESOLVED in T48.1 (Redis-backed rate limiting)~~ |
+| ADV-P48-01 | Red-Team P48 | — | ADVISORY | X-Forwarded-For trust model relies on trusted reverse proxy stripping/overwriting the header. Document in PRODUCTION_DEPLOYMENT.md that proxy is prerequisite for rate limiting correctness. |
+| ADV-P48-02 | Red-Team P48 | — | ADVISORY | Redis INCR+EXPIRE pipeline is not fully atomic (MULTI/EXEC or Lua script would be). Acceptable tradeoff — standard industry pattern, extremely narrow race window. |
+| ADV-P48-03 | Red-Team P48 | — | ADVISORY | Audit anchor verification is equality-only (current hash vs anchor hash). Does not verify intermediate anchor consistency. Documented limitation; S3 Object Lock provides tamper resistance. |
+| ADV-P48-04 | Red-Team P48 | — | ADVISORY | `ale_key` field retained in ConclaveSettings despite T48.5 removal of env var fallback. Future cleanup should remove or deprecate the field. |
 | ADV-P47-07 | Red-Team P47 | — | ADVISORY | TOCTOU in `ModelArtifact.load()`: file size check, then read, then HMAC verify. An attacker with filesystem write access could swap the file between size check and read. Low severity — requires local filesystem access, and HMAC verification would fail on tampered content. |
+
+---
+
+### [2026-03-23] Phase 48 — Production-Critical Infrastructure Fixes
+
+**Branch**: `feat/P48-production-infra-fixes` (22+ commits)
+
+**Tasks completed**: T48.1 (Redis-backed rate limiting), T48.2 (Worker connection pooling),
+T48.3 (Readiness probe), T48.4 (Audit trail anchoring), T48.5 (ALE vault enforcement)
+
+**Advisories drained**: ADV-P47-06 (in-memory rate limiter — resolved by T48.1)
+
+**Advisories raised**: ADV-P48-01 through ADV-P48-04 (4 total: all red-team, all ADVISORY)
+
+**Review findings resolved** (commit a1017af):
+- BLOCKER: Audit.py → AnchorManager.maybe_anchor() wiring gap (Rule 8 violation)
+- FINDING: Sync Redis pipeline blocking event loop in rate_limit.py dispatch (asyncio.to_thread)
+- FINDING: health.py importing private symbols from main.py (extracted to docker_secrets.py)
+- FINDING: Stale ALE_KEY fallback references in rotation.py docstrings
+- FINDING: /ready creating new async engine per probe call (reuse shared engine)
+- FINDING: Missing anchor settings in .env.example
+- FINDING: Untyped s3_client parameter (justification comment added)
+
+**Open advisory count**: 9 (over Rule 11 threshold of 8 — drain required)
+
+**What went well**:
+- Two-wave parallel execution: Wave 1 (T48.1-T48.3 infra) then Wave 2 (T48.4-T48.5 security)
+- Spec-challenger caught SealGateMiddleware exemption gap for /ready before development
+- ALE vault enforcement (T48.5) eliminates a real security weakness — env var fallback path
+- 4 review agents (QA, DevOps, Architecture, Red-Team) caught the Rule 8 wiring BLOCKER
+
+**What was challenging**:
+- Wave 1 initial parallel worktree approach timed out for all 3 agents; recovered by
+  consolidating to single-branch sequential execution
+- Rebase required twice due to external PRs (#175, #176) merging during development
+- T48.5 required updating 7 test files that depended on ALE_KEY env var fallback
+
+**What could be improved**:
+- Rule 8 wiring gap should have been caught during GREEN phase, not review
+- Worktree timeout issue suggests large tasks need smaller scope when parallelized
+
+**Test metrics**: 2394 passed, 96.72% coverage (95% gate PASS)
 
 ---
 

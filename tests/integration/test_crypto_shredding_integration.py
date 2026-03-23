@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from sqlmodel import Field, SQLModel
 
 from synth_engine.shared.db import get_engine
+from synth_engine.shared.exceptions import VaultSealedError
 from synth_engine.shared.security.ale import EncryptedString
 from synth_engine.shared.security.vault import VaultState
 from tests.conftest_types import PostgreSQLProc
@@ -349,13 +350,13 @@ def test_shred_renders_ciphertext_unrecoverable(
     assert VaultState.is_sealed(), "vault must be sealed after shred"
 
     # --- Attempt ORM decryption — must fail ---
-    # With the vault sealed and ALE_KEY absent, get_fernet() raises RuntimeError.
-    # With a wrong ALE_KEY set, Fernet raises InvalidToken.
-    # Either signals that the ciphertext is unrecoverable.
+    # After T48.5, sealing the vault means get_fernet() raises VaultSealedError
+    # (not RuntimeError).  The ciphertext in the database is unrecoverable
+    # because the vault KEK has been zeroized.
     def _try_decrypt_after_shred() -> None:
         with Session(shred_db_engine) as session:
             loaded = session.get(ShredTestRecord, record_id)
             _ = loaded.pii_value if loaded else None  # Force decrypt
 
-    with pytest.raises((InvalidToken, RuntimeError)):
+    with pytest.raises((InvalidToken, VaultSealedError)):
         _try_decrypt_after_shred()

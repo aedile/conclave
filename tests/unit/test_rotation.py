@@ -61,20 +61,44 @@ class _TestPlainModel(SQLModel, table=True):  # type: ignore[call-arg]
 
 
 @pytest.fixture(autouse=True)
-def _reset_vault() -> Generator[None]:
-    """Seal vault and clear ALE_KEY after every test."""
-    yield
-    from synth_engine.shared.security.vault import VaultState
+def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """Unseal the vault before each test and re-seal after (T48.5).
 
+    ALE now requires an unsealed vault.  Rotation tests insert records via
+    the EncryptedString TypeDecorator, which requires the vault to be unsealed.
+    """
+    import base64
+    import os
+
+    from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.settings import get_settings
+
+    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
+    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+    get_settings.cache_clear()
+    VaultState.unseal("rotation-test-passphrase")
+    yield
     VaultState.reset()
+    get_settings.cache_clear()
 
 
 @pytest.fixture
-def ale_key_old(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Generate an old Fernet key and set it as ALE_KEY."""
-    key = Fernet.generate_key().decode()
-    monkeypatch.setenv("ALE_KEY", key)
-    return key
+def ale_key_old() -> str:
+    """Return a string representation of the current vault-derived ALE key.
+
+    T48.5: ALE_KEY env var fallback removed.  Rotation tests must use the
+    vault-derived Fernet as the "old key" since that is what the ORM uses
+    when inserting records.  This fixture returns the raw base64-encoded key
+    material so tests can construct old_fernet = Fernet(ale_key_old.encode()).
+    """
+    import base64
+
+    from synth_engine.shared.security.ale import _derive_ale_key_from_kek
+    from synth_engine.shared.security.vault import VaultState
+
+    kek = VaultState.get_kek()
+    raw_key = _derive_ale_key_from_kek(kek)
+    return base64.urlsafe_b64encode(raw_key).decode()
 
 
 @pytest.fixture
@@ -84,11 +108,13 @@ def ale_key_new() -> str:
 
 
 @pytest.fixture
-def in_memory_engine(ale_key_old: str) -> object:
+def in_memory_engine() -> object:
     """Create an in-memory SQLite engine with the test tables.
 
     Note: SQLite is used for unit tests; PostgreSQL is used for integration tests.
     The rotation logic uses generic SQLAlchemy and works with both.
+    The autouse _unseal_vault_for_ale fixture ensures vault is unsealed
+    before this engine is used (T48.5).
     """
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)

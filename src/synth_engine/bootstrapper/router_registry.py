@@ -6,7 +6,7 @@ would shadow that package and break all ``from synth_engine.bootstrapper.routers
 imports.
 
 Contains:
-- ``_include_routers()`` — wires the ten domain routers into the application.
+- ``_include_routers()`` — wires the eleven domain routers into the application.
 - ``_register_exception_handlers()`` — registers domain exception handlers with
   operator-friendly RFC 7807 messages via :data:`OPERATOR_ERROR_MAP`, and the
   RFC 7807 catch-all via :mod:`synth_engine.bootstrapper.errors`.
@@ -26,6 +26,8 @@ Task: T41.1 — Implement Data Retention Policy
 Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
     Registered compliance_router for DELETE /compliance/erasure.
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
+Task: T48.3 — Readiness Probe & External Dependency Health Checks
+    Registered health_router for GET /ready.
     Registered webhooks_router for POST/GET/DELETE /webhooks.
 """
 
@@ -60,6 +62,7 @@ def _include_routers(app: FastAPI) -> None:
     from synth_engine.bootstrapper.routers.auth import router as auth_router
     from synth_engine.bootstrapper.routers.compliance import router as compliance_router
     from synth_engine.bootstrapper.routers.connections import router as connections_router
+    from synth_engine.bootstrapper.routers.health import router as health_router
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
     from synth_engine.bootstrapper.routers.jobs_streaming import router as jobs_streaming_router
     from synth_engine.bootstrapper.routers.licensing import router as licensing_router
@@ -79,6 +82,7 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(security_router)
     app.include_router(privacy_router)
     app.include_router(webhooks_router)
+    app.include_router(health_router)
 
 
 def _register_exception_handlers(app: FastAPI) -> None:

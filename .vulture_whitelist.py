@@ -43,6 +43,7 @@ upsert_setting  # unused function — FastAPI route handler (routers/settings.py
 get_setting  # unused function — FastAPI route handler (routers/settings.py)
 delete_setting  # unused function — FastAPI route handler (routers/settings.py)
 health_check  # unused function — FastAPI route handler (bootstrapper/lifecycle.py)
+readiness_check  # unused function — FastAPI route handler (bootstrapper/routers/health.py)
 unseal_vault  # unused function — FastAPI route handler (bootstrapper/lifecycle.py)
 get_budget  # unused function — FastAPI route handler (routers/privacy.py)
 refresh_budget  # unused function — FastAPI route handler (routers/privacy.py)
@@ -275,3 +276,29 @@ days_until_expiry  # unused function — shared/tls/config.py; called from start
 
 update_cert_expiry_metrics  # unused function — shared/cert_metrics.py; called from bootstrapper/lifecycle.py at startup
 CERT_EXPIRY_DAYS  # unused variable — shared/cert_metrics.py; Prometheus Gauge auto-collected on /metrics scrape
+
+# ---------------------------------------------------------------------------
+# Category N — T48.4 Audit Trail Anchoring
+# Public API of shared/security/audit_anchor.py. S3ObjectLockAnchorBackend,
+# maybe_anchor, verify_chain_against_anchors, get_anchor_manager, and
+# reset_anchor_manager are called from bootstrapper hooks, the CLI script,
+# and integration tests. Vulture cannot trace runtime usage via Protocol
+# dispatch or the lazy singleton pattern used by get_anchor_manager().
+# ---------------------------------------------------------------------------
+
+S3ObjectLockAnchorBackend  # unused class — shared/security/audit_anchor.py; runtime backend selected via settings
+maybe_anchor  # unused method — AnchorManager; called from AuditLogger.log_event() after every audit entry
+verify_chain_against_anchors  # unused function — shared/security/audit_anchor.py; called from scripts/verify-audit-chain.py and tests
+get_anchor_manager  # unused function — shared/security/audit_anchor.py; singleton accessor called from AuditLogger and bootstrapper
+reset_anchor_manager  # unused function — shared/security/audit_anchor.py; used in tests to reset singleton between runs
+
+# ---------------------------------------------------------------------------
+# Category O — T48.5 ALE Vault Dependency Enforcement
+# ale_key field in ConclaveSettings (shared/settings.py) was removed as a
+# configuration knob (T48.5 removes the ALE_KEY env var fallback). The field
+# name appears in the Pydantic model only as dead weight from earlier design;
+# vulture flags the assignment target. Kept for backward-compatible settings
+# parsing if operators still have ALE_KEY in their .env files.
+# ---------------------------------------------------------------------------
+
+ale_key  # unused variable — shared/settings.py ConclaveSettings; env var ALE_KEY parsed but no longer used as fallback

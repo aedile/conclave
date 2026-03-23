@@ -8,18 +8,20 @@ composes its specific set from :data:`COMMON_INFRA_EXEMPT_PATHS`.
 
 CONSTITUTION Priority 0: Security
 Advisory: ADV-T39.1-01 — Extract EXEMPT_PATHS to shared module
+Task: T48.3 — Readiness Probe & External Dependency Health Checks
 """
 
 from __future__ import annotations
 
 #: Paths that are accessible to all middleware gates regardless of system state.
 #:
-#: These 10 paths cover pre-auth bootstrapping and infrastructure concerns
+#: These 11 paths cover pre-auth bootstrapping and infrastructure concerns
 #: that must remain reachable before the vault is unsealed, a license is
 #: activated, or an operator has authenticated:
 #:
 #: - ``/unseal`` — vault unsealing (pre-boot)
 #: - ``/health`` — liveness probe (infra)
+#: - ``/ready`` — readiness probe (infra; Kubernetes readiness gate)
 #: - ``/metrics`` — Prometheus scrape (infra)
 #: - ``/docs``, ``/redoc``, ``/openapi.json`` — API documentation
 #: - ``/license/challenge``, ``/license/activate`` — offline license activation
@@ -29,6 +31,7 @@ COMMON_INFRA_EXEMPT_PATHS: frozenset[str] = frozenset(
     {
         "/unseal",
         "/health",
+        "/ready",
         "/metrics",
         "/docs",
         "/redoc",

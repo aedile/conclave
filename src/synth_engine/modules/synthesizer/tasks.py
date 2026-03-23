@@ -184,11 +184,11 @@ def run_synthesis_job(job_id: int, *, trace_carrier: dict[str, str] | None = Non
         from sqlmodel import Session
 
         from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.shared.db import get_engine
+        from synth_engine.shared.db import get_worker_engine
         from synth_engine.shared.settings import get_settings
 
         database_url = get_settings().database_url or "sqlite:///:memory:"
-        db_engine = get_engine(database_url)
+        db_engine = get_worker_engine(database_url)
         synthesis_engine = SynthesisEngine()
 
         # Pre-flight: read DP settings from the job record before starting impl.

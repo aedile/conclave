@@ -39,6 +39,11 @@
 # T47.10 (2026-03-22): Redis healthcheck added; app depends_on redis with
 #   condition: service_healthy to prevent startup races where Huey attempts
 #   to connect to Redis before it is ready to accept connections.
+#
+# T48.3 (2026-03-22): App service healthcheck updated to use /ready instead of
+#   /health so Docker and Kubernetes probes perform live dependency checks
+#   (PostgreSQL SELECT 1, Redis PING, MinIO head_bucket) rather than a static
+#   200 OK.
 # =============================================================================
 
 services:
@@ -111,6 +116,17 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+    # --- Kubernetes-compatible readiness probe (T48.3) -----------------------
+    # /ready performs live dependency checks (PostgreSQL SELECT 1, Redis PING,
+    # MinIO head_bucket) and returns 200 only when all required dependencies are
+    # reachable. Unlike /health (liveness), this probe gates traffic routing.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
     networks:
       - internal

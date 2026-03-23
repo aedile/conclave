@@ -2,15 +2,16 @@
 
 Tests verify Fernet-based EncryptedString TypeDecorator behaviour:
 transparent encrypt-on-write, decrypt-on-read, None pass-through, and
-robust failure when the ALE_KEY environment variable is absent or malformed.
+correct VaultSealedError when the vault is sealed.
 
-Also verifies ALE-Vault KEK wiring via HKDF-SHA256: when the vault is
-unsealed, get_fernet() derives the ALE key from the vault KEK; when the
-vault is sealed, get_fernet() falls back to the ALE_KEY env var.
+Also verifies ALE-Vault KEK wiring via HKDF-SHA256: get_fernet() derives
+the ALE key from the vault KEK and raises VaultSealedError when sealed
+(T48.5 — ALE_KEY env var fallback removed).
 
 CONSTITUTION Priority 3: TDD — Red Phase
 Task: P2-T2.2 — Secure Database Layer
 Fix:  P2-debt-D1 — ALE-Vault KEK wiring
+Task: T48.5 — ALE Vault Dependency Enforcement
 """
 
 from __future__ import annotations
@@ -37,24 +38,20 @@ def _reset_fernet(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """
     from synth_engine.shared.security.ale import _reset_fernet_cache
     from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.settings import get_settings
 
     # Setup: seal the vault in case a prior test (in another module) left it unsealed.
     VaultState.reset()
     _reset_fernet_cache()
+    get_settings.cache_clear()
+    monkeypatch.delenv("ALE_KEY", raising=False)
 
     yield
 
     # Teardown: restore sealed state so subsequent tests start clean.
     _reset_fernet_cache()
     VaultState.reset()
-
-
-@pytest.fixture
-def ale_key(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Provision a fresh Fernet key in the environment for ALE tests."""
-    key = Fernet.generate_key().decode()
-    monkeypatch.setenv("ALE_KEY", key)
-    return key
+    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -79,7 +76,7 @@ def unsealed_vault(vault_salt_env_for_ale: None, monkeypatch: pytest.MonkeyPatch
 # ---------------------------------------------------------------------------
 
 
-def test_encrypted_string_encrypts_on_bind(ale_key: str) -> None:
+def test_encrypted_string_encrypts_on_bind(unsealed_vault: None) -> None:
     """process_bind_param must encrypt plaintext so the stored value differs.
 
     The round-trip must also be lossless: decrypting the stored token must
@@ -98,7 +95,7 @@ def test_encrypted_string_encrypts_on_bind(ale_key: str) -> None:
     assert plaintext == "secret"
 
 
-def test_encrypted_string_decrypts_on_result(ale_key: str) -> None:
+def test_encrypted_string_decrypts_on_result(unsealed_vault: None) -> None:
     """process_result_value must decrypt a Fernet token to the original string."""
     from synth_engine.shared.security.ale import EncryptedString, get_fernet
 
@@ -109,10 +106,16 @@ def test_encrypted_string_decrypts_on_result(ale_key: str) -> None:
     assert col.process_result_value(token, None) == "hello world"
 
 
-def test_encrypted_string_none_passthrough(ale_key: str) -> None:
-    """None values must pass through both directions untouched (nullable columns)."""
-    from synth_engine.shared.security.ale import EncryptedString
+def test_encrypted_string_none_passthrough_sealed() -> None:
+    """None values must pass through both directions untouched even when vault is sealed.
 
+    None values never trigger vault access — this allows nullable columns to
+    work even before the vault is unsealed.
+    """
+    from synth_engine.shared.security.ale import EncryptedString
+    from synth_engine.shared.security.vault import VaultState
+
+    assert VaultState.is_sealed()
     col = EncryptedString()
     assert col.process_bind_param(None, None) is None
     assert col.process_result_value(None, None) is None
@@ -123,7 +126,7 @@ def test_encrypted_string_none_passthrough(ale_key: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_encrypted_string_empty_string_roundtrip(ale_key: str) -> None:
+def test_encrypted_string_empty_string_roundtrip(unsealed_vault: None) -> None:
     """process_bind_param on empty string must return ciphertext, not empty or None.
 
     An empty string is a valid PII field value (e.g. a cleared field) and must
@@ -144,34 +147,42 @@ def test_encrypted_string_empty_string_roundtrip(ale_key: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# get_fernet — key loading (sealed vault / env-var path)
+# get_fernet — sealed vault raises VaultSealedError (T48.5)
 # ---------------------------------------------------------------------------
 
 
-def test_missing_ale_key_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_fernet() must raise RuntimeError when vault sealed and ALE_KEY absent."""
-    monkeypatch.delenv("ALE_KEY", raising=False)
+def test_get_fernet_raises_vault_sealed_error_when_sealed() -> None:
+    """get_fernet() must raise VaultSealedError when vault is sealed (T48.5).
 
-    from synth_engine.shared.security.ale import _reset_fernet_cache, get_fernet
+    The ALE_KEY env var fallback has been removed.  Sealing the vault
+    protects all encrypted data — callers must unseal before ALE operations.
+    """
+    from synth_engine.shared.exceptions import VaultSealedError
+    from synth_engine.shared.security.ale import get_fernet
+    from synth_engine.shared.security.vault import VaultState
 
-    _reset_fernet_cache()
-    with pytest.raises(RuntimeError, match="ALE_KEY environment variable not set"):
+    assert VaultState.is_sealed()
+    with pytest.raises(VaultSealedError):
         get_fernet()
 
 
-def test_malformed_ale_key_raises_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_fernet() must raise ValueError when ALE_KEY is not a valid Fernet key.
+def test_missing_ale_key_is_irrelevant_vault_sealed_takes_precedence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """VaultSealedError must be raised regardless of whether ALE_KEY is set.
 
-    A malformed key (e.g. random ASCII that is not a valid URL-safe base64
-    32-byte token) must surface as a ValueError so callers can distinguish
-    between a missing key (RuntimeError) and a misconfigured key (ValueError).
+    After T48.5, ALE_KEY has no effect when the vault is sealed.  The vault-
+    sealed check fires before any key-loading attempt.
     """
-    monkeypatch.setenv("ALE_KEY", "not-valid-fernet-key")
+    from synth_engine.shared.exceptions import VaultSealedError
+    from synth_engine.shared.security.ale import get_fernet
+    from synth_engine.shared.security.vault import VaultState
 
-    from synth_engine.shared.security.ale import _reset_fernet_cache, get_fernet
+    # Provide a valid ALE_KEY — should have NO effect when vault is sealed.
+    monkeypatch.setenv("ALE_KEY", Fernet.generate_key().decode())
+    assert VaultState.is_sealed()
 
-    _reset_fernet_cache()
-    with pytest.raises(ValueError, match="Fernet key must be 32 url-safe base64-encoded bytes"):
+    with pytest.raises(VaultSealedError):
         get_fernet()
 
 
@@ -180,7 +191,7 @@ def test_malformed_ale_key_raises_value_error(monkeypatch: pytest.MonkeyPatch) -
 # ---------------------------------------------------------------------------
 
 
-def test_corrupted_ciphertext_raises_invalid_token(ale_key: str) -> None:
+def test_corrupted_ciphertext_raises_invalid_token(unsealed_vault: None) -> None:
     """process_result_value must raise InvalidToken for corrupted ciphertext.
 
     If a stored ciphertext is truncated, tampered with, or otherwise invalid
@@ -211,16 +222,14 @@ def test_generate_ale_key_produces_valid_fernet_key() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ALE-Vault KEK wiring — new tests for fix/P2-debt-D1
+# ALE-Vault KEK wiring — vault-first design
 # ---------------------------------------------------------------------------
 
 
-def test_get_fernet_uses_vault_kek_when_unsealed(unsealed_vault: None, ale_key: str) -> None:
-    """get_fernet() must use the vault KEK (not ALE_KEY) when vault is unsealed.
+def test_get_fernet_uses_vault_kek_when_unsealed(unsealed_vault: None) -> None:
+    """get_fernet() must use the vault KEK when vault is unsealed.
 
     The returned Fernet must be functional (can encrypt and decrypt data).
-    The key derived from the vault KEK differs from the ALE_KEY env var key,
-    so we verify by round-tripping data through the returned instance.
     """
     from synth_engine.shared.security.ale import get_fernet
 
@@ -232,42 +241,21 @@ def test_get_fernet_uses_vault_kek_when_unsealed(unsealed_vault: None, ale_key: 
     assert fernet.decrypt(ciphertext) == plaintext
 
 
-def test_get_fernet_falls_back_to_env_when_sealed(ale_key: str) -> None:
-    """get_fernet() must fall back to ALE_KEY env var when vault is sealed.
+def test_vault_kek_fernet_is_not_decryptable_with_random_key(unsealed_vault: None) -> None:
+    """Data encrypted with vault-derived key must not be decryptable with a random key.
 
-    When the vault is sealed, the returned Fernet must be backed by the
-    ALE_KEY env var — verified by encrypting with it and decrypting with a
-    Fernet constructed directly from the ALE_KEY.
-    """
-    from synth_engine.shared.security.ale import get_fernet
-    from synth_engine.shared.security.vault import VaultState
-
-    assert VaultState.is_sealed(), "vault must be sealed for this test"
-
-    fernet = get_fernet()
-    plaintext = b"env-backed-secret"
-    ciphertext = fernet.encrypt(plaintext)
-
-    # Must be decryptable by a Fernet built directly from the ALE_KEY env var
-    env_fernet = Fernet(ale_key.encode())
-    assert env_fernet.decrypt(ciphertext) == plaintext
-
-
-def test_vault_and_env_keys_are_different(unsealed_vault: None, ale_key: str) -> None:
-    """Vault-derived Fernet key must differ from the ALE_KEY env var key.
-
-    Data encrypted with the vault-derived key must NOT be decryptable using
-    the ALE_KEY env var key, proving the two keys are distinct.
+    This confirms that the vault KEK produces a unique, distinct key —
+    a different Fernet key cannot decrypt vault-encrypted ciphertext.
     """
     from synth_engine.shared.security.ale import get_fernet
 
     vault_fernet = get_fernet()
-    env_fernet = Fernet(ale_key.encode())
+    random_fernet = Fernet(Fernet.generate_key())
 
     ciphertext = vault_fernet.encrypt(b"sensitive-datum")
 
     with pytest.raises(InvalidToken):
-        env_fernet.decrypt(ciphertext)
+        random_fernet.decrypt(ciphertext)
 
 
 def test_hkdf_derivation_is_deterministic() -> None:
@@ -285,36 +273,25 @@ def test_hkdf_derivation_is_deterministic() -> None:
     assert key1 == key2, "HKDF must be deterministic for identical KEK inputs"
 
 
-def test_fernet_switches_after_unseal(
-    vault_salt_env_for_ale: None, ale_key: str, monkeypatch: pytest.MonkeyPatch
+def test_fernet_raises_sealed_error_when_vault_is_sealed_between_calls(
+    vault_salt_env_for_ale: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """get_fernet() must return a different key after unsealing the vault.
+    """get_fernet() must raise VaultSealedError after vault is re-sealed.
 
-    Encrypt while sealed (uses ALE_KEY), then unseal and encrypt again.
-    The sealed ciphertext must be decryptable by the env-key Fernet;
-    the unsealed ciphertext must be decryptable by the vault-key Fernet
-    and NOT by the env-key Fernet.
+    If the vault is unsealed, ALE works.  After sealing, ALE must fail
+    with VaultSealedError — even in the same process.
     """
+    from synth_engine.shared.exceptions import VaultSealedError
     from synth_engine.shared.security.ale import get_fernet
     from synth_engine.shared.security.vault import VaultState
 
-    # Sealed state — uses ALE_KEY
-    assert VaultState.is_sealed()
-    sealed_fernet = get_fernet()
-    sealed_ct = sealed_fernet.encrypt(b"sealed-data")
+    # Unseal and verify ALE works
+    VaultState.unseal("ale-test-passphrase-2")
+    fernet = get_fernet()
+    assert fernet is not None
 
-    # Unseal the vault
-    VaultState.unseal("ale-test-passphrase")
-
-    # Unsealed state — uses vault KEK
-    vault_fernet = get_fernet()
-    unsealed_ct = vault_fernet.encrypt(b"unsealed-data")
-
-    # Sealed ciphertext decryptable by env-key Fernet
-    env_fernet = Fernet(ale_key.encode())
-    assert env_fernet.decrypt(sealed_ct) == b"sealed-data"
-
-    # Unsealed ciphertext decryptable by vault Fernet but NOT by env-key Fernet
-    assert vault_fernet.decrypt(unsealed_ct) == b"unsealed-data"
-    with pytest.raises(InvalidToken):
-        env_fernet.decrypt(unsealed_ct)
+    # Seal and verify ALE fails
+    VaultState.seal()
+    with pytest.raises(VaultSealedError):
+        get_fernet()

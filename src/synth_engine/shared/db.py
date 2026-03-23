@@ -106,6 +106,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.pool import QueuePool
 from sqlmodel import Field, Session, SQLModel
 from sqlmodel._compat import SQLModelConfig
 
@@ -128,6 +129,22 @@ SessionFactory = Callable[[], contextlib.AbstractContextManager[Session]]
 _POOL_SIZE = 5
 _MAX_OVERFLOW = 10
 
+#: Huey worker connection pool constants (T48.2).
+#: Each Huey worker handles one task at a time; pool_size=1 provides a
+#: single persistent connection. max_overflow=2 allows two temporary
+#: burst connections for brief sursts (e.g. the pre-flight session).
+#: Total max per worker = 3 connections.
+#: 4 workers x 3 + FastAPI(15) = 27 << PgBouncer max_client_conn(100).
+_WORKER_POOL_SIZE = 1
+_WORKER_MAX_OVERFLOW = 2
+
+#: pool_recycle=1800: Recycle connections after 30 minutes, matching
+#: PgBouncer server_idle_timeout.
+_WORKER_POOL_RECYCLE = 1800
+
+#: pool_timeout=30: Raise TimeoutError after 30s rather than blocking.
+_WORKER_POOL_TIMEOUT = 30
+
 #: Module-level cache for synchronous engines, keyed by composite cache key.
 #: For PostgreSQL: ``"{database_url}|mtls={mtls_enabled}"``.
 #: For SQLite: ``"{database_url}"`` (TLS not applicable).
@@ -141,6 +158,11 @@ _engine_cache: dict[str, Engine] = {}
 #: Populated lazily on first call to :func:`get_async_engine`.
 #: Call :func:`dispose_engines` to clear.
 _async_engine_cache: dict[str, AsyncEngine] = {}
+
+#: Module-level cache for Huey worker engines.
+#: Separate from ``_engine_cache`` to prevent cross-contamination with the
+#: FastAPI pool. Call :func:`dispose_engines` to clear.
+_worker_engine_cache: dict[str, Engine] = {}
 
 
 def _engine_cache_key(database_url: str) -> str:
@@ -335,6 +357,71 @@ def get_async_engine(database_url: str) -> AsyncEngine:
     return engine
 
 
+def get_worker_engine(database_url: str) -> Engine:
+    """Return a cached, bounded SQLAlchemy engine for Huey worker tasks.
+
+    Returns a dedicated synchronous engine separate from the FastAPI pool.
+    Isolation is required so that a stuck or slow Huey task cannot exhaust
+    the connection pool used by FastAPI request handlers.
+
+    Pool configuration (T48.2, ADR-0035):
+    - ``poolclass=QueuePool`` — bounded connection pool.
+    - ``pool_size=1`` — one persistent connection per worker process.
+    - ``max_overflow=2`` — two additional overflow connections for burst.
+    - ``pool_timeout=30`` — raise TimeoutError after 30s on pool exhaustion.
+    - ``pool_pre_ping=True`` — detect stale connections before use.
+    - ``pool_recycle=1800`` — match PgBouncer server_idle_timeout.
+
+    For SQLite URLs, pool size arguments are skipped (StaticPool used).
+
+    When ``MTLS_ENABLED=true`` the same psycopg2 TLS connect_args as
+    :func:`get_engine` are applied.
+
+    Args:
+        database_url: A synchronous-driver SQLAlchemy URL (psycopg2 for
+            PostgreSQL, stdlib sqlite3 for SQLite).
+
+    Returns:
+        A configured :class:`sqlalchemy.Engine` for use by Huey workers.
+        The same instance is returned on every call with the same URL and
+        mTLS state.
+    """
+    if database_url.startswith("sqlite"):
+        cache_key = f"{database_url}|worker"
+    else:
+        from synth_engine.shared.settings import get_settings
+
+        settings = get_settings()
+        cache_key = f"{database_url}|worker|mtls={settings.mtls_enabled}"
+
+    if cache_key in _worker_engine_cache:
+        return _worker_engine_cache[cache_key]
+
+    if database_url.startswith("sqlite"):
+        engine = create_engine(database_url)
+    else:
+        from synth_engine.shared.settings import get_settings
+
+        settings = get_settings()
+        extra_kwargs: dict[str, object] = {}
+        if settings.mtls_enabled:
+            extra_kwargs["connect_args"] = _build_psycopg2_connect_args()
+
+        engine = create_engine(
+            database_url,
+            poolclass=QueuePool,
+            pool_size=_WORKER_POOL_SIZE,
+            max_overflow=_WORKER_MAX_OVERFLOW,
+            pool_timeout=_WORKER_POOL_TIMEOUT,
+            pool_pre_ping=True,
+            pool_recycle=_WORKER_POOL_RECYCLE,
+            **extra_kwargs,
+        )
+
+    _worker_engine_cache[cache_key] = engine
+    return engine
+
+
 def dispose_engines() -> None:
     """Dispose all cached engines and clear the engine caches.
 
@@ -358,6 +445,10 @@ def dispose_engines() -> None:
     for async_engine in _async_engine_cache.values():
         async_engine.sync_engine.dispose()
     _async_engine_cache.clear()
+
+    for worker_engine in _worker_engine_cache.values():
+        worker_engine.dispose()
+    _worker_engine_cache.clear()
 
 
 # ---------------------------------------------------------------------------
