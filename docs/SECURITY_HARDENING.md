@@ -81,7 +81,7 @@ Ensure nginx/Caddy does **not** inject `Access-Control-Allow-Origin: *` uncondit
 
 ### 2.2 Application Layer — Rate Limiting
 
-`RateLimitGateMiddleware` (`bootstrapper/dependencies/rate_limit.py`) is the **outermost** layer — fires before any other check. Uses `FixedWindowRateLimiter` with in-memory storage (no external dependencies; safe for air-gapped deployments).
+`RateLimitGateMiddleware` (`bootstrapper/dependencies/rate_limit.py`) is the **outermost** layer — fires before any other check. Uses Redis-backed `INCR`+`EXPIRE` pipeline for distributed, atomic counting across all workers/pods (T48.1). Falls back to in-memory `FixedWindowRateLimiter` when Redis is unavailable (safe for air-gapped/single-node deployments).
 
 Default limits (configurable via `ConclaveSettings`):
 
@@ -94,7 +94,7 @@ Default limits (configurable via `ConclaveSettings`):
 
 Exceeded limits return HTTP 429 with `Retry-After` and RFC 7807 body.
 
-**Tuning:** In-process limits are per-uvicorn-worker and reset on restart. They supplement — not replace — infrastructure limits. Tighten beyond defaults only if your threat model requires it.
+**Tuning:** With Redis, limits are shared across all workers/pods. Without Redis (fallback), limits are per-uvicorn-worker and reset on restart. Application limits supplement — not replace — infrastructure limits. Tighten beyond defaults only if your threat model requires it.
 
 ```bash
 # .env
@@ -166,10 +166,10 @@ services:
       - --timeout-keep-alive
       - "5"
       - --workers
-      - "1"   # Required for in-memory rate limiter correctness
+      - "1"   # Safe to increase when Redis-backed rate limiting is active (T48.1)
 ```
 
-**Important:** `RateLimitGateMiddleware` uses `MemoryStorage` (per-process). Multiple workers maintain separate buckets. Keep `--workers 1` or switch to a Redis-backed rate limit store before scaling out.
+**Important:** With Redis-backed rate limiting (T48.1, default), limits are shared across workers/pods — scaling `--workers` is safe. Without Redis (in-memory fallback), each worker maintains separate buckets; keep `--workers 1` in that case.
 
 ### 2.5 Infrastructure Layer — Cloud WAF (Optional)
 
