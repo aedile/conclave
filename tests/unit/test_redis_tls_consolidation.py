@@ -11,9 +11,6 @@ Advisory: ADV-P47-02 — Redis TLS URL promotion duplication
 
 from __future__ import annotations
 
-import inspect
-import types
-
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -47,10 +44,10 @@ def test_bootstrapper_redis_dep_does_not_define_own_promote_function() -> None:
 def test_bootstrapper_redis_dep_source_has_no_duplicate_implementation() -> None:
     """The source of bootstrapper/dependencies/redis.py must not contain a duplicate impl.
 
-    Inspects the module's own members and confirms that no function defined in
-    that file re-implements the ``redis://`` → ``rediss://`` string replacement.
+    Inspects the module's source and confirms that no function defined in
+    that file re-implements the ``redis://`` to ``rediss://`` string replacement.
     This catches the case where someone re-exports the function under the same
-    name (which would hide the violation from test_bootstrapper_redis_dep_does_not_define_own_promote_function).
+    name (which would hide the violation from the previous test).
     """
     from synth_engine.bootstrapper.dependencies import redis as redis_dep
 
