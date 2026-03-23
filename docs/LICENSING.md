@@ -80,7 +80,7 @@ Response (HTTP 200):
 ```json
 {
   "hardware_id": "a1b2c3d4e5f6...",
-  "app_version": "0.1.0",
+  "app_version": "1.0.0rc1",
   "timestamp": "2026-03-15T10:00:00+00:00",
   "qr_code_data_url": "data:image/png;base64,...",
   "alt_text": "QR code encoding hardware ID a1b2c3..."
