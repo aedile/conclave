@@ -349,11 +349,32 @@ def test_auth_exempt_paths_still_contains_auth_token() -> None:
     assert "/auth/token" in AUTH_EXEMPT_PATHS
 
 
-def test_vault_exempt_paths_does_not_contain_security_shred() -> None:
-    """/security/shred must not be in vault EXEMPT_PATHS after ADV-P47-04 fix."""
+def test_vault_exempt_paths_contains_security_shred() -> None:
+    """/security/shred MUST be in vault EXEMPT_PATHS — emergency shred requires sealed-state access.
+
+    P50 review fix: restored /security/shred to SEAL_EXEMPT_PATHS (vault/license layer)
+    while keeping it out of AUTH_EXEMPT_PATHS (still requires JWT auth).
+    """
     from synth_engine.bootstrapper.dependencies.vault import EXEMPT_PATHS
 
-    assert "/security/shred" not in EXEMPT_PATHS
+    assert "/security/shred" in EXEMPT_PATHS
+
+
+def test_vault_exempt_paths_does_not_contain_keys_rotate() -> None:
+    """/security/keys/rotate must NOT be in vault EXEMPT_PATHS — rotation requires unsealed vault."""
+    from synth_engine.bootstrapper.dependencies.vault import EXEMPT_PATHS
+
+    assert "/security/keys/rotate" not in EXEMPT_PATHS
+
+
+def test_license_exempt_paths_contains_security_shred() -> None:
+    """/security/shred MUST be in LICENSE_EXEMPT_PATHS — emergency shred without license.
+
+    P50 review fix: SEAL_EXEMPT_PATHS feeds the license gate too.
+    """
+    from synth_engine.bootstrapper.dependencies.licensing import LICENSE_EXEMPT_PATHS
+
+    assert "/security/shred" in LICENSE_EXEMPT_PATHS
 
 
 def test_license_exempt_paths_does_not_contain_security_keys_rotate() -> None:

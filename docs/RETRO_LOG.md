@@ -43,15 +43,23 @@ Drain (delete) rows when their target task is completed.
 - Changed `conclave_env` field default from `""` to `"production"` in `shared/settings.py`
 - A fresh deployment with no `.env` now boots in production mode (auth enforced), not dev mode
 - Added `_warn_if_development_mode()` to `config_validation.py`: emits WARNING mentioning `CONCLAVE_ENV=production` when dev mode is active
-- Removed `/security/shred` and `/security/keys/rotate` from `COMMON_INFRA_EXEMPT_PATHS` (ADV-P47-04)
+- Removed `/security/keys/rotate` from `COMMON_INFRA_EXEMPT_PATHS` (ADV-P47-04)
 - Updated `tests/conftest.py` autouse fixture to inject `CONCLAVE_ENV=development` as test-safe default
 - Migrated 8 existing test files: added `CONCLAVE_ENV=development` alongside `ENV=development` in dev-mode test cases
 
-**Advisories drained**: ADV-P47-04 (security routes in AUTH_EXEMPT_PATHS — RESOLVED)
+**Review fix — Layered Exemption Model**:
+- DevOps and Architecture reviewers both found FINDING: removing `/security/shred` from
+  `COMMON_INFRA_EXEMPT_PATHS` broke the emergency shred design (sealed-state inaccessibility)
+- Fix: introduced `SEAL_EXEMPT_PATHS` (= COMMON + `/security/shred`) for vault/license gates
+- Auth gate still uses `COMMON_INFRA_EXEMPT_PATHS` (security routes require JWT — ADV-P47-04 preserved)
+- Updated `vault.py` and `licensing.py` to import `SEAL_EXEMPT_PATHS`; `security.py` docstring updated
+- 17 new attack tests (`test_layered_exemption_attack.py`), updated `test_exempt_paths.py`
 
-**Tests added**: 12 attack tests (`test_production_mode_default_attack.py`), 17 feature tests (`test_production_mode_default_feature.py`)
+**Advisories drained**: ADV-P47-04 (security routes in AUTH_EXEMPT_PATHS — RESOLVED via layered exemption)
 
-**Open advisory count**: 6 (ADV-P47-02, ADV-P47-05, ADV-P47-07, ADV-T49-01, ADV-P49-02, ADV-P49-03)
+**Tests added**: 12 attack tests (`test_production_mode_default_attack.py`), 19 feature tests (`test_production_mode_default_feature.py`), 17 layered-exemption attack tests
+
+**Open advisory count**: 3 (ADV-P47-02, ADV-P47-05, ADV-P49-02)
 
 ### [2026-03-23] Phase 50 — ADR-0052: mutmut / Python 3.14 Gap
 
@@ -67,7 +75,7 @@ Drain (delete) rows when their target task is completed.
 
 **Advisories drained**: ADV-T49-01 (mutmut segfault — RESOLVED), ADV-P49-03 (mutmut CI gate not wired — RESOLVED)
 
-**Open advisory count**: 4 (ADV-P47-02, ADV-P47-05, ADV-P49-02, and ADV-P47-07 was already resolved)
+**Open advisory count**: 3 (ADV-P47-02, ADV-P47-05, ADV-P49-02)
 
 ### [2026-03-23] Phase 49 — Test Quality Hardening
 
