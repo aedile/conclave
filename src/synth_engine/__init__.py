@@ -13,4 +13,4 @@ Architecture:
 CONSTITUTION Priority 0: No PII or secrets are handled or stored in this package.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0rc1"

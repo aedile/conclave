@@ -382,6 +382,7 @@ jobs:
           # Provision .env with all vars required by validate_config().
           # env_file: .env in docker-compose.yml forwards these to the container.
           {
+            echo "CONCLAVE_ENV=development"
             echo "ENV=development"
             echo "DATABASE_URL=postgresql+asyncpg://conclave:${CI_PG_PASSWORD}@pgbouncer:5432/conclave"
             echo "AUDIT_KEY=$(openssl rand -hex 32)"
@@ -619,6 +620,7 @@ jobs:
 
       - name: Start Conclave Engine (SQLite mode, background)
         env:
+          CONCLAVE_ENV: "development"
           DATABASE_URL: "sqlite:///./zap_test.db"
           AUDIT_KEY: "799d2c2130343d4ace9c159dd41dd8367af690f931155c6c1ac56f83380b2b2a"  # pragma: allowlist secret  fictional 32-byte hex key for ZAP CI
           VAULT_SEAL_SALT: "emFwLWNpLXRlc3Qtc2FsdC1maWN0aW9uYWw="  # pragma: allowlist secret  base64("zap-ci-test-salt-fictional")
