@@ -10,27 +10,28 @@ For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`
 
 ---
 
-## Phase 51 — Release Engineering (T51.2)
+## Phase 51 — Release Engineering (in progress)
 *2026-03-23 | PR TBD*
 
+- Version bump: `0.1.0` → `1.0.0rc1` (PEP 440) across all 5 locations. `main.py` now reads
+  `__version__` from `__init__.py` instead of hardcoding (T51.1).
+- Added `scripts/bump_version.sh`: atomic version bump across pyproject.toml, __init__.py,
+  licensing.py, main.py, openapi.json with PEP 440 validation (T51.1).
 - Added `.github/workflows/release.yml`: three-job release pipeline triggered on `v*` tag pushes.
-  Jobs: `validate-tag` (semver format check, version export) → `build-release` (Docker image,
-  air-gap bundle, CycloneDX SBOM, sha256sums) → `publish-release` (GitHub Release with all assets).
-  All six `uses:` references SHA-pinned per T3.5.1 supply-chain hardening. Permissions scoped
-  per-job; only `publish-release` has `contents: write` (T51.2).
-- Added `tests/unit/test_release_workflow.py`: 21 structural and security tests for the workflow
-  YAML covering SHA-pinning, job dependencies, trigger isolation, and artifact flow.
+  Jobs: `validate-tag` → `build-release` (Docker image, air-gap bundle, CycloneDX SBOM, sha256sums)
+  → `publish-release` (GitHub Release with all assets). All `uses:` SHA-pinned (T51.2).
 
-## Phase 50 — Production Security Fixes (in progress)
-*2026-03-23 | PR TBD*
+## Phase 50 — Production Security Fixes
+*2026-03-23 | PR [#183](../../pull/183)*
 
 - DP budget enforcement changed to fail-closed: `BudgetExhaustionError` and `EpsilonMeasurementError`
   always block synthesis, no silent pass-through (ADR-0050).
 - `CONCLAVE_ENV` defaults to `"production"`; fresh deployments boot with auth enforced (T50.3).
-- Removed `/security/shred` and `/security/keys/rotate` from `AUTH_EXEMPT_PATHS` (ADV-P47-04).
+- Layered path exemption model: `SEAL_EXEMPT_PATHS` (vault/license gates) vs `COMMON_INFRA_EXEMPT_PATHS`
+  (auth gate). `/security/shred` bypasses seal gate for emergency access but requires JWT auth (ADV-P47-04).
 - TOCTOU in `ModelArtifact.load()` eliminated: replaced `os.path.exists()` pre-check with bounded
-  `f.read(_MAX_ARTIFACT_SIZE_BYTES + 1)` and post-read `len(raw)` guard (T50.4, ADR-0052 mutmut
-  Python 3.14 gap accepted).
+  `f.read(_MAX_ARTIFACT_SIZE_BYTES + 1)` and post-read `len(raw)` guard (T50.4).
+- ADR-0052: mutmut/Python 3.14 SIGSEGV gap accepted with manual hardening tests.
 
 ## Documentation Cleanup & Tightening
 *2026-03-23 | PR [#180](../../pull/180)*
