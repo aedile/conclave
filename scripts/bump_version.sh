@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# bump_version.sh — Atomically update the version string in all 5 locations.
+#
+# Usage:
+#   ./scripts/bump_version.sh <PEP-440-version>
+#
+# Example:
+#   ./scripts/bump_version.sh 1.0.0rc1
+#   ./scripts/bump_version.sh 1.0.0
+#   ./scripts/bump_version.sh 2.3.0b2
+#
+# The version argument MUST be a valid PEP 440 string:
+#   X.Y.Z              — stable release
+#   X.Y.Z(a|b|rc)N     — pre-release (alpha, beta, release candidate)
+#
+# Hyphens are NOT allowed (use 1.0.0rc1, not 1.0.0-rc.1).
+# A leading "v" is NOT allowed (use 1.0.0, not v1.0.0).
+#
+# This script does NOT commit or tag — that is the operator's responsibility.
+# It does NOT run poetry lock — call that separately if pyproject.toml changed.
+#
+# BUMP_ROOT environment variable:
+#   Override the repository root directory. Used by tests to point the script
+#   at a temporary replica rather than the real repo. Defaults to the directory
+#   containing this script's parent (i.e. the repo root).
+#
+# Exit codes:
+#   0  — success (or no-op when version already matches)
+#   1  — invalid version string or missing target file
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Resolve repository root
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# BUMP_ROOT can be overridden by tests to point at a tmp_path replica.
+REPO_ROOT="${BUMP_ROOT:-"$(dirname "${SCRIPT_DIR}")"}"
+
+# ---------------------------------------------------------------------------
+# Argument validation
+# ---------------------------------------------------------------------------
+if [[ $# -ne 1 ]] || [[ -z "${1:-}" ]]; then
+    echo "ERROR: exactly one argument required." >&2
+    echo "Usage: $0 <PEP-440-version>  (e.g. 1.0.0rc1)" >&2
+    exit 1
+fi
+
+NEW_VERSION="${1}"
+
+# PEP 440 validation: X.Y.Z or X.Y.Z(a|b|rc)N only.
+# We deliberately exclude: hyphens, leading 'v', '.dev', '.post', epoch prefixes.
+PEP440_RE='^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$'
+if ! echo "${NEW_VERSION}" | grep -qE "${PEP440_RE}"; then
+    echo "ERROR: '${NEW_VERSION}' is not a valid PEP 440 version string." >&2
+    echo "       Accepted formats: X.Y.Z  X.Y.ZaN  X.Y.ZbN  X.Y.ZrcN" >&2
+    echo "       Do NOT use hyphens (1.0.0-rc.1) or a leading 'v' (v1.0.0)." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve the 5 target file paths
+# ---------------------------------------------------------------------------
+PYPROJECT="${REPO_ROOT}/pyproject.toml"
+INIT_PY="${REPO_ROOT}/src/synth_engine/__init__.py"
+LICENSING_PY="${REPO_ROOT}/src/synth_engine/shared/security/licensing.py"
+MAIN_PY="${REPO_ROOT}/src/synth_engine/bootstrapper/main.py"
+OPENAPI_JSON="${REPO_ROOT}/docs/api/openapi.json"
+
+# ---------------------------------------------------------------------------
+# Pre-flight: verify all target files exist before making any change
+# ---------------------------------------------------------------------------
+MISSING=0
+for FILE in "${PYPROJECT}" "${INIT_PY}" "${LICENSING_PY}" "${MAIN_PY}" "${OPENAPI_JSON}"; do
+    if [[ ! -f "${FILE}" ]]; then
+        echo "ERROR: required file not found: ${FILE}" >&2
+        MISSING=1
+    fi
+done
+if [[ "${MISSING}" -ne 0 ]]; then
+    echo "ERROR: aborting — one or more target files are missing (no files were changed)." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Detect current version (from pyproject.toml) for idempotency check
+# ---------------------------------------------------------------------------
+CURRENT_VERSION="$(grep -E '^version = "' "${PYPROJECT}" | head -1 | sed 's/version = "//;s/"//')"
+
+if [[ "${CURRENT_VERSION}" == "${NEW_VERSION}" ]]; then
+    echo "INFO: version is already ${NEW_VERSION} — nothing to do (idempotent no-op)."
+    exit 0
+fi
+
+echo "Bumping version: ${CURRENT_VERSION} -> ${NEW_VERSION}"
+
+# ---------------------------------------------------------------------------
+# Perform all substitutions.
+# sed -i '' on macOS; sed -i on Linux — use perl for portability.
+# ---------------------------------------------------------------------------
+
+# 1. pyproject.toml: version = "OLD" -> version = "NEW"
+#    Only the [tool.poetry] section's version field (line 3 in canonical form).
+#    We match the first occurrence of `version = "..."` to avoid touching
+#    dependency version constraints.
+perl -i -0pe \
+    "s/(\\[tool\\.poetry\\][^\\[]*\\n(?:(?!\\[)[^\\n]*\\n)*?version = \")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/m" \
+    "${PYPROJECT}"
+
+# 2. src/synth_engine/__init__.py: __version__ = "OLD" -> __version__ = "NEW"
+perl -i -pe "s/^(__version__ = \")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/" "${INIT_PY}"
+
+# 3. shared/security/licensing.py: _APP_VERSION: str = "OLD" -> "NEW"
+perl -i -pe "s/^(_APP_VERSION: str = \")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/" "${LICENSING_PY}"
+
+# 4. bootstrapper/main.py: version="OLD" -> version="NEW"
+#    Matches the FastAPI constructor kwarg only (indented line inside create_app).
+perl -i -pe "s/^(        version=\")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/" "${MAIN_PY}"
+
+# 5. docs/api/openapi.json: "version": "OLD" -> "version": "NEW"
+perl -i -pe "s/(\"version\": \")([^\"]+)(\")/\${1}${NEW_VERSION}\${3}/" "${OPENAPI_JSON}"
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "Version bump complete: ${CURRENT_VERSION} -> ${NEW_VERSION}"
+echo ""
+echo "Updated files:"
+echo "  ${PYPROJECT}"
+echo "  ${INIT_PY}"
+echo "  ${LICENSING_PY}"
+echo "  ${MAIN_PY}"
+echo "  ${OPENAPI_JSON}"
+echo ""
+echo "Next steps:"
+echo "  1. Run: poetry lock --no-update   (to refresh the lock file)"
+echo "  2. Run: git add -p && git commit  (to commit the version bump)"
+echo "  3. Tag:  git tag v${NEW_VERSION%rc*}-rc.${NEW_VERSION##*rc}  (semver tag, if applicable)"

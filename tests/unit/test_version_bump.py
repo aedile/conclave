@@ -21,7 +21,7 @@ import subprocess
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Module-level constants
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +29,10 @@ BUMP_SCRIPT = REPO_ROOT / "scripts" / "bump_version.sh"
 
 # PEP 440 pattern: X.Y.Z or X.Y.Z(a|b|rc)N
 _PEP440_RE = re.compile(r"^\d+\.\d+\.\d+((a|b|rc)\d+)?$")
+
+# The exact indentation the bump script expects in bootstrapper/main.py.
+# The real FastAPI constructor uses 8-space indented keyword arguments.
+_MAIN_PY_VERSION_LINE_INDENT = "        "
 
 
 def _run_bump(
@@ -179,11 +183,9 @@ class TestVersionConsistency:
             f"licensing.py not updated: {licensing_text!r}"
         )
 
-        # 4. bootstrapper/main.py  (version= kwarg — updated to use __version__)
+        # 4. bootstrapper/main.py  (version= kwarg — indented inside FastAPI constructor)
         main_text = (tmp_path / "src" / "synth_engine" / "bootstrapper" / "main.py").read_text()
-        assert 'version="1.0.0rc1"' in main_text or "version=__version__" in main_text, (
-            f"main.py not updated: {main_text!r}"
-        )
+        assert 'version="1.0.0rc1"' in main_text, f"main.py not updated: {main_text!r}"
 
         # 5. docs/api/openapi.json
         openapi_text = (tmp_path / "docs" / "api" / "openapi.json").read_text()
@@ -321,6 +323,10 @@ def _build_fake_repo(root: Path, *, current_version: str) -> None:
     Creates all 5 version-bearing files in the correct relative paths so
     bump_version.sh can find and update them via BUMP_ROOT override.
 
+    The fake main.py mirrors the real bootstrapper/main.py's FastAPI
+    constructor indentation (8 spaces) so the bump script's sed pattern
+    matches correctly.
+
     Args:
         root: Temp directory to build the fake repo in.
         current_version: The version string to embed in all files.
@@ -344,11 +350,17 @@ def _build_fake_repo(root: Path, *, current_version: str) -> None:
         f'"""Licensing module."""\n\n_APP_VERSION: str = "{current_version}"\n'
     )
 
-    # 4. bootstrapper/main.py
+    # 4. bootstrapper/main.py — the version= kwarg is 8-space indented inside
+    #    the FastAPI() constructor, matching the real main.py structure so the
+    #    bump script's perl substitution pattern matches correctly.
     boot_dir = src_pkg / "bootstrapper"
     boot_dir.mkdir(parents=True)
     (boot_dir / "main.py").write_text(
-        f'"""FastAPI application factory."""\n\napp = FastAPI(version="{current_version}")\n'
+        "def create_app():\n"
+        "    app = FastAPI(\n"
+        f'        version="{current_version}",\n'
+        "    )\n"
+        "    return app\n"
     )
 
     # 5. docs/api/openapi.json
