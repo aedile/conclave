@@ -43,7 +43,6 @@ import pytest
 
 from tests.unit.helpers_synthesizer import _make_synthesis_job
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -274,9 +273,7 @@ class TestDpAccountingStepFailClosed:
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 0.8
         sensitive_detail = "postgresql://user:secret_password@db-host:5432/proddb"
-        mock_budget_fn = MagicMock(
-            side_effect=ConnectionError(sensitive_detail)
-        )
+        mock_budget_fn = MagicMock(side_effect=ConnectionError(sensitive_detail))
 
         ctx = _make_job_context(dp_wrapper=mock_wrapper)
 
@@ -463,7 +460,6 @@ class TestAuditFailureAfterBudgetSpend:
         has already been spent, which is why reconciliation is required.
         """
         from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
-        from synth_engine.shared.exceptions import AuditWriteError
 
         call_order: list[str] = []
 
