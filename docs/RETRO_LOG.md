@@ -19,7 +19,7 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P47-01~~ | ~~PM P46 merge~~ | P47 fix | ~~BLOCKER~~ | ~~Production Smoke Test — RESOLVED in P47 (CI dummy secrets provisioning)~~ |
 | ADV-P47-02 | Arch P47 review | — | ADVISORY | `_promote_redis_url_to_tls` logic is duplicated between `shared/tls/config.py` and bootstrapper init. Current duplication is intentional per T46.2 architecture review. Future cleanup should consolidate into a single utility. |
 | ~~ADV-P47-03~~ | ~~Arch P47 review~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~Scope-based auth ADR — RESOLVED (ADR-0049 written)~~ |
-| ADV-P47-04 | Red-Team P47 | — | ADVISORY | `/security/shred` and `/security/keys/rotate` are in `AUTH_EXEMPT_PATHS`, so in pass-through mode (empty `JWT_SECRET_KEY`) no auth applies. Scope enforcement (`require_scope`) is bypassed because the auth middleware skips the route entirely. Low risk: pass-through mode is dev-only, and scope enforcement is a defense-in-depth layer. Fix: remove security routes from `AUTH_EXEMPT_PATHS` or add pass-through-mode warning at startup. |
+| ~~ADV-P47-04~~ | ~~Red-Team P47~~ | T50.3 | ~~ADVISORY~~ | ~~`/security/shred` and `/security/keys/rotate` removed from `AUTH_EXEMPT_PATHS` — RESOLVED in T50.3 (_exempt_paths.py)~~ |
 | ADV-P47-05 | Red-Team P47 | — | ADVISORY | All-or-nothing scope grant: single-operator model issues all scopes (`read`, `write`, `security:admin`, `settings:write`) to every authenticated operator. Fine for current single-tenant deployment; future multi-operator support will need role-based scope assignment. |
 | ~~ADV-P47-06~~ | ~~Red-Team P47~~ | T48.1 | ~~ADVISORY~~ | ~~In-memory rate limiter — RESOLVED in T48.1 (Redis-backed rate limiting)~~ |
 | ~~ADV-P48-01~~ | ~~Red-Team P48~~ | ADV drain pre-P49 | ~~ADVISORY~~ | ~~X-Forwarded-For trust model — RESOLVED (PRODUCTION_DEPLOYMENT.md Appendix B)~~ |
@@ -32,6 +32,26 @@ Drain (delete) rows when their target task is completed.
 | ADV-P49-03 | DevOps P49 | — | ADVISORY | mutmut CI gate not wired into `.github/workflows/ci.yml`. Blocked by ADV-T49-01 (Python 3.14 segfault). Constitution Priority 0.5 gap — documented but not programmatically enforced. |
 
 ---
+
+### [2026-03-23] Phase 50 — T50.3: Default to Production Mode
+
+**Branch**: `feat/P50-production-security-fixes`
+
+**Tasks completed**: T50.3 (Default to production mode — secure-by-default hardening)
+
+**T50.3 — Default to Production Mode**:
+- Changed `conclave_env` field default from `""` to `"production"` in `shared/settings.py`
+- A fresh deployment with no `.env` now boots in production mode (auth enforced), not dev mode
+- Added `_warn_if_development_mode()` to `config_validation.py`: emits WARNING mentioning `CONCLAVE_ENV=production` when dev mode is active
+- Removed `/security/shred` and `/security/keys/rotate` from `COMMON_INFRA_EXEMPT_PATHS` (ADV-P47-04)
+- Updated `tests/conftest.py` autouse fixture to inject `CONCLAVE_ENV=development` as test-safe default
+- Migrated 8 existing test files: added `CONCLAVE_ENV=development` alongside `ENV=development` in dev-mode test cases
+
+**Advisories drained**: ADV-P47-04 (security routes in AUTH_EXEMPT_PATHS — RESOLVED)
+
+**Tests added**: 12 attack tests (`test_production_mode_default_attack.py`), 17 feature tests (`test_production_mode_default_feature.py`)
+
+**Open advisory count**: 6 (ADV-P47-02, ADV-P47-05, ADV-P47-07, ADV-T49-01, ADV-P49-02, ADV-P49-03)
 
 ### [2026-03-23] Phase 49 — Test Quality Hardening
 
