@@ -7,6 +7,7 @@ Covers:
 - main.py reads __version__ from synth_engine.__init__ dynamically (feature tests)
 - PEP 440 format is used in pyproject.toml (no hyphens) (feature tests)
 - Idempotency: running twice with the same version is a no-op (feature tests)
+- Tag hint in the "Next steps" output is correct for stable and RC versions (ADV-P51-02)
 
 NOTE: bootstrapper/main.py is NOT a bump target. It reads the version
 dynamically from synth_engine.__version__ (defined in __init__.py). The 4
@@ -14,6 +15,7 @@ bump targets are: pyproject.toml, __init__.py, licensing.py, openapi.json.
 
 CONSTITUTION Priority 3: TDD RED/GREEN phases
 Task: P51-T51.1 — Semantic Versioning & Version Bump Automation
+ADV-P51-02 — bump_version.sh tag hint fix for stable releases
 """
 
 from __future__ import annotations
@@ -352,6 +354,50 @@ class TestVersionBumpScript:
         assert "1.0.0rc1" in combined, (
             "Expected new version in script output but got: "
             f"stdout={result.stdout!r}, stderr={result.stderr!r}"
+        )
+
+
+class TestBumpVersionTagHint:
+    """Tag hint in bump_version.sh 'Next steps' output must be correct.
+
+    ADV-P51-02: The shell expansion ``v${NEW_VERSION%rc*}-rc.${NEW_VERSION##*rc}``
+    produces ``v1.0.0-rc.1.0.0`` for stable versions like ``1.0.0``. The hint
+    must be conditional: stable versions get ``git tag v1.0.0``, RC versions
+    get ``git tag v1.0.0-rc.1``.
+    """
+
+    def test_tag_hint_stable_version(self, tmp_path: Path) -> None:
+        """Stable version bump hint must read ``git tag v1.0.0``, not a mangled RC form.
+
+        ADV-P51-02: The old expansion ``v${NEW_VERSION%rc*}-rc.${NEW_VERSION##*rc}``
+        expands to ``v1.0.0-rc.1.0.0`` for ``1.0.0`` (wrong). The fixed
+        conditional must emit ``git tag v1.0.0`` for stable releases.
+        """
+        _build_fake_repo(tmp_path, current_version="0.1.0")
+        result = _run_bump(["1.0.0"], env={"BUMP_ROOT": str(tmp_path)})
+        assert result.returncode == 0, f"bump_version.sh failed for stable version: {result.stderr}"
+        combined = result.stdout + result.stderr
+        assert "git tag v1.0.0" in combined, (
+            f"Expected 'git tag v1.0.0' in output for stable version bump, got:\n{combined}"
+        )
+        # Ensure the malformed RC form is absent
+        assert "git tag v1.0.0-rc." not in combined, (
+            f"Stable version bump output contains erroneous RC tag hint:\n{combined}"
+        )
+
+    def test_tag_hint_rc_version(self, tmp_path: Path) -> None:
+        """RC version bump hint must read ``git tag v1.0.0-rc.1``.
+
+        ADV-P51-02: The conditional branch for RC versions must correctly
+        transform ``1.0.0rc1`` (PEP 440) into the semver pre-release form
+        ``v1.0.0-rc.1`` for the tag hint.
+        """
+        _build_fake_repo(tmp_path, current_version="0.1.0")
+        result = _run_bump(["1.0.0rc1"], env={"BUMP_ROOT": str(tmp_path)})
+        assert result.returncode == 0, f"bump_version.sh failed for RC version: {result.stderr}"
+        combined = result.stdout + result.stderr
+        assert "git tag v1.0.0-rc.1" in combined, (
+            f"Expected 'git tag v1.0.0-rc.1' in output for RC version bump, got:\n{combined}"
         )
 
 

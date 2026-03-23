@@ -113,34 +113,34 @@ def test_conclave_settings_mtls_cert_paths_from_env(
 
 
 def test_promote_redis_url_upgrades_redis_to_rediss() -> None:
-    """_promote_redis_url_to_tls converts redis:// to rediss://."""
-    from synth_engine.shared.task_queue import _promote_redis_url_to_tls
+    """promote_redis_url_to_tls converts redis:// to rediss://."""
+    from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
-    assert _promote_redis_url_to_tls("redis://redis:6379/0") == "rediss://redis:6379/0"
+    assert promote_redis_url_to_tls("redis://redis:6379/0") == "rediss://redis:6379/0"
 
 
 def test_promote_redis_url_preserves_host_and_path() -> None:
-    """_promote_redis_url_to_tls preserves host, port, and database index."""
-    from synth_engine.shared.task_queue import _promote_redis_url_to_tls
+    """promote_redis_url_to_tls preserves host, port, and database index."""
+    from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
-    result = _promote_redis_url_to_tls("redis://myhost:6380/3")
+    result = promote_redis_url_to_tls("redis://myhost:6380/3")
     assert result == "rediss://myhost:6380/3"
 
 
 def test_promote_redis_url_preserves_auth() -> None:
-    """_promote_redis_url_to_tls preserves auth credentials in the URL."""
-    from synth_engine.shared.task_queue import _promote_redis_url_to_tls
+    """promote_redis_url_to_tls preserves auth credentials in the URL."""
+    from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
-    result = _promote_redis_url_to_tls("redis://:secret@redis:6379/0")  # pragma: allowlist secret
+    result = promote_redis_url_to_tls("redis://:secret@redis:6379/0")  # pragma: allowlist secret
     assert result == "rediss://:secret@redis:6379/0"  # pragma: allowlist secret
 
 
 def test_promote_redis_url_no_double_promotion() -> None:
-    """_promote_redis_url_to_tls is idempotent — rediss:// is unchanged."""
-    from synth_engine.shared.task_queue import _promote_redis_url_to_tls
+    """promote_redis_url_to_tls is idempotent — rediss:// is unchanged."""
+    from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
     url = "rediss://redis:6379/0"
-    assert _promote_redis_url_to_tls(url) == url
+    assert promote_redis_url_to_tls(url) == url
 
 
 # ---------------------------------------------------------------------------

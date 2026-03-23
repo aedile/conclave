@@ -115,6 +115,19 @@ repos:
         args: [-c, pyproject.toml, -r, src/, scripts/]
         files: ^(src|scripts)/
 
+
+  # ---------------------------------------------------------------------------
+  # Notebook output stripping — nbstripout (T52.1)
+  #
+  # Strips Jupyter notebook cell outputs before commit to prevent accidental
+  # PII leakage via notebook outputs and keep diffs readable.
+  # Supply-chain hardening: pinned to rev tag, never HEAD or branch ref.
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.9.1
+    hooks:
+      - id: nbstripout
+
   # ---------------------------------------------------------------------------
   # Module boundary enforcement — import-linter (AC1 — T20.4)
   #

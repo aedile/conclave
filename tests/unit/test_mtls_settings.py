@@ -174,25 +174,25 @@ def test_mtls_validation_raises_on_empty_ca_cert_path(
 
 def test_promote_redis_url_upgrades_scheme() -> None:
     """redis:// must be promoted to rediss:// when mTLS is enabled."""
-    from synth_engine.shared.task_queue import _promote_redis_url_to_tls
+    from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
-    result = _promote_redis_url_to_tls("redis://redis:6379/0")
+    result = promote_redis_url_to_tls("redis://redis:6379/0")
     assert result == "rediss://redis:6379/0"
 
 
 def test_promote_redis_url_leaves_rediss_unchanged() -> None:
-    """rediss:// URLs are returned unchanged by _promote_redis_url_to_tls."""
-    from synth_engine.shared.task_queue import _promote_redis_url_to_tls
+    """rediss:// URLs are returned unchanged by promote_redis_url_to_tls."""
+    from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
-    result = _promote_redis_url_to_tls("rediss://redis:6379/0")
+    result = promote_redis_url_to_tls("rediss://redis:6379/0")
     assert result == "rediss://redis:6379/0"
 
 
 def test_promote_redis_url_leaves_unix_socket_unchanged() -> None:
     """Non-TCP redis URLs that don't start with redis:// are returned unchanged."""
-    from synth_engine.shared.task_queue import _promote_redis_url_to_tls
+    from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
-    result = _promote_redis_url_to_tls("unix:///tmp/redis.sock")
+    result = promote_redis_url_to_tls("unix:///tmp/redis.sock")
     assert result == "unix:///tmp/redis.sock"
 
 

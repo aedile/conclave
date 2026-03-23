@@ -71,7 +71,7 @@ def _mask_redis_url(redis_url: str) -> str:
     return urlunparse(parsed._replace(netloc=safe_netloc))
 
 
-def _promote_redis_url_to_tls(redis_url: str) -> str:
+def promote_redis_url_to_tls(redis_url: str) -> str:
     """Promote a ``redis://`` URL to ``rediss://`` for TLS connections.
 
     When mTLS is enabled, the Redis client requires the ``rediss://`` scheme
@@ -134,7 +134,7 @@ def _build_huey() -> Huey:
 
     extra_kwargs: dict[str, object] = {}
     if settings.mtls_enabled:
-        redis_url = _promote_redis_url_to_tls(redis_url)
+        redis_url = promote_redis_url_to_tls(redis_url)
         extra_kwargs["connection_kwargs"] = {
             "ssl_certfile": settings.mtls_client_cert_path,
             "ssl_keyfile": settings.mtls_client_key_path,

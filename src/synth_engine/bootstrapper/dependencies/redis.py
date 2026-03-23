@@ -15,7 +15,9 @@ mTLS configuration (T46.2)
 ---------------------------
 When ``MTLS_ENABLED=true``:
 
-- The ``redis://`` URL scheme is promoted to ``rediss://`` (TLS scheme).
+- The ``redis://`` URL scheme is promoted to ``rediss://`` (TLS scheme) using
+  the canonical :func:`synth_engine.shared.task_queue.promote_redis_url_to_tls`
+  helper (ADV-P47-02: single source of truth, no local duplication).
 - ``ssl_certfile``, ``ssl_keyfile``, ``ssl_ca_certs``, and
   ``ssl_cert_reqs="required"`` are passed to ``redis.Redis.from_url()``
   for mutual TLS authentication.
@@ -39,6 +41,7 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T45.1 — Reintroduce Idempotency Middleware (TBD-07)
 Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 Task: T47.8 — Add close_redis_client() for shutdown cleanup
+Advisory: ADV-P47-02 — Redis TLS URL promotion consolidated into shared/task_queue.py
 """
 
 from __future__ import annotations
@@ -46,32 +49,12 @@ from __future__ import annotations
 import redis as redis_lib
 
 from synth_engine.shared.settings import get_settings
+from synth_engine.shared.task_queue import promote_redis_url_to_tls
 
 #: Module-level singleton.  Initialized on first call to ``get_redis_client()``.
 #: redis.Redis is typed without type parameters as the installed stubs do not
 #: support generic subscripting for this version (redis-py 5.x).
 _client: redis_lib.Redis | None = None
-
-
-def _promote_redis_url_to_tls(redis_url: str) -> str:
-    """Promote a ``redis://`` URL to ``rediss://`` for TLS connections.
-
-    This is a local copy of the same helper in ``shared/task_queue.py``.
-    It is duplicated here rather than imported from that module because
-    importing a private function (underscore prefix) across module boundaries
-    creates a fragile coupling — a refactor of task_queue.py would silently
-    break this module.
-
-    Args:
-        redis_url: A Redis connection URL, e.g. ``redis://redis:6379/0``.
-
-    Returns:
-        The URL with ``redis://`` replaced by ``rediss://``, or the original
-        URL unchanged if it does not start with ``redis://``.
-    """
-    if redis_url.startswith("redis://"):
-        return "rediss://" + redis_url[len("redis://") :]
-    return redis_url
 
 
 def get_redis_client() -> redis_lib.Redis:
@@ -83,7 +66,8 @@ def get_redis_client() -> redis_lib.Redis:
     Redis is temporarily unavailable.
 
     When ``MTLS_ENABLED=true``, the URL scheme is promoted to ``rediss://``
-    and TLS client certificate parameters are passed to the constructor.
+    using the canonical helper from ``shared/task_queue`` and TLS client
+    certificate parameters are passed to the constructor.
 
     Returns:
         A ``redis.Redis`` client connected to the configured Redis URL.
@@ -95,7 +79,7 @@ def get_redis_client() -> redis_lib.Redis:
 
         tls_kwargs: dict[str, object] = {}
         if settings.mtls_enabled:
-            url = _promote_redis_url_to_tls(url)
+            url = promote_redis_url_to_tls(url)
             tls_kwargs = {
                 "ssl_certfile": settings.mtls_client_cert_path,
                 "ssl_keyfile": settings.mtls_client_key_path,
