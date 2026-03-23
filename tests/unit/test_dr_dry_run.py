@@ -148,10 +148,7 @@ class TestDrScenarios:
         """
         text = _script_text()
         has_redis_set = "redis-cli" in text and "SET" in text
-        has_redis_stop = (
-            "docker compose stop redis" in text
-            or "docker-compose stop redis" in text
-        )
+        has_redis_stop = "docker compose stop redis" in text or "docker-compose stop redis" in text
         assert has_redis_set, "Scenario 3 missing: no redis-cli SET invocation"
         assert has_redis_stop, "Scenario 3 missing: no 'docker compose stop redis' invocation"
 
