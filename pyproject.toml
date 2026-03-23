@@ -152,6 +152,27 @@ sdv = {version = ">=1.17.0,<2.0.0", python = ">=3.14,<3.15"}
 # Added in T4.3b (ADR-0017: CTGAN + Opacus DP path).
 opacus = ">=1.4.0,<2.0.0"
 
+# ---------------------------------------------------------------------------
+# Demos group — T52.1 (Demo & Benchmark Suite)
+# Install with: poetry install --with dev,demos
+#
+# Rationale for each dependency:
+#   matplotlib   — 2-D plotting for epsilon/quality curves and heat maps
+#   seaborn      — Statistical visualisation built on matplotlib
+#   jupyter      — Notebook server and kernel for interactive demos
+#   scikit-learn — KS statistic, chi-squared, MAE via sklearn.metrics
+#   nbstripout   — Strips notebook output before commit (pre-commit hook)
+# ---------------------------------------------------------------------------
+[tool.poetry.group.demos]
+optional = true
+
+[tool.poetry.group.demos.dependencies]
+matplotlib = "^3.9"
+seaborn = "^0.13"
+jupyter = "^1.0"
+scikit-learn = "^1.5"
+nbstripout = "^0.7"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
@@ -293,6 +314,7 @@ markers = [
     "synthesizer: Synthesizer integration tests requiring the synthesizer dependency group (SDV, torch, Opacus)",
     "slow: marks tests as slow-running (for local filtering, not automatically excluded in CI)",
     "sunset_phase_38: Tests scheduled for removal evaluation at Phase 38 (scaffolding-removal guards that pass permanently)",
+    "cpu_only: Tests requiring deterministic CPU execution (not safe on GPU due to non-determinism)",
 ]
 filterwarnings = [
     # Baseline: all warnings are errors — future regressions fail the build.
