@@ -123,8 +123,6 @@ def _handle_dp_accounting(
             (Constitution Priority 0: security over availability).
         AuditWriteError: Raised when the WORM audit write fails after a
             successful budget deduction — the operator must reconcile manually.
-        Exception: Any unexpected exception from ``spend_budget_fn`` propagates
-            to the caller (fail-closed: T50.1 / ADR-0050).
     """
     # Late import: avoids circular dependency with job_orchestration and
     # ensures we read the live (potentially patched) module-level bindings.

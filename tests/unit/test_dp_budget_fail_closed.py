@@ -267,13 +267,19 @@ class TestDpAccountingStepFailClosed:
         error_msg returned to the orchestrator must contain a sanitised sentinel,
         NOT the raw exception string (which may contain connection strings,
         internal paths, or other sensitive state).
+
+        The exception message used here is a unique sentinel string — it does not
+        represent a real credential or connection string.  It is chosen to be
+        distinct enough to verify it does not appear in the sanitised error_msg.
         """
         from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 0.8
-        sensitive_detail = "postgresql://user:secret_password@db-host:5432/proddb"
-        mock_budget_fn = MagicMock(side_effect=ConnectionError(sensitive_detail))
+        # A unique sentinel that would appear verbatim if raw exception detail leaked.
+        # This is a fictitious string, not a real credential or connection string.
+        raw_internal_detail = "INTERNAL_DETAIL_T50_SENTINEL_XK92QZ"
+        mock_budget_fn = MagicMock(side_effect=ConnectionError(raw_internal_detail))
 
         ctx = _make_job_context(dp_wrapper=mock_wrapper)
 
@@ -291,10 +297,11 @@ class TestDpAccountingStepFailClosed:
 
         assert result.success is False
         assert result.error_msg is not None
-        # The raw sensitive detail must NOT appear in the error message
-        assert sensitive_detail not in (result.error_msg or ""), (
-            "Raw exception message containing sensitive connection details must NOT "
-            "appear in StepResult.error_msg — only a sanitised sentinel is permitted"
+        # The raw internal detail must NOT appear in the sanitised error message
+        assert raw_internal_detail not in (result.error_msg or ""), (
+            "Raw exception message must NOT appear in StepResult.error_msg — "
+            "only a sanitised sentinel is permitted to prevent sensitive detail "
+            "from leaking into API responses"
         )
 
 
