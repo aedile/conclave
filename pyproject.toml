@@ -493,8 +493,6 @@ do_not_mutate = [
     "src/synth_engine/modules/subsetting/**/*",
     "src/synth_engine/modules/synthesizer/*",
     "src/synth_engine/modules/synthesizer/**/*",
-    "src/synth_engine/shared/audit.py",
-    "src/synth_engine/shared/audit_anchor.py",
 ]
 tests_dir = ["tests/unit/"]
 pytest_add_cli_args = [
