@@ -640,6 +640,99 @@ This warning is advisory — the application starts regardless.  Operators
 should review their deployment if this warning appears in production logs.
 
 
+## Appendix B — X-Forwarded-For Trust Model and Rate Limiting Security (ADV-P48-01)
+
+### B.1 Security Requirement
+
+The Conclave Engine's rate limiter trusts the **first (leftmost) entry** of the
+``X-Forwarded-For`` header to identify the real client IP address for pre-authentication
+endpoints (``/unseal``, ``/auth/token``).  This trust model is only correct when a
+**trusted reverse proxy** stands in front of the application and sets or overwrites the
+``X-Forwarded-For`` header with the actual client IP.
+
+**Without a correctly configured reverse proxy, rate limiting can be bypassed** by any
+client that crafts a spoofed ``X-Forwarded-For`` header:
+
+```http
+X-Forwarded-For: 1.2.3.4
+```
+
+A client sending this header would be rate-limited under IP ``1.2.3.4`` regardless of
+their actual IP address — allowing unlimited brute-force attempts against ``/unseal`` or
+``/auth/token`` from a single host.
+
+### B.2 Required Reverse Proxy Configuration
+
+A trusted reverse proxy MUST be deployed in front of the Conclave Engine.  The proxy
+MUST be configured to **strip any client-supplied ``X-Forwarded-For`` header** and
+replace it with the actual client IP (from the TCP connection).
+
+The nginx template in §2.1 satisfies this requirement with:
+
+```nginx
+proxy_set_header X-Forwarded-For   $remote_addr;
+```
+
+The ``$remote_addr`` nginx variable is the IP address from the TCP connection to nginx —
+it cannot be spoofed by the client.  This directive **overwrites** any
+``X-Forwarded-For`` header the client sends before passing the request to the Conclave
+application.
+
+**Equivalent configuration for other reverse proxies:**
+
+| Proxy | Directive |
+|-------|-----------|
+| nginx | ``proxy_set_header X-Forwarded-For $remote_addr;`` |
+| HAProxy | ``http-request set-header X-Forwarded-For %[src]`` |
+| Traefik | Add ``X-Forwarded-For`` stripping in middleware; Traefik sets it from the real connection |
+| Caddy | ``header_up X-Forwarded-For {remote_host}`` |
+
+In all cases, confirm the proxy does **not** append to an existing
+``X-Forwarded-For`` header — it must **replace** it.
+
+### B.3 Affected Rate Limit Tiers
+
+The ``X-Forwarded-For`` trust model applies specifically to the two pre-authentication
+rate limit tiers where no JWT Bearer token is present:
+
+| Endpoint | Limit | Key Source |
+|----------|-------|------------|
+| ``/unseal`` | 5 requests/minute | Client IP from ``X-Forwarded-For`` (first entry) |
+| ``/auth/token`` | 10 requests/minute | Client IP from ``X-Forwarded-For`` (first entry) |
+
+All other endpoints use the JWT ``sub`` claim as the rate limit key (not the IP), so the
+``X-Forwarded-For`` trust model does not affect them.
+
+### B.4 Graceful Degradation Warning
+
+If the reverse proxy is absent and a client omits ``X-Forwarded-For`` entirely, the
+rate limiter falls back to ``request.client.host`` (the ASGI server's view of the
+client socket).  This is the correct IP when the Conclave application directly accepts
+connections, but direct exposure of port 8000 is prohibited by §3.2 for unrelated
+security reasons (no TLS).
+
+**Do not rely on this fallback.** Always deploy behind a reverse proxy as required by
+§2.1 and §3.2.
+
+### B.5 Deployment Verification
+
+After deploying the reverse proxy, verify the trust model is working:
+
+```bash
+# Attempt to spoof X-Forwarded-For — should NOT bypass rate limits
+curl -H "X-Forwarded-For: 10.0.0.1" http://localhost:8000/health
+# The reverse proxy should overwrite this header before it reaches the app.
+
+# Verify the nginx config is active
+nginx -T | grep "X-Forwarded-For"
+# Expected: proxy_set_header X-Forwarded-For $remote_addr;
+```
+
+If ``X-Forwarded-For: 10.0.0.1`` is visible in the application's access logs unchanged,
+the reverse proxy is **not** stripping client-supplied headers and rate limiting is
+bypassable.
+
+
 ## References
 
 - `docs/OPERATOR_MANUAL.md` — Day-to-day operational procedures
