@@ -101,6 +101,11 @@ chromadb = "^1.5.5"
 datamodel-code-generator = ">=0.50.0,<1.0.0"
 # Property-based testing for unit tests (T19.3). Dev group — runs in tests/unit/.
 hypothesis = "^6.151.9"
+# mutmut: mutation testing for security-critical modules (T49.5).
+# ADR-0047 mandates mutation testing on shared/security/ and modules/privacy/.
+# Target modules are configured in [tool.mutmut] below.  The [tool.mutmut]
+# runner uses `python -m pytest` which invokes the poetry-managed interpreter.
+mutmut = "^3.5.0"
 
 # ---------------------------------------------------------------------------
 # Integration group — NOT included by default; wired in Task 2.2
@@ -440,3 +445,21 @@ check-return-types = false
 check-class-attributes = false
 require-return-section-when-returning-nothing = false
 require-yield-section-when-yielding-nothing = false
+
+# ---------------------------------------------------------------------------
+# Mutmut — Mutation Testing (T49.5, ADR-0047)
+#
+# Scope: security-critical modules only — shared/security/ and modules/privacy/.
+# These are the modules mandated by ADR-0047 and Constitution Priority 4.
+#
+# Runner uses `python -m pytest` to invoke the poetry-managed interpreter.
+# -x: stop on first failure per mutant (faster feedback loop).
+# -q: suppress verbose output per mutant (reduces log volume).
+# --tb=no: suppress tracebacks per mutant (faster; errors are expected).
+# tests_dir: unit tests only — integration tests require live PostgreSQL and
+# are too slow for per-mutant execution.
+# ---------------------------------------------------------------------------
+[tool.mutmut]
+paths_to_mutate = "src/synth_engine/shared/security/,src/synth_engine/modules/privacy/"
+tests_dir = "tests/unit/"
+runner = "python -m pytest tests/unit/ -x -q --tb=no --no-header --no-cov"

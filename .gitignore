@@ -95,3 +95,6 @@ sbom.json
 
 # pytest coverage temp files
 .coverage.*
+
+# mutmut mutation testing cache — regenerated every test run
+.mutmut-cache
