@@ -10,6 +10,17 @@ For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`
 
 ---
 
+## Phase 51 — Release Engineering (T51.2)
+*2026-03-23 | PR TBD*
+
+- Added `.github/workflows/release.yml`: three-job release pipeline triggered on `v*` tag pushes.
+  Jobs: `validate-tag` (semver format check, version export) → `build-release` (Docker image,
+  air-gap bundle, CycloneDX SBOM, sha256sums) → `publish-release` (GitHub Release with all assets).
+  All six `uses:` references SHA-pinned per T3.5.1 supply-chain hardening. Permissions scoped
+  per-job; only `publish-release` has `contents: write` (T51.2).
+- Added `tests/unit/test_release_workflow.py`: 21 structural and security tests for the workflow
+  YAML covering SHA-pinning, job dependencies, trigger isolation, and artifact flow.
+
 ## Phase 50 — Production Security Fixes (in progress)
 *2026-03-23 | PR TBD*
 
