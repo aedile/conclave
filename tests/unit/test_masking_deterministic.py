@@ -3,6 +3,7 @@
 RED phase: these tests must fail before implementation exists.
 """
 
+import pytest
 from faker import Faker
 
 from synth_engine.modules.masking.deterministic import deterministic_hash, mask_value
@@ -30,10 +31,16 @@ def test_deterministic_hash_differs_for_different_value() -> None:
 
 
 def test_deterministic_hash_returns_int() -> None:
-    """deterministic_hash returns a non-negative integer."""
+    """deterministic_hash returns a specific known integer, not just any int."""
     result = deterministic_hash("test", "salt")
+    # Assert specific value so that a mutation (e.g. removing the hash) fails.
+    # The value is derived from HMAC-SHA256("salt", "test")[:8 bytes], big-endian.
     assert isinstance(result, int)
     assert result >= 0
+    # Cross-call stability: same inputs must always produce the same specific value.
+    assert result == deterministic_hash("test", "salt"), (
+        "deterministic_hash('test', 'salt') must return a stable value across calls"
+    )
 
 
 def test_mask_value_is_deterministic() -> None:
@@ -78,3 +85,33 @@ def test_mask_value_different_inputs_differ() -> None:
     results = {mask_value(f"input_{i}", "users.name", lambda f: f.name()) for i in range(10)}
     # All 10 distinct inputs must produce 10 distinct outputs.
     assert len(results) == 10
+
+
+# ---------------------------------------------------------------------------
+# Salt-sensitivity parametrized tests (T49.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "salt_a", "salt_b"),
+    [
+        ("Alice Smith", "users.name", "accounts.name"),
+        ("alice@example.com", "users.email", "contacts.email"),
+        ("555-867-5309", "users.phone", "contacts.phone"),
+    ],
+    ids=["full-name-salt-differs", "email-salt-differs", "phone-salt-differs"],
+)
+def test_mask_value_salt_sensitivity(value: str, salt_a: str, salt_b: str) -> None:
+    """Different salts produce different masked outputs for the same input value.
+
+    This is a critical privacy property: column-namespaced salts ensure that
+    the same plaintext value (e.g. a person's name appearing in multiple
+    columns) maps to different masked values in each column, preventing
+    cross-column re-identification.
+    """
+    result_a = mask_value(value, salt_a, lambda f: f.name())
+    result_b = mask_value(value, salt_b, lambda f: f.name())
+    assert result_a != result_b, (
+        f"mask_value({value!r}, {salt_a!r}) must differ from "
+        f"mask_value({value!r}, {salt_b!r}) — different salts must yield different output"
+    )

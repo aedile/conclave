@@ -3,6 +3,7 @@
 Tests follow TDD RED phase — all tests must fail before implementation.
 
 Task: P5-T5.1 — Task Orchestration API Core
+Task: T49.2 — Replace isinstance/existence assertions with specific field value checks
 CONSTITUTION Priority 3: TDD — RED phase
 """
 
@@ -60,8 +61,13 @@ class TestSettingsCRUD:
     """CRUD tests for the /settings endpoints."""
 
     @pytest.mark.asyncio
-    async def test_list_settings_returns_200(self) -> None:
-        """GET /settings must return HTTP 200 with items list."""
+    async def test_list_settings_returns_empty_items_on_fresh_db(self) -> None:
+        """GET /settings must return HTTP 200 with an empty items list on a fresh database.
+
+        Hardened from T49.2: previously asserted only 'items' in response.json().
+        Now asserts the exact shape and value: items must be a list and must be
+        empty when no settings have been stored yet.
+        """
         app = _make_settings_app()
 
         with (
@@ -80,11 +86,49 @@ class TestSettingsCRUD:
                 response = await client.get("/settings")
 
         assert response.status_code == 200
-        assert "items" in response.json()
+        body = response.json()
+        assert "items" in body
+        assert body["items"] == [], f"Expected empty items list on fresh DB, got: {body['items']!r}"
 
     @pytest.mark.asyncio
-    async def test_upsert_setting_returns_200(self) -> None:
-        """PUT /settings/{key} must return HTTP 200 with the upserted value."""
+    async def test_list_settings_returns_previously_stored_settings(self) -> None:
+        """GET /settings returns all stored settings with correct key/value pairs.
+
+        Verifies that list returns the exact settings previously upserted,
+        not just any non-empty list.
+        """
+        app = _make_settings_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.put("/settings/color_scheme", json={"value": "dark"})
+                response = await client.get("/settings")
+
+        assert response.status_code == 200
+        body = response.json()
+        items = body["items"]
+        assert len(items) == 1
+        assert items[0]["key"] == "color_scheme"
+        assert items[0]["value"] == "dark"
+
+    @pytest.mark.asyncio
+    async def test_upsert_setting_returns_key_and_value(self) -> None:
+        """PUT /settings/{key} must return HTTP 200 with the exact key and value upserted.
+
+        Hardened from T49.2: previously only checked response.status_code == 200.
+        Now asserts the response body contains the correct key and value fields.
+        """
         app = _make_settings_app()
 
         with (
@@ -106,6 +150,41 @@ class TestSettingsCRUD:
                 )
 
         assert response.status_code == 200
+        body = response.json()
+        assert body["key"] == "max_epochs", f"Expected key='max_epochs', got {body.get('key')!r}"
+        assert body["value"] == "300", f"Expected value='300', got {body.get('value')!r}"
+
+    @pytest.mark.asyncio
+    async def test_upsert_setting_updates_existing_value(self) -> None:
+        """PUT /settings/{key} on an existing key updates the value (upsert semantics).
+
+        Verifies that a second PUT on the same key replaces the stored value,
+        not duplicates it.
+        """
+        app = _make_settings_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.put("/settings/batch_size", json={"value": "32"})
+                response = await client.put("/settings/batch_size", json={"value": "64"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["key"] == "batch_size"
+        assert body["value"] == "64", (
+            f"Upsert must overwrite previous value; expected '64', got {body.get('value')!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_get_setting_returns_value(self) -> None:
@@ -177,3 +256,34 @@ class TestSettingsCRUD:
                 response = await client.delete("/settings/to_delete")
 
         assert response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_delete_then_get_setting_returns_404(self) -> None:
+        """Deleting a setting then GETting it returns 404 (T49.2).
+
+        Verifies that delete has a real effect: the setting is gone from
+        the database, not just marked deleted.
+        """
+        app = _make_settings_app()
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+                return_value=False,
+            ),
+            patch(
+                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.put("/settings/ephemeral_key", json={"value": "to_be_deleted"})
+                await client.delete("/settings/ephemeral_key")
+                response = await client.get("/settings/ephemeral_key")
+
+        assert response.status_code == 404, (
+            "Setting must not be retrievable after deletion; "
+            f"expected 404, got {response.status_code}"
+        )
