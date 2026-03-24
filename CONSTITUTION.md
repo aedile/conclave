@@ -50,7 +50,7 @@ This section governs how you write and manage code.
    - You _WILL_ maintain a comprehensive test suite with **95%+ test coverage**.
    - No regressions _WILL_ be introduced. All existing tests _MUST_ pass before your work on a task is considered finished.
    - Tests _MUST_ contain at least one specific value assertion per test function. Assertions that only check truthiness (`is not None`), type (`isinstance`), or existence (`in`) without also asserting a specific expected value are insufficient as the sole assertion in any test.
-   - Mutation testing (`mutmut`) _MUST_ achieve the configured mutation score threshold on security-critical modules (`shared/security/`, `modules/privacy/`). Initial threshold: 60%, targeting 70% by Phase 55.
+   - Mutation testing (`cosmic-ray`) _MUST_ achieve the configured mutation score threshold on security-critical modules (`shared/security/`, `modules/privacy/`). Initial threshold: 60%, targeting 70% by Phase 55. See ADR-0054 for tool adoption rationale.
 5. **Code Quality (Priority 5):**
    - You _WILL_ write clean, maintainable, efficient, and well-factored code.
    - You _WILL_ adhere to all existing coding standards, style guides, and architectural patterns of the project.

@@ -3,6 +3,35 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-24] Phase 53 — Review Summary
+
+**Reviewers**: QA, DevOps, Architecture (×2), Red-team (×2)
+
+**Verdicts**: QA — FINDING (1); DevOps — PASS; Architecture — PASS (1 ADVISORY);
+Red-team — PASS (0 BLOCKERs, ADVISORIEs only)
+
+**FINDINGs fixed in review commit** (`45e6298`):
+1. Tautological assert in `test_audit_hmac_details.py:290` — `v1_hex_part == v2_hex_part`
+   compared a variable to itself. Removed vacuous assertion, consolidated to single variable.
+2. `-> Any` return type on `auth_app` fixture and 10 function params in
+   `test_all_routes_require_auth.py` — replaced with `FastAPI`.
+3. Unreachable `except ImportError: pass` in `clear_settings_cache` fixture — replaced
+   with unconditional imports.
+
+**ADVISORIEs resolved in review commit**:
+- ADR-0047 stale mutmut reference — amendment note added referencing ADR-0054.
+- `session.sqlite` not in `.gitignore` — added.
+
+**New ADVISORIEs logged** (from red-team/architecture reviews):
+- ADV-P53-01: HMAC pipe-delimiter injection — structural collision possible if fields
+  contain `|`. Mitigated: fields are system-controlled. Future hardening item.
+- ADV-P53-02: v1 signature still accepted with no deprecation timeline. Future: log
+  WARNING on v1 verify, deprecate by Phase 60.
+- ADV-P53-03: cosmic-ray test-command uses hardcoded test file list — maintenance
+  concern if new security test files are added without updating cosmic-ray.toml.
+
+---
+
 ### [2026-03-24] T53.4 — Redis TLS Promotion Deduplication
 
 **Task**: Consolidate Redis TLS URL promotion into a single shared utility and
@@ -66,6 +95,9 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P52-06~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~Dead `"safe_load"` filter logic fixed at `test_benchmark_infrastructure.py` — RESOLVED in P53.~~ |
 | ~~ADV-P52-07~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~README metrics updated to current counts — RESOLVED in P53.~~ |
 | ~~ADV-P52-08~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~Stale branches and worktrees cleaned — RESOLVED in P53.~~ |
+| ADV-P53-01 | Red-Team P53 | — | ADVISORY | HMAC pipe-delimiter injection — structural collision if fields contain `|`. Fields are system-controlled; future hardening: length-prefixed encoding. |
+| ADV-P53-02 | Red-Team P53 | — | ADVISORY | v1 HMAC signature still accepted with no deprecation timeline. Future: log WARNING on v1 verify, deprecate by Phase 60. |
+| ADV-P53-03 | Arch P53 | — | ADVISORY | cosmic-ray test-command uses hardcoded test file list — new security test files must be manually added to cosmic-ray.toml. |
 
 ---
 
