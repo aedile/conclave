@@ -138,4 +138,13 @@ echo ""
 echo "Next steps:"
 echo "  1. Run: poetry lock --no-update   (to refresh the lock file)"
 echo "  2. Run: git add -p && git commit  (to commit the version bump)"
-echo "  3. Tag:  git tag v${NEW_VERSION%rc*}-rc.${NEW_VERSION##*rc}  (semver tag, if applicable)"
+# Emit the correct git tag hint depending on whether this is an RC release.
+# ADV-P51-02: the old expansion v${NEW_VERSION%rc*}-rc.${NEW_VERSION##*rc}
+# produced v1.0.0-rc.1.0.0 for stable versions. Use a conditional instead.
+if [[ "${NEW_VERSION}" =~ rc[0-9]+$ ]]; then
+    RC_NUM="${NEW_VERSION##*rc}"
+    BASE="${NEW_VERSION%rc*}"
+    echo "  3. Tag:  git tag v${BASE}-rc.${RC_NUM}  (semver pre-release tag)"
+else
+    echo "  3. Tag:  git tag v${NEW_VERSION}"
+fi

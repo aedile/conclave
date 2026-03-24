@@ -6,6 +6,7 @@ This module validates:
 - Permissions are scoped per-job (not a global write block).
 - Job dependency chain is correctly wired (build-release needs validate-tag, etc.).
 - Negative cases: missing keys, unpinned actions, forbidden global write perms.
+- Tag regex is end-anchored to reject arbitrary suffixes (ADV-P51-01).
 
 Implementation note — PyYAML `on` keyword coercion:
   PyYAML's `safe_load` converts the bare YAML keyword `on` to Python `True`
@@ -19,6 +20,7 @@ Implementation note — PyYAML `on` keyword coercion:
 Google-style docstrings are applied throughout.
 
 T51.2 — GitHub Actions Release Workflow
+ADV-P51-01 — Tag regex end-anchor fix
 """
 
 from __future__ import annotations
@@ -40,6 +42,11 @@ WORKFLOW_PATH = Path(__file__).parents[2] / ".github" / "workflows" / "release.y
 # Acceptable: <owner>/<repo>@<40-hex-chars>
 # Rejected:   @main, @master, @v4, @v4.2.2, @latest
 _SHA_RE = re.compile(r"^[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$")
+
+# The end-anchored tag validation regex required by ADV-P51-01.
+# Accepts: v1.0.0, v1.0.0-rc.1, v0.1.0-alpha.1
+# Rejects: v1.0.0.evil, v1.0.0-injected-payload (arbitrary suffixes beyond semver)
+_REQUIRED_TAG_REGEX = r"^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$"
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +96,24 @@ def _collect_uses_values(data: Any) -> list[str]:
         for item in data:
             results.extend(_collect_uses_values(item))
     return results
+
+
+def _extract_tag_regex_from_workflow() -> str | None:
+    """Extract the tag-validation regex string from the release workflow file.
+
+    Reads the raw workflow text and locates the grep -qE pattern used in the
+    validate-tag step. Returns the regex string (without surrounding quotes)
+    or None if not found.
+
+    Returns:
+        The regex pattern string, or None if the grep pattern is not found.
+    """
+    text = WORKFLOW_PATH.read_text(encoding="utf-8")
+    # Match: grep -qE '<pattern>' or grep -qE "<pattern>"
+    match = re.search(r"grep\s+-qE\s+['\"]([^'\"]+)['\"]", text)
+    if match:
+        return match.group(1)
+    return None
 
 
 # ===========================================================================
@@ -282,6 +307,51 @@ class TestReleaseWorkflowSecurity:
             f"Step names found: {step_names}. "
             "Add a step that verifies the tag matches v<semver> pattern."
         )
+
+    def test_tag_regex_rejects_arbitrary_suffix(self) -> None:
+        """Tag validation regex must be end-anchored to reject arbitrary suffixes.
+
+        The unanchored pattern ``^v[0-9]+\\.[0-9]+\\.[0-9]+`` would accept
+        ``v1.0.0.evil`` and ``v1.0.0-injected-payload`` because it only
+        checks the prefix. The required pattern must end with ``$`` so that
+        tags with arbitrary trailing content are rejected.
+
+        ADV-P51-01: end-anchor the release tag validation regex.
+        """
+        tag_regex = _extract_tag_regex_from_workflow()
+        assert tag_regex is not None, (
+            "Could not find a grep -qE pattern in the release workflow. "
+            "The validate-tag step must use grep -qE '<pattern>' to validate tags."
+        )
+        compiled = re.compile(tag_regex)
+        rejected = ["v1.0.0.evil", "v1.0.0-injected-payload", "v1.0.0extra", "v1.0.0.0"]
+        for bad_tag in rejected:
+            assert not compiled.search(bad_tag), (
+                f"Tag regex '{tag_regex}' incorrectly accepted malformed tag '{bad_tag}'. "
+                "The regex must be end-anchored with '$' to reject arbitrary suffixes."
+            )
+
+    def test_tag_regex_accepts_valid_semver_prerelease(self) -> None:
+        """Tag validation regex must accept standard semver stable and pre-release tags.
+
+        The end-anchored regex must still accept the common valid forms:
+        ``v1.0.0`` (stable), ``v1.0.0-rc.1`` (release candidate),
+        and ``v1.0.0-alpha.1`` (alpha pre-release).
+
+        ADV-P51-01: verify valid tags are not rejected by the fixed regex.
+        """
+        tag_regex = _extract_tag_regex_from_workflow()
+        assert tag_regex is not None, (
+            "Could not find a grep -qE pattern in the release workflow. "
+            "The validate-tag step must use grep -qE '<pattern>' to validate tags."
+        )
+        compiled = re.compile(tag_regex)
+        accepted = ["v1.0.0", "v1.0.0-rc.1", "v1.0.0-alpha.1", "v2.3.4", "v0.1.0-beta.2"]
+        for good_tag in accepted:
+            assert compiled.search(good_tag), (
+                f"Tag regex '{tag_regex}' incorrectly rejected valid tag '{good_tag}'. "
+                "The regex must accept v<major>.<minor>.<patch> and semver pre-release forms."
+            )
 
 
 # ===========================================================================
