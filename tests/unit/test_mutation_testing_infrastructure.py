@@ -19,7 +19,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -27,7 +26,7 @@ import yaml
 REPO_ROOT = Path(__file__).parent.parent.parent
 
 
-@pytest.fixture()
+@pytest.fixture
 def cosmic_ray_config() -> dict:  # type: ignore[return]
     """Load and return the parsed cosmic-ray.toml config."""
     config_path = REPO_ROOT / "cosmic-ray.toml"
@@ -37,19 +36,15 @@ def cosmic_ray_config() -> dict:  # type: ignore[return]
     )
     with config_path.open("rb") as fh:
         raw = tomllib.load(fh)
-    assert "cosmic-ray" in raw, (
-        "cosmic-ray.toml must have a [cosmic-ray] section."
-    )
+    assert "cosmic-ray" in raw, "cosmic-ray.toml must have a [cosmic-ray] section."
     return raw["cosmic-ray"]
 
 
-@pytest.fixture()
+@pytest.fixture
 def ci_workflow() -> dict:  # type: ignore[return]
     """Load and return the parsed CI workflow YAML."""
     workflow_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-    assert workflow_path.exists(), (
-        f"CI workflow not found at {workflow_path}."
-    )
+    assert workflow_path.exists(), f"CI workflow not found at {workflow_path}."
     with workflow_path.open() as fh:
         data = yaml.safe_load(fh)
     return data  # type: ignore[return-value]
@@ -62,18 +57,14 @@ def ci_workflow() -> dict:  # type: ignore[return]
 
 def test_cosmic_ray_config_is_valid_toml(cosmic_ray_config: dict) -> None:
     """Config file parses as TOML without errors (validated by fixture load)."""
-    assert isinstance(cosmic_ray_config, dict), (
-        "Parsed [cosmic-ray] section must be a dict."
-    )
+    assert isinstance(cosmic_ray_config, dict), "Parsed [cosmic-ray] section must be a dict."
 
 
 def test_cosmic_ray_config_has_required_keys(cosmic_ray_config: dict) -> None:
     """Config must declare module-path, timeout, test-command, and distributor."""
     required_keys = {"module-path", "timeout", "test-command", "distributor"}
     missing = required_keys - cosmic_ray_config.keys()
-    assert not missing, (
-        f"cosmic-ray.toml [cosmic-ray] section is missing required keys: {missing}"
-    )
+    assert not missing, f"cosmic-ray.toml [cosmic-ray] section is missing required keys: {missing}"
 
 
 def test_cosmic_ray_distributor_is_local(cosmic_ray_config: dict) -> None:
@@ -124,11 +115,14 @@ def test_zero_mutant_guard_is_present() -> None:
     """
     script_path = REPO_ROOT / "scripts" / "check_mutation_score.py"
     assert script_path.exists(), (
-        "check_mutation_score.py must exist (checked by test_cosmic_ray_mutation_threshold_is_configured)."
+        "check_mutation_score.py must exist "
+        "(checked by test_cosmic_ray_mutation_threshold_is_configured)."
     )
     content = script_path.read_text()
     # The script must have an explicit zero-mutant guard
-    assert "zero" in content.lower() or "0 mutant" in content.lower() or "no mutant" in content.lower(), (
+    assert (
+        "zero" in content.lower() or "0 mutant" in content.lower() or "no mutant" in content.lower()
+    ), (
         "check_mutation_score.py must guard against 0-mutant sessions. "
         "A session with no mutants executed must fail loudly, not report 100% or 0%."
     )
@@ -146,9 +140,7 @@ def test_incomplete_run_detection_is_present() -> None:
     A partial session must fail the gate rather than reporting a misleading score.
     """
     script_path = REPO_ROOT / "scripts" / "check_mutation_score.py"
-    assert script_path.exists(), (
-        "check_mutation_score.py must exist."
-    )
+    assert script_path.exists(), "check_mutation_score.py must exist."
     content = script_path.read_text()
     # The script must check for pending/incomplete work
     assert "pending" in content.lower() or "incomplete" in content.lower(), (
@@ -210,9 +202,7 @@ def test_ci_mutation_job_runs_cosmic_ray(ci_workflow: dict) -> None:
     jobs = ci_workflow.get("jobs", {})
     mutation_job = jobs.get("mutation-test", {})
     steps = mutation_job.get("steps", [])
-    all_step_text = " ".join(
-        str(step.get("run", "")) for step in steps
-    )
+    all_step_text = " ".join(str(step.get("run", "")) for step in steps)
     assert "cosmic-ray" in all_step_text, (
         "mutation-test job must invoke 'cosmic-ray' in at least one step."
     )
@@ -248,14 +238,9 @@ def test_cosmic_ray_excluded_modules_skip_init_files(cosmic_ray_config: dict) ->
     testing real behavior. The excluded-modules list must prevent this.
     """
     excluded = cosmic_ray_config.get("excluded-modules", [])
-    assert isinstance(excluded, list), (
-        "excluded-modules must be a list."
-    )
+    assert isinstance(excluded, list), "excluded-modules must be a list."
     # At least one exclusion must target __init__ or init files
-    has_init_exclusion = any(
-        "__init__" in str(ex) or "init" in str(ex).lower()
-        for ex in excluded
-    )
+    has_init_exclusion = any("__init__" in str(ex) or "init" in str(ex).lower() for ex in excluded)
     assert has_init_exclusion, (
         "excluded-modules must exclude __init__ files from mutation scope. "
         "Mutating __init__.py produces noise without testing real behavior. "
@@ -283,9 +268,7 @@ def test_adr_0054_references_adr_0052() -> None:
     if not adr_path.exists():
         pytest.skip("ADR-0054 does not exist yet (RED phase).")
     content = adr_path.read_text()
-    assert "ADR-0052" in content, (
-        "ADR-0054 must reference ADR-0052 which it supersedes."
-    )
+    assert "ADR-0052" in content, "ADR-0054 must reference ADR-0052 which it supersedes."
 
 
 def test_adr_0052_status_is_superseded() -> None:

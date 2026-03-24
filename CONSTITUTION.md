@@ -109,7 +109,7 @@ This principle governs the Constitution itself and all future amendments.
 | 0 | Spec challenge | `spec-challenger` output incorporated before development — auditable in developer brief [ADVISORY — no programmatic gate: incorporation is convention-enforced only] |
 | 2.5 | Priority sequencing | spec-challenger priority-compliance sweep + PM phase-plan checklist |
 | 4 | Assertion quality | phase-boundary-auditor assertion-specificity sweep |
-| 4 | Mutation score | `mutmut run --paths-to-mutate=src/synth_engine/shared/security/ src/synth_engine/modules/privacy/` in CI |
+| 4 | Mutation score | `cosmic-ray init cosmic-ray.toml session.sqlite && cosmic-ray exec cosmic-ray.toml session.sqlite && python scripts/check_mutation_score.py session.sqlite` in CI — `mutation-test` job (ADR-0054, T53.1) |
 | 9 | UI/UX / Accessibility | `ui-ux-reviewer` agent spawned conditionally on frontend changes — findings committed |
 
 ## **Final Mandate: Conflict and Blockers**

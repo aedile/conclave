@@ -1,0 +1,78 @@
+# cosmic-ray.toml — Mutation Testing Configuration (T53.1)
+#
+# ADR-0054: cosmic-ray 8.4.4 adopted as the mutation testing tool for CPython 3.14.
+# ADR-0047: Initial threshold 60%, targeting 70% by Phase 55.
+#
+# Scope: security-critical modules only.
+#   - src/synth_engine/shared/security/  (vault, audit, HMAC, ALE, rotation, etc.)
+#   - src/synth_engine/modules/privacy/  (epsilon/delta accountant, DP engine, ledger)
+#
+# __init__.py files are excluded via excluded-modules glob patterns: they contain
+# only re-exports and produce noise mutations without testing real behavior.
+#
+# Distributor: "local" — subprocess-per-mutant isolation avoids the SIGSEGV that
+# afflicted mutmut 3.x's in-process trampoline on CPython 3.14 (see ADR-0052, ADR-0054).
+#
+# Timeout: 30 seconds per mutant. The test suite is fast (unit tests, no I/O).
+# If a mutant causes an infinite loop, it is killed after 30 seconds.
+#
+# test-command: runs only the unit tests covering the mutated modules. Integration
+# tests are excluded (they require PostgreSQL and take minutes each). The --no-cov
+# flag disables coverage collection during mutation runs for speed.
+#
+# Note: module-path is a FILESYSTEM PATH (directory or file), not a Python module name.
+# cosmic-ray 8.4.4 calls Path(module-path).exists() to resolve targets.
+
+[cosmic-ray]
+module-path = "src/synth_engine"
+python-version = ""
+timeout = 30
+excluded-modules = [
+    # Exclude trivial __init__.py re-export files — mutations here produce noise
+    "src/synth_engine/__init__.py",
+    "src/synth_engine/shared/__init__.py",
+    "src/synth_engine/shared/security/__init__.py",
+    "src/synth_engine/modules/__init__.py",
+    "src/synth_engine/modules/privacy/__init__.py",
+    # Exclude all non-security-critical modules from mutation scope.
+    # These are included via module-path to allow import resolution but
+    # must not receive mutations (per ADR-0047 scope mandate).
+    "src/synth_engine/bootstrapper/**/*.py",
+    "src/synth_engine/modules/ingestion/**/*.py",
+    "src/synth_engine/modules/mapping/**/*.py",
+    "src/synth_engine/modules/masking/**/*.py",
+    "src/synth_engine/modules/profiler/**/*.py",
+    "src/synth_engine/modules/subsetting/**/*.py",
+    "src/synth_engine/modules/synthesizer/**/*.py",
+    # Also exclude the bootstrapper and module top-level __init__.py files
+    "src/synth_engine/bootstrapper/__init__.py",
+    "src/synth_engine/modules/ingestion/__init__.py",
+    "src/synth_engine/modules/mapping/__init__.py",
+    "src/synth_engine/modules/masking/__init__.py",
+    "src/synth_engine/modules/profiler/__init__.py",
+    "src/synth_engine/modules/subsetting/__init__.py",
+    "src/synth_engine/modules/synthesizer/__init__.py",
+]
+test-command = """python -m pytest \
+    tests/unit/test_audit.py \
+    tests/unit/test_audit_anchor.py \
+    tests/unit/test_audit_anchor_attack.py \
+    tests/unit/test_audit_hmac_details.py \
+    tests/unit/test_ale.py \
+    tests/unit/test_ale_vault_dependency.py \
+    tests/unit/test_ale_vault_dependency_attack.py \
+    tests/unit/test_hmac_signing.py \
+    tests/unit/test_key_versioning.py \
+    tests/unit/test_mutation_hardening_t49_5.py \
+    tests/unit/test_privacy_accountant.py \
+    tests/unit/test_dp_accounting.py \
+    tests/unit/test_dp_budget_fail_closed.py \
+    tests/unit/test_rotation.py \
+    tests/unit/test_vault.py \
+    tests/unit/test_download_hmac_bypass.py \
+    tests/unit/test_download_hmac_signing.py \
+    -x -q --tb=no --no-header --no-cov \
+    -p no:randomly"""
+
+[cosmic-ray.distributor]
+name = "local"

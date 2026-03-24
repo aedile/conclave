@@ -113,6 +113,7 @@ mutmut = "^3.5.0"
 # Requires libpq (PostgreSQL client library) to be present on the host.
 # ---------------------------------------------------------------------------
 pydoclint = "^0.8.3"
+cosmic-ray = "^8.4.4"
 [tool.poetry.group.integration.dependencies]
 pytest-postgresql = "^7.0"
 
