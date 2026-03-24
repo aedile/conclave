@@ -277,3 +277,52 @@ def test_none_details_and_empty_dict_produce_different_signatures(
     assert logger_b.verify_event(fake_v1_event) is False, (
         "A v1: signature over empty details must NOT verify as a v2 event"
     )
+
+
+def test_verify_event_returns_false_when_details_cause_sign_v2_to_raise(
+    attack_logger: object,
+) -> None:
+    """The except ValueError: return False path in verify_event() must be exercised.
+
+    When a stored v2 event has been corrupted such that its details dict
+    would cause _sign_v2() to raise ValueError during re-signing (e.g.,
+    because the details JSON exceeds 64 KB after corruption), verify_event()
+    must return False rather than propagating the exception.
+
+    This test creates a valid v2 event, then constructs a corrupt copy with
+    an oversized details payload (exceeding the 64 KB guard) while keeping
+    the original v2: signature.  verify_event() will attempt _sign_v2() on
+    the corrupt details, hit the size guard ValueError, catch it, and return
+    False — covering the except branch at audit.py lines 328-329.
+    """
+    from synth_engine.shared.security.audit import AuditLogger
+
+    logger: AuditLogger = attack_logger  # type: ignore[assignment]
+
+    # 1. Create a valid v2 event with small, legitimate details.
+    event = logger.log_event(
+        event_type="CORRUPTION_TEST",
+        actor="system",
+        resource="store/event-db",
+        action="read",
+        details={"record_id": "abc123"},
+    )
+    assert event.signature.startswith("v2:"), "Precondition: event must carry a v2: signature"
+
+    # 2. Construct a details dict whose canonical JSON exceeds 64 KB.
+    #    Each entry contributes ~20 bytes; 4000 entries ≈ 80 KB of JSON.
+    #    This will trigger the size guard inside _sign_v2() during verification.
+    oversized_details: dict[str, str] = {f"key_{i:04d}": "x" * 10 for i in range(4000)}
+
+    # 3. Build a corrupt copy: retain the original v2: signature but swap in
+    #    the oversized details.  model_copy(update=...) is the Pydantic v2 way
+    #    to produce a new model instance with selective field overrides.
+    corrupt_event = event.model_copy(update={"details": oversized_details})
+
+    # 4. verify_event() must catch the ValueError from _sign_v2() and return
+    #    False — not raise, not crash.
+    result = logger.verify_event(corrupt_event)
+    assert result is False, (
+        "verify_event must return False (not raise) when _sign_v2 raises ValueError "
+        "due to oversized details after corruption"
+    )

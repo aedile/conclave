@@ -304,12 +304,13 @@ async def test_attack_trailing_slash_on_auth_route_returns_401(auth_app: FastAPI
             # follow_redirects=False so we see the raw 301/307 if there is one
             response = await client.get("/jobs/", follow_redirects=False)
 
-    # Must not be 200 or any auth-bypass status.
-    # 401 is ideal; 404 is acceptable if FastAPI doesn't know the path.
-    # The key invariant is: the response must NOT be 200.
-    assert response.status_code != 200, (
-        f"Trailing slash on /jobs/ must NOT return 200 without auth; "
-        f"got {response.status_code}: {response.text}"
+    # 401 is the expected response (auth rejection before routing).
+    # 404 is acceptable if FastAPI does not match the trailing-slash path.
+    # 500 (server error), 200 (auth bypass), and 307 (redirect that could
+    # bypass auth on the redirected request) are all unacceptable.
+    assert response.status_code in {401, 404}, (
+        f"Trailing slash on /jobs/ must return 401 or 404, not {response.status_code}; "
+        f"got: {response.text}"
     )
 
 
