@@ -8,7 +8,7 @@ Security posture of the Conclave Engine container deployment and host-level cont
 
 ### Requirement
 
-All directories backing Docker named volumes — in particular `chroma_data` and any path used for `data/` seed ingestion — MUST reside on a LUKS-encrypted block device.
+All directories backing Docker named volumes — in particular any path used for `data/` seed ingestion — MUST reside on a LUKS-encrypted block device.
 
 ### Rationale
 
@@ -31,7 +31,7 @@ mkfs.ext4 /var/lib/docker/volumes  # or a dedicated mountpoint
 #    (use a keyfile in a hardware security module for unattended boots)
 ```
 
-The Docker volume `chroma_data` uses the Docker daemon's `data-root` (`/var/lib/docker` by default). Ensure that path is on the encrypted device before starting the engine.
+Docker named volumes use the Docker daemon's `data-root` (`/var/lib/docker` by default). Ensure that path is on the encrypted device before starting the engine.
 
 ---
 
@@ -66,7 +66,7 @@ The container rootfs is mounted read-only (`read_only: true`). Writes are only p
 |-----------------|-----------|---------------------------------------|
 | `/tmp`          | tmpfs     | Temporary scratch files (max 64 MiB)  |
 | `/run/secrets`  | tmpfs     | Docker secrets (max 4 MiB, mode 0700) |
-| `/app/.chroma_data` | Named volume | ChromaDB vector store           |
+| `/app/logs`         | Named volume | Application logs (if enabled)   |
 
 An attacker achieving RCE cannot modify application binaries or configuration on the rootfs.
 
