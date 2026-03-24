@@ -5,6 +5,7 @@ Security-first attack tests verify that the notebook:
   - Contains no unsafe pickle.load() calls
   - Uses environment variables for all credentials
   - Commits with stripped outputs (nbstripout compliance)
+  - Validates table names before SQL interpolation (defense in depth)
 
 Feature tests verify that the notebook has the correct structure
 for data architects following the connect → synthesize → compare workflow.
@@ -29,6 +30,10 @@ import pytest
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _NOTEBOOK_PATH = _REPO_ROOT / "demos" / "quickstart.ipynb"
 _DEMOS_README_PATH = _REPO_ROOT / "demos" / "README.md"
+
+# Pattern used in scripts/benchmark_epsilon_curves.py:275 — the canonical
+# table name validation guard for this project.
+_TABLE_NAME_GUARD_PATTERN = r"re\.match\(r['\"]\\^[a-zA-Z0-9_]+\\\$['\"]"
 
 
 @pytest.fixture(scope="module")
@@ -217,6 +222,54 @@ def test_quickstart_uses_env_vars_for_credentials(
     assert signing_key_env, (
         "ARTIFACT_SIGNING_KEY is not referenced in notebook code cells. "
         "The signing key must be read from os.environ['ARTIFACT_SIGNING_KEY']."
+    )
+
+
+def test_quickstart_sql_table_name_validation(
+    code_source_lines: list[str],
+) -> None:
+    """Verify the notebook validates table names before SQL interpolation.
+
+    Defense-in-depth: even though table names come from inspector.get_table_names()
+    (server-reported, not user-controlled), an attacker who compromises the
+    database server or its metadata could inject a malicious table name through
+    the inspector. The notebook must validate each table name against
+    r'^[a-zA-Z0-9_]+$' before interpolating it into an f-string SQL query,
+    matching the guard in scripts/benchmark_epsilon_curves.py:275.
+
+    The guard must be present in the same cell as the SQL query. Tables whose
+    names fail the check must be skipped (not raise an unhandled exception).
+
+    Args:
+        code_source_lines: Source lines from code cells only.
+    """
+    full_code = "".join(code_source_lines)
+
+    # The validation guard must exist — check for re.match with the expected pattern
+    guard_present = bool(
+        re.search(r"re\.match\(r['\"][^'\"]*\^.*\$.*['\"]", full_code)
+    )
+    assert guard_present, (
+        "No re.match table-name validation guard found in notebook code cells. "
+        "Add a guard matching r'^[a-zA-Z0-9_]+$' before the SELECT COUNT(*) "
+        "f-string interpolation, following scripts/benchmark_epsilon_curves.py:275."
+    )
+
+    # The guard must specifically use the canonical alphanumeric pattern
+    canonical_guard = bool(
+        re.search(r"re\.match\(r['\"][^'\"]*\^.*a-zA-Z0-9_.*\$.*['\"]", full_code)
+    )
+    assert canonical_guard, (
+        "Table name validation guard does not use the canonical pattern "
+        "r'^[a-zA-Z0-9_]+$'. Use the same pattern as "
+        "scripts/benchmark_epsilon_curves.py:275."
+    )
+
+    # The notebook must import re in code cells
+    imports_re = bool(re.search(r"^\s*import re\s*$", full_code, re.MULTILINE))
+    assert imports_re, (
+        "No 'import re' found in notebook code cells. "
+        "The table name validation guard requires the re module."
     )
 
 
