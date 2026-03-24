@@ -79,9 +79,7 @@ class TestArtifactIntegrityAttacks:
         with pytest.raises(json.JSONDecodeError):
             json.loads(bad_artifact.read_text(encoding="utf-8"))
 
-    def test_artifact_with_missing_schema_version_fails_version_check(
-        self, tmp_path: Path
-    ) -> None:
+    def test_artifact_with_missing_schema_version_fails_version_check(self, tmp_path: Path) -> None:
         """An artifact dict without schema_version must not pass version check.
 
         Simulates a future backward-compatibility check: any artifact that
@@ -117,9 +115,7 @@ class TestArtifactIntegrityAttacks:
             "Test setup error: wall_time_seconds must be None for this negative case."
         )
 
-    def test_artifact_row_with_empty_hardware_fails_non_empty_check(
-        self, tmp_path: Path
-    ) -> None:
+    def test_artifact_row_with_empty_hardware_fails_non_empty_check(self, tmp_path: Path) -> None:
         """A result row with empty hardware metadata must fail the non-empty check.
 
         Verifies that the hardware-metadata assertion logic correctly detects
@@ -208,9 +204,7 @@ class TestResultsSchemaVersionPresent:
         Per the benchmark harness spec, each row carries its own
         schema_version for forward-compatibility.
         """
-        assert artifact_path.exists(), (
-            f"Benchmark artifact not found at {artifact_path}."
-        )
+        assert artifact_path.exists(), f"Benchmark artifact not found at {artifact_path}."
         artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
         rows: list[dict[str, object]] = artifact["rows"]
         assert len(rows) > 0, f"Artifact {artifact_path.name} contains no rows."
@@ -258,25 +252,20 @@ class TestResultsManifestContainsAllParameterGridCells:
         [_CUSTOMERS_ARTIFACT, _ORDERS_ARTIFACT],
         ids=["customers", "orders"],
     )
-    def test_results_manifest_contains_all_parameter_grid_cells(
-        self, artifact_path: Path
-    ) -> None:
+    def test_results_manifest_contains_all_parameter_grid_cells(self, artifact_path: Path) -> None:
         """Every grid cell must have a corresponding result row.
 
         Verifies that the benchmark ran to completion for all 6 cells
         (3 noise_multipliers x 2 epochs x 1 sample_size) and that no
         cell was silently skipped.
         """
-        assert artifact_path.exists(), (
-            f"Benchmark artifact not found at {artifact_path}."
-        )
+        assert artifact_path.exists(), f"Benchmark artifact not found at {artifact_path}."
         expected = self._expected_keys()
         actual = self._actual_keys(artifact_path)
 
         missing = expected - actual
         assert missing == set(), (
-            f"Artifact {artifact_path.name} is missing result rows for grid cells: "
-            + str(missing)
+            f"Artifact {artifact_path.name} is missing result rows for grid cells: " + str(missing)
         )
         assert len(actual) >= len(expected), (
             f"Artifact {artifact_path.name} has fewer rows ({len(actual)}) "
@@ -301,9 +290,7 @@ class TestWallTimeFieldPresentAndPositive:
         the benchmark harness.  Even for FAILED or TIMEOUT rows, the harness
         records elapsed time.
         """
-        assert artifact_path.exists(), (
-            f"Benchmark artifact not found at {artifact_path}."
-        )
+        assert artifact_path.exists(), f"Benchmark artifact not found at {artifact_path}."
         artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
         rows: list[dict[str, object]] = artifact["rows"]
         assert len(rows) > 0, f"Artifact {artifact_path.name} contains no rows."
@@ -316,17 +303,15 @@ class TestWallTimeFieldPresentAndPositive:
                     f"Row {i} (nm={row.get('noise_multiplier')}, "
                     f"epochs={row.get('epochs')}): wall_time_seconds is None"
                 )
-            elif not isinstance(wt, (int, float)):
+            elif not isinstance(wt, int | float):
                 violations.append(
                     f"Row {i}: wall_time_seconds is not numeric (got {type(wt).__name__})"
                 )
             elif float(wt) <= 0.0:
-                violations.append(
-                    f"Row {i}: wall_time_seconds={wt} is not positive"
-                )
+                violations.append(f"Row {i}: wall_time_seconds={wt} is not positive")
 
-        assert violations == [], (
-            f"Wall time violations in {artifact_path.name}:\n" + "\n".join(violations)
+        assert violations == [], f"Wall time violations in {artifact_path.name}:\n" + "\n".join(
+            violations
         )
 
 
@@ -338,18 +323,14 @@ class TestResultsHardwareMetadataPresentAndNonEmpty:
         [_CUSTOMERS_ARTIFACT, _ORDERS_ARTIFACT],
         ids=["customers", "orders"],
     )
-    def test_results_hardware_metadata_present_and_non_empty(
-        self, artifact_path: Path
-    ) -> None:
+    def test_results_hardware_metadata_present_and_non_empty(self, artifact_path: Path) -> None:
         """hardware dict must be present and contain at least one non-null entry.
 
         The hardware metadata records the execution environment for
         reproducibility analysis.  An absent or empty hardware dict means
         the benchmark produced results of unknown provenance.
         """
-        assert artifact_path.exists(), (
-            f"Benchmark artifact not found at {artifact_path}."
-        )
+        assert artifact_path.exists(), f"Benchmark artifact not found at {artifact_path}."
         artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
         rows: list[dict[str, object]] = artifact["rows"]
         assert len(rows) > 0, f"Artifact {artifact_path.name} contains no rows."
@@ -364,19 +345,14 @@ class TestResultsHardwareMetadataPresentAndNonEmpty:
                 )
                 continue
             if not isinstance(hw, dict):
-                violations.append(
-                    f"Row {i}: hardware is not a dict (got {type(hw).__name__})"
-                )
+                violations.append(f"Row {i}: hardware is not a dict (got {type(hw).__name__})")
                 continue
             non_null_values = [v for v in hw.values() if v is not None]
             if not non_null_values:
-                violations.append(
-                    f"Row {i}: hardware dict has no non-null values: {hw}"
-                )
+                violations.append(f"Row {i}: hardware dict has no non-null values: {hw}")
 
         assert violations == [], (
-            f"Hardware metadata violations in {artifact_path.name}:\n"
-            + "\n".join(violations)
+            f"Hardware metadata violations in {artifact_path.name}:\n" + "\n".join(violations)
         )
 
 
@@ -384,7 +360,7 @@ class TestResultsColumnNamesMatchFixture:
     """Result rows must reference only sample_data/ fixture column names."""
 
     @pytest.mark.parametrize(
-        "artifact_path,expected_columns",
+        ("artifact_path", "expected_columns"),
         [
             (
                 _CUSTOMERS_ARTIFACT,
@@ -405,9 +381,7 @@ class TestResultsColumnNamesMatchFixture:
         Verifies that the benchmark ran against the correct sample_data/ file
         and that no column name drift has occurred.
         """
-        assert artifact_path.exists(), (
-            f"Benchmark artifact not found at {artifact_path}."
-        )
+        assert artifact_path.exists(), f"Benchmark artifact not found at {artifact_path}."
         artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
         rows: list[dict[str, object]] = artifact["rows"]
 

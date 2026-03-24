@@ -1,0 +1,281 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-03-23T23:57:55.325128+00:00",
+  "run_count": 6,
+  "rows": [
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-23T23:56:25.093653+00:00",
+      "noise_multiplier": 1.0,
+      "epochs": 50,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 39.986521554036976,
+      "wall_time_seconds": 10.674,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8375197.117
+        },
+        "first_name": {
+          "chi2_pvalue": 0.6451371680390372
+        },
+        "last_name": {
+          "chi2_pvalue": 0.12122121584019242
+        },
+        "email": {
+          "chi2_pvalue": 0.49578420300301407
+        },
+        "ssn": {
+          "chi2_pvalue": 0.4894866615843932
+        },
+        "phone": {
+          "chi2_pvalue": 1.0
+        },
+        "address": {
+          "chi2_pvalue": 1.0
+        },
+        "created_at": {
+          "chi2_pvalue": 4.378601365999581e-103
+        }
+      },
+      "correlation_matrix_delta": 0.0,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-23T23:56:35.776663+00:00",
+      "noise_multiplier": 1.0,
+      "epochs": 100,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "FAILED",
+      "actual_epsilon": null,
+      "wall_time_seconds": 12.183,
+      "column_metrics": null,
+      "correlation_matrix_delta": null,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": "BudgetExhaustionError",
+      "error_message": "Differential privacy budget exhausted. Synthesis job cannot proceed."
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-23T23:56:47.960913+00:00",
+      "noise_multiplier": 5.0,
+      "epochs": 50,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 4.4980903720884715,
+      "wall_time_seconds": 10.415,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8375197.117
+        },
+        "first_name": {
+          "chi2_pvalue": 0.6451371680390372
+        },
+        "last_name": {
+          "chi2_pvalue": 0.12122121584019242
+        },
+        "email": {
+          "chi2_pvalue": 0.49578420300301407
+        },
+        "ssn": {
+          "chi2_pvalue": 0.4894866615843932
+        },
+        "phone": {
+          "chi2_pvalue": 1.0
+        },
+        "address": {
+          "chi2_pvalue": 1.0
+        },
+        "created_at": {
+          "chi2_pvalue": 4.378601365999581e-103
+        }
+      },
+      "correlation_matrix_delta": 0.0,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-23T23:56:58.381488+00:00",
+      "noise_multiplier": 5.0,
+      "epochs": 100,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 6.711508627594921,
+      "wall_time_seconds": 20.587,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8375197.117
+        },
+        "first_name": {
+          "chi2_pvalue": 0.6451371680390372
+        },
+        "last_name": {
+          "chi2_pvalue": 0.12122121584019242
+        },
+        "email": {
+          "chi2_pvalue": 0.49578420300301407
+        },
+        "ssn": {
+          "chi2_pvalue": 0.4894866615843932
+        },
+        "phone": {
+          "chi2_pvalue": 1.0
+        },
+        "address": {
+          "chi2_pvalue": 1.0
+        },
+        "created_at": {
+          "chi2_pvalue": 4.378601365999581e-103
+        }
+      },
+      "correlation_matrix_delta": 0.0,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-23T23:57:18.974754+00:00",
+      "noise_multiplier": 10.0,
+      "epochs": 50,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 2.025391884006023,
+      "wall_time_seconds": 12.142,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8375197.117
+        },
+        "first_name": {
+          "chi2_pvalue": 0.6451371680390372
+        },
+        "last_name": {
+          "chi2_pvalue": 0.12122121584019242
+        },
+        "email": {
+          "chi2_pvalue": 0.49578420300301407
+        },
+        "ssn": {
+          "chi2_pvalue": 0.4894866615843932
+        },
+        "phone": {
+          "chi2_pvalue": 1.0
+        },
+        "address": {
+          "chi2_pvalue": 1.0
+        },
+        "created_at": {
+          "chi2_pvalue": 4.378601365999581e-103
+        }
+      },
+      "correlation_matrix_delta": 0.0,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-23T23:57:31.122678+00:00",
+      "noise_multiplier": 10.0,
+      "epochs": 100,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 2.9779446938705156,
+      "wall_time_seconds": 24.197,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8375197.117
+        },
+        "first_name": {
+          "chi2_pvalue": 0.6451371680390372
+        },
+        "last_name": {
+          "chi2_pvalue": 0.12122121584019242
+        },
+        "email": {
+          "chi2_pvalue": 0.49578420300301407
+        },
+        "ssn": {
+          "chi2_pvalue": 0.4894866615843932
+        },
+        "phone": {
+          "chi2_pvalue": 1.0
+        },
+        "address": {
+          "chi2_pvalue": 1.0
+        },
+        "created_at": {
+          "chi2_pvalue": 4.378601365999581e-103
+        }
+      },
+      "correlation_matrix_delta": 0.0,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    }
+  ]
+}

@@ -1,0 +1,265 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-03-24T00:00:27.856482+00:00",
+  "run_count": 6,
+  "rows": [
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-23T23:59:34.752023+00:00",
+      "noise_multiplier": 1.0,
+      "epochs": 50,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 24.63848576362625,
+      "wall_time_seconds": 11.49,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8374447.117
+        },
+        "customer_id": {
+          "ks_statistic": 0.9554,
+          "mae": 489.394
+        },
+        "order_date": {
+          "chi2_pvalue": 0.0
+        },
+        "total_amount": {
+          "ks_statistic": 0.988,
+          "mae": 1225.678162
+        },
+        "status": {
+          "chi2_pvalue": 0.6442254109862205
+        }
+      },
+      "correlation_matrix_delta": 1.3148112175246243,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-23T23:59:46.279063+00:00",
+      "noise_multiplier": 1.0,
+      "epochs": 100,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 38.1817079566473,
+      "wall_time_seconds": 20.921,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8374447.117
+        },
+        "customer_id": {
+          "ks_statistic": 0.8336,
+          "mae": 466.345
+        },
+        "order_date": {
+          "chi2_pvalue": 0.0
+        },
+        "total_amount": {
+          "ks_statistic": 0.9996,
+          "mae": 1229.107032
+        },
+        "status": {
+          "chi2_pvalue": 0.16124789359933786
+        }
+      },
+      "correlation_matrix_delta": 1.0030358749738835,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-24T00:00:07.233502+00:00",
+      "noise_multiplier": 5.0,
+      "epochs": 50,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 2.6807109988734084,
+      "wall_time_seconds": 3.472,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8374447.117
+        },
+        "customer_id": {
+          "ks_statistic": 0.9764,
+          "mae": 491.611
+        },
+        "order_date": {
+          "chi2_pvalue": 0.0
+        },
+        "total_amount": {
+          "ks_statistic": 0.9924,
+          "mae": 1225.370762
+        },
+        "status": {
+          "chi2_pvalue": 0.40127115559808424
+        }
+      },
+      "correlation_matrix_delta": 1.3223159651761556,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-24T00:00:10.741159+00:00",
+      "noise_multiplier": 5.0,
+      "epochs": 100,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 3.9495025469411256,
+      "wall_time_seconds": 6.855,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8374447.117
+        },
+        "customer_id": {
+          "ks_statistic": 0.8414,
+          "mae": 468.334
+        },
+        "order_date": {
+          "chi2_pvalue": 0.0
+        },
+        "total_amount": {
+          "ks_statistic": 0.9328,
+          "mae": 1206.6582119999998
+        },
+        "status": {
+          "chi2_pvalue": 0.8700305756223621
+        }
+      },
+      "correlation_matrix_delta": 1.390918797903945,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-24T00:00:17.629008+00:00",
+      "noise_multiplier": 10.0,
+      "epochs": 50,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 1.2238226770256178,
+      "wall_time_seconds": 3.591,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8374447.117
+        },
+        "customer_id": {
+          "ks_statistic": 0.9852,
+          "mae": 493.164
+        },
+        "order_date": {
+          "chi2_pvalue": 0.0
+        },
+        "total_amount": {
+          "ks_statistic": 0.9968,
+          "mae": 1226.1528119999998
+        },
+        "status": {
+          "chi2_pvalue": 0.8764556925888064
+        }
+      },
+      "correlation_matrix_delta": 1.2556360579801753,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "schema_version": "1.0",
+      "run_timestamp": "2026-03-24T00:00:21.253305+00:00",
+      "noise_multiplier": 10.0,
+      "epochs": 100,
+      "sample_size": 1000,
+      "seed": 42,
+      "status": "COMPLETED",
+      "actual_epsilon": 1.7863963636688434,
+      "wall_time_seconds": 6.57,
+      "column_metrics": {
+        "id": {
+          "ks_statistic": 1.0,
+          "mae": 8374447.117
+        },
+        "customer_id": {
+          "ks_statistic": 0.86,
+          "mae": 470.50600000000003
+        },
+        "order_date": {
+          "chi2_pvalue": 0.0
+        },
+        "total_amount": {
+          "ks_statistic": 0.94,
+          "mae": 1207.681232
+        },
+        "status": {
+          "chi2_pvalue": 0.6730315803801317
+        }
+      },
+      "correlation_matrix_delta": 1.388871145527962,
+      "fk_orphan_rate": null,
+      "hardware": {
+        "cpu_model": "arm",
+        "ram_gb": 24.0,
+        "cpu_count": 10,
+        "os": "Darwin 24.5.0",
+        "gpu_available": false,
+        "gpu_name": null
+      },
+      "error_type": null,
+      "error_message": null
+    }
+  ]
+}
