@@ -1,12 +1,20 @@
 """Mutation testing infrastructure tests (T53.1).
 
 Validates that the cosmic-ray configuration is present, valid, correctly scoped,
-and that the CI workflow includes a properly-guarded mutation testing gate.
+and that the local tooling (cosmic-ray.toml, check_mutation_score.py) is correctly
+configured for PM-gated local runs.
+
+Mutation testing runs locally as a PM gate before merge. GitHub Actions shared
+runners cannot complete 789 mutants within a reasonable timeout (ADR-0054,
+amended 2026-03-24). The CI mutation-test job has been removed; cosmic-ray runs
+are verified by the PM locally using:
+  cosmic-ray init cosmic-ray.toml session.sqlite
+  cosmic-ray exec cosmic-ray.toml session.sqlite
+  python scripts/check_mutation_score.py session.sqlite
 
 Attack/negative test cases (per spec-challenger):
   - Zero-mutant case must fail loudly (not silently claim 100% on 0 mutants)
   - Incomplete run detection must be wired (pending work == incomplete)
-  - CI timeout budget must be enforced (max 45 minutes)
   - Module scope must cover all .py files in shared/security/ and modules/privacy/
     (excluding trivial __init__.py)
 
@@ -17,7 +25,6 @@ import tomllib
 from pathlib import Path
 
 import pytest
-import yaml
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,16 +45,6 @@ def cosmic_ray_config() -> dict:  # type: ignore[return]
         raw = tomllib.load(fh)
     assert "cosmic-ray" in raw, "cosmic-ray.toml must have a [cosmic-ray] section."
     return raw["cosmic-ray"]
-
-
-@pytest.fixture
-def ci_workflow() -> dict:  # type: ignore[return]
-    """Load and return the parsed CI workflow YAML."""
-    workflow_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-    assert workflow_path.exists(), f"CI workflow not found at {workflow_path}."
-    with workflow_path.open() as fh:
-        data = yaml.safe_load(fh)
-    return data  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -85,8 +82,9 @@ def test_cosmic_ray_distributor_is_local(cosmic_ray_config: dict) -> None:
 def test_cosmic_ray_mutation_threshold_is_configured() -> None:
     """A mutation-score threshold script/checker must exist and enforce >= 60%.
 
-    The threshold is enforced by a helper script invoked from CI after exec.
-    This test verifies the script exists and contains the correct threshold value.
+    The threshold is enforced by a helper script invoked locally by the PM
+    after exec.  This test verifies the script exists and contains the
+    correct threshold value.
     """
     script_path = REPO_ROOT / "scripts" / "check_mutation_score.py"
     assert script_path.exists(), (
@@ -145,71 +143,7 @@ def test_incomplete_run_detection_is_present() -> None:
     # The script must check for pending/incomplete work
     assert "pending" in content.lower() or "incomplete" in content.lower(), (
         "check_mutation_score.py must detect incomplete runs (pending mutants). "
-        "A partial session must fail the CI gate."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Test: CI workflow includes mutation testing gate
-# ---------------------------------------------------------------------------
-
-
-def test_ci_workflow_has_mutation_testing_job(ci_workflow: dict) -> None:
-    """CI workflow must have a mutation-test job."""
-    jobs = ci_workflow.get("jobs", {})
-    assert "mutation-test" in jobs, (
-        "ci.yml must contain a 'mutation-test' job. "
-        "T53.1 requires the mutation gate to be wired into CI."
-    )
-
-
-def test_ci_mutation_job_has_timeout(ci_workflow: dict) -> None:
-    """CI mutation job must have a timeout-minutes set to <= 45.
-
-    Timeout raised from 30 to 45 minutes to fit 789 mutants within CI budget.
-    Per-mutant timeout reduced to 10s (from 30s) so worst-case serial time drops
-    from 395 min to ~131 min; in practice killed mutants finish in <2 seconds.
-    """
-    jobs = ci_workflow.get("jobs", {})
-    mutation_job = jobs.get("mutation-test", {})
-    timeout = mutation_job.get("timeout-minutes")
-    assert timeout is not None, (
-        "mutation-test job must have 'timeout-minutes' set. "
-        "CI timeout budget: max 45 minutes for mutation gate."
-    )
-    assert isinstance(timeout, int), (
-        f"timeout-minutes must be an integer, got {type(timeout).__name__}"
-    )
-    assert timeout <= 45, (
-        f"mutation-test timeout-minutes must be <= 45 (got {timeout}). "
-        "CI budget raised to 45m to accommodate 789 mutants at 10s per-mutant timeout."
-    )
-
-
-def test_ci_mutation_job_depends_on_test(ci_workflow: dict) -> None:
-    """Mutation job must depend on the test job (run after unit tests pass)."""
-    jobs = ci_workflow.get("jobs", {})
-    mutation_job = jobs.get("mutation-test", {})
-    needs = mutation_job.get("needs", [])
-    if isinstance(needs, str):
-        needs = [needs]
-    assert "test" in needs or "lint" in needs, (
-        "mutation-test job must depend on 'test' or 'lint' to run after quality gates. "
-        f"Got needs: {needs}"
-    )
-
-
-def test_ci_mutation_job_runs_cosmic_ray(ci_workflow: dict) -> None:
-    """Mutation job steps must invoke cosmic-ray exec and check_mutation_score.py."""
-    jobs = ci_workflow.get("jobs", {})
-    mutation_job = jobs.get("mutation-test", {})
-    steps = mutation_job.get("steps", [])
-    all_step_text = " ".join(str(step.get("run", "")) for step in steps)
-    assert "cosmic-ray" in all_step_text, (
-        "mutation-test job must invoke 'cosmic-ray' in at least one step."
-    )
-    assert "check_mutation_score" in all_step_text, (
-        "mutation-test job must invoke check_mutation_score.py for threshold enforcement."
+        "A partial session must fail the local gate."
     )
 
 
@@ -352,28 +286,38 @@ def test_constitution_references_cosmic_ray() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test: mutation job is non-blocking (continue-on-error: true)
+# Test: mutation testing is configured as a local PM gate, not CI
 # ---------------------------------------------------------------------------
 
 
-def test_ci_mutation_job_is_non_blocking(ci_workflow: dict) -> None:
-    """Mutation job must have continue-on-error: true.
+def test_constitution_mutation_gate_is_local_not_ci() -> None:
+    """CONSTITUTION.md enforcement row must state mutation testing is a local PM gate.
 
-    789 mutants with subprocess-per-mutant isolation exceeds the GitHub Actions
-    45-minute CI budget on shared runners. Setting continue-on-error: true keeps
-    the job visible (results still appear in the Actions UI) without blocking
-    downstream jobs or the overall workflow status.
-
-    This is a temporary measure documented by the TODO in ci.yml. The long-term
-    fix is to narrow the mutation scope or switch to a parallel distributor
-    (ADR-0054 §Risks).
+    After ADR-0054 amendment (2026-03-24), mutation testing moved from the CI
+    mutation-test job to a local PM gate due to GitHub Actions budget constraints.
+    The enforcement table must reflect this.
     """
-    jobs = ci_workflow.get("jobs", {})
-    mutation_job = jobs.get("mutation-test", {})
-    continue_on_error = mutation_job.get("continue-on-error")
-    assert continue_on_error is True, (
-        "mutation-test job must have 'continue-on-error: true'. "
-        "789 mutants exceed the GitHub Actions 45-minute budget on shared runners. "
-        "The job must remain visible without blocking the workflow. "
-        "See TODO in ci.yml and ADR-0054 §Risks."
+    constitution_path = REPO_ROOT / "CONSTITUTION.md"
+    assert constitution_path.exists(), "CONSTITUTION.md must exist."
+    content = constitution_path.read_text()
+    assert "locally" in content or "local" in content, (
+        "CONSTITUTION.md mutation score row must state that cosmic-ray runs locally "
+        "as a PM gate. ADR-0054 (amended 2026-03-24): moved from CI to local gate."
+    )
+
+
+def test_ci_workflow_does_not_contain_mutation_test_job() -> None:
+    """ci.yml must NOT contain a mutation-test job.
+
+    After ADR-0054 amendment (2026-03-24), the mutation-test CI job was removed.
+    GitHub Actions shared runners cannot complete 789 mutants within a reasonable
+    timeout. cosmic-ray runs locally; PM verifies score before merge.
+    """
+    workflow_path = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+    assert workflow_path.exists(), f"CI workflow not found at {workflow_path}."
+    content = workflow_path.read_text()
+    assert "mutation-test:" not in content, (
+        "ci.yml must NOT contain a 'mutation-test:' job. "
+        "ADR-0054 (amended 2026-03-24): mutation testing moved to local PM gate. "
+        "GitHub Actions shared runners cannot complete 789 mutants within budget."
     )

@@ -1,10 +1,34 @@
 # ADR-0054: Adopt cosmic-ray as Mutation Testing Tool — Supersedes ADR-0052
 
-**Status**: Accepted
+**Status**: Accepted (Amended 2026-03-24)
 **Date**: 2026-03-24
 **Deciders**: PM, Engineering team
 **Task**: T53.1 — Mutation Testing: Evaluate cosmic-ray, Adopt or Fallback
 **Supersedes**: ADR-0052 (mutmut / Python 3.14 Compatibility Gap)
+
+---
+
+## Amendment — 2026-03-24: Move Mutation Testing to Local PM Gate
+
+**Amended by**: PM (Phase 53 advisory drain)
+
+GitHub Actions shared runners cannot complete 789 mutants within a reasonable
+timeout. Empirical CI runs showed consistent timeout failures at the 45-minute
+limit. The `mutation-test` CI job has been removed from `.github/workflows/ci.yml`.
+
+**New enforcement model**: cosmic-ray runs locally before every merge. The PM
+executes the full three-step gate:
+
+    cosmic-ray init cosmic-ray.toml session.sqlite
+    cosmic-ray exec cosmic-ray.toml session.sqlite
+    python scripts/check_mutation_score.py session.sqlite
+
+The 60% threshold (ADR-0047), zero-mutant guard, and incomplete-run detection
+remain unchanged — they are enforced by `scripts/check_mutation_score.py`.
+The `cosmic-ray.toml` config and `scripts/check_mutation_score.py` are
+retained for local use.
+
+CONSTITUTION.md Priority 4 enforcement row updated to reflect the local gate.
 
 ---
 
@@ -76,9 +100,9 @@ Specifically:
    - `src/synth_engine/modules/privacy/` (epsilon/delta accountant, DP engine)
    Trivial `__init__.py` files are excluded via `excluded-modules` glob patterns.
 
-3. **Wire `cosmic-ray` as a blocking CI gate** in `.github/workflows/ci.yml`
-   as the `mutation-test` job, with a 15-minute timeout budget (spec-challenger
-   requirement), running after the unit test job passes.
+3. **Run `cosmic-ray` as a local PM gate** before every merge (see Amendment
+   above). The CI mutation-test job was removed due to GitHub Actions budget
+   constraints. The PM runs init/exec/check_mutation_score.py locally.
 
 4. **Enforce the 60% threshold** (ADR-0047) via `scripts/check_mutation_score.py`,
    which also provides:
@@ -86,7 +110,8 @@ Specifically:
    - Incomplete run detection: fails if pending mutants remain after `exec`.
 
 5. **Update CONSTITUTION.md** Priority 4 enforcement row: replace `mutmut run`
-   command with `cosmic-ray init + exec + check_mutation_score.py`.
+   command with `cosmic-ray init + exec + check_mutation_score.py`, noting
+   local execution.
 
 6. **Update ADR-0052 status** to `Superseded by ADR-0054`.
 
@@ -97,8 +122,8 @@ Specifically:
 ### Positive
 
 - **Mutation score is now programmatically enforced.** Constitution Priority 4's
-  mutation gate is no longer advisory-only. The CI gate will block merges that
-  cause the mutation score to drop below 60%.
+  mutation gate is no longer advisory-only. The PM local gate verifies score
+  before merge.
 - **No SIGSEGV on Python 3.14.** The subprocess-per-mutant approach is
   intrinsically safe on any CPython version that supports standard subprocess
   spawning.
@@ -110,31 +135,16 @@ Specifically:
 ### Negative / Constraints
 
 - **Slower than mutmut (when mutmut works).** Spawning a new subprocess per
-  mutant adds overhead vs. mutmut's in-process injection. With 1260 mutants and
-  a 30-second timeout, worst-case wall time is ~10 hours. In practice, the test
-  suite is fast and each mutant completes in < 5 seconds. The CI timeout of 15
-  minutes is enforced — jobs that exceed this are killed and treated as
-  incomplete (guard in `check_mutation_score.py`).
-- **Full run may exceed 15-minute CI budget.** If the full 1260-mutant run
-  cannot complete in 15 minutes, the CI job will fail due to timeout. The
-  threshold script's incomplete-run guard will report this clearly. Mitigation:
-  the mutation scope may be narrowed to a smaller module subset, or the timeout
-  increased, in a follow-up ADR if runtime data shows consistent timeout failures.
+  mutant adds overhead vs. mutmut's in-process injection. With 789 mutants and
+  a 10-second timeout, worst-case wall time is ~131 minutes. In practice, the
+  test suite is fast and each mutant completes in < 5 seconds.
+- **CI no longer runs mutation testing.** The gate relies on PM discipline
+  rather than automated CI enforcement. This is a trade-off accepted due to
+  GitHub Actions budget constraints. The PM must not skip this gate before
+  merge.
 - **`mutmut` config remains in `pyproject.toml`.** The `[tool.mutmut]` block is
   preserved in case upstream `mutmut` adds Python 3.14 support. It does not
   affect CI (no `mutmut` CI step) but adds minor config noise.
-
-### Timeout Risk and Mitigation
-
-The 15-minute CI budget is tight for 1260 mutants. Mitigation strategies if
-the CI gate consistently times out:
-
-1. Narrow the `test-command` to only the tests most directly exercising
-   `shared/security/` and `modules/privacy/`.
-2. Increase `timeout-minutes` in ci.yml (requires PM approval and Constitution
-   table update).
-3. Narrow the `module-path` scope to exclude less-critical files within the
-   two security packages (requires a follow-up ADR per PM Rule 6).
 
 ---
 
@@ -162,6 +172,13 @@ Monitor upstream mutmut and re-evaluate when Python 3.14 support lands.
 meaningful scores. Waiting further delays the Constitution Priority 4 gate
 with no benefit.
 
+### 4. Keep mutation-test in CI with continue-on-error
+
+Retain the CI job but with `continue-on-error: true` indefinitely. **Rejected**:
+this gives false confidence that the gate is enforced. A non-blocking CI job
+that routinely times out provides no mutation quality signal. A local PM gate
+with real enforcement is preferable to a CI job that never completes.
+
 ---
 
 ## References
@@ -170,7 +187,7 @@ with no benefit.
 - ADR-0052: mutmut / Python 3.14 Compatibility Gap (superseded by this ADR)
 - `cosmic-ray.toml`: project root config file (T53.1)
 - `scripts/check_mutation_score.py`: threshold enforcement script (T53.1)
-- `.github/workflows/ci.yml`: `mutation-test` CI job (T53.1)
-- CONSTITUTION.md Priority 4: Comprehensive Testing (enforcement table updated T53.1)
+- `.github/workflows/ci.yml`: mutation-test job removed (Amendment 2026-03-24)
+- CONSTITUTION.md Priority 4: Comprehensive Testing (enforcement table updated T53.1, amended 2026-03-24)
 - `tests/unit/test_mutation_testing_infrastructure.py`: infrastructure tests (T53.1)
 - PM Rule 6: Technology substitution requires ADR (this ADR satisfies that rule)

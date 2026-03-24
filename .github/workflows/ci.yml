@@ -14,6 +14,13 @@
 # To update an action: look up the new tag's commit SHA via
 #   gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object.sha'
 # then replace both the SHA and the version comment below.
+#
+# Mutation testing (cosmic-ray) runs LOCALLY as a PM gate, not in CI.
+# GitHub Actions shared runners cannot complete 789 mutants within a
+# reasonable timeout. See ADR-0054 (amended 2026-03-24) for rationale.
+# Local run: cosmic-ray init cosmic-ray.toml session.sqlite &&
+#             cosmic-ray exec cosmic-ray.toml session.sqlite &&
+#             python scripts/check_mutation_score.py session.sqlite
 
 name: CI
 
@@ -157,73 +164,6 @@ jobs:
           --cov=src/synth_engine
           --cov-report=term-missing
           --cov-fail-under=95
-
-  # ---------------------------------------------------------------------------
-  # Mutation testing — cosmic-ray on security-critical modules (T53.1)
-  #
-  # Scope: shared/security/ and modules/privacy/ (ADR-0047, ADR-0054).
-  # Tool:  cosmic-ray 8.4.4 — subprocess-per-mutant; no SIGSEGV on CPython 3.14
-  #        (contrast: mutmut 3.x crashed with SIGSEGV on every mutant — ADR-0052).
-  # Threshold: 60% mutation score (ADR-0047); enforced by check_mutation_score.py.
-  #
-  # Spec-challenger guards (T53.1):
-  #   - Zero-mutant guard: check_mutation_score.py fails loudly on 0 mutants.
-  #   - Incomplete run detection: fails if any mutants remain pending after exec.
-  #   - CI timeout budget: max 45 minutes (timeout-minutes: 45).
-  #
-  # Runs after unit tests pass (needs: test). Does NOT block integration-test
-  # or sbom — those run in parallel after unit tests.
-  # ---------------------------------------------------------------------------
-  mutation-test:
-    name: Mutation Testing (cosmic-ray, Python 3.14)
-    runs-on: ubuntu-latest
-    needs: test
-    timeout-minutes: 45
-    # TODO: optimize mutation scope or use parallel distributor to fit within CI budget (ADR-0054 §Risks)
-    continue-on-error: true
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.14"
-
-      - name: Install Poetry
-        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
-        with:
-          version: "2.2.1"
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Cache Poetry virtualenv
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
-          restore-keys: venv-${{ runner.os }}-py3.14-
-
-      - name: Install dependencies
-        run: poetry install --with dev
-
-      - name: Initialize cosmic-ray session
-        run: poetry run cosmic-ray init cosmic-ray.toml session.sqlite
-
-      - name: Run mutation testing
-        run: poetry run cosmic-ray exec cosmic-ray.toml session.sqlite
-
-      - name: Check mutation score (threshold 60%, ADR-0047)
-        run: poetry run python scripts/check_mutation_score.py session.sqlite
-
-      - name: Upload session artifact on failure
-        if: failure()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: cosmic-ray-session
-          path: session.sqlite
-          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Integration tests — pytest-postgresql in pg_ctl process mode
