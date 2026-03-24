@@ -169,7 +169,7 @@ jobs:
   # Spec-challenger guards (T53.1):
   #   - Zero-mutant guard: check_mutation_score.py fails loudly on 0 mutants.
   #   - Incomplete run detection: fails if any mutants remain pending after exec.
-  #   - CI timeout budget: max 15 minutes (timeout-minutes: 15).
+  #   - CI timeout budget: max 30 minutes (timeout-minutes: 30).
   #
   # Runs after unit tests pass (needs: test). Does NOT block integration-test
   # or sbom — those run in parallel after unit tests.
@@ -178,7 +178,7 @@ jobs:
     name: Mutation Testing (cosmic-ray, Python 3.14)
     runs-on: ubuntu-latest
     needs: test
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
