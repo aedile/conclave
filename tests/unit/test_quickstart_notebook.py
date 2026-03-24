@@ -246,9 +246,7 @@ def test_quickstart_sql_table_name_validation(
     full_code = "".join(code_source_lines)
 
     # The validation guard must exist — check for re.match with the expected pattern
-    guard_present = bool(
-        re.search(r"re\.match\(r['\"][^'\"]*\^.*\$.*['\"]", full_code)
-    )
+    guard_present = bool(re.search(r"re\.match\(r['\"][^'\"]*\^.*\$.*['\"]", full_code))
     assert guard_present, (
         "No re.match table-name validation guard found in notebook code cells. "
         "Add a guard matching r'^[a-zA-Z0-9_]+$' before the SELECT COUNT(*) "
