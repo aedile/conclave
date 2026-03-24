@@ -147,18 +147,14 @@ def test_training_data_no_hardcoded_credentials() -> None:
     all_sources = " ".join(_all_cell_sources(nb))
 
     # Forbidden: postgresql://user:password@host style DSN with credentials
-    credential_dsn_pattern = re.compile(
-        r"postgresql://[^@\s]+:[^@\s]+@", re.IGNORECASE
-    )
+    credential_dsn_pattern = re.compile(r"postgresql://[^@\s]+:[^@\s]+@", re.IGNORECASE)
     assert not credential_dsn_pattern.search(all_sources), (
         "Notebook contains a hardcoded DSN with embedded credentials "
         "(postgresql://user:pass@host). Use os.environ.get('DATABASE_URL') instead."
     )
 
     # Forbidden: password='...' or password="..." literal assignments
-    hardcoded_password_pattern = re.compile(
-        r"""password\s*=\s*['"][^'"]{4,}['"]""", re.IGNORECASE
-    )
+    hardcoded_password_pattern = re.compile(r"""password\s*=\s*['"][^'"]{4,}['"]""", re.IGNORECASE)
     assert not hardcoded_password_pattern.search(all_sources), (
         "Notebook contains a hardcoded password literal assignment. "
         "Use environment variables for all credentials."
@@ -208,8 +204,7 @@ def test_training_data_no_cell_outputs() -> None:
 
     assert not violations, (
         "Notebook has non-empty cell outputs or execution counts. "
-        "Run `nbstripout demos/training_data.ipynb` before committing.\n"
-        + "\n".join(violations)
+        "Run `nbstripout demos/training_data.ipynb` before committing.\n" + "\n".join(violations)
     )
 
 
@@ -263,9 +258,10 @@ def test_training_data_has_model_selection_section() -> None:
     assert "roc-auc" in markdown_text or "roc_auc" in markdown_text or "auc" in markdown_text, (
         "Model Selection section must name the evaluation metric (ROC-AUC)."
     )
-    assert "80" in markdown_text and "20" in markdown_text, (
+    assert "80" in markdown_text, (
         "Model Selection section must state the 80/20 train/test split ratio."
     )
+    assert "20" in markdown_text, "Model Selection section must state the 20% test split ratio."
 
 
 def test_training_data_has_limitations_section() -> None:
@@ -356,9 +352,7 @@ def test_training_data_has_utility_curve_section() -> None:
         or "tradeoff" in markdown_text
         or "trade-off" in markdown_text
     )
-    assert has_heading, (
-        "Notebook must have a utility curve or privacy-utility tradeoff section."
-    )
+    assert has_heading, "Notebook must have a utility curve or privacy-utility tradeoff section."
 
     # Must reference multiple epsilon/noise levels
     code_sources = " ".join(_code_cell_sources(nb))
