@@ -104,7 +104,7 @@ This principle governs the Constitution itself and all future amendments.
 | 6 | Documentation currency | `docs-gate` CI job — every PR branch must contain a `docs:` commit |
 | 7 | Retrospectives | `docs: update RETRO_LOG` commit required per task — auditable in git log |
 | 8 | Project management | Task tracker updated per task; PM verifies at phase kickoff |
-| 0 | Auth coverage | `red-team-reviewer` on every phase [ADVISORY — no programmatic gate: `test_all_routes_require_auth()` does not exist] |
+| 0 | Auth coverage | `test_all_routes_require_auth()` in `tests/integration/` — enumerates all routes, asserts 401 on every non-exempt (path, method) pair (T53.3) |
 | 0 | Attack test coverage | `test: add negative/attack tests` commit required before `test: add failing tests` — auditable in git log [ADVISORY — no programmatic gate: commit ordering is convention-enforced only] |
 | 0 | Spec challenge | `spec-challenger` output incorporated before development — auditable in developer brief [ADVISORY — no programmatic gate: incorporation is convention-enforced only] |
 | 2.5 | Priority sequencing | spec-challenger priority-compliance sweep + PM phase-plan checklist |
