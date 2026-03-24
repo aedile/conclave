@@ -323,7 +323,12 @@ class TestGenerateFiguresProducesExpectedOutputs:
         without depending on pre-existing state in demos/figures/.
 
         The script must accept an --output-dir argument for testability.
+
+        Skipped when matplotlib is not installed (e.g., in the base CI
+        environment that does not install the ``demos`` optional dependency
+        group).
         """
+        pytest.importorskip("matplotlib")
         assert _SCRIPT_PATH.exists(), f"Script not found: {_SCRIPT_PATH}"
 
         result = subprocess.run(
