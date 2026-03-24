@@ -1,0 +1,14 @@
+{
+  "noise_multiplier": [
+    1.0,
+    5.0,
+    10.0
+  ],
+  "epochs": [
+    50,
+    100
+  ],
+  "sample_size": [
+    1000
+  ]
+}

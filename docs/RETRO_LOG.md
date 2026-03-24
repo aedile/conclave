@@ -32,6 +32,8 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P49-03~~ | ~~DevOps P49~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutmut CI gate not wired into `.github/workflows/ci.yml`. Blocked by ADV-T49-01 (Python 3.14 segfault). RESOLVED by ADR-0052 (gate deferred until upstream mutmut supports Python 3.14).~~ |
 | ~~ADV-P51-01~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~Release tag regex not end-anchored — RESOLVED in P52 (release.yml grep pattern end-anchored with `$`)~~ |
 | ~~ADV-P51-02~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~bump_version.sh tag hint unconditionally applies RC transform to stable versions — RESOLVED in P52 (conditional tag hint)~~ |
+| ADV-P52-01 | Arch T52.2 review | — | ADVISORY | `_DP_EPSILON_DELTA` private symbol consumed by demo code outside production boundary — should be exposed as a public constant. |
+| ADV-P52-02 | DevOps T52.2 review | — | ADVISORY | CI gap: ruff/bandit not covering `demos/` directory. Pre-existing, documented in ADR-0053. |
 
 ---
 
@@ -90,6 +92,61 @@ test_benchmark_run_produces_identical_metrics_given_fixed_seed
 Integration tests: 212 passed, 17 skipped.
 
 **Open advisory count at T52.1**: 0 open advisories.
+
+---
+
+### [2026-03-23] Phase 52 — T52.2: Execute Benchmarks (Real Results)
+
+**Branch**: `feat/P52-T52.2-benchmark-results`
+
+**Tasks completed**: T52.2 (Execute Benchmarks — Real Results)
+
+**T52.2 — Execute Benchmarks**:
+Executed a 6-cell reduced parameter grid (noise_multiplier=[1.0,5.0,10.0]
+x epochs=[50,100] x sample_size=[1000]) against sample_data/customers.csv
+and sample_data/orders.csv. Committed versioned JSON artifacts:
+
+- `demos/results/grid_config.json` — Grid manifest (committed alongside results).
+- `demos/results/benchmark_customers_v1.json` — 6 rows, 5 COMPLETED / 1 FAILED.
+  FAILED row: nm=1.0, epochs=100 — DP budget exhausted (spent=50.09, allocated=50.0).
+  Committed honestly per spec (FAILED row carries wall_time_seconds and error_message).
+- `demos/results/benchmark_orders_v1.json` — 6 rows, 6 COMPLETED.
+
+All artifact structural requirements verified:
+- schema_version present at artifact top level and in every row.
+- wall_time_seconds present and positive in all rows (including FAILED).
+- hardware metadata present and non-empty in all rows.
+- All grid cells present in both artifacts.
+- Column metric keys match sample_data/ fixture column names.
+
+**TDD sequence**: ATTACK RED (5 negative tests) -> FEATURE RED (13 failing) -> GREEN (18/18) -> REFACTOR (ruff/mypy clean).
+
+**Tests added (T52.2)**: 18 tests in `tests/unit/test_benchmark_results.py`:
+- 5 attack/negative tests (TestArtifactIntegrityAttacks)
+- test_grid_config_committed_alongside_results
+- test_results_schema_version_present[customers/orders]
+- test_results_schema_version_present_in_all_rows[customers/orders]
+- test_results_manifest_contains_all_parameter_grid_cells[customers/orders]
+- test_wall_time_field_present_and_positive_in_all_result_rows[customers/orders]
+- test_results_hardware_metadata_present_and_non_empty[customers/orders]
+- test_results_column_names_match_fixture[customers/orders]
+
+**Gate #1 results**: 2657 passed, 6 skipped, 96.83% unit coverage (>= 95% required). PASS.
+
+**Reviews**:
+
+**QA** (PASS): No blockers or findings.
+
+**DevOps** (PASS): No PII in committed artifacts. Hardware metadata acceptable (arm arch only,
+not full brand string). .gitignore allow-list correct.
+ADVISORY: CI gap — ruff/bandit not covering `demos/` directory (pre-existing, documented in ADR-0053). Logged as ADV-P52-02.
+
+**Architecture** (PASS): File placement correct. ADR-0053 satisfies prior finding.
+`RunDemoResult` TypedDict appropriate for its scope.
+ADVISORY: `_DP_EPSILON_DELTA` is a private symbol consumed by demo code outside the production
+boundary — should be exposed as a public constant. Logged as ADV-P52-01.
+
+**Open advisory count at T52.2**: 2 open advisories (ADV-P52-01, ADV-P52-02).
 
 ---
 
