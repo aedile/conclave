@@ -167,7 +167,8 @@ def test_ci_mutation_job_has_timeout(ci_workflow: dict) -> None:
     """CI mutation job must have a timeout-minutes set to <= 30.
 
     Spec-challenger requirement: CI timeout budget max 30 minutes.
-    1,260+ mutants require more time on GitHub runners than the original 15m budget.
+    ~789 target mutants (10 files: shared/security/ + modules/privacy/) must complete
+    within the budget.
     """
     jobs = ci_workflow.get("jobs", {})
     mutation_job = jobs.get("mutation-test", {})
@@ -246,6 +247,56 @@ def test_cosmic_ray_excluded_modules_skip_init_files(cosmic_ray_config: dict) ->
         "excluded-modules must exclude __init__ files from mutation scope. "
         "Mutating __init__.py produces noise without testing real behavior. "
         f"Current exclusions: {excluded}"
+    )
+
+
+def test_cosmic_ray_excluded_modules_skip_non_security_shared(cosmic_ray_config: dict) -> None:
+    """excluded-modules must exclude all non-security files in shared/.
+
+    ADR-0047 scope is shared/security/ and modules/privacy/ ONLY. The rest of
+    shared/ (cert_metrics, db, errors, exceptions, middleware, protocols,
+    schema_topology, settings, ssrf, task_queue, tasks, telemetry, tls) is
+    infrastructure that must NOT receive mutations.
+
+    Without this exclusion, cosmic-ray generates 1,260+ mutants (hitting all of
+    shared/) instead of the expected ~700-900 for the 10 target files.
+    This test is a regression guard against that scope creep.
+    """
+    import glob as _glob
+
+    excluded_patterns = cosmic_ray_config.get("excluded-modules", [])
+    assert isinstance(excluded_patterns, list), "excluded-modules must be a list."
+
+    # Resolve the full excluded set exactly as cosmic-ray does (from project root).
+    from pathlib import Path as _Path
+
+    excluded: set[_Path] = {
+        _Path(f) for pattern in excluded_patterns for f in _glob.glob(pattern, recursive=True)
+    }
+
+    # These non-security shared files must ALL be excluded from mutation scope.
+    non_security_shared = [
+        "src/synth_engine/shared/cert_metrics.py",
+        "src/synth_engine/shared/db.py",
+        "src/synth_engine/shared/errors.py",
+        "src/synth_engine/shared/exceptions.py",
+        "src/synth_engine/shared/middleware/idempotency.py",
+        "src/synth_engine/shared/protocols.py",
+        "src/synth_engine/shared/schema_topology.py",
+        "src/synth_engine/shared/settings.py",
+        "src/synth_engine/shared/ssrf.py",
+        "src/synth_engine/shared/task_queue.py",
+        "src/synth_engine/shared/tasks/reaper.py",
+        "src/synth_engine/shared/tasks/repository.py",
+        "src/synth_engine/shared/telemetry.py",
+        "src/synth_engine/shared/tls/config.py",
+    ]
+    missing_exclusions = [p for p in non_security_shared if _Path(p) not in excluded]
+    assert not missing_exclusions, (
+        f"These non-security shared/ files are not excluded from cosmic-ray scope: "
+        f"{missing_exclusions}. "
+        "Add them to excluded-modules in cosmic-ray.toml to prevent scope creep. "
+        "ADR-0047: only shared/security/ and modules/privacy/ are in mutation scope."
     )
 
 

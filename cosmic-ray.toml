@@ -22,6 +22,16 @@
 #
 # Note: module-path is a FILESYSTEM PATH (directory or file), not a Python module name.
 # cosmic-ray 8.4.4 calls Path(module-path).exists() to resolve targets.
+#
+# excluded-modules patterns: cosmic-ray resolves these via glob.glob(pattern, recursive=True)
+# relative to the working directory (project root). Patterns must use forward slashes.
+# The ** wildcard requires recursive=True (always active in cosmic-ray 8.4.4).
+#
+# Fix (T53.1 advisory drain): The original config excluded bootstrapper/ and the other
+# modules/ directories but missed the non-security files in shared/. This caused
+# cosmic-ray to generate 1,260+ mutants instead of the expected ~200-400 for the
+# 10 target files (7 in shared/security/, 3 in modules/privacy/). All non-security
+# shared/ files are now explicitly excluded.
 
 [cosmic-ray]
 module-path = "src/synth_engine"
@@ -44,14 +54,22 @@ excluded-modules = [
     "src/synth_engine/modules/profiler/**/*.py",
     "src/synth_engine/modules/subsetting/**/*.py",
     "src/synth_engine/modules/synthesizer/**/*.py",
-    # Also exclude the bootstrapper and module top-level __init__.py files
-    "src/synth_engine/bootstrapper/__init__.py",
-    "src/synth_engine/modules/ingestion/__init__.py",
-    "src/synth_engine/modules/mapping/__init__.py",
-    "src/synth_engine/modules/masking/__init__.py",
-    "src/synth_engine/modules/profiler/__init__.py",
-    "src/synth_engine/modules/subsetting/__init__.py",
-    "src/synth_engine/modules/synthesizer/__init__.py",
+    # Exclude non-security shared/ files.
+    # ADR-0047 scope is shared/security/ ONLY — all other shared/ code is
+    # infrastructure (DB, settings, telemetry, middleware) excluded from mutation.
+    "src/synth_engine/shared/cert_metrics.py",
+    "src/synth_engine/shared/db.py",
+    "src/synth_engine/shared/errors.py",
+    "src/synth_engine/shared/exceptions.py",
+    "src/synth_engine/shared/protocols.py",
+    "src/synth_engine/shared/schema_topology.py",
+    "src/synth_engine/shared/settings.py",
+    "src/synth_engine/shared/ssrf.py",
+    "src/synth_engine/shared/task_queue.py",
+    "src/synth_engine/shared/telemetry.py",
+    "src/synth_engine/shared/middleware/**/*.py",
+    "src/synth_engine/shared/tasks/**/*.py",
+    "src/synth_engine/shared/tls/**/*.py",
 ]
 test-command = """python -m pytest \
     tests/unit/test_audit.py \
