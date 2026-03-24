@@ -32,6 +32,8 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P49-03~~ | ~~DevOps P49~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutmut CI gate not wired into `.github/workflows/ci.yml`. Blocked by ADV-T49-01 (Python 3.14 segfault). RESOLVED by ADR-0052 (gate deferred until upstream mutmut supports Python 3.14).~~ |
 | ~~ADV-P51-01~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~Release tag regex not end-anchored — RESOLVED in P52 (release.yml grep pattern end-anchored with `$`)~~ |
 | ~~ADV-P51-02~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~bump_version.sh tag hint unconditionally applies RC transform to stable versions — RESOLVED in P52 (conditional tag hint)~~ |
+| ADV-P52-01 | Arch T52.2 review | — | ADVISORY | `_DP_EPSILON_DELTA` private symbol consumed by demo code outside production boundary — should be exposed as a public constant. |
+| ADV-P52-02 | DevOps T52.2 review | — | ADVISORY | CI gap: ruff/bandit not covering `demos/` directory. Pre-existing, documented in ADR-0053. |
 
 ---
 
@@ -129,9 +131,22 @@ All artifact structural requirements verified:
 - test_results_hardware_metadata_present_and_non_empty[customers/orders]
 - test_results_column_names_match_fixture[customers/orders]
 
-**Light gate results**: 18/18 tests pass; ruff check+format PASS; mypy PASS.
+**Gate #1 results**: 2657 passed, 6 skipped, 96.83% unit coverage (>= 95% required). PASS.
 
-**Open advisory count at T52.2**: 0 open advisories.
+**Reviews**:
+
+**QA** (PASS): No blockers or findings.
+
+**DevOps** (PASS): No PII in committed artifacts. Hardware metadata acceptable (arm arch only,
+not full brand string). .gitignore allow-list correct.
+ADVISORY: CI gap — ruff/bandit not covering `demos/` directory (pre-existing, documented in ADR-0053). Logged as ADV-P52-02.
+
+**Architecture** (PASS): File placement correct. ADR-0053 satisfies prior finding.
+`RunDemoResult` TypedDict appropriate for its scope.
+ADVISORY: `_DP_EPSILON_DELTA` is a private symbol consumed by demo code outside the production
+boundary — should be exposed as a public constant. Logged as ADV-P52-01.
+
+**Open advisory count at T52.2**: 2 open advisories (ADV-P52-01, ADV-P52-02).
 
 ---
 
