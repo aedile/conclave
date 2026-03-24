@@ -98,6 +98,7 @@ Drain (delete) rows when their target task is completed.
 | ADV-P53-01 | Red-Team P53 | — | ADVISORY | HMAC pipe-delimiter injection — structural collision if fields contain `|`. Fields are system-controlled; future hardening: length-prefixed encoding. |
 | ADV-P53-02 | Red-Team P53 | — | ADVISORY | v1 HMAC signature still accepted with no deprecation timeline. Future: log WARNING on v1 verify, deprecate by Phase 60. |
 | ADV-P53-03 | Arch P53 | — | ADVISORY | cosmic-ray test-command uses hardcoded test file list — new security test files must be manually added to cosmic-ray.toml. |
+| ADV-P53-04 | PM P53 CI | — | ADVISORY | mutation-test CI job is non-blocking (`continue-on-error: true`) — 789 mutants exceed GitHub Actions budget. Needs parallel distributor or scope reduction to become blocking. |
 
 ---
 
