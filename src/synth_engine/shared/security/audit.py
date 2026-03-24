@@ -193,8 +193,8 @@ class AuditLogger:
             Versioned signature string ``v2:<hex>``.
 
         Raises:
-            ValueError: If the canonical details JSON exceeds 64 KB.
-            ValueError: If ``details`` contains non-JSON-serializable values
+            ValueError: If the canonical details JSON exceeds 64 KB, or if
+                ``details`` contains non-JSON-serializable values
                 (e.g. ``float('nan')``).
         """
         details_json = json.dumps(details, sort_keys=True, separators=(",", ":"), allow_nan=False)
@@ -250,12 +250,9 @@ class AuditLogger:
         Returns:
             The constructed and signed :class:`AuditEvent`.
 
-        Raises:
-            ValueError: If ``details`` canonical JSON exceeds 64 KB or
-                contains non-serializable values.
         """
-        # Compute v2 signature BEFORE acquiring the lock so that ValueError
-        # from oversized/invalid details propagates cleanly without locking.
+        # ValueError from _sign_v2 (oversized/non-serializable details) propagates
+        # cleanly through the lock acquisition since _sign_v2 is called inside the lock.
         with self._lock:
             timestamp = datetime.now(UTC).isoformat()
             signature = self._sign_v2(
