@@ -34,6 +34,83 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P51-02~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~bump_version.sh tag hint unconditionally applies RC transform to stable versions — RESOLVED in P52 (conditional tag hint)~~ |
 | ADV-P52-01 | Arch T52.2 review | — | ADVISORY | `_DP_EPSILON_DELTA` private symbol consumed by demo code outside production boundary — should be exposed as a public constant. |
 | ADV-P52-02 | DevOps T52.2 review | — | ADVISORY | CI gap: ruff/bandit not covering `demos/` directory. Pre-existing, documented in ADR-0053. |
+| ADV-P52-03 | Red-Team P52 | — | ADVISORY | nbstripout is pre-commit hook only, not a git filter. Defense-in-depth gap if contributor commits without hooks installed. |
+| ADV-P52-04 | Red-Team P52 | — | ADVISORY | Benchmark results contain hardware metadata (CPU model, RAM, OS) — unnecessary info disclosure in public repo. |
+| ADV-P52-05 | Boundary Audit P52 | — | ADVISORY | 3 rubber-stamp attack tests in `test_benchmark_results.py` test dict literals, not production code. Batch to polish task. |
+| ADV-P52-06 | Boundary Audit P52 | — | ADVISORY | Dead `"safe_load"` filter logic at `test_benchmark_infrastructure.py:237`. Harmless but misleading. |
+| ADV-P52-07 | Boundary Audit P52 | — | ADVISORY | README "How This Was Built" metrics stale by ~5 commits / 1 PR after P52 merges. |
+| ADV-P52-08 | Boundary Audit P52 | — | ADVISORY | 84 merged local branches + ~50 merged remote branches + 14 agent worktrees pending workspace cleanup. |
+
+---
+
+### [2026-03-23] Phase 52 End-of-Phase Retrospective
+
+**Phase Goal**: Demo & Benchmark Suite — the final backlog phase. Deliver reproducible
+epsilon curve benchmarks, three audience-specific notebooks, pre-rendered figures, and
+published results integrated into the project README.
+
+**Exit Criteria**: All tasks (T52.1–T52.6) delivered. Gate #2 PASS: 2704 passed, 7 skipped,
+0 failed. Coverage: 96.92%. Red-team: PASS (0 BLOCKERs). Boundary audit: PASS (0 FINDINGs).
+
+**PRs merged**: #186 (T52.1), #187 (arch review fixes), #188 (T52.2), #190 (T52.3–5 notebooks),
+#191 (T52.6 published results), #192 (matplotlib skip guard), #193 (SQL validation review fix).
+
+**What went well**:
+- Parallel worktree agents for T52.3/T52.4/T52.5 — all three notebooks developed concurrently,
+  then combined via cherry-pick into a single PR (#190). Significant time savings.
+- Red-team caught a real defense-in-depth gap (SQL table name validation) that the QA reviewer missed.
+  Fixed in PR #193 with matching test.
+- All pre-existing advisories from P47/P51 resolved inline during P52 (ADV-P47-02, ADV-P51-01, ADV-P51-02).
+- Zero PII leakage in committed artifacts — all three notebooks stripped, benchmark results contain
+  only statistical metrics, SVGs contain only vector graphics.
+
+**What could improve**:
+- Gate #2 caught a missing `pytest.importorskip("matplotlib")` guard — the test assumed the `demos`
+  optional dependency group was installed. Should have been caught during GREEN phase.
+- Cherry-pick workflow from parallel worktrees caused a README merge conflict (T52.4 + T52.5 both
+  edited `demos/README.md`). Consider using a shared base branch for parallel tasks editing the same files.
+- Boundary auditor found 3 rubber-stamp tests and 1 dead logic assertion — test quality review
+  should happen during GREEN phase, not post-merge.
+
+**Open advisory count at phase end**: 8 (ADV-P52-01 through ADV-P52-08). All ADVISORY severity,
+none security-related. At Rule 11 limit — next phase must drain to ≤5 before new feature work.
+
+**Phase 52 is the final backlog phase.** All planned work is complete.
+
+---
+
+### [2026-03-23] Phase 52 — Red-Team Review
+
+**Verdict**: PASS (0 BLOCKERs, 1 FINDING fixed, 3 ADVISORYs logged)
+
+**FINDING-1 (FIXED)**: Quickstart notebook SQL f-string without table name validation.
+Fixed in PR #193 — added `re.match(r'^[a-zA-Z0-9_]+$', table)` guard matching benchmark harness.
+
+**ADV-RT-01**: nbstripout is pre-commit only, not git filter (ADV-P52-03).
+**ADV-RT-02**: `--output-dir` CLI arg has no containment check — local tool, low risk.
+**ADV-RT-03**: Hardware metadata in committed benchmark results (ADV-P52-04).
+
+**Items reviewed and found secure**: Credential exposure (env vars only), YAML deserialization
+(safe_load), JSON loading (stdlib), pickle security (HMAC-SHA256), path traversal guards
+(is_relative_to), filename sanitization, error message sanitization, notebook output stripping,
+DP budget isolation, supply chain (pinned revs), auth/authz (no regression), no code injection.
+
+---
+
+### [2026-03-23] Phase 52 — Phase Boundary Audit
+
+**Verdict**: PASS (0 FINDINGs, 4 ADVISORYs logged)
+
+**Documentation accuracy**: CLEAN. All paths, commands, env vars match code. README metrics
+slightly stale (ADV-P52-07). ADR-0053 accurate.
+
+**Test quality**: CLEAN. Production-to-test LOC ratio 1:1.46 (within 1:2.5 budget).
+3 rubber-stamp tests (ADV-P52-05) and 1 dead logic assertion (ADV-P52-06) — cosmetic, batched.
+
+**Open advisories**: 8 total, all ADVISORY, no expired TTLs. At Rule 11 limit.
+
+**Workspace cleanup**: 84 merged local branches, ~50 merged remote branches, 14 agent worktrees
+pending cleanup (ADV-P52-08).
 
 ---
 
