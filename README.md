@@ -341,8 +341,8 @@ A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.
 
 | Metric | Value |
 |--------|-------|
-| Commits | 1,055 |
-| Pull requests merged | 186 |
+| Commits | 1,080 |
+| Pull requests merged | 191 |
 | Architecture Decision Records | 54 |
 | Production source lines | ~23,100 |
 | Test lines | ~86,500 |
