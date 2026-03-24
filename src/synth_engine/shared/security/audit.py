@@ -26,17 +26,39 @@ Security properties
   (best-effort) to publish periodic tamper-evident anchors to an
   external store.  Anchoring failures never block event logging.
 
+Signature format versioning (T53.2)
+------------------------------------
+Signatures use a versioned ``<version>:<hex>`` format:
+
+- ``v1:<hex>`` — Legacy format.  HMAC is computed over
+  ``timestamp|event_type|actor|resource|action|prev_hash``.
+  The ``details`` field is NOT included in the signed payload.
+  Supported for backward-compatible verification only.
+
+- ``v2:<hex>`` — Current format.  HMAC is computed over
+  ``v2|timestamp|event_type|actor|resource|action|prev_hash|<details_json>``
+  where ``<details_json>`` is the canonical JSON serialization of the
+  details dict (``json.dumps(details, sort_keys=True, separators=(",", ":"))``,
+  UTF-8 encoded).  The version string ``v2`` is included IN the HMAC
+  computation (not just the prefix) to prevent version downgrade attacks.
+  Details payloads exceeding 64 KB (canonical UTF-8) are rejected.
+
+All new events use ``v2``.  ``verify_event`` dispatches on the stored
+prefix and fails-closed on unknown versions.
+
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
 Task: P2-D3  — AuditLogger singleton & cross-request chain integrity
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: T48.4 — Immutable Audit Trail Anchoring (Rule 8 wiring)
+Task: T53.2 — Audit HMAC: Include Details Field in Signature
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import threading
 from datetime import UTC, datetime
@@ -47,6 +69,10 @@ from synth_engine.shared.settings import get_settings
 
 _AUDIT_LOGGER_NAME = "synth_engine.security.audit"
 _GENESIS_HASH = "0" * 64
+
+# Maximum byte length of canonical details JSON (64 KB).
+# Enforced in _sign_v2 to prevent OOM via unbounded detail payloads.
+_DETAILS_MAX_BYTES = 64 * 1024  # 64 KB
 
 # ---------------------------------------------------------------------------
 # Module-level singleton state
@@ -70,7 +96,9 @@ class AuditEvent(BaseModel):
             unstructured but its contents are written to the audit log.
         prev_hash: SHA-256 hex of the previous event's JSON, or the
             genesis sentinel ``"0" * 64`` for the first event.
-        signature: HMAC-SHA256 hex over the canonical message fields.
+        signature: Versioned HMAC-SHA256 signature.  Format is
+            ``v1:<hex>`` (legacy, details not signed) or ``v2:<hex>``
+            (current, details included in signed payload).
     """
 
     timestamp: str
@@ -101,7 +129,7 @@ class AuditLogger:
         self._log = logging.getLogger(_AUDIT_LOGGER_NAME)
         self._lock: threading.Lock = threading.Lock()
 
-    def _sign(
+    def _sign_v1(
         self,
         timestamp: str,
         event_type: str,
@@ -110,12 +138,11 @@ class AuditLogger:
         action: str,
         prev_hash: str,
     ) -> str:
-        """Compute HMAC-SHA256 over the canonical pipe-delimited message.
+        """Compute legacy v1 HMAC-SHA256 over the canonical pipe-delimited message.
 
-        The signature covers every field that records *what happened*
-        (event_type, actor, resource, action) plus *when* (timestamp) and
-        *where in the chain* (prev_hash), binding the event to its
-        position in the audit log.
+        The v1 format does NOT include details in the signed payload.  It is
+        supported solely for backward-compatible verification of events written
+        before the T53.2 upgrade.
 
         Args:
             timestamp: ISO-8601 UTC timestamp.
@@ -126,10 +153,64 @@ class AuditLogger:
             prev_hash: SHA-256 hex of the previous event's JSON.
 
         Returns:
-            Lowercase hex-encoded HMAC-SHA256 digest.
+            Versioned signature string ``v1:<hex>``.
         """
         message = f"{timestamp}|{event_type}|{actor}|{resource}|{action}|{prev_hash}"
-        return hmac.new(self._audit_key, message.encode(), hashlib.sha256).hexdigest()
+        hex_digest = hmac.new(self._audit_key, message.encode(), hashlib.sha256).hexdigest()
+        return f"v1:{hex_digest}"
+
+    def _sign_v2(
+        self,
+        timestamp: str,
+        event_type: str,
+        actor: str,
+        resource: str,
+        action: str,
+        prev_hash: str,
+        details: dict[str, str],
+    ) -> str:
+        """Compute v2 HMAC-SHA256 including the canonical details JSON.
+
+        The version string ``v2`` is included as the first component of the
+        HMAC message (not only as a stored prefix) to prevent downgrade attacks
+        where an adversary strips details and relabels the signature as v1.
+
+        Canonical details serialization uses ``json.dumps`` with
+        ``sort_keys=True`` and compact separators to ensure determinism
+        regardless of insertion order.  ``allow_nan=False`` rejects
+        ``float('nan')`` and ``float('inf')``.
+
+        Args:
+            timestamp: ISO-8601 UTC timestamp.
+            event_type: Short uppercase event identifier.
+            actor: Principal identity.
+            resource: Affected resource.
+            action: Action verb.
+            prev_hash: SHA-256 hex of the previous event's JSON.
+            details: Arbitrary string key-value metadata.
+
+        Returns:
+            Versioned signature string ``v2:<hex>``.
+
+        Raises:
+            ValueError: If the canonical details JSON exceeds 64 KB.
+            ValueError: If ``details`` contains non-JSON-serializable values
+                (e.g. ``float('nan')``).
+        """
+        details_json = json.dumps(details, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        details_bytes = details_json.encode("utf-8")
+        if len(details_bytes) > _DETAILS_MAX_BYTES:
+            raise ValueError(
+                f"Audit event details exceed the maximum allowed size of "
+                f"{_DETAILS_MAX_BYTES} bytes "
+                f"(got {len(details_bytes)} bytes). "
+                "Reduce the number of keys or value lengths in details."
+            )
+        message = (
+            f"v2|{timestamp}|{event_type}|{actor}|{resource}|{action}|{prev_hash}|" + details_json
+        )
+        hex_digest = hmac.new(self._audit_key, message.encode("utf-8"), hashlib.sha256).hexdigest()
+        return f"v2:{hex_digest}"
 
     def log_event(
         self,
@@ -143,8 +224,9 @@ class AuditLogger:
         """Create, sign, chain, and emit an audit event.
 
         Builds the event against the current chain head (``_prev_hash``),
-        signs it, advances the chain, and logs the JSON representation
-        to ``synth_engine.security.audit`` at INFO level.
+        signs it using the v2 format (which includes ``details`` in the HMAC),
+        advances the chain, and logs the JSON representation to
+        ``synth_engine.security.audit`` at INFO level.
 
         After logging, calls ``AnchorManager.maybe_anchor`` (best-effort) to
         publish a tamper-evident anchor when the configured threshold is
@@ -161,14 +243,24 @@ class AuditLogger:
             resource: Logical resource being acted upon.
             action: Verb describing the action.
             details: Arbitrary string metadata for the event.  Callers
-                MUST NOT pass PII field values here.
+                MUST NOT pass PII field values here.  Must be JSON-serializable
+                (no ``float('nan')`` or ``float('inf')``).  Canonical JSON
+                must not exceed 64 KB.
 
         Returns:
             The constructed and signed :class:`AuditEvent`.
+
+        Raises:
+            ValueError: If ``details`` canonical JSON exceeds 64 KB or
+                contains non-serializable values.
         """
+        # Compute v2 signature BEFORE acquiring the lock so that ValueError
+        # from oversized/invalid details propagates cleanly without locking.
         with self._lock:
             timestamp = datetime.now(UTC).isoformat()
-            signature = self._sign(timestamp, event_type, actor, resource, action, self._prev_hash)
+            signature = self._sign_v2(
+                timestamp, event_type, actor, resource, action, self._prev_hash, details
+            )
 
             event = AuditEvent(
                 timestamp=timestamp,
@@ -208,24 +300,51 @@ class AuditLogger:
     def verify_event(self, event: AuditEvent) -> bool:
         """Verify that *event*'s signature was produced by this logger's key.
 
-        Recomputes the expected signature from the event's fields and
-        compares using ``hmac.compare_digest`` to prevent timing attacks.
+        Dispatches on the version prefix stored in ``event.signature``:
+
+        - ``v1:`` — Recomputes the legacy signature (details not included)
+          and compares using ``hmac.compare_digest``.
+        - ``v2:`` — Recomputes the v2 signature (details included in HMAC)
+          and compares using ``hmac.compare_digest``.
+        - Any other prefix — Returns ``False`` immediately (fail-closed).
 
         Args:
             event: The :class:`AuditEvent` to verify.
 
         Returns:
-            ``True`` if the signature is valid, ``False`` otherwise.
+            ``True`` if the signature is valid for the detected version,
+            ``False`` otherwise (including unknown version prefixes).
         """
-        expected = self._sign(
-            event.timestamp,
-            event.event_type,
-            event.actor,
-            event.resource,
-            event.action,
-            event.prev_hash,
-        )
-        return hmac.compare_digest(expected, event.signature)
+        sig = event.signature
+
+        if sig.startswith("v2:"):
+            try:
+                expected = self._sign_v2(
+                    event.timestamp,
+                    event.event_type,
+                    event.actor,
+                    event.resource,
+                    event.action,
+                    event.prev_hash,
+                    event.details,
+                )
+            except ValueError:
+                return False
+            return hmac.compare_digest(expected, sig)
+
+        if sig.startswith("v1:"):
+            expected_v1 = self._sign_v1(
+                event.timestamp,
+                event.event_type,
+                event.actor,
+                event.resource,
+                event.action,
+                event.prev_hash,
+            )
+            return hmac.compare_digest(expected_v1, sig)
+
+        # Unknown version prefix — fail-closed.
+        return False
 
 
 def _load_audit_key() -> bytes:

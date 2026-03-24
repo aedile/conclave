@@ -198,13 +198,17 @@ def test_audit_event_is_json_serializable(logger_instance: AuditLogger) -> None:
         f"prev_hash must be lowercase hex; got {parsed['prev_hash']!r}"
     )
 
-    # signature: 64-character lowercase hex string (HMAC-SHA256 hexdigest)
+    # signature: versioned HMAC-SHA256 string — format is 'v2:<64-hex>' for new events
     assert isinstance(parsed["signature"], str), "signature must be a string"
-    assert len(parsed["signature"]) == 64, (
-        f"signature must be 64 hex chars; got {len(parsed['signature'])}"
+    assert parsed["signature"].startswith("v2:"), (
+        f"signature must start with 'v2:' version prefix; got {parsed['signature'][:10]!r}"
     )
-    assert re.fullmatch(r"[0-9a-f]{64}", parsed["signature"]), (
-        f"signature must be lowercase hex; got {parsed['signature']!r}"
+    sig_hex_part = parsed["signature"][len("v2:") :]
+    assert len(sig_hex_part) == 64, (
+        f"signature hex portion must be 64 chars; got {len(sig_hex_part)}"
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", sig_hex_part), (
+        f"signature hex portion must be lowercase hex; got {sig_hex_part!r}"
     )
     # Signature must match what the event object carries
     assert parsed["signature"] == event.signature, "serialised signature must match event.signature"
@@ -557,12 +561,12 @@ def test_legacy_v1_event_verifies_correctly(logger_instance: AuditLogger) -> Non
     Backward compatibility: audit events written before the v2 upgrade must
     remain verifiable. The v1: prefix triggers the legacy verification path.
     """
-    from synth_engine.shared.security.audit import AuditEvent
-
     # Simulate a legacy v1 event by computing its signature using the old
     # pipe-delimited format (no details) and prefixing with 'v1:'
     import hashlib as _hashlib
     import hmac as _hmac
+
+    from synth_engine.shared.security.audit import AuditEvent
 
     ts = "2025-01-01T00:00:00+00:00"
     msg = f"{ts}|LEGACY_EVENT|system|vault|boot|{'0' * 64}"
@@ -600,9 +604,7 @@ def test_v2_event_with_empty_details_verifies(logger_instance: AuditLogger) -> N
         details={},
     )
 
-    assert event.signature.startswith("v2:"), (
-        "Event with details={} must use v2: prefix"
-    )
+    assert event.signature.startswith("v2:"), "Event with details={} must use v2: prefix"
     assert logger_instance.verify_event(event) is True, (
         "v2 event with empty details must verify as True"
     )
@@ -639,7 +641,7 @@ def test_v2_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> N
     )
 
     assert event.signature.startswith("v2:")
-    hex_part = event.signature[len("v2:"):]
+    hex_part = event.signature[len("v2:") :]
     assert len(hex_part) == 64, f"Hex portion must be 64 chars; got {len(hex_part)}"
     assert re.fullmatch(r"[0-9a-f]{64}", hex_part), (
         f"Hex portion must be lowercase hex; got {hex_part!r}"
