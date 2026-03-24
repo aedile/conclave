@@ -66,6 +66,26 @@ def _resolve_link(link: str, readme_path: Path) -> Path:
     return (readme_path.parent / path_part).resolve()
 
 
+def _extract_section(content: str, heading_pattern: str) -> str:
+    """Extract section text from a heading match to the next heading of any level.
+
+    Args:
+        content: Full README text.
+        heading_pattern: Regex pattern to locate the section heading.
+
+    Returns:
+        Section text from the matched heading to the next heading, or to EOF.
+    """
+    section_match = re.search(heading_pattern, content, re.IGNORECASE)
+    if section_match is None:
+        return ""
+    section_start = section_match.start()
+    # Search for the next heading after an offset to avoid re-matching the current one
+    next_heading = re.search(r"^#{1,4}\s+", content[section_start + 10 :], re.MULTILINE)
+    section_end = section_start + 10 + next_heading.start() if next_heading else len(content)
+    return content[section_start:section_end]
+
+
 # ---------------------------------------------------------------------------
 # Attack tests -- dead-link and missing-section checks
 # ---------------------------------------------------------------------------
@@ -100,10 +120,32 @@ class TestDemosReadmeLinks:
         )
 
     def test_demos_readme_contains_quickstart_entry(self) -> None:
-        """demos/README.md must document quickstart.ipynb."""
+        """demos/README.md must document quickstart.ipynb in a dedicated section.
+
+        Requires a ### section heading for quickstart.ipynb, the notebook filename
+        in the section body, and runtime or audience information in the section.
+        """
         content = DEMOS_README.read_text(encoding="utf-8")
-        assert "quickstart.ipynb" in content, (
-            "demos/README.md must include an entry for quickstart.ipynb"
+
+        section_text = _extract_section(content, r"###\s+`?quickstart\.ipynb`?")
+        assert section_text, (
+            "demos/README.md must contain a ### section heading for quickstart.ipynb"
+        )
+
+        assert "quickstart.ipynb" in section_text, (
+            "demos/README.md quickstart.ipynb section must reference the notebook filename"
+        )
+
+        has_audience_or_runtime = bool(
+            re.search(
+                r"\b(audience|runtime|\d+[-\u2013]\d+\s*(min|minute|hour)|\d+\s*(min|minute|hour))\b",
+                section_text,
+                re.IGNORECASE,
+            )
+        )
+        assert has_audience_or_runtime, (
+            "demos/README.md quickstart.ipynb section must include audience or runtime "
+            f"information. Section text:\n{section_text[:300]}"
         )
 
     def test_demos_readme_contains_epsilon_curves_entry(self) -> None:
@@ -114,10 +156,32 @@ class TestDemosReadmeLinks:
         )
 
     def test_demos_readme_contains_training_data_entry(self) -> None:
-        """demos/README.md must document training_data.ipynb."""
+        """demos/README.md must document training_data.ipynb in a dedicated section.
+
+        Requires a ### section heading for training_data.ipynb, the notebook filename
+        in the section body, and runtime or audience information in the section.
+        """
         content = DEMOS_README.read_text(encoding="utf-8")
-        assert "training_data.ipynb" in content, (
-            "demos/README.md must include an entry for training_data.ipynb"
+
+        section_text = _extract_section(content, r"###\s+`?training_data\.ipynb`?")
+        assert section_text, (
+            "demos/README.md must contain a ### section heading for training_data.ipynb"
+        )
+
+        assert "training_data.ipynb" in section_text, (
+            "demos/README.md training_data.ipynb section must reference the notebook filename"
+        )
+
+        has_audience_or_runtime = bool(
+            re.search(
+                r"\b(audience|runtime|\d+[-\u2013]\d+\s*(min|minute|hour)|\d+\s*(min|minute|hour))\b",
+                section_text,
+                re.IGNORECASE,
+            )
+        )
+        assert has_audience_or_runtime, (
+            "demos/README.md training_data.ipynb section must include audience or runtime "
+            f"information. Section text:\n{section_text[:300]}"
         )
 
     def test_demos_readme_contains_generate_figures_entry(self) -> None:
@@ -187,15 +251,19 @@ class TestMainReadmeDemosSection:
         )
 
     def test_main_readme_svg_references_exist(self) -> None:
-        """Every SVG path referenced in README.md must point to an existing file."""
-        content = MAIN_README.read_text(encoding="utf-8")
-        # Capture SVG references in markdown image syntax
-        all_svg = re.findall(r'["\(]([^")\s]+\.svg)["\)]', content)
+        """Every SVG path referenced in README.md must point to an existing file.
 
-        if not all_svg:
-            # If no SVG references yet, this test vacuously passes but
-            # test_main_readme_demos_section_exists ensures the section exists
-            return
+        Fails if README.md contains no SVG references at all, since the Demos
+        section is required to include pre-rendered figures per T52.6 AC.
+        """
+        content = MAIN_README.read_text(encoding="utf-8")
+        # Capture SVG references in markdown image syntax: ![alt](path.svg) or "path.svg"
+        all_svg = re.findall(r'["(]([^"()\s]+\.svg)[")]', content)
+
+        assert all_svg, (
+            "README.md should reference at least one SVG figure. "
+            "The Demos section must include pre-rendered figure links per T52.6 AC."
+        )
 
         broken: list[str] = []
         for svg_ref in all_svg:
