@@ -13,8 +13,9 @@
 # Distributor: "local" — subprocess-per-mutant isolation avoids the SIGSEGV that
 # afflicted mutmut 3.x's in-process trampoline on CPython 3.14 (see ADR-0052, ADR-0054).
 #
-# Timeout: 30 seconds per mutant. The test suite is fast (unit tests, no I/O).
-# If a mutant causes an infinite loop, it is killed after 30 seconds.
+# Timeout: 10 seconds per mutant. The test suite is fast (unit tests, no I/O).
+# If a mutant causes an infinite loop, it is killed after 10 seconds.
+# (Reduced from 30s: 30s x 789 mutants = worst-case 395 min; 10s = 131 min worst-case.
 #
 # test-command: runs only the unit tests covering the mutated modules. Integration
 # tests are excluded (they require PostgreSQL and take minutes each). The --no-cov
@@ -36,7 +37,7 @@
 [cosmic-ray]
 module-path = "src/synth_engine"
 python-version = ""
-timeout = 30
+timeout = 10
 excluded-modules = [
     # Exclude trivial __init__.py re-export files — mutations here produce noise
     "src/synth_engine/__init__.py",
