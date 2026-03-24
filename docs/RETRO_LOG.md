@@ -245,6 +245,31 @@ per Two-Gate Policy (Rule 18). Static gates: ruff PASS, mypy PASS, bandit PASS.
 
 **Open advisory count at T52.3–5 review**: 2 open advisories (ADV-P52-01, ADV-P52-02) — unchanged.
 
+---
+
+### [2026-03-23] Phase 52 — T52.6: Published Results (README + demos/README.md)
+
+**Branch**: `feat/P52-T52.6-published-results`
+
+**Tasks completed**: T52.6 (Published Results)
+
+**Reviews**:
+
+**QA** (FINDING — 2 issues fixed):
+1. `test_main_readme_svg_references_exist` had a vacuous early return: when the SVG detection
+   regex found zero matches, the function returned early instead of failing. The early return was
+   replaced with `assert all_svg, "README.md should reference at least one SVG figure"` so the
+   test fails explicitly if README.md loses its SVG figure references.
+2. `test_demos_readme_contains_quickstart_entry` and `test_demos_readme_contains_training_data_entry`
+   used sole `assert "X" in content` substring checks, matching even a directory listing mention.
+   Both tests updated to match the section-scoped pattern established for epsilon_curves: assert a
+   `###` heading exists for the notebook, the notebook filename appears in the section body, and
+   audience or runtime information is present in the section.
+
+**DevOps** (PASS): No findings.
+
+**Open advisory count at T52.6 review**: 2 open advisories (ADV-P52-01, ADV-P52-02) — unchanged.
+
 ### [2026-03-23] Phase 51 — Release Engineering
 
 **Branch**: `feat/P51-release-engineering`
