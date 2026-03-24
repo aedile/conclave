@@ -3,6 +3,32 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-24] T53.4 — Redis TLS Promotion Deduplication
+
+**Task**: Consolidate Redis TLS URL promotion into a single shared utility and
+add comprehensive edge-case test coverage for all spec-challenger inputs.
+
+**Outcome**: No production code change required. The canonical
+promote_redis_url_to_tls() implementation already resided in
+shared/task_queue.py (resolved by P52 inline). The bootstrapper already
+imported from there (ADV-P47-02 RESOLVED). T53.4 added 28 new edge-case tests
+in tests/unit/test_redis_tls_promotion_edge_cases.py documenting and
+verifying the behavioral contract for all spec-challenger inputs:
+
+- Already-TLS (rediss://) URLs: idempotent, no double-promotion
+- Empty string: no exception, returned as-is
+- Non-redis schemes (http://, https://, amqp://): pass through unchanged
+- redis+sentinel:// URLs: pass through unchanged (different protocol)
+- redis+socket:// Unix socket URLs: pass through unchanged
+- IPv6 literal host addresses ([::1], [2001:db8::1]): correctly promoted
+- Percent-encoded credentials (p%40ss): not decoded or altered
+- URL query parameters (timeout, retry_on_timeout): preserved after promotion
+- Single-implementation invariant: verified across shared/tls/config.py and
+  bootstrapper/dependencies/redis.py
+
+**Gate #1**: 2732 passed, 7 skipped. All quality gates (ruff, mypy, bandit,
+vulture) PASS.
+
 ---
 
 ## Open Advisory Items
