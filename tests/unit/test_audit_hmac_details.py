@@ -110,12 +110,10 @@ def test_version_downgrade_attack_fails(attack_logger: object) -> None:
     # The legitimate signature is v2: (includes details).
     # Attacker tries to strip the details and replace the v2: prefix with v1:
     # to make it look like the legacy format, bypassing detail tampering.
-    assert event.signature.startswith("v2:"), (
-        "New events must use v2: signature prefix"
-    )
+    assert event.signature.startswith("v2:"), "New events must use v2: signature prefix"
 
     # Construct a fake v1: signature by taking just the hex portion
-    fake_v1_sig = "v1:" + event.signature[len("v2:"):]
+    fake_v1_sig = "v1:" + event.signature[len("v2:") :]
 
     tampered = AuditEvent(
         timestamp=event.timestamp,
@@ -152,7 +150,7 @@ def test_unknown_version_prefix_fails_closed(attack_logger: object) -> None:
     )
 
     # Replace the version prefix with an unknown one
-    fake_v3_sig = "v3:" + event.signature[len("v2:"):]
+    fake_v3_sig = "v3:" + event.signature[len("v2:") :]
 
     unknown_version_event = AuditEvent(
         timestamp=event.timestamp,
@@ -259,14 +257,12 @@ def test_none_details_and_empty_dict_produce_different_signatures(
     # Simulate a legacy v1 signature by calling _sign_v1 directly
     # (which must exist after implementation) or by verifying the prefix differs
     # The signature for empty details (v2:) must differ from v1: format
-    assert event_empty.signature.startswith("v2:"), (
-        "Empty dict details must produce v2: signature"
-    )
+    assert event_empty.signature.startswith("v2:"), "Empty dict details must produce v2: signature"
 
     # The v2 signature over {} must NOT equal a raw v1 signature over the same fields.
     # We verify this indirectly: v1 signatures do NOT start with 'v2:'
-    v1_hex_part = event_empty.signature[len("v2:"):]
-    v2_hex_part = event_empty.signature[len("v2:"):]
+    v1_hex_part = event_empty.signature[len("v2:") :]
+    v2_hex_part = event_empty.signature[len("v2:") :]
 
     # If we construct a fake v1: prefixed signature and verify it, it must fail
     # (because verify_event computes v2 and compares — they differ)
