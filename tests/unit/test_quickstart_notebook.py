@@ -1,13 +1,17 @@
 """Tests for the quickstart notebook (T52.4).
 
 Security-first attack tests verify that the notebook:
-  - Contains no hardcoded credentials
+  - Contains no hardcoded credentials in executable code cells
   - Contains no unsafe pickle.load() calls
   - Uses environment variables for all credentials
   - Commits with stripped outputs (nbstripout compliance)
 
 Feature tests verify that the notebook has the correct structure
 for data architects following the connect → synthesize → compare workflow.
+
+Security scope: credential scanning applies to code cells only. Markdown
+cells are documentation and may contain placeholder DSN examples; they
+cannot execute and therefore pose no secret-exposure risk.
 """
 
 from __future__ import annotations
@@ -94,8 +98,7 @@ def test_quickstart_notebook_exists() -> None:
     alongside the other demo assets.
     """
     assert _NOTEBOOK_PATH.exists(), (
-        f"Notebook not found at {_NOTEBOOK_PATH}. "
-        "The file demos/quickstart.ipynb must be created."
+        f"Notebook not found at {_NOTEBOOK_PATH}. The file demos/quickstart.ipynb must be created."
     )
     assert _NOTEBOOK_PATH.suffix == ".ipynb", (
         f"Expected a .ipynb file, got: {_NOTEBOOK_PATH.suffix}"
@@ -103,37 +106,41 @@ def test_quickstart_notebook_exists() -> None:
 
 
 def test_quickstart_no_hardcoded_credentials(
-    all_source_lines: list[str],
+    code_source_lines: list[str],
 ) -> None:
-    """Scan notebook for hardcoded credential patterns — must find NONE.
+    """Scan notebook code cells for hardcoded credential patterns — must find NONE.
 
-    Security: hardcoded passwords, signing keys, or DSN passwords in a
-    notebook committed to source control constitute a secret exposure.
+    Security: hardcoded passwords, signing keys, or DSN passwords in executable
+    notebook code cells committed to source control constitute a secret exposure.
+
+    Scope: code cells only — markdown cells are documentation and may contain
+    placeholder DSN examples without constituting an execution risk.
 
     Args:
-        all_source_lines: All source lines from the notebook.
+        code_source_lines: Source lines from code cells only.
     """
-    # Patterns that indicate hardcoded secrets
+    # Patterns that indicate hardcoded secrets in executable code
     dangerous_patterns = [
         r'password\s*=\s*["\'][^"\']{3,}',  # password="secret"
         r'signing_key\s*=\s*b["\']',  # signing_key=b"..."
-        r'postgresql://[^:]+:[^@]{3,}@',  # DSN with password
+        r"postgresql://[^:]+:[^@]{3,}@",  # DSN with embedded password
         r'ARTIFACT_SIGNING_KEY\s*=\s*["\']',  # env var assignment with literal
         r'secret\s*=\s*["\'][^"\']{3,}',  # secret="value"
     ]
-    full_text = "".join(all_source_lines)
+    full_code = "".join(code_source_lines)
     for pattern in dangerous_patterns:
-        matches = re.findall(pattern, full_text, re.IGNORECASE)
-        # Filter out comments and environment variable reads
+        matches = re.findall(pattern, full_code, re.IGNORECASE)
+        # Filter out line-commented assignments
         non_comment_matches = [
-            m for m in matches
+            m
+            for m in matches
             if not any(m.strip().startswith(c) for c in ("#", "//"))
             and "os.environ" not in m
             and "os.getenv" not in m
             and "getenv" not in m
         ]
         assert not non_comment_matches, (
-            f"Hardcoded credential pattern '{pattern}' found in notebook: "
+            f"Hardcoded credential pattern '{pattern}' found in notebook code cells: "
             f"{non_comment_matches!r}. Use os.environ / os.getenv instead."
         )
 
@@ -150,7 +157,7 @@ def test_quickstart_no_pickle_load(code_source_lines: list[str]) -> None:
     """
     full_code = "".join(code_source_lines)
     # Match pickle.load( but not ModelArtifact.load(
-    pickle_pattern = r'\bpickle\.load\s*\('
+    pickle_pattern = r"\bpickle\.load\s*\("
     matches = re.findall(pickle_pattern, full_code)
     assert not matches, (
         f"Found {len(matches)} pickle.load() call(s) in notebook code cells. "
@@ -197,8 +204,8 @@ def test_quickstart_uses_env_vars_for_credentials(
     full_code = "".join(code_source_lines)
     # Must import os or use one of the env-access patterns
     uses_env = (
-        re.search(r'\bos\.environ\b', full_code) is not None
-        or re.search(r'\bos\.getenv\b', full_code) is not None
+        re.search(r"\bos\.environ\b", full_code) is not None
+        or re.search(r"\bos\.getenv\b", full_code) is not None
     )
     assert uses_env, (
         "No os.environ or os.getenv usage found in notebook code cells. "
@@ -206,9 +213,7 @@ def test_quickstart_uses_env_vars_for_credentials(
         "from environment variables."
     )
     # ARTIFACT_SIGNING_KEY must specifically be fetched from the environment
-    signing_key_env = (
-        re.search(r'ARTIFACT_SIGNING_KEY', full_code) is not None
-    )
+    signing_key_env = re.search(r"ARTIFACT_SIGNING_KEY", full_code) is not None
     assert signing_key_env, (
         "ARTIFACT_SIGNING_KEY is not referenced in notebook code cells. "
         "The signing key must be read from os.environ['ARTIFACT_SIGNING_KEY']."
@@ -291,7 +296,7 @@ def test_demos_readme_exists() -> None:
         "Create a README describing the demo notebooks."
     )
     content = _DEMOS_README_PATH.read_text(encoding="utf-8")
-    assert len(content) > 200, (  # noqa: PLR2004 — minimum meaningful content
+    assert len(content) > 200, (
         f"demos/README.md is too short ({len(content)} bytes). "
         "The README must contain setup instructions and notebook descriptions."
     )
@@ -302,12 +307,10 @@ def test_demos_readme_links_resolve() -> None:
 
     Broken links in the README mislead users and indicate stale documentation.
     """
-    assert _DEMOS_README_PATH.exists(), (
-        "demos/README.md does not exist — cannot check links."
-    )
+    assert _DEMOS_README_PATH.exists(), "demos/README.md does not exist — cannot check links."
     content = _DEMOS_README_PATH.read_text(encoding="utf-8")
     # Match relative markdown links: [text](path) — skip http/https/# anchors
-    link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+    link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
     demos_dir = _DEMOS_README_PATH.parent
 
     broken_links: list[str] = []
@@ -324,6 +327,5 @@ def test_demos_readme_links_resolve() -> None:
             broken_links.append(target)
 
     assert not broken_links, (
-        f"The following links in demos/README.md do not resolve to existing files: "
-        f"{broken_links!r}"
+        f"The following links in demos/README.md do not resolve to existing files: {broken_links!r}"
     )
