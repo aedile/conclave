@@ -93,6 +93,48 @@ Integration tests: 212 passed, 17 skipped.
 
 ---
 
+### [2026-03-23] Phase 52 — T52.2: Execute Benchmarks (Real Results)
+
+**Branch**: `feat/P52-T52.2-benchmark-results`
+
+**Tasks completed**: T52.2 (Execute Benchmarks — Real Results)
+
+**T52.2 — Execute Benchmarks**:
+Executed a 6-cell reduced parameter grid (noise_multiplier=[1.0,5.0,10.0]
+x epochs=[50,100] x sample_size=[1000]) against sample_data/customers.csv
+and sample_data/orders.csv. Committed versioned JSON artifacts:
+
+- `demos/results/grid_config.json` — Grid manifest (committed alongside results).
+- `demos/results/benchmark_customers_v1.json` — 6 rows, 5 COMPLETED / 1 FAILED.
+  FAILED row: nm=1.0, epochs=100 — DP budget exhausted (spent=50.09, allocated=50.0).
+  Committed honestly per spec (FAILED row carries wall_time_seconds and error_message).
+- `demos/results/benchmark_orders_v1.json` — 6 rows, 6 COMPLETED.
+
+All artifact structural requirements verified:
+- schema_version present at artifact top level and in every row.
+- wall_time_seconds present and positive in all rows (including FAILED).
+- hardware metadata present and non-empty in all rows.
+- All grid cells present in both artifacts.
+- Column metric keys match sample_data/ fixture column names.
+
+**TDD sequence**: ATTACK RED (5 negative tests) -> FEATURE RED (13 failing) -> GREEN (18/18) -> REFACTOR (ruff/mypy clean).
+
+**Tests added (T52.2)**: 18 tests in `tests/unit/test_benchmark_results.py`:
+- 5 attack/negative tests (TestArtifactIntegrityAttacks)
+- test_grid_config_committed_alongside_results
+- test_results_schema_version_present[customers/orders]
+- test_results_schema_version_present_in_all_rows[customers/orders]
+- test_results_manifest_contains_all_parameter_grid_cells[customers/orders]
+- test_wall_time_field_present_and_positive_in_all_result_rows[customers/orders]
+- test_results_hardware_metadata_present_and_non_empty[customers/orders]
+- test_results_column_names_match_fixture[customers/orders]
+
+**Light gate results**: 18/18 tests pass; ruff check+format PASS; mypy PASS.
+
+**Open advisory count at T52.2**: 0 open advisories.
+
+---
+
 ### [2026-03-23] Phase 51 — Release Engineering
 
 **Branch**: `feat/P51-release-engineering`
