@@ -349,3 +349,31 @@ def test_constitution_references_cosmic_ray() -> None:
         "CONSTITUTION.md Priority 4 mutation score row must reference cosmic-ray. "
         "Update the enforcement table to replace 'mutmut run' with the cosmic-ray command."
     )
+
+
+# ---------------------------------------------------------------------------
+# Test: mutation job is non-blocking (continue-on-error: true)
+# ---------------------------------------------------------------------------
+
+
+def test_ci_mutation_job_is_non_blocking(ci_workflow: dict) -> None:
+    """Mutation job must have continue-on-error: true.
+
+    789 mutants with subprocess-per-mutant isolation exceeds the GitHub Actions
+    45-minute CI budget on shared runners. Setting continue-on-error: true keeps
+    the job visible (results still appear in the Actions UI) without blocking
+    downstream jobs or the overall workflow status.
+
+    This is a temporary measure documented by the TODO in ci.yml. The long-term
+    fix is to narrow the mutation scope or switch to a parallel distributor
+    (ADR-0054 §Risks).
+    """
+    jobs = ci_workflow.get("jobs", {})
+    mutation_job = jobs.get("mutation-test", {})
+    continue_on_error = mutation_job.get("continue-on-error")
+    assert continue_on_error is True, (
+        "mutation-test job must have 'continue-on-error: true'. "
+        "789 mutants exceed the GitHub Actions 45-minute budget on shared runners. "
+        "The job must remain visible without blocking the workflow. "
+        "See TODO in ci.yml and ADR-0054 §Risks."
+    )
