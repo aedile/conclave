@@ -21,8 +21,12 @@ demos/
 ├── __init__.py          — Package marker (empty)
 ├── conclave_demo.py     — Reusable synthesis demo wrapper (T52.1)
 ├── quickstart.ipynb     — Quick-start: connect → synthesize → compare (T52.4)
+├── training_data.ipynb  — AI builder notebook: train-on-synthetic, test-on-real (T52.5)
 ├── figures/             — Generated SVG/PNG figures (PNG/PDF gitignored, SVG committed)
-└── results/             — Generated CSV results and versioned JSON artifacts
+└── results/             — Generated JSON benchmark artifacts
+    ├── grid_config.json              — Benchmark grid parameters
+    ├── benchmark_customers_v1.json   — Results for customers table
+    └── benchmark_orders_v1.json      — Results for orders table
 ```
 
 ---
