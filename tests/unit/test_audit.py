@@ -510,3 +510,137 @@ def test_concurrent_log_events_maintain_chain_order() -> None:
         current_prev = hashlib.sha256(event.model_dump_json().encode()).hexdigest()
 
     assert len(chain) == 10
+
+
+# ---------------------------------------------------------------------------
+# T53.2 — Versioned HMAC signature feature tests (Feature RED)
+# ---------------------------------------------------------------------------
+
+
+def test_new_event_uses_v2_signature_prefix(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """New events produced by log_event() must carry a 'v2:' signature prefix.
+
+    The prefix is the version discriminator for the HMAC format that includes
+    the details field in the signed payload.
+    """
+    event = logger_instance.log_event(
+        event_type="PAYMENT",
+        actor="billing",
+        resource="invoice/001",
+        action="create",
+        details={"amount": "100"},
+    )
+
+    assert event.signature.startswith("v2:"), (
+        f"New events must use v2: prefix; got {event.signature[:10]!r}"
+    )
+
+
+def test_v2_signature_verifies_correctly(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """A v2 event with correct details verifies as True via verify_event."""
+    event = logger_instance.log_event(
+        event_type="VERIFY_TEST",
+        actor="pytest",
+        resource="resource",
+        action="read",
+        details={"key": "value", "count": "42"},
+    )
+
+    assert logger_instance.verify_event(event) is True, (
+        "v2 event with correct details must verify as True"
+    )
+
+
+def test_legacy_v1_event_verifies_correctly(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """A legacy v1 event (no details in HMAC) must still verify correctly.
+
+    Backward compatibility: audit events written before the v2 upgrade must
+    remain verifiable. The v1: prefix triggers the legacy verification path.
+    """
+    from synth_engine.shared.security.audit import AuditEvent
+
+    # Simulate a legacy v1 event by computing its signature using the old
+    # pipe-delimited format (no details) and prefixing with 'v1:'
+    import hashlib as _hashlib
+    import hmac as _hmac
+
+    ts = "2025-01-01T00:00:00+00:00"
+    msg = f"{ts}|LEGACY_EVENT|system|vault|boot|{'0' * 64}"
+    raw_key = logger_instance._audit_key  # type: ignore[attr-defined]
+    hex_sig = _hmac.new(raw_key, msg.encode(), _hashlib.sha256).hexdigest()
+    v1_sig = f"v1:{hex_sig}"
+
+    legacy_event = AuditEvent(
+        timestamp=ts,
+        event_type="LEGACY_EVENT",
+        actor="system",
+        resource="vault",
+        action="boot",
+        details={},
+        prev_hash="0" * 64,
+        signature=v1_sig,
+    )
+
+    assert logger_instance.verify_event(legacy_event) is True, (
+        "Legacy v1 events must still verify correctly after v2 upgrade"
+    )
+
+
+def test_v2_event_with_empty_details_verifies(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """A v2 event with details={} (empty dict) verifies correctly.
+
+    Empty dict is a valid v2 payload — it is distinct from None/missing
+    (which would use v1 format).
+    """
+    event = logger_instance.log_event(
+        event_type="EMPTY_DETAILS",
+        actor="system",
+        resource="vault",
+        action="check",
+        details={},
+    )
+
+    assert event.signature.startswith("v2:"), (
+        "Event with details={} must use v2: prefix"
+    )
+    assert logger_instance.verify_event(event) is True, (
+        "v2 event with empty details must verify as True"
+    )
+
+
+def test_v2_signature_round_trip(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """Round-trip: create event → verify → passes. Signature is stable on same inputs."""
+    event = logger_instance.log_event(
+        event_type="ROUND_TRIP",
+        actor="tester",
+        resource="endpoint/verify",
+        action="post",
+        details={"session": "abc123", "ip": "127.0.0.1"},
+    )
+
+    # Verify twice to ensure no state mutation on verification
+    assert logger_instance.verify_event(event) is True
+    assert logger_instance.verify_event(event) is True
+
+
+def test_v2_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """The hex portion of a v2 signature (after the 'v2:' prefix) is 64 chars.
+
+    The HMAC-SHA256 digest is always 32 bytes / 64 hex characters.
+    """
+    import re
+
+    event = logger_instance.log_event(
+        event_type="SIG_FORMAT",
+        actor="system",
+        resource="check",
+        action="inspect",
+        details={"x": "y"},
+    )
+
+    assert event.signature.startswith("v2:")
+    hex_part = event.signature[len("v2:"):]
+    assert len(hex_part) == 64, f"Hex portion must be 64 chars; got {len(hex_part)}"
+    assert re.fullmatch(r"[0-9a-f]{64}", hex_part), (
+        f"Hex portion must be lowercase hex; got {hex_part!r}"
+    )
