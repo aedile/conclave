@@ -10,8 +10,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DEMOS_README = PROJECT_ROOT / "demos" / "README.md"
 MAIN_README = PROJECT_ROOT / "README.md"
@@ -69,7 +67,7 @@ def _resolve_link(link: str, readme_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Attack tests — dead-link and missing-section checks
+# Attack tests -- dead-link and missing-section checks
 # ---------------------------------------------------------------------------
 
 
@@ -86,7 +84,10 @@ class TestDemosReadmeLinks:
         links = _extract_markdown_links(content)
         internal_links = [lnk for lnk in links if _is_internal_file_link(lnk)]
 
-        assert internal_links, "demos/README.md must contain at least one internal link"
+        assert internal_links, (
+            "demos/README.md must contain at least one internal markdown link "
+            "([text](path) syntax). Add a link to a related document."
+        )
 
         broken: list[str] = []
         for link in internal_links:
@@ -94,9 +95,8 @@ class TestDemosReadmeLinks:
             if not resolved.exists():
                 broken.append(f"{link!r} -> {resolved}")
 
-        assert not broken, (
-            f"Found {len(broken)} broken link(s) in demos/README.md:\n"
-            + "\n".join(f"  {b}" for b in broken)
+        assert not broken, f"Found {len(broken)} broken link(s) in demos/README.md:\n" + "\n".join(
+            f"  {b}" for b in broken
         )
 
     def test_demos_readme_contains_quickstart_entry(self) -> None:
@@ -128,17 +128,34 @@ class TestDemosReadmeLinks:
         )
 
     def test_demos_readme_epsilon_curves_has_runtime(self) -> None:
-        """demos/README.md must state expected runtime for epsilon_curves.ipynb."""
+        """demos/README.md must state expected runtime for epsilon_curves.ipynb.
+
+        The runtime must appear in the epsilon_curves section heading area,
+        not just anywhere the filename is mentioned (e.g., directory listing).
+        """
         content = DEMOS_README.read_text(encoding="utf-8")
-        # The epsilon curves section should mention a runtime expectation
-        # (e.g., "minutes", "hours", or a number followed by "min"/"hour")
-        epsilon_section_idx = content.find("epsilon_curves.ipynb")
-        assert epsilon_section_idx != -1, "epsilon_curves.ipynb not found in demos/README.md"
-        surrounding = content[epsilon_section_idx : epsilon_section_idx + 400]
-        has_runtime = bool(re.search(r"\d+[–-]\d+\s*(min|hour|h\b)|runtime|\d+\s*(min|hour)", surrounding, re.IGNORECASE))
+        # Locate the section heading specifically for epsilon_curves notebook
+        # (not just any mention of the filename in a directory tree)
+        section_match = re.search(r"###\s+`?epsilon_curves\.ipynb`?", content, re.IGNORECASE)
+        assert section_match is not None, (
+            "demos/README.md must contain a ### section heading for epsilon_curves.ipynb"
+        )
+        # Extract text from the section heading to the next heading
+        section_start = section_match.start()
+        next_heading = re.search(r"^#{1,4}\s+", content[section_start + 10 :], re.MULTILINE)
+        section_end = section_start + 10 + next_heading.start() if next_heading else len(content)
+        section_text = content[section_start:section_end]
+
+        has_runtime = bool(
+            re.search(
+                r"\d+[-]\d+\s*(min|hour|h\b)|runtime|\d+\s*(min|hour)",
+                section_text,
+                re.IGNORECASE,
+            )
+        )
         assert has_runtime, (
-            "demos/README.md epsilon_curves.ipynb entry must include expected runtime "
-            f"information. Found section:\n{surrounding}"
+            "demos/README.md epsilon_curves.ipynb section must include expected runtime "
+            f"information (e.g., '45-90 minutes'). Section text:\n{section_text[:300]}"
         )
 
 
@@ -160,9 +177,7 @@ class TestMainReadmeDemosSection:
         """README.md must link to all three required notebooks."""
         content = MAIN_README.read_text(encoding="utf-8")
         missing = [nb for nb in REQUIRED_NOTEBOOKS if nb not in content]
-        assert not missing, (
-            f"README.md is missing references to these notebooks: {missing}"
-        )
+        assert not missing, f"README.md is missing references to these notebooks: {missing}"
 
     def test_main_readme_links_to_demos_readme(self) -> None:
         """README.md must link to demos/README.md for full setup instructions."""
@@ -174,8 +189,7 @@ class TestMainReadmeDemosSection:
     def test_main_readme_svg_references_exist(self) -> None:
         """Every SVG path referenced in README.md must point to an existing file."""
         content = MAIN_README.read_text(encoding="utf-8")
-        svg_links = re.findall(r"\([^)]*\.svg\)", content)
-        # Also capture bare SVG references in markdown image syntax
+        # Capture SVG references in markdown image syntax
         all_svg = re.findall(r'["\(]([^")\s]+\.svg)["\)]', content)
 
         if not all_svg:
@@ -197,8 +211,9 @@ class TestMainReadmeDemosSection:
     def test_main_readme_methodology_note_present(self) -> None:
         """README.md Demos section must include the Opacus RDP methodology note."""
         content = MAIN_README.read_text(encoding="utf-8")
-        assert "Opacus" in content and "RDP" in content, (
-            "README.md must include a methodology note referencing 'Opacus RDP accountant'"
+        assert "Opacus" in content, "README.md must include a methodology note referencing 'Opacus'"
+        assert "RDP" in content, (
+            "README.md must include a methodology note referencing 'RDP accountant'"
         )
 
     def test_main_readme_demos_links_resolve_to_existing_files(self) -> None:
@@ -215,9 +230,8 @@ class TestMainReadmeDemosSection:
             if not resolved.exists():
                 broken.append(f"{link!r} -> {resolved}")
 
-        assert not broken, (
-            f"Found {len(broken)} broken link(s) in README.md:\n"
-            + "\n".join(f"  {b}" for b in broken)
+        assert not broken, f"Found {len(broken)} broken link(s) in README.md:\n" + "\n".join(
+            f"  {b}" for b in broken
         )
 
     def test_main_readme_how_this_was_built_metrics_present(self) -> None:
@@ -226,7 +240,7 @@ class TestMainReadmeDemosSection:
         assert "How This Was Built" in content, (
             "README.md must contain a 'How This Was Built' section"
         )
-        # Verify metric rows exist — check for table with at least Commits row
+        # Verify metric rows exist -- check for table with at least Commits row
         assert "Commits" in content, (
             "README.md 'How This Was Built' section must include a Commits metric"
         )
