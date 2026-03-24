@@ -210,6 +210,41 @@ per Two-Gate Policy (Rule 18). Static gates: ruff PASS, mypy PASS, bandit PASS.
 
 ---
 
+---
+
+### [2026-03-23] Phase 52 — T52.3–5: Notebooks (review findings fix)
+
+**Branch**: `feat/P52-T52.3-5-notebooks`
+
+**Tasks covered**: T52.3 (Epsilon Curve Notebook), T52.4 (Quick-Start Notebook), T52.5 (AI Builder Notebook)
+
+**Reviews**:
+
+**QA** (FINDING — 6 issues fixed):
+1. `# type: ignore[type-arg]` annotations in `test_quickstart_notebook.py` and `test_ai_builder_notebook.py` lacked justification comments — added inline justification: "notebook JSON is untyped; full nbformat schema out of scope."
+2. `_load_results` in `demos/generate_figures.py` docstring missing `KeyError` in Raises section — added (`data["rows"]` access can raise KeyError if key absent).
+3. Path traversal guard in `_load_results` used `startswith()` which can be bypassed by sibling directory names — replaced with `Path.is_relative_to()` (Python 3.9+, supported by this project).
+4. `test_generate_figures_script_has_valid_python_syntax` used a rubber-stamp `assert compiled is not None` (compile() never returns None) — replaced with `assert isinstance(compiled, types.CodeType)`.
+5. `_load_notebook()` docstring in `test_ai_builder_notebook.py` had `pytest.fail:` as a Raises entry (not a standard exception) — clarified with prose form: "Uses pytest.fail if the notebook file does not exist."
+6. Raw exception `print(f"DB unavailable ({_db_err})...")` in `training_data.ipynb` exposes internal error details — replaced with sanitized `print("DB unavailable; falling back to sample CSV.")`.
+
+**DevOps** (PASS — 1 advisory fixed inline):
+- Sanitized exception print in `training_data.ipynb` (finding 6 above) closes the information-disclosure advisory.
+
+**Architecture** (PASS — 2 minor findings fixed):
+- `# type: ignore` justification comments added per code quality standard (finding 1).
+- `_load_notebook()` Raises docstring corrected to match implementation (finding 5).
+
+**Gate #1 results**: 2689 passed, 6 skipped, 96.83% unit coverage (>= 95% required). PASS.
+
+**Open advisories**:
+- ADV-P52-01: `_DP_EPSILON_DELTA` private symbol exposure — open, target post-P52.
+- ADV-P52-02: CI bandit/ruff scope gap for `demos/` — open, documented in ADR-0053.
+- ADVISORY (test style): Inconsistency between class-based grouping (`test_notebook_infrastructure.py`) and function-level grouping (`test_quickstart_notebook.py`, `test_ai_builder_notebook.py`). Cosmetic only — batched per Rule 16.
+- ADVISORY (CI): bandit scope gap does not cover `demos/` directory — pre-existing, tracked as ADV-P52-02.
+
+**Open advisory count at T52.3–5 review**: 2 open advisories (ADV-P52-01, ADV-P52-02) — unchanged.
+
 ### [2026-03-23] Phase 51 — Release Engineering
 
 **Branch**: `feat/P51-release-engineering`

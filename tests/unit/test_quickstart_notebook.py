@@ -32,7 +32,7 @@ _DEMOS_README_PATH = _REPO_ROOT / "demos" / "README.md"
 
 
 @pytest.fixture(scope="module")
-def notebook_json() -> dict:  # type: ignore[type-arg]
+def notebook_json() -> dict:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Load and parse the quickstart notebook JSON.
 
     Returns:
@@ -42,11 +42,11 @@ def notebook_json() -> dict:  # type: ignore[type-arg]
         f"Notebook not found at {_NOTEBOOK_PATH}. Create demos/quickstart.ipynb."
     )
     raw = _NOTEBOOK_PATH.read_text(encoding="utf-8")
-    return json.loads(raw)  # type: ignore[no-any-return]
+    return json.loads(raw)  # type: ignore[no-any-return]  # notebook JSON is untyped; full nbformat schema out of scope
 
 
 @pytest.fixture(scope="module")
-def all_source_lines(notebook_json: dict) -> list[str]:  # type: ignore[type-arg]
+def all_source_lines(notebook_json: dict) -> list[str]:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Extract all source lines from every cell in the notebook.
 
     Args:
@@ -66,7 +66,7 @@ def all_source_lines(notebook_json: dict) -> list[str]:  # type: ignore[type-arg
 
 
 @pytest.fixture(scope="module")
-def code_source_lines(notebook_json: dict) -> list[str]:  # type: ignore[type-arg]
+def code_source_lines(notebook_json: dict) -> list[str]:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Extract source lines from code cells only.
 
     Args:
@@ -165,7 +165,7 @@ def test_quickstart_no_pickle_load(code_source_lines: list[str]) -> None:
     )
 
 
-def test_quickstart_no_cell_outputs(notebook_json: dict) -> None:  # type: ignore[type-arg]
+def test_quickstart_no_cell_outputs(notebook_json: dict) -> None:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Verify all cells have empty outputs (nbstripout compliance).
 
     Notebooks committed with cell outputs can contain PII or sensitive data
@@ -226,7 +226,7 @@ def test_quickstart_uses_env_vars_for_credentials(
 
 
 def test_quickstart_has_three_main_sections(
-    notebook_json: dict,  # type: ignore[type-arg]
+    notebook_json: dict,  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
 ) -> None:
     """Verify the notebook contains Connect, Synthesize, and Compare sections.
 
@@ -254,7 +254,7 @@ def test_quickstart_has_three_main_sections(
 
 
 def test_quickstart_has_setup_instructions(
-    notebook_json: dict,  # type: ignore[type-arg]
+    notebook_json: dict,  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
 ) -> None:
     """Verify the notebook has a setup markdown cell with prerequisites.
 

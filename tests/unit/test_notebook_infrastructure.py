@@ -23,6 +23,7 @@ import json
 import re
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -87,7 +88,7 @@ class TestGenerateFiguresScriptExists:
         source = _SCRIPT_PATH.read_text(encoding="utf-8")
         # compile() raises SyntaxError if the file has syntax errors
         compiled = compile(source, str(_SCRIPT_PATH), "exec")
-        assert compiled is not None, "compile() returned None — unexpected"
+        assert isinstance(compiled, types.CodeType), f"Expected CodeType, got {type(compiled)}"
 
 
 class TestEpsilonCurvesNotebookExists:

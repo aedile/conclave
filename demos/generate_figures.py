@@ -63,10 +63,11 @@ def _load_results(artifact_path: Path) -> list[dict[str, Any]]:
         ValueError: If the resolved path is outside ``_RESULTS_DIR``.
         FileNotFoundError: If the artifact does not exist.
         json.JSONDecodeError: If the artifact contains invalid JSON.
+        KeyError: If the JSON object does not contain a "rows" key.
     """
     resolved = artifact_path.resolve()
     results_resolved = _RESULTS_DIR.resolve()
-    if not str(resolved).startswith(str(results_resolved)):
+    if not resolved.is_relative_to(results_resolved):
         raise ValueError(
             f"Path traversal blocked: {artifact_path!r} resolves outside "
             f"results directory {results_resolved!r}"

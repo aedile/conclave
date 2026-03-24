@@ -42,21 +42,22 @@ _NOTEBOOK_PATH = _REPO_ROOT / "demos" / "training_data.ipynb"
 # ---------------------------------------------------------------------------
 
 
-def _load_notebook() -> dict:  # type: ignore[type-arg]
+def _load_notebook() -> dict:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Load and parse the notebook JSON.
 
     Returns:
         Parsed notebook as a dictionary.
 
     Raises:
-        pytest.fail: If the file does not exist or is not valid JSON.
+        Uses pytest.fail if the notebook file does not exist.
+        json.JSONDecodeError: If the file exists but is not valid JSON.
     """
     if not _NOTEBOOK_PATH.exists():
         pytest.fail(f"Notebook not found: {_NOTEBOOK_PATH}")
     return json.loads(_NOTEBOOK_PATH.read_text(encoding="utf-8"))
 
 
-def _code_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]
+def _code_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Extract all source text from code cells.
 
     Args:
@@ -75,7 +76,7 @@ def _code_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]
     return sources
 
 
-def _markdown_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]
+def _markdown_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Extract all source text from markdown cells.
 
     Args:
@@ -94,7 +95,7 @@ def _markdown_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]
     return sources
 
 
-def _all_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]
+def _all_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Extract source text from all cells regardless of type.
 
     Args:
@@ -106,7 +107,7 @@ def _all_cell_sources(nb: dict) -> list[str]:  # type: ignore[type-arg]
     return _code_cell_sources(nb) + _markdown_cell_sources(nb)
 
 
-def _find_markdown_heading(nb: dict, heading_text: str) -> bool:  # type: ignore[type-arg]
+def _find_markdown_heading(nb: dict, heading_text: str) -> bool:  # type: ignore[type-arg]  # notebook JSON is untyped; full nbformat schema out of scope
     """Return True if any markdown cell contains a heading with the given text.
 
     Args:
