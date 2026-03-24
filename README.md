@@ -83,7 +83,7 @@ graph TD
 - Cross-module database queries are forbidden. Each module owns its own data access.
 - The bootstrapper is the sole composition root. Business logic has no framework knowledge.
 
-50 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
+54 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
 
 ---
 
@@ -282,28 +282,33 @@ Full evidence in [docs/archive/E2E_VALIDATION.md](docs/archive/E2E_VALIDATION.md
 
 ## Demos & Benchmarks
 
-Phase 52 will publish three runnable Jupyter notebooks with real, reproducible benchmark
-results against the `sample_data/` fixtures. All epsilon values are post-hoc measured by
-the Opacus RDP accountant — not configured targets. Results that look bad stay in.
+Three runnable Jupyter notebooks with real, reproducible benchmark results against the
+`sample_data/` fixtures. All epsilon values are post-hoc measured by the Opacus RDP
+accountant — not configured targets. Results that look bad stay in.
 
-**Notebooks** (files created when Phase 52 is implemented, targeting `demos/`):
+| Notebook | Audience | Expected Runtime | What It Shows |
+|----------|----------|-----------------|---------------|
+| [demos/epsilon_curves.ipynb](demos/epsilon_curves.ipynb) | Privacy engineers, reviewers | 45–90 min (CPU) | Parameterized epsilon curves across 45 noise-multiplier/epoch/sample-size combinations; KS statistics, correlation preservation, FK integrity |
+| [demos/quickstart.ipynb](demos/quickstart.ipynb) | Data architects | 2–5 min (CPU) | Three-cell demo: connect → synthesize → compare. Distribution overlays, correlation heatmaps |
+| [demos/training_data.ipynb](demos/training_data.ipynb) | AI/ML builders | 10–20 min (CPU) | Train on synthetic, test on real. Utility curve showing privacy-utility tradeoff by epsilon level |
 
-| Notebook | Audience | What It Shows |
-|----------|----------|---------------|
-| `demos/epsilon_curves.ipynb` | Privacy engineers, reviewers | Parameterized epsilon curves across 45 noise-multiplier/epoch/sample-size combinations; KS statistics, correlation preservation, FK integrity |
-| `demos/quickstart.ipynb` | Data architects | Three-cell demo: connect → synthesize → compare. Side-by-side distribution overlays, correlation heatmaps |
-| `demos/training_data.ipynb` | AI/ML builders | Train on synthetic, test on real. Utility curve showing privacy-utility tradeoff by epsilon level |
+**Key figures** (pre-rendered; regenerate with `poetry run python demos/generate_figures.py`):
 
-**Methodology note**: The benchmark harness trains CTGAN at configurable noise multipliers,
+Epsilon vs. noise multiplier — how privacy cost changes with the DP noise level:
+
+![Epsilon vs Noise Multiplier](demos/figures/epsilon_vs_noise_multiplier.svg)
+
+Privacy-utility frontier — epsilon vs. statistical fidelity (KS statistic):
+
+![Epsilon vs Statistical Fidelity](demos/figures/epsilon_vs_statistical_fidelity.svg)
+
+**Methodology**: The benchmark harness trains CTGAN at configurable noise multipliers,
 epoch counts, and sample sizes. Epsilon is measured after training by the Opacus RDP
-accountant using delta = 1e-5 (matching the production constant). All runs use fixed random
-seeds (torch, numpy, Python) for reproducibility. GPU acceleration is detected at runtime
-but CPU-only is the fully supported path.
+accountant using delta = 1e-5 (matching the production constant). All runs use fixed
+random seeds (torch, numpy, Python) for reproducibility. GPU acceleration is detected
+at runtime but CPU-only is the fully supported path.
 
-**Existing DP quality evidence**: See [docs/archive/DP_QUALITY_REPORT.md](docs/archive/DP_QUALITY_REPORT.md)
-for the current micro-benchmark results and recommended epsilon ranges by use case.
-
-Full setup instructions (Docker Compose, demo dependency group, seeding): `demos/README.md` (files created when Phase 52 is implemented).
+Full setup instructions (Docker Compose, demo dependency group, seeding): [demos/README.md](demos/README.md).
 
 ---
 
@@ -332,15 +337,15 @@ Development follows attack-first TDD (Red → Green → Refactor). Every task re
 
 A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.md), [`CLAUDE.md`](CLAUDE.md), backlog tasks, architecture specifications). AI agents executed every development task: writing failing tests first, implementing minimal passing code, running all quality gates, and submitting for multi-agent review before merge. No code was written outside this process.
 
-**Timeline**: March 9–23, 2026 — 14 calendar days from first commit to Phase 49.
+**Timeline**: March 9–23, 2026 — 14 calendar days from first commit to Phase 52.
 
 | Metric | Value |
 |--------|-------|
-| Commits | 972 |
-| Pull requests merged | 179 |
-| Architecture Decision Records | 50 |
-| Production source lines | ~23,000 |
-| Test lines | ~80,000 |
+| Commits | 1,055 |
+| Pull requests merged | 186 |
+| Architecture Decision Records | 54 |
+| Production source lines | ~23,100 |
+| Test lines | ~86,500 |
 | Test coverage | 96.76% |
 
 Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_STORY.md).
@@ -361,12 +366,13 @@ Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_S
 | [Dependency Audit](docs/DEPENDENCY_AUDIT.md) | Supply chain audit and dependency provenance |
 | [Business Requirements](docs/archive/BUSINESS_REQUIREMENTS.md) | Full product BRD (archived) |
 | [Architectural Requirements](docs/archive/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification (archived; see ADRs) |
-| [Architecture Decision Records](docs/adr/) | 50 ADRs covering every significant design decision |
+| [Architecture Decision Records](docs/adr/) | 54 ADRs covering every significant design decision |
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, development history |
 | [Development Story](docs/archive/DEVELOPMENT_STORY.md) | How this codebase was built (archived) |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
-| [Changelog](CHANGELOG.md) | Phase-by-phase release notes, Phase 1–49 |
+| [Changelog](CHANGELOG.md) | Phase-by-phase release notes, Phase 1–52 |
 | [API Reference](docs/api/API_REFERENCE.md) | REST API endpoint reference (static OpenAPI export) |
+| [Demo Suite](demos/README.md) | Jupyter notebooks and benchmark scripts |
 
 ---
 
