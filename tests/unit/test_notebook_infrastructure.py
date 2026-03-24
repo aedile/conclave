@@ -12,7 +12,7 @@ Feature tests verify content quality:
   - The notebook has a Methodology section
   - The notebook has a Limitations section
   - Running generate_figures.py produces expected SVG outputs
-  - Generated SVGs have axis labels (basic accessibility check)
+  - Generated SVGs have text groups (axis labels check — matplotlib SVG format)
 
 Task: P52-T52.3 — Epsilon Curve Notebook
 """
@@ -75,9 +75,7 @@ class TestGenerateFiguresScriptExists:
         assert _SCRIPT_PATH.suffix == ".py", (
             f"Expected a .py file at {_SCRIPT_PATH}, got suffix {_SCRIPT_PATH.suffix!r}"
         )
-        assert _SCRIPT_PATH.stat().st_size > 0, (
-            f"generate_figures.py at {_SCRIPT_PATH} is empty."
-        )
+        assert _SCRIPT_PATH.stat().st_size > 0, f"generate_figures.py at {_SCRIPT_PATH} is empty."
 
     def test_generate_figures_script_has_valid_python_syntax(self) -> None:
         """generate_figures.py must parse as valid Python.
@@ -116,9 +114,7 @@ class TestEpsilonCurvesNotebookExists:
         assert "nbformat" in nb, "Notebook JSON must have 'nbformat' key"
         assert "cells" in nb, "Notebook JSON must have 'cells' key"
         assert isinstance(nb["cells"], list), "Notebook 'cells' must be a list"
-        assert int(nb["nbformat"]) >= 4, (  # noqa: S101 — test assertion
-            f"Notebook nbformat must be >= 4, got {nb['nbformat']!r}"
-        )
+        assert int(nb["nbformat"]) >= 4, f"Notebook nbformat must be >= 4, got {nb['nbformat']!r}"
 
 
 class TestNotebookHasNoHardcodedPaths:
@@ -160,8 +156,8 @@ class TestNotebookHasNoHardcodedPaths:
                     f"found absolute path pattern(s): {matches}"
                 )
 
-        assert violations == [], (
-            "Notebook contains hardcoded absolute paths:\n" + "\n".join(violations)
+        assert violations == [], "Notebook contains hardcoded absolute paths:\n" + "\n".join(
+            violations
         )
 
 
@@ -329,7 +325,7 @@ class TestGenerateFiguresProducesExpectedOutputs:
         """
         assert _SCRIPT_PATH.exists(), f"Script not found: {_SCRIPT_PATH}"
 
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [
                 sys.executable,
                 str(_SCRIPT_PATH),
@@ -362,17 +358,23 @@ class TestGenerateFiguresProducesExpectedOutputs:
 
 
 class TestAllFiguresHaveAxisLabels:
-    """SVG figures must contain axis label text elements."""
+    """SVG figures must contain text group elements (axis labels).
+
+    Matplotlib 3.x renders text as ``<g id="text_N">`` groups rather than
+    ``<text>`` elements.  This test checks for those groups as a proxy for
+    verifying that axis labels and titles were written into the SVG.
+    """
 
     def test_all_figures_have_axis_labels(self) -> None:
-        """Each committed SVG must contain at least two <text> elements.
+        """Each committed SVG must contain at least 5 matplotlib text groups.
 
-        A meaningful chart must have axis labels.  Checking for at least two
-        <text> elements (title + one axis label) is a minimal proxy for
-        verifying that matplotlib wrote readable labels into the SVG.
+        Matplotlib SVGs store axis tick labels, axis titles, and chart titles
+        as ``<g id="text_N">`` elements.  A meaningful chart (with x-axis
+        label, y-axis label, title, and at least two tick labels) will have
+        at least 5 such groups.
 
-        This does not parse full SVG semantics — it is a sanity check that
-        the figure was not saved as a blank canvas.
+        The threshold of 5 groups is a conservative lower bound that guards
+        against blank-canvas SVGs while allowing simple charts with few ticks.
         """
         assert _FIGURES_DIR.exists(), f"demos/figures/ not found: {_FIGURES_DIR}"
         svg_files = list(_FIGURES_DIR.glob("*.svg"))
@@ -381,13 +383,16 @@ class TestAllFiguresHaveAxisLabels:
         violations: list[str] = []
         for svg_file in sorted(svg_files):
             content = svg_file.read_text(encoding="utf-8")
-            text_matches = re.findall(r"<text\b", content, re.IGNORECASE)
-            if len(text_matches) < 2:  # noqa: PLR2004 — magic number is the threshold
+            # Matplotlib SVG text groups: <g id="text_1">, <g id="text_2">, etc.
+            text_group_matches = re.findall(r'<g id="text_\d+"', content)
+            threshold = 5
+            if len(text_group_matches) < threshold:
                 violations.append(
-                    f"{svg_file.name}: found {len(text_matches)} <text> element(s), "
-                    "expected at least 2 (title + axis label)"
+                    f"{svg_file.name}: found {len(text_group_matches)} matplotlib text "
+                    f"group(s) (id='text_N'), expected at least {threshold} "
+                    "(title + axis labels + tick labels)"
                 )
 
-        assert violations == [], (
-            "SVG figures appear to be missing axis labels:\n" + "\n".join(violations)
+        assert violations == [], "SVG figures appear to be missing axis labels:\n" + "\n".join(
+            violations
         )
