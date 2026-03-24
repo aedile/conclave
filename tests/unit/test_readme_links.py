@@ -1,0 +1,235 @@
+"""Tests verifying README link integrity for T52.6.
+
+All markdown links in demos/README.md and top-level README.md must
+point to files that exist in the repository. Tests parse markdown link
+syntax and resolve paths relative to the project root.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+DEMOS_README = PROJECT_ROOT / "demos" / "README.md"
+MAIN_README = PROJECT_ROOT / "README.md"
+
+# Three notebooks required per T52.6 AC
+REQUIRED_NOTEBOOKS = [
+    "demos/quickstart.ipynb",
+    "demos/epsilon_curves.ipynb",
+    "demos/training_data.ipynb",
+]
+
+
+def _extract_markdown_links(text: str) -> list[str]:
+    """Return all link targets from markdown [text](target) syntax.
+
+    Args:
+        text: Raw markdown content.
+
+    Returns:
+        List of link target strings (may include anchors and external URLs).
+    """
+    return re.findall(r"\[(?:[^\]]*)\]\(([^)]+)\)", text)
+
+
+def _is_internal_file_link(link: str) -> bool:
+    """Return True if link is an internal relative-path file reference.
+
+    Filters out HTTP(S) URLs, anchor-only links, and mailto links.
+
+    Args:
+        link: Raw link target string from markdown.
+
+    Returns:
+        True when the link is a relative path to a local file.
+    """
+    if link.startswith(("http://", "https://", "mailto:", "#")):
+        return False
+    # Strip any trailing anchor fragment, e.g. file.md#section
+    path_part = link.split("#")[0]
+    return bool(path_part)
+
+
+def _resolve_link(link: str, readme_path: Path) -> Path:
+    """Resolve a relative markdown link against the given README's directory.
+
+    Args:
+        link: Relative file path from a markdown link (anchor stripped).
+        readme_path: Absolute path to the README file containing the link.
+
+    Returns:
+        Resolved absolute Path.
+    """
+    path_part = link.split("#")[0]
+    return (readme_path.parent / path_part).resolve()
+
+
+# ---------------------------------------------------------------------------
+# Attack tests — dead-link and missing-section checks
+# ---------------------------------------------------------------------------
+
+
+class TestDemosReadmeLinks:
+    """Verify every internal link in demos/README.md resolves to an existing file."""
+
+    def test_demos_readme_exists(self) -> None:
+        """demos/README.md must exist on disk."""
+        assert DEMOS_README.is_file(), f"Expected {DEMOS_README} to exist"
+
+    def test_demos_readme_links_resolve_to_existing_files(self) -> None:
+        """Every relative link in demos/README.md must point to an existing file."""
+        content = DEMOS_README.read_text(encoding="utf-8")
+        links = _extract_markdown_links(content)
+        internal_links = [lnk for lnk in links if _is_internal_file_link(lnk)]
+
+        assert internal_links, "demos/README.md must contain at least one internal link"
+
+        broken: list[str] = []
+        for link in internal_links:
+            resolved = _resolve_link(link, DEMOS_README)
+            if not resolved.exists():
+                broken.append(f"{link!r} -> {resolved}")
+
+        assert not broken, (
+            f"Found {len(broken)} broken link(s) in demos/README.md:\n"
+            + "\n".join(f"  {b}" for b in broken)
+        )
+
+    def test_demos_readme_contains_quickstart_entry(self) -> None:
+        """demos/README.md must document quickstart.ipynb."""
+        content = DEMOS_README.read_text(encoding="utf-8")
+        assert "quickstart.ipynb" in content, (
+            "demos/README.md must include an entry for quickstart.ipynb"
+        )
+
+    def test_demos_readme_contains_epsilon_curves_entry(self) -> None:
+        """demos/README.md must document epsilon_curves.ipynb."""
+        content = DEMOS_README.read_text(encoding="utf-8")
+        assert "epsilon_curves.ipynb" in content, (
+            "demos/README.md must include an entry for epsilon_curves.ipynb"
+        )
+
+    def test_demos_readme_contains_training_data_entry(self) -> None:
+        """demos/README.md must document training_data.ipynb."""
+        content = DEMOS_README.read_text(encoding="utf-8")
+        assert "training_data.ipynb" in content, (
+            "demos/README.md must include an entry for training_data.ipynb"
+        )
+
+    def test_demos_readme_contains_generate_figures_entry(self) -> None:
+        """demos/README.md must document generate_figures.py."""
+        content = DEMOS_README.read_text(encoding="utf-8")
+        assert "generate_figures.py" in content, (
+            "demos/README.md must include an entry for generate_figures.py"
+        )
+
+    def test_demos_readme_epsilon_curves_has_runtime(self) -> None:
+        """demos/README.md must state expected runtime for epsilon_curves.ipynb."""
+        content = DEMOS_README.read_text(encoding="utf-8")
+        # The epsilon curves section should mention a runtime expectation
+        # (e.g., "minutes", "hours", or a number followed by "min"/"hour")
+        epsilon_section_idx = content.find("epsilon_curves.ipynb")
+        assert epsilon_section_idx != -1, "epsilon_curves.ipynb not found in demos/README.md"
+        surrounding = content[epsilon_section_idx : epsilon_section_idx + 400]
+        has_runtime = bool(re.search(r"\d+[–-]\d+\s*(min|hour|h\b)|runtime|\d+\s*(min|hour)", surrounding, re.IGNORECASE))
+        assert has_runtime, (
+            "demos/README.md epsilon_curves.ipynb entry must include expected runtime "
+            f"information. Found section:\n{surrounding}"
+        )
+
+
+class TestMainReadmeDemosSection:
+    """Verify top-level README.md has an accurate Demos & Benchmarks section."""
+
+    def test_main_readme_exists(self) -> None:
+        """README.md must exist at project root."""
+        assert MAIN_README.is_file(), f"Expected {MAIN_README} to exist"
+
+    def test_main_readme_demos_section_exists(self) -> None:
+        """README.md must contain a 'Demos' section heading."""
+        content = MAIN_README.read_text(encoding="utf-8")
+        # Match any heading level containing "Demos" (case-insensitive)
+        has_demos = bool(re.search(r"^#{1,4}\s+.*[Dd]emos", content, re.MULTILINE))
+        assert has_demos, "README.md must contain a section heading with 'Demos'"
+
+    def test_main_readme_links_to_all_three_notebooks(self) -> None:
+        """README.md must link to all three required notebooks."""
+        content = MAIN_README.read_text(encoding="utf-8")
+        missing = [nb for nb in REQUIRED_NOTEBOOKS if nb not in content]
+        assert not missing, (
+            f"README.md is missing references to these notebooks: {missing}"
+        )
+
+    def test_main_readme_links_to_demos_readme(self) -> None:
+        """README.md must link to demos/README.md for full setup instructions."""
+        content = MAIN_README.read_text(encoding="utf-8")
+        assert "demos/README.md" in content, (
+            "README.md must link to demos/README.md for full setup details"
+        )
+
+    def test_main_readme_svg_references_exist(self) -> None:
+        """Every SVG path referenced in README.md must point to an existing file."""
+        content = MAIN_README.read_text(encoding="utf-8")
+        svg_links = re.findall(r"\([^)]*\.svg\)", content)
+        # Also capture bare SVG references in markdown image syntax
+        all_svg = re.findall(r'["\(]([^")\s]+\.svg)["\)]', content)
+
+        if not all_svg:
+            # If no SVG references yet, this test vacuously passes but
+            # test_main_readme_demos_section_exists ensures the section exists
+            return
+
+        broken: list[str] = []
+        for svg_ref in all_svg:
+            resolved = (PROJECT_ROOT / svg_ref).resolve()
+            if not resolved.exists():
+                broken.append(f"{svg_ref!r} -> {resolved}")
+
+        assert not broken, (
+            f"Found {len(broken)} broken SVG reference(s) in README.md:\n"
+            + "\n".join(f"  {b}" for b in broken)
+        )
+
+    def test_main_readme_methodology_note_present(self) -> None:
+        """README.md Demos section must include the Opacus RDP methodology note."""
+        content = MAIN_README.read_text(encoding="utf-8")
+        assert "Opacus" in content and "RDP" in content, (
+            "README.md must include a methodology note referencing 'Opacus RDP accountant'"
+        )
+
+    def test_main_readme_demos_links_resolve_to_existing_files(self) -> None:
+        """Every relative link in README.md must point to an existing file."""
+        content = MAIN_README.read_text(encoding="utf-8")
+        links = _extract_markdown_links(content)
+        internal_links = [lnk for lnk in links if _is_internal_file_link(lnk)]
+
+        assert internal_links, "README.md must contain at least one internal link"
+
+        broken: list[str] = []
+        for link in internal_links:
+            resolved = _resolve_link(link, MAIN_README)
+            if not resolved.exists():
+                broken.append(f"{link!r} -> {resolved}")
+
+        assert not broken, (
+            f"Found {len(broken)} broken link(s) in README.md:\n"
+            + "\n".join(f"  {b}" for b in broken)
+        )
+
+    def test_main_readme_how_this_was_built_metrics_present(self) -> None:
+        """README.md 'How This Was Built' section must contain numeric metrics."""
+        content = MAIN_README.read_text(encoding="utf-8")
+        assert "How This Was Built" in content, (
+            "README.md must contain a 'How This Was Built' section"
+        )
+        # Verify metric rows exist — check for table with at least Commits row
+        assert "Commits" in content, (
+            "README.md 'How This Was Built' section must include a Commits metric"
+        )
+        assert "Pull requests merged" in content, (
+            "README.md 'How This Was Built' section must include 'Pull requests merged'"
+        )
