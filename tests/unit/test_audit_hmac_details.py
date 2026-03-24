@@ -259,13 +259,9 @@ def test_none_details_and_empty_dict_produce_different_signatures(
     # The signature for empty details (v2:) must differ from v1: format
     assert event_empty.signature.startswith("v2:"), "Empty dict details must produce v2: signature"
 
-    # The v2 signature over {} must NOT equal a raw v1 signature over the same fields.
-    # We verify this indirectly: v1 signatures do NOT start with 'v2:'
-    v1_hex_part = event_empty.signature[len("v2:") :]
-    v2_hex_part = event_empty.signature[len("v2:") :]
-
-    # If we construct a fake v1: prefixed signature and verify it, it must fail
-    # (because verify_event computes v2 and compares — they differ)
+    # Construct a fake v1: prefixed signature using the hex portion of the real v2 sig.
+    # Verifying it must fail because the version prefix is included in the HMAC input.
+    hex_part = event_empty.signature[len("v2:") :]
     from synth_engine.shared.security.audit import AuditEvent
 
     fake_v1_event = AuditEvent(
@@ -276,15 +272,8 @@ def test_none_details_and_empty_dict_produce_different_signatures(
         action=event_empty.action,
         details={},
         prev_hash=event_empty.prev_hash,
-        signature="v1:" + v1_hex_part,
+        signature="v1:" + hex_part,
     )
-    # A v1: prefixed sig over {} does NOT equal the v2: sig over {}
-    # (because the version prefix is included in the HMAC input)
     assert logger_b.verify_event(fake_v1_event) is False, (
         "A v1: signature over empty details must NOT verify as a v2 event"
     )
-
-    # Also confirm that v1_hex_part != v2_hex_part is guaranteed by construction
-    # (they ARE the same hex portion since both come from event_empty.signature,
-    # this just documents that the prefix is what distinguishes them)
-    assert v1_hex_part == v2_hex_part  # same hex, different prefix semantics

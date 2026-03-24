@@ -39,11 +39,11 @@ from __future__ import annotations
 
 import time
 from collections.abc import Generator
-from typing import Any
 from unittest.mock import patch
 
 import jwt as pyjwt
 import pytest
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
@@ -97,23 +97,15 @@ def clear_settings_cache() -> Generator[None]:
     Yields:
         None — setup and teardown only.
     """
-    try:
-        from synth_engine.shared.settings import get_settings
+    from synth_engine.shared.settings import get_settings
 
-        get_settings.cache_clear()
-    except ImportError:
-        pass
+    get_settings.cache_clear()
     yield
-    try:
-        from synth_engine.shared.settings import get_settings
-
-        get_settings.cache_clear()
-    except ImportError:
-        pass
+    get_settings.cache_clear()
 
 
 @pytest.fixture
-def auth_app(monkeypatch: pytest.MonkeyPatch) -> Any:
+def auth_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     """Build a fully-wired FastAPI test app with JWT auth configured.
 
     Patches environment variables so all middleware (vault, license, auth)
@@ -162,7 +154,7 @@ def _make_expired_jwt() -> str:
     )
 
 
-def _collect_auth_required_routes(app: Any) -> list[tuple[str, str]]:
+def _collect_auth_required_routes(app: FastAPI) -> list[tuple[str, str]]:
     """Enumerate (path, method) pairs that must require authentication.
 
     Collects all routes from ``app.routes`` (which includes
@@ -204,7 +196,7 @@ def _collect_auth_required_routes(app: Any) -> list[tuple[str, str]]:
 
 
 @pytest.mark.asyncio
-async def test_attack_no_token_returns_401_not_500(auth_app: Any) -> None:
+async def test_attack_no_token_returns_401_not_500(auth_app: FastAPI) -> None:
     """Auth route with no token must return 401, not 500 or 200.
 
     A missing Authorization header must be caught by the auth gate and
@@ -230,7 +222,7 @@ async def test_attack_no_token_returns_401_not_500(auth_app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_attack_garbage_token_returns_401(auth_app: Any) -> None:
+async def test_attack_garbage_token_returns_401(auth_app: FastAPI) -> None:
     """A garbage Bearer token must be rejected with 401, not 500.
 
     Garbage tokens (not parseable as JWT) must not cause unhandled
@@ -258,7 +250,7 @@ async def test_attack_garbage_token_returns_401(auth_app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_attack_expired_token_returns_401_not_500(auth_app: Any) -> None:
+async def test_attack_expired_token_returns_401_not_500(auth_app: FastAPI) -> None:
     """An expired JWT must return 401, not 500.
 
     Expired-token handling must be clean — no unhandled exceptions, no
@@ -291,7 +283,7 @@ async def test_attack_expired_token_returns_401_not_500(auth_app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_attack_trailing_slash_on_auth_route_returns_401(auth_app: Any) -> None:
+async def test_attack_trailing_slash_on_auth_route_returns_401(auth_app: FastAPI) -> None:
     """Path normalization: a trailing slash on an auth route must still return 401.
 
     Some middleware implementations are fooled by trailing slashes into
@@ -322,7 +314,7 @@ async def test_attack_trailing_slash_on_auth_route_returns_401(auth_app: Any) ->
 
 
 @pytest.mark.asyncio
-async def test_attack_401_response_body_has_no_stack_trace(auth_app: Any) -> None:
+async def test_attack_401_response_body_has_no_stack_trace(auth_app: FastAPI) -> None:
     """401 response body must not leak stack traces or internal file paths.
 
     Information leakage in error responses is a security vulnerability.
@@ -353,7 +345,7 @@ async def test_attack_401_response_body_has_no_stack_trace(auth_app: Any) -> Non
 
 
 @pytest.mark.asyncio
-async def test_attack_401_response_is_rfc7807_format(auth_app: Any) -> None:
+async def test_attack_401_response_is_rfc7807_format(auth_app: FastAPI) -> None:
     """401 response body must conform to RFC 7807 Problem Details format.
 
     The auth gate must produce a structured response — not a bare HTML
@@ -387,7 +379,7 @@ async def test_attack_401_response_is_rfc7807_format(auth_app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_all_routes_require_auth_no_token(auth_app: Any) -> None:
+async def test_all_routes_require_auth_no_token(auth_app: FastAPI) -> None:
     """Every non-exempt route must return 401 when no token is provided.
 
     This is the primary self-maintaining gate.  If a developer adds a
@@ -427,7 +419,7 @@ async def test_all_routes_require_auth_no_token(auth_app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_all_routes_require_auth_invalid_token(auth_app: Any) -> None:
+async def test_all_routes_require_auth_invalid_token(auth_app: FastAPI) -> None:
     """Every non-exempt route must return 401 when an invalid token is provided.
 
     Invalid tokens (garbage strings that are not well-formed JWTs) must
@@ -467,7 +459,7 @@ async def test_all_routes_require_auth_invalid_token(auth_app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_all_routes_require_auth_expired_token(auth_app: Any) -> None:
+async def test_all_routes_require_auth_expired_token(auth_app: FastAPI) -> None:
     """Every non-exempt route must return 401 when an expired JWT is provided.
 
     An expired token is a well-formed JWT whose ``exp`` claim is in the

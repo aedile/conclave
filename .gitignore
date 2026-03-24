@@ -102,6 +102,9 @@ sbom.json
 # mutmut mutation testing sandbox — regenerated every run
 mutants/
 
+# cosmic-ray session file — regenerated every mutation run
+session.sqlite
+
 # =============================================================================
 # Demo generated outputs (T52.1)
 # =============================================================================
