@@ -6,7 +6,7 @@
 
 207 transitive dependencies resolved by Poetry. Direct production deps: 26 (after T18.2 slimming).
 
-**T18.2 changes:** `chromadb` moved main → dev; `datamodel-code-generator` placement formalized in dev group.
+**T18.2 changes:** `datamodel-code-generator` placement formalized in dev group. `chromadb` removed (P53 cleanup — feature sunsetted, scripts deleted).
 
 ---
 
@@ -62,7 +62,6 @@
 | `types-psutil` | Mypy stubs for psutil | Required for strict mypy |
 | `boto3-stubs` | Mypy stubs for boto3 | Required for strict mypy |
 | `aiosqlite` | Async SQLite for unit tests | Required for T4.4 async unit tests |
-| `chromadb` | Vector DB for retro seeding scripts | **Moved from main in T18.2.** Only used in `scripts/seed_chroma*.py`. Reduces main by ~25 transitive packages. |
 | `datamodel-code-generator` | TypeScript types from OpenAPI | Used in `scripts/generate_ts_types.py`. **Placement formalized in T18.2.** |
 
 ---
@@ -71,7 +70,7 @@
 
 | Finding | Action | Status |
 |---------|--------|--------|
-| `chromadb` in main — scripts-only | Moved to dev | **DONE (T18.2)** |
+| `chromadb` — feature sunsetted | Removed entirely (P53) | **DONE** |
 | `datamodel-code-generator` misplaced | Formalized in dev section | **DONE (T18.2)** |
 | `pgbouncer/pgbouncer:1.23.1` phantom tag (ADV-015) | Replaced with `edoburu/pgbouncer:v1.23.1-p3@sha256:...` | **DONE (T18.2)** |
 | `passlib` has no `src/` imports | Evaluate removal — superseded by direct `cryptography` pin | Future phase |
