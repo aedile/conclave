@@ -129,6 +129,11 @@ _ALLOWED_MODULE_PREFIXES: tuple[str, ...] = (
     "sklearn",
     "scipy",
     "joblib",
+    # faker is used internally by SDV/RDT for PII anonymization during training.
+    # It is stored inside trained CTGAN artifacts and must be deserializable.
+    "faker",
+    # random is a stdlib module used by numpy and torch internals.
+    "random",
 )
 
 
