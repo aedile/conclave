@@ -53,7 +53,8 @@ class TestSecurityAttacks:
         """The script must contain no hardcoded password or credential literals.
 
         Searches for patterns commonly associated with credential embedding:
-        ``password=``, ``passwd=``, ``secret=``, ``postgres://user:password@``.
+        ``password=``, ``passwd=``, ``secret=``,
+        ``postgres://user:password@``.  # pragma: allowlist secret
         A match of any of these patterns is a security violation.
         """
         source = _load_source()
@@ -63,7 +64,7 @@ class TestSecurityAttacks:
             r"password\s*=\s*['\"][^'\"]{1,}['\"]",
             r"passwd\s*=\s*['\"][^'\"]{1,}['\"]",
             r"secret\s*=\s*['\"][^'\"]{1,}['\"]",
-            # A DSN with a literal password embedded: postgresql://user:secret@
+            # A DSN with a literal password embedded: user:secret@host  # pragma: allowlist secret
             r"postgresql://\w+:[^@'\"\s]{2,}@",
             r"postgres://\w+:[^@'\"\s]{2,}@",
         ]
@@ -72,16 +73,14 @@ class TestSecurityAttacks:
             matches = re.findall(pattern, source, re.IGNORECASE)
             # Filter out comments and docstrings (heuristic: lines starting with #)
             non_comment_matches = [
-                m for m in matches
+                m
+                for m in matches
                 if not any(
-                    line.lstrip().startswith("#")
-                    for line in source.splitlines()
-                    if m in line
+                    line.lstrip().startswith("#") for line in source.splitlines() if m in line
                 )
             ]
             assert not non_comment_matches, (
-                f"Forbidden credential pattern {pattern!r} found in script: "
-                f"{non_comment_matches}"
+                f"Forbidden credential pattern {pattern!r} found in script: {non_comment_matches}"
             )
 
     def test_validate_script_does_not_print_dsn(self) -> None:
@@ -98,7 +97,7 @@ class TestSecurityAttacks:
         # Pattern: print(...db_url...) or log.xxx(...db_url...) without masking.
         # We look for print/log calls that contain the bare variable reference.
         dsn_in_print = re.findall(
-            r'(?:print|_logger\.\w+|logging\.\w+)\s*\([^)]*\bdb_url\b[^)]*\)',
+            r"(?:print|_logger\.\w+|logging\.\w+)\s*\([^)]*\bdb_url\b[^)]*\)",
             source,
             re.DOTALL,
         )
@@ -140,8 +139,7 @@ class TestSecurityAttacks:
             "Bounds must be validated at parse time."
         )
         assert "500" in source, (
-            "epochs maximum (500) not found in script. "
-            "Bounds must be validated at parse time."
+            "epochs maximum (500) not found in script. Bounds must be validated at parse time."
         )
 
     def test_validate_script_validates_output_dir(self) -> None:
@@ -154,12 +152,14 @@ class TestSecurityAttacks:
 
         # A writable check implies: either os.access with W_OK, or a try/open,
         # or Path(...).mkdir, or an explicit writable check function.
-        has_writable_check = any([
-            "os.access" in source and "W_OK" in source,
-            "writable" in source.lower(),
-            # The script creates the output dir or checks it
-            ".mkdir" in source,
-        ])
+        has_writable_check = any(
+            [
+                "os.access" in source and "W_OK" in source,
+                "writable" in source.lower(),
+                # The script creates the output dir or checks it
+                ".mkdir" in source,
+            ]
+        )
         assert has_writable_check, (
             "Script must validate that the output directory is writable before "
             "starting the pipeline. No writable-check pattern found (os.access+W_OK, "
@@ -175,14 +175,16 @@ class TestSecurityAttacks:
         """
         source = _load_source()
 
-        has_nan_check = any([
-            "isna()" in source or ".isna(" in source,
-            "isnull()" in source or ".isnull(" in source,
-            "np.isnan" in source,
-            "pd.isna" in source,
-            "hasnans" in source,
-            "training_divergence" in source,
-        ])
+        has_nan_check = any(
+            [
+                "isna()" in source or ".isna(" in source,
+                "isnull()" in source or ".isnull(" in source,
+                "np.isnan" in source,
+                "pd.isna" in source,
+                "hasnans" in source,
+                "training_divergence" in source,
+            ]
+        )
         assert has_nan_check, (
             "Script must detect NaN/inf in generated DataFrames to catch "
             "training divergence. No NaN-detection pattern found."
@@ -368,11 +370,13 @@ class TestScriptStructure:
         source = _load_source()
 
         # Timing implies time.monotonic(), time.perf_counter(), or time.time()
-        has_time_call = any([
-            "time.monotonic()" in source,
-            "time.perf_counter()" in source,
-            "time.time()" in source,
-        ])
+        has_time_call = any(
+            [
+                "time.monotonic()" in source,
+                "time.perf_counter()" in source,
+                "time.time()" in source,
+            ]
+        )
         assert has_time_call, (
             "Script must use a time function (time.monotonic, time.perf_counter, "
             "or time.time) to measure per-stage duration."
@@ -390,26 +394,41 @@ class TestScriptStructure:
         )
 
     def test_validate_script_exit_codes_documented(self) -> None:
-        """The script must define exit code constants for all three exit codes.
+        """The script must define named exit code constants for all three exit codes.
 
-        Exit codes must be defined as named constants, not bare integer literals,
+        Exit codes must be defined as named constants (e.g. EXIT_VALIDATION_FAILURE = 1)
         to prevent accidental confusion between exit code 1 (validation failure)
-        and exit code 2 (infrastructure error).
+        and exit code 2 (infrastructure error).  Named constants are then passed
+        to sys.exit() rather than bare integer literals.
         """
         source = _load_source()
 
-        # Exit codes 0, 1, and 2 must be referenced.
-        # They should be used with sys.exit() calls.
-        sys_exit_calls = re.findall(r"sys\.exit\s*\(\s*(\d)\s*\)", source)
-        exit_codes_used = set(sys_exit_calls)
-
-        assert "1" in exit_codes_used, (
-            "Script must call sys.exit(1) for validation failures "
-            "(FK orphans, epsilon exceeded, masking violation)."
+        # Named constants for exit codes must be defined.
+        # Pattern: EXIT_VALIDATION_FAILURE: int = 1 or EXIT_VALIDATION_FAILURE = 1
+        assert re.search(r"EXIT_VALIDATION_FAILURE\s*[=:][^=].*1", source), (
+            "Script must define EXIT_VALIDATION_FAILURE constant equal to 1 "
+            "for validation failures (FK orphans, epsilon exceeded, masking violation)."
         )
-        assert "2" in exit_codes_used, (
-            "Script must call sys.exit(2) for infrastructure errors "
-            "(DB connection failed, training diverged)."
+        assert re.search(r"EXIT_INFRASTRUCTURE_ERROR\s*[=:][^=].*2", source), (
+            "Script must define EXIT_INFRASTRUCTURE_ERROR constant equal to 2 "
+            "for infrastructure errors (DB connection failed, training diverged)."
+        )
+
+        # Those constants (or their literal values) must be passed to sys.exit().
+        # Accept either: sys.exit(EXIT_VALIDATION_FAILURE) or sys.exit(1)
+        has_exit_1 = "sys.exit(EXIT_VALIDATION_FAILURE)" in source or bool(
+            re.search(r"sys\.exit\s*\(\s*1\s*\)", source)
+        )
+        has_exit_2 = "sys.exit(EXIT_INFRASTRUCTURE_ERROR)" in source or bool(
+            re.search(r"sys\.exit\s*\(\s*2\s*\)", source)
+        )
+        assert has_exit_1, (
+            "Script must call sys.exit(EXIT_VALIDATION_FAILURE) or sys.exit(1) "
+            "for validation failures."
+        )
+        assert has_exit_2, (
+            "Script must call sys.exit(EXIT_INFRASTRUCTURE_ERROR) or sys.exit(2) "
+            "for infrastructure errors."
         )
 
     def test_validate_script_uses_force_cpu_default(self) -> None:
@@ -422,11 +441,13 @@ class TestScriptStructure:
 
         # The argparse definition for --force-cpu should have default=True
         # OR action="store_true" with a documented default of True.
-        has_force_cpu_true = any([
-            "force_cpu" in source and "True" in source,
-            "--force-cpu" in source and "store_true" in source,
-            "force-cpu" in source and "default=True" in source,
-        ])
+        has_force_cpu_true = any(
+            [
+                "force_cpu" in source and "True" in source,
+                "--force-cpu" in source and "store_true" in source,
+                "force-cpu" in source and "default=True" in source,
+            ]
+        )
         assert has_force_cpu_true, (
             "The --force-cpu flag must default to True. "
             "No pattern combining 'force_cpu' and 'True' found in script."
@@ -451,13 +472,9 @@ class TestScriptAst:
         try:
             tree = ast.parse(source)
         except SyntaxError as exc:
-            pytest.fail(
-                f"Script at {_SCRIPT_PATH} has a Python syntax error: {exc}"
-            )
+            pytest.fail(f"Script at {_SCRIPT_PATH} has a Python syntax error: {exc}")
         # Verify we got a real AST Module node, not an empty parse.
-        assert isinstance(tree, ast.Module), (
-            "Parsing the script should produce an ast.Module node."
-        )
+        assert isinstance(tree, ast.Module), "Parsing the script should produce an ast.Module node."
         # The module must have at least one statement.
         assert len(tree.body) > 0, (
             "The script AST body must not be empty — it contains no statements."
