@@ -290,10 +290,10 @@ module = ["limits", "limits.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
-# Bandit — Security Scanner (src/ and scripts/)
+# Bandit — Security Scanner (src/, scripts/, and demos/)
 # ---------------------------------------------------------------------------
 [tool.bandit]
-targets = ["src", "scripts"]
+targets = ["src", "scripts", "demos"]
 skips = ["B101"]
 
 # ---------------------------------------------------------------------------
