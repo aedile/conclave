@@ -26,6 +26,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_DOC = REPO_ROOT / "docs" / "E2E_VALIDATION_RESULTS.md"
 INDEX_DOC = REPO_ROOT / "docs" / "index.md"
 
+# Placeholder pattern: matches safe placeholder tokens that are NOT real secrets.
+_PLACEHOLDER_PATTERN = re.compile(
+    r"(your[_-]?\w+|<\w+>|to be filled"
+    r"|\$\{|\$[A-Z_]+|example|placeholder|changeme|REDACTED)",
+    re.IGNORECASE,
+)
+
 # ---------------------------------------------------------------------------
 # Shared fixture — read file once per session
 # ---------------------------------------------------------------------------
@@ -69,9 +76,7 @@ class TestNoCredentialsInDoc:
     These tests run against the real file content, not a mock.
     """
 
-    def test_e2e_results_does_not_contain_real_credentials(
-        self, results_text: str
-    ) -> None:
+    def test_e2e_results_does_not_contain_real_credentials(self, results_text: str) -> None:
         """E2E_VALIDATION_RESULTS.md must not contain password-like strings.
 
         Checks for common credential patterns: 'password=', 'passwd=',
@@ -79,33 +84,24 @@ class TestNoCredentialsInDoc:
         Fictional placeholders like 'postgresql://user:password@host' in
         How-to-Run instructions are acceptable only if qualified as examples.
         """
-        # Pattern: key=<non-whitespace value> for common secret key names
-        # We allow lines that contain the words in obviously instructional
-        # context (e.g. "Set the DB_PASSWORD env var to your password").
-        # We flag bare assignments like: PASSWORD=abc123 or password=s3cret
+        # Pattern: key=<non-whitespace value> for common secret key names.
+        # We flag bare assignments like: PASSWORD=abc123 or password=s3cret.
         credential_pattern = re.compile(
             r"(?i)(password|passwd|secret|api_key)\s*=\s*\S+",
             re.MULTILINE,
         )
-        matches = credential_pattern.findall(results_text)
-        # Allow only placeholder text — the value must be a placeholder token
+        # Allow only placeholder text — the value must be a placeholder token.
         suspicious = [
             m
             for m in credential_pattern.finditer(results_text)
-            if not re.search(
-                r"(your[_-]?\w+|<\w+>|to be filled|\$\{|\$[A-Z_]+|example|placeholder|changeme|REDACTED)",
-                m.group(0),
-                re.IGNORECASE,
-            )
+            if not _PLACEHOLDER_PATTERN.search(m.group(0))
         ]
         assert not suspicious, (
             f"Potential credentials found in E2E_VALIDATION_RESULTS.md: "
             f"{[m.group(0) for m in suspicious]}"
         )
 
-    def test_e2e_results_does_not_contain_real_pii(
-        self, results_text: str
-    ) -> None:
+    def test_e2e_results_does_not_contain_real_pii(self, results_text: str) -> None:
         """E2E_VALIDATION_RESULTS.md must not contain real name/email PII.
 
         Checks for patterns that look like real person names in 'First Last'
@@ -113,29 +109,21 @@ class TestNoCredentialsInDoc:
         The document should only refer to Pagila's fictional data in aggregate
         (row counts, statistics) — never list actual rows or records.
         """
-        # Real PII signal: an email address alongside a real-looking full name
-        # on the same line (e.g., "John Smith john.smith@example.com")
+        # Real PII signal: an email address on a line.
         email_pattern = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
         lines_with_email = [
-            line
-            for line in results_text.splitlines()
-            if email_pattern.search(line)
+            line for line in results_text.splitlines() if email_pattern.search(line)
         ]
         # Emails are only acceptable in two contexts:
         # 1. Generic example addresses (example.com, pagila-notice domains)
         # 2. Masked/redacted references
-        real_pii_lines = [
-            line
-            for line in lines_with_email
-            if not re.search(
-                r"(example\.com|pagila|MASKED|REDACTED|fictional|<email>|\[PENDING\])",
-                line,
-                re.IGNORECASE,
-            )
-        ]
+        safe_email_pattern = re.compile(
+            r"(example\.com|pagila|MASKED|REDACTED|fictional|<email>|\[PENDING\])",
+            re.IGNORECASE,
+        )
+        real_pii_lines = [line for line in lines_with_email if not safe_email_pattern.search(line)]
         assert not real_pii_lines, (
-            f"Possible real PII (email) found in E2E_VALIDATION_RESULTS.md: "
-            f"{real_pii_lines}"
+            f"Possible real PII (email) found in E2E_VALIDATION_RESULTS.md: {real_pii_lines}"
         )
 
 
@@ -170,8 +158,7 @@ class TestRequiredSections:
         """
         for section in self.REQUIRED_H2_SECTIONS:
             assert f"## {section}" in results_text, (
-                f"Missing required H2 section in E2E_VALIDATION_RESULTS.md: "
-                f"'## {section}'"
+                f"Missing required H2 section in E2E_VALIDATION_RESULTS.md: '## {section}'"
             )
 
 
@@ -185,10 +172,9 @@ class TestHowToRun:
           1. A mention of prerequisites (PostgreSQL or Pagila).
           2. The validate_full_pipeline.py script reference.
         """
-        # The heading can be ## How to Run or a variant; check loosely
-        assert re.search(
-            r"##\s+How to Run", results_text, re.IGNORECASE
-        ), "Missing 'How to Run' section in E2E_VALIDATION_RESULTS.md"
+        assert re.search(r"##\s+How to Run", results_text, re.IGNORECASE), (
+            "Missing 'How to Run' section in E2E_VALIDATION_RESULTS.md"
+        )
 
         assert "validate_full_pipeline.py" in results_text, (
             "E2E_VALIDATION_RESULTS.md must reference validate_full_pipeline.py "
@@ -215,7 +201,6 @@ class TestEpsilonWarning:
         epsilon should be much lower. The note must appear near the epsilon
         configuration value.
         """
-        # The spec requires: "NOTE: chosen for validation speed, not production privacy"
         assert re.search(
             r"chosen for validation speed",
             results_text,
