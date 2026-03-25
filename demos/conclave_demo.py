@@ -107,7 +107,7 @@ def run_demo(
 
     try:
         from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
-        from synth_engine.modules.synthesizer.dp_accounting import _DP_EPSILON_DELTA
+        from synth_engine.modules.synthesizer.dp_accounting import DP_EPSILON_DELTA
         from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
         from synth_engine.modules.synthesizer.models import ModelArtifact
     except ImportError as exc:
@@ -154,7 +154,7 @@ def run_demo(
         model.fit(source_df)
         synth_df = model.sample(n_rows)
         # Use production delta for epsilon accounting to match benchmark harness
-        actual_epsilon = wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
+        actual_epsilon = wrapper.epsilon_spent(delta=DP_EPSILON_DELTA)
 
     # Resolve output directory
     tmp_cleanup: tempfile.TemporaryDirectory[str] | None = None

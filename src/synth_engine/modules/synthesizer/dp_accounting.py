@@ -67,7 +67,7 @@ _logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_DP_EPSILON_DELTA: float = 1e-5
+DP_EPSILON_DELTA: float = 1e-5
 _DEFAULT_LEDGER_ID: int = 1
 
 _AUDIT_RECONCILIATION_MSG: str = (
@@ -129,7 +129,7 @@ def _handle_dp_accounting(
     import synth_engine.modules.synthesizer.job_orchestration as _orch
 
     try:
-        actual_eps = dp_wrapper.epsilon_spent(delta=_DP_EPSILON_DELTA)
+        actual_eps = dp_wrapper.epsilon_spent(delta=DP_EPSILON_DELTA)
         job.actual_epsilon = actual_eps
         _logger.info("Job %d: DP complete, actual_epsilon=%.4f.", job_id, actual_eps)
     except Exception as exc:
