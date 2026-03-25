@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
@@ -114,8 +115,10 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
     access_key = _read_secret("minio_ephemeral_access_key")
     secret_key = _read_secret("minio_ephemeral_secret_key")
 
-    backend_cls: Any = MinioStorageBackend
-    backend = backend_cls(
+    assert MinioStorageBackend is not None, (  # pragma: no cover
+        "MinioStorageBackend unavailable — install the synthesizer dependency group"
+    )
+    backend = MinioStorageBackend(
         endpoint_url=_MINIO_ENDPOINT,
         access_key=access_key,
         secret_key=secret_key,
@@ -133,7 +136,7 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
 # ---------------------------------------------------------------------------
 
 
-def _build_webhook_delivery_fn() -> Any:
+def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
     """Build the concrete webhook delivery callback for IoC injection.
 
     Returns a closure that, when called with ``(job_id, status)``:

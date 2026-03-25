@@ -27,7 +27,7 @@
 | `psycopg2-binary` | `>=2.9,<3` | Sync PostgreSQL driver | dialect registration | Required — sync driver for subsetting |
 | `cryptography` | `>=46.0.5,<47` | AES-GCM, SCRYPT KDF | `shared/security/vault.py`, `licensing.py` | Required |
 | `PyJWT` | `>=2.10,<3` | JWT encode/decode | `shared/auth/jwt.py`, `licensing.py` | Required (ADR-0007) |
-| `passlib` | `>=1.7.4,<2` | Password hashing | **not in `src/`** | **Candidate for removal** — superseded by direct `cryptography` pin. Pending removal ADR. |
+| ~~`passlib`~~ | ~~`>=1.7.4,<2`~~ | ~~Password hashing~~ | **not in `src/`** | **Removed in T55.5** — superseded by direct `cryptography` pin; zero import sites confirmed. |
 | `prometheus-client` | `>=0.21,<1` | Prometheus `/metrics` | `bootstrapper/main.py` | Required |
 | `pydantic` | `>=2,<3` | Data validation | 8 import sites | Required |
 | `faker` | `^40.11` | Fake data generation | `modules/masking/` | Required |
@@ -73,7 +73,7 @@
 | `chromadb` — feature sunsetted | Removed entirely (P53) | **DONE** |
 | `datamodel-code-generator` misplaced | Formalized in dev section | **DONE (T18.2)** |
 | `pgbouncer/pgbouncer:1.23.1` phantom tag (ADV-015) | Replaced with `edoburu/pgbouncer:v1.23.1-p3@sha256:...` | **DONE (T18.2)** |
-| `passlib` has no `src/` imports | Evaluate removal — superseded by direct `cryptography` pin | Future phase |
+| `passlib` has no `src/` imports | Removed entirely (T55.5) | **DONE** |
 | `httpx` not directly imported | Retain — FastAPI TestClient depends on it | N/A |
 
 ---

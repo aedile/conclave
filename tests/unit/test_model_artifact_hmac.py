@@ -117,7 +117,9 @@ def test_load_signed_artifact_with_correct_key() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         save_path = Path(tmpdir) / "artifact.pkl"
         artifact.save(str(save_path), signing_key=_VALID_KEY)
-        loaded = ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+        loaded = ModelArtifact.load(
+            str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+        )
         assert isinstance(loaded, ModelArtifact)
         assert loaded.table_name == "orders"
 
@@ -128,7 +130,9 @@ def test_round_trip_with_signing_key_preserves_all_fields() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         save_path = Path(tmpdir) / "artifact.pkl"
         artifact.save(str(save_path), signing_key=_VALID_KEY)
-        loaded = ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+        loaded = ModelArtifact.load(
+            str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+        )
 
         assert loaded.table_name == "products"
         assert loaded.column_names == ["id", "name"]
@@ -164,7 +168,9 @@ def test_load_with_tampered_payload_raises_security_error() -> None:
         save_path.write_bytes(bytes(raw))
 
         with pytest.raises(SecurityError, match="HMAC verification failed"):
-            ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+            ModelArtifact.load(
+                str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+            )
 
 
 def test_load_signed_artifact_without_key_raises_security_error() -> None:
@@ -194,7 +200,7 @@ def test_unsigned_save_and_load_round_trip() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         save_path = Path(tmpdir) / "artifact.pkl"
         artifact.save(str(save_path))
-        loaded = ModelArtifact.load(str(save_path))
+        loaded = ModelArtifact.load(str(save_path), extra_allowed_prefixes=("tests",))
         assert isinstance(loaded, ModelArtifact)
         assert loaded.table_name == "legacy_table"
 
@@ -258,7 +264,9 @@ def test_load_unsigned_artifact_with_key_raises_security_error() -> None:
         save_path = Path(tmpdir) / "artifact.pkl"
         artifact.save(str(save_path))  # unsigned save — no signing_key
         with pytest.raises(SecurityError, match="HMAC verification failed"):
-            ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+            ModelArtifact.load(
+                str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+            )
 
 
 # ---------------------------------------------------------------------------

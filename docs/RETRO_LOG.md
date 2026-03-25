@@ -3,6 +3,30 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-25] Phase 55 — Review Summary
+
+**Reviewers**: QA, DevOps, Architecture, Red-team
+
+**Verdicts**: QA — FINDING (1 BLOCKER, 1 FINDING, 3 ADVISORIEs); DevOps — FINDING (1 FINDING, 2 ADVISORIEs); Architecture — FINDING (2 FINDINGs); Red-team — FINDING (1 FINDING, 3 ADVISORIEs)
+
+**BLOCKERs + FINDINGs fixed in review commit** (`9ac49d9`):
+1. T55.3 integration test added — AuditLogger + LocalFileAnchorBackend + AnchorManager end-to-end chain continuity (QA BLOCKER)
+2. `chain_head_hash` from anchor JSONL now validated via `_validate_chain_head_hash` before use as `_prev_hash` (Red-team F1)
+3. Raw exception objects in `audit.py` replaced with `type(exc).__name__` at 3 log sites (DevOps F1)
+4. Silent `except Exception: pass` in `_log_verification_failure` now emits `sys.stderr.write()` last-resort signal (QA F1)
+5. Single-call-site SSRF wrappers inlined — `_ssrf_validate_registration` and `_ssrf_validate_delivery` removed (Arch F1)
+6. ADR-0009 exempt routes list amended to reference `COMMON_INFRA_EXEMPT_PATHS` as authoritative source (Arch F2)
+7. ADR-0055 allowlist table updated with missing `faker`, `random` entries (QA advisory, treated as doc accuracy fix)
+
+**New ADVISORIEs logged**:
+- ADV-P55-01: `/health/vault` exposes worker PID — unnecessary fingerprinting surface (Red-team)
+- ADV-P55-02: Broad `joblib` prefix in RestrictedUnpickler allowlist — tighten to specific submodules at next SDV upgrade (Red-team)
+- ADV-P55-03: Per-worker audit chain interleaving on shared anchor file in multi-worker deployments (DevOps)
+- ADV-P55-04: New failure modes (SSRF rejection, HMAC failure, chain resume) lack Prometheus counters (DevOps)
+- ADV-P55-05: Unbounded list queries without LIMIT on GET /settings/ and GET /webhooks/ (Red-team, pre-existing)
+
+---
+
 ### [2026-03-25] Phase 54 — Review Summary
 
 **Reviewers**: QA, DevOps, Red-team (no Architecture — no src/synth_engine/ changes)
@@ -125,6 +149,11 @@ Drain (delete) rows when their target task is completed.
 | ADV-P53-03 | Arch P53 | — | ADVISORY | cosmic-ray test-command uses hardcoded test file list — new security test files must be manually added to cosmic-ray.toml. |
 | ~~ADV-P53-04~~ | ~~PM P53 CI~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutation-test CI job removed from CI entirely — runs as local PM gate instead (ADR-0054 amendment). RESOLVED in P53.~~ |
 | ADV-P54-01 | QA P54 | — | ADVISORY | E2E_VALIDATION_RESULTS.md is a template — validation script not yet executed against Pagila (requires local PostgreSQL). Run `make validate-pipeline` when infrastructure is available. |
+| ADV-P55-01 | Red-Team P55 | — | ADVISORY | `/health/vault` exposes worker PID (`os.getpid()`) — unnecessary fingerprinting surface. Replace with opaque worker UUID or restrict to authenticated requests. |
+| ADV-P55-02 | Red-Team P55 | — | ADVISORY | RestrictedUnpickler allowlist includes broad `joblib` prefix — `joblib.externals.loky` has process-spawning code. Tighten to specific submodules at next SDV version upgrade. |
+| ADV-P55-03 | DevOps P55 | — | ADVISORY | Per-worker audit chain: each Uvicorn worker has an independent hash chain. Concurrent appends to shared anchor file are not atomic. Document per-worker chain semantics; if cross-worker continuity required, use distributed store. |
+| ADV-P55-04 | DevOps P55 | — | ADVISORY | New failure modes (SSRF rejection, HMAC verification failure, audit chain resume failure) emit WARNING logs but have no Prometheus counters for alerting. |
+| ADV-P55-05 | Red-Team P55 | — | ADVISORY | GET /settings/ and GET /webhooks/ have no LIMIT clause. Bounded by auth ownership in practice; add pagination in future. Pre-existing. |
 
 ---
 

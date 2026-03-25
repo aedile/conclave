@@ -72,6 +72,7 @@ _EXPECTED_AUTH_EXEMPT_PATHS: frozenset[str] = frozenset(
         "/unseal",
         "/health",
         "/ready",
+        "/health/vault",  # T55.1 — vault status endpoint; must be exempt from auth gate
         "/metrics",
         "/docs",
         "/redoc",

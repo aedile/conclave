@@ -12,7 +12,7 @@ Attack/negative tests:
 7.  SSRF: IPv4-mapped IPv6 addresses are blocked (::ffff:127.0.0.1 etc.)
 8.  SSRF: delivery-time validation failure returns FAILED DeliveryResult
 9.  SSRF: URL with no hostname raises ValueError (line ~97)
-10. SSRF: DNS gaierror treated as safe / fail-open (lines ~102-109)
+10. SSRF: DNS gaierror treated as safe / fail-open when strict=False (delivery path)
 11. SSRF: malformed IP string from getaddrinfo is skipped silently (lines ~116-117)
 
 Feature/positive tests:
@@ -32,6 +32,7 @@ CONSTITUTION Priority 3: TDD — RED phase
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F1, F8, F9, F12
 Task: P45 QA re-review — ssrf.py edge-case coverage (lines 97, 102-109, 116-117)
+Task: T55.4 — updated DNS gaierror test to use strict=False (delivery path semantics)
 """
 
 from __future__ import annotations
@@ -195,13 +196,15 @@ class TestSSRFAtDelivery:
             validate_callback_url("https:///path")
 
     def test_validate_callback_url_dns_gaierror_returns_safely(self) -> None:
-        """DNS gaierror must be treated as safe (fail-open).
+        """DNS gaierror with strict=False must be treated as safe (fail-open).
 
-        Lines ~102-109 of ssrf.py: when ``socket.getaddrinfo`` raises
-        ``socket.gaierror``, the function logs at DEBUG and returns without
-        raising.  Valid webhooks should not be blocked by transient DNS
-        failures; the HTTP request itself will fail if the host is truly
-        unreachable.
+        At delivery time the SSRF check uses strict=False so that transient
+        DNS failures do not abort in-flight deliveries.  The HTTP request
+        itself will fail if the host is truly unreachable.
+
+        T55.4: strict=False must be passed explicitly to preserve fail-open
+        behaviour.  With strict=True (the new default), DNS failure raises
+        ValueError (fail-closed, for registration-time protection).
 
         Args: none (no parameters).
         """
@@ -211,8 +214,8 @@ class TestSSRFAtDelivery:
             "synth_engine.shared.ssrf.socket.getaddrinfo",
             side_effect=socket.gaierror("Name or service not known"),
         ):
-            # Must NOT raise — fail-open behavior
-            validate_callback_url("https://nonexistent.example.com/hook")
+            # Must NOT raise when strict=False — delivery-time fail-open behavior
+            validate_callback_url("https://nonexistent.example.com/hook", strict=False)
 
     def test_validate_callback_url_malformed_ip_from_dns_is_skipped(self) -> None:
         """Malformed IP string returned by getaddrinfo must be skipped silently.

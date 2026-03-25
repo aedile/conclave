@@ -291,3 +291,21 @@ maybe_anchor  # unused method — AnchorManager; called from AuditLogger.log_eve
 verify_chain_against_anchors  # unused function — shared/security/audit_anchor.py; called from scripts/verify-audit-chain.py and tests
 get_anchor_manager  # unused function — shared/security/audit_anchor.py; singleton accessor called from AuditLogger and bootstrapper
 reset_anchor_manager  # unused function — shared/security/audit_anchor.py; used in tests to reset singleton between runs
+
+# ---------------------------------------------------------------------------
+# Category O — T55.4 SSRF fail-closed (P55 arch review: inlined wrappers removed)
+# status is a DeliveryResult dataclass field consumed by callers via attribute
+# access; vulture sees no direct assignment after __init__.
+# ---------------------------------------------------------------------------
+
+status  # unused variable — DeliveryResult dataclass field (webhook_delivery.py); accessed via result.status by callers
+
+# ---------------------------------------------------------------------------
+# Category P — T55.1 vault health endpoint
+# vault_health is a FastAPI route handler registered via @router.get in
+# bootstrapper/routers/health.py. Vulture cannot trace FastAPI decorator-
+# based route registration. The endpoint is exercised by integration tests
+# and the /health/vault path is listed in the router's path table.
+# ---------------------------------------------------------------------------
+
+vault_health  # unused function — bootstrapper/routers/health.py; FastAPI route handler for /health/vault

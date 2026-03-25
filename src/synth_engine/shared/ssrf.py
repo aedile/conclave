@@ -14,12 +14,27 @@ After resolving the hostname, this module unwraps mapped addresses via
 ``ipv4_mapped`` before the network-membership test so that SSRF bypass via
 ``::ffff:<private_ip>`` is blocked.
 
+DNS failure policy
+------------------
+The ``strict`` parameter controls behaviour when DNS resolution fails:
+
+* ``strict=True`` (default): DNS failure is treated as a security risk and
+  raises :class:`ValueError`.  Use this at **registration time** so that
+  attackers cannot pre-register an unresolvable hostname and later point its
+  DNS record at an internal target (DNS-pinning / time-of-check time-of-use).
+
+* ``strict=False``: DNS failure is treated as safe (fail-open).  Use this at
+  **delivery time** so that transient DNS outages do not abort in-flight
+  deliveries.  The HTTP request itself will fail if the host is truly
+  unreachable.
+
 Boundary constraints (import-linter enforced):
     - Must NOT import from ``modules/`` or ``bootstrapper/``.
 
 CONSTITUTION Priority 0: Security — SSRF prevention
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: P45 review fix F4 — extract SSRF validation to shared/ssrf.py
+Task: T55.4 — SSRF registration fail-closed on DNS failure
 """
 
 from __future__ import annotations
@@ -62,27 +77,34 @@ BLOCKED_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
 ]
 
 
-def validate_callback_url(url: str) -> None:
+def validate_callback_url(url: str, *, strict: bool = True) -> None:
     """Validate that ``url`` does not point to a private or reserved IP address.
 
-    Called at registration time AND at delivery time (DNS-rebinding protection).
+    Called at registration time (``strict=True``, the default) and at delivery
+    time (``strict=False``, DNS-rebinding protection).
 
     IPv4-mapped IPv6 addresses (e.g. ``::ffff:10.0.0.1``) are unwrapped to
     their IPv4 form before the blocked-network membership test, preventing
     SSRF bypass via the mapped form.
 
-    DNS failures are treated as safe (fail-open) so that valid webhooks can
-    be registered even in environments where the target host is not yet
-    reachable from the engine.  Hosts that are unresolvable at delivery time
-    will still fail when the HTTP request is attempted.
+    DNS failure policy is controlled by ``strict``:
+
+    * ``strict=True`` (default, registration): raises :class:`ValueError` when
+      DNS resolution fails so that unresolvable hostnames are rejected at
+      registration time (prevents DNS-pinning TOCTOU attacks).
+    * ``strict=False`` (delivery): logs at DEBUG and returns without raising so
+      that transient DNS failures do not abort in-flight delivery attempts.
 
     Args:
         url: Absolute HTTP(S) URL to validate.
+        strict: When ``True`` (default), DNS resolution failures are treated as
+            a security risk and raise :class:`ValueError`.  When ``False``,
+            DNS failures are logged and the function returns without raising.
 
     Raises:
         ValueError: If the URL's hostname resolves to a private/reserved IP,
-            if the URL scheme is not ``http`` or ``https``, or if the URL has
-            no hostname.
+            if the URL scheme is not ``http`` or ``https``, if the URL has no
+            hostname, or if DNS resolution fails and ``strict=True``.
     """
     parsed = urlparse(url)
     scheme = (parsed.scheme or "").lower()
@@ -99,12 +121,22 @@ def validate_callback_url(url: str) -> None:
     # Resolve hostname to IP addresses
     try:
         addr_infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
-        # DNS resolution failed — fail open for connectivity; the host will
-        # fail at HTTP delivery time anyway.
+    except socket.gaierror as exc:
+        if strict:
+            _logger.warning(
+                "SSRF check: DNS resolution failed for %r — rejecting (strict=True).",
+                hostname,
+            )
+            raise ValueError(
+                f"Callback URL hostname {hostname!r} could not be resolved. "
+                "URL is private, reserved, or forbidden."
+            ) from None
+        # strict=False: fail-open — transient DNS failure at delivery time is
+        # not a reason to abort; the HTTP request itself will surface the error.
         _logger.debug(
-            "SSRF check: DNS resolution failed for hostname %r — treating as safe.",
+            "SSRF check: DNS resolution failed for %r — safe (strict=False): %s",
             hostname,
+            exc,
         )
         return
 

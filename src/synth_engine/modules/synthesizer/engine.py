@@ -27,6 +27,8 @@ Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (replace Any with Protoco
 ADR: ADR-0017 (CTGAN + Opacus; per-table training with FK post-processing)
 ADR: ADR-0025 (Custom CTGAN Training Loop Architecture)
 Task: T47.7 — Memory-bounded Parquet loading
+Task: T55.6 — Flaky-test resolution (empty-DataFrame guard in train(), before model
+  construction)
 """
 
 from __future__ import annotations
@@ -345,6 +347,11 @@ class SynthesisEngine:
         Raises:
             FileNotFoundError: If the Parquet file does not exist at
                 ``parquet_path``.
+            ValueError: If the Parquet file contains zero rows.  Training a
+                generative model on an empty dataset is meaningless and would
+                produce a silent failure downstream.  Raised before constructing
+                the CTGAN model to ensure the guard is ordering-independent in
+                the test suite (T55.6 — flaky-test resolution).
             ImportError: If the ``sdv`` package is not installed (synthesizer
                 group not installed).
         """
@@ -363,6 +370,12 @@ class SynthesisEngine:
 
         _logger.info("Loading Parquet for table '%s' from %s", table_name, parquet_path)
         source_df = _read_parquet_bounded(parquet_path)
+
+        if source_df.empty:
+            raise ValueError(
+                f"fit dataframe is empty: table '{table_name}' has zero rows in "
+                f"{parquet_path!r}.  Cannot train a generative model on an empty dataset."
+            )
 
         column_names = list(source_df.columns)
         column_dtypes = {col: str(source_df[col].dtype) for col in column_names}

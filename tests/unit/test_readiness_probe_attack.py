@@ -52,6 +52,28 @@ def clear_settings_cache() -> Generator[None]:
         pass
 
 
+@pytest.fixture(autouse=True)
+def reset_vault_state() -> Generator[None]:
+    """Reset VaultState class-level state after each test (T55.1).
+
+    Yields:
+        None — setup and teardown only.
+    """
+    try:
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState.reset()
+    except ImportError:
+        pass
+    yield
+    try:
+        from synth_engine.shared.security.vault import VaultState
+
+        VaultState.reset()
+    except ImportError:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -402,7 +424,31 @@ class TestReadinessDependencyFailureStatus:
 
 
 class TestReadinessResponseStructure:
-    """Assert the response body structure is correct for both 200 and 503."""
+    """Assert the response body structure is correct for both 200 and 503.
+
+    T55.1: 200-path tests require an unsealed vault.
+    """
+
+    @pytest.fixture(autouse=True)
+    def unsealed_vault(self, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+        """Unseal the vault so 200-path tests work (T55.1).
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+
+        Yields:
+            None.
+        """
+        import base64
+        import os as _os
+
+        from synth_engine.shared.security.vault import VaultState
+
+        salt = base64.urlsafe_b64encode(_os.urandom(16)).decode()
+        monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+        VaultState.unseal("test-passphrase")
+        yield
+        VaultState.reset()
 
     @pytest.mark.asyncio
     async def test_200_response_includes_check_results(self) -> None:
@@ -482,7 +528,31 @@ class TestReadinessResponseStructure:
 
 
 class TestReadinessMinIOSkip:
-    """Assert that MinIO check is skipped when not configured."""
+    """Assert that MinIO check is skipped when not configured.
+
+    T55.1: 200-path tests require an unsealed vault.
+    """
+
+    @pytest.fixture(autouse=True)
+    def unsealed_vault(self, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+        """Unseal the vault so 200-path tests work (T55.1).
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+
+        Yields:
+            None.
+        """
+        import base64
+        import os as _os
+
+        from synth_engine.shared.security.vault import VaultState
+
+        salt = base64.urlsafe_b64encode(_os.urandom(16)).decode()
+        monkeypatch.setenv("VAULT_SEAL_SALT", salt)
+        VaultState.unseal("test-passphrase")
+        yield
+        VaultState.reset()
 
     @pytest.mark.asyncio
     async def test_ready_succeeds_when_minio_not_configured(self) -> None:

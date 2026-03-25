@@ -2,8 +2,8 @@
 
 Verifies:
 1. ``docs/DEPENDENCY_AUDIT.md`` exists and contains the required sections.
-2. ``chromadb`` is NOT in the main ``[tool.poetry.dependencies]`` section.
-3. ``chromadb`` IS in a dev/non-production dependency group.
+2. ``chromadb`` is absent from ALL pyproject.toml sections (removed in T55.5).
+3. ``passlib`` is absent from ALL pyproject.toml sections (removed in T55.5).
 4. The ``datamodel-code-generator`` entry is present in a non-main group.
 5. ``edoburu/pgbouncer`` image is referenced in docker-compose.yml with a
    SHA-256 digest (ADV-015 fix).
@@ -49,11 +49,17 @@ class TestDependencyAuditDoc:
         )
 
     def test_audit_doc_covers_chromadb(self) -> None:
-        """docs/DEPENDENCY_AUDIT.md must document the chromadb dependency."""
+        """docs/DEPENDENCY_AUDIT.md must document the chromadb removal decision.
+
+        chromadb was removed in T55.5.  The audit doc must still reference the
+        dependency to record the removal decision and outcome — the Findings
+        Summary entry preserves the institutional memory of why it was added
+        and why it was subsequently removed.
+        """
         content = DEPENDENCY_AUDIT_DOC.read_text()
         assert "chromadb" in content, (
-            "docs/DEPENDENCY_AUDIT.md must document the chromadb dependency "
-            "and its evaluation outcome."
+            "docs/DEPENDENCY_AUDIT.md must document the chromadb removal decision "
+            "(Findings Summary row referencing T55.5)."
         )
 
     def test_audit_doc_covers_asyncpg(self) -> None:
@@ -96,72 +102,69 @@ class TestDependencyAuditDoc:
 
 
 # ---------------------------------------------------------------------------
-# pyproject.toml chromadb placement tests
+# pyproject.toml chromadb and passlib removal tests (T55.5)
 # ---------------------------------------------------------------------------
 
 
-class TestChromadbNotInMainDeps:
-    """Verify that chromadb has been moved out of the main dependency group."""
+class TestChromadbFullyRemovedFromPyproject:
+    """Verify that chromadb has been fully removed from pyproject.toml (T55.5).
+
+    chromadb was in the dev group for retrospective seeding scripts which were
+    deleted in T55.5.  With the scripts gone, the dependency has no purpose
+    and must be absent from every section of pyproject.toml.
+    """
 
     def test_chromadb_absent_from_main_dependencies_section(self) -> None:
         """chromadb must NOT appear in [tool.poetry.dependencies].
 
-        chromadb is only used in scripts/ for retrospective seeding. It does not
-        belong in the production dependency group; it should live in dev or a
-        scripts group to prevent it from being installed in production.
+        The scripts that used chromadb have been deleted (T55.5).
         """
         content = PYPROJECT.read_text()
         lines = content.splitlines()
 
-        # Find the [tool.poetry.dependencies] section
         in_main_deps = False
         for line in lines:
             stripped = line.strip()
             if stripped == "[tool.poetry.dependencies]":
                 in_main_deps = True
                 continue
-            # Any new TOML section ends the main deps section
             is_new_section = stripped.startswith("[") and stripped != "[tool.poetry.dependencies]"
             if in_main_deps and is_new_section:
                 in_main_deps = False
             if in_main_deps and stripped.startswith("chromadb"):
                 pytest.fail(
                     "chromadb found in [tool.poetry.dependencies] section. "
-                    "It is only used in scripts/ and must be in a dev/scripts group. "
-                    "Move it to [tool.poetry.group.dev.dependencies] or a dedicated "
-                    "scripts group."
+                    "The seeding scripts are deleted — remove chromadb entirely (T55.5)."
                 )
 
-    def test_chromadb_present_in_dev_group(self) -> None:
-        """chromadb must appear specifically in [tool.poetry.group.dev.dependencies].
+    def test_chromadb_absent_from_all_pyproject_sections(self) -> None:
+        """chromadb must NOT appear in ANY section of pyproject.toml.
 
-        Accepting chromadb in ANY group section (integration, synthesizer, etc.)
-        would be over-permissive.  chromadb is a dev/scripts-only dependency and
-        must be declared in the dev group so that ``poetry install --with dev``
-        makes it available for script usage but production installs remain clean.
+        T55.5 removes chromadb entirely — it is not relocated to another group.
         """
         content = PYPROJECT.read_text()
-        lines = content.splitlines()
-
-        in_dev_deps = False
-        for line in lines:
+        for line in content.splitlines():
             stripped = line.strip()
-            if stripped == "[tool.poetry.group.dev.dependencies]":
-                in_dev_deps = True
-                continue
-            # Any new TOML section ends the dev.dependencies block
-            if in_dev_deps and stripped.startswith("["):
-                in_dev_deps = False
-            if in_dev_deps and stripped.startswith("chromadb"):
-                return  # Found in the correct section — pass
+            if stripped.startswith("chromadb"):
+                pytest.fail(
+                    f"chromadb found in pyproject.toml: {stripped!r}. "
+                    "T55.5 requires full removal from all dependency groups."
+                )
 
-        pytest.fail(
-            "chromadb not found in [tool.poetry.group.dev.dependencies]. "
-            "chromadb is a scripts-only dependency and must be placed in the "
-            "dev group specifically, not in integration, synthesizer, or any "
-            "other group where it could be inadvertently installed in "
-            "non-dev contexts."
-        )
+    def test_passlib_absent_from_all_pyproject_sections(self) -> None:
+        """passlib must NOT appear in ANY section of pyproject.toml.
+
+        passlib has no import sites in src/ and is superseded by the direct
+        cryptography pin.  T55.5 removes it entirely.
+        """
+        content = PYPROJECT.read_text()
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("passlib"):
+                pytest.fail(
+                    f"passlib found in pyproject.toml: {stripped!r}. "
+                    "T55.5 requires full removal — passlib has no src/ import sites."
+                )
 
 
 # ---------------------------------------------------------------------------

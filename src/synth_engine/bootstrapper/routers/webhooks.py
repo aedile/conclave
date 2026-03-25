@@ -11,7 +11,8 @@ Security posture
 - All CRUD operations are scoped to ``owner_id`` (IDOR protection).
 - DELETE returns 404 for any ID not owned by the caller (prevents enumeration).
 - ``signing_key`` is accepted at registration but never returned in responses.
-- SSRF validation on ``callback_url`` at registration time.
+- SSRF validation on ``callback_url`` at registration time (strict=True,
+  fail-closed: DNS failures cause rejection).
 - HTTPS-only in production mode (``settings.is_production()``).
 - Max 10 active registrations per operator.
 - Callback URL is sanitized (query string stripped) before logging to prevent
@@ -26,6 +27,7 @@ CONSTITUTION Priority 0: Security — SSRF, IDOR, key write-only, safe logging
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F2 (safe URL logging), F4 (import shared/ssrf), F11 (dead code)
+Task: T55.4 — SSRF registration fail-closed on DNS failure
 """
 
 from __future__ import annotations
@@ -111,6 +113,9 @@ def register_webhook(
     production mode, only ``https://`` URLs are accepted.  The ``signing_key``
     is stored but never returned in any response.
 
+    DNS failures during SSRF validation cause registration to be rejected
+    (strict / fail-closed mode) to prevent DNS-pinning attacks.
+
     Args:
         body: Registration request with ``callback_url``, ``signing_key``,
             and ``events``.
@@ -137,9 +142,11 @@ def register_webhook(
             ),
         )
 
-    # SSRF validation — log only the sanitized URL (no query string)
+    # SSRF validation — strict=True (fail-closed): DNS failures reject the URL.
+    # Log only the sanitized URL (no query string) to avoid token leakage.
     try:
-        validate_callback_url(body.callback_url)
+        validate_callback_url(body.callback_url, strict=True)
+        # strict=True: DNS failures reject registration (fail-closed, T55.4)
     except ValueError as exc:
         _logger.warning(
             "SSRF validation rejected callback URL for operator %s: %s",

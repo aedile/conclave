@@ -1,10 +1,15 @@
-"""FastAPI router for the readiness probe endpoint.
+"""FastAPI router for readiness probe and vault health endpoints.
 
-Implements ``GET /ready`` — a Kubernetes readiness probe that checks all
-external dependencies before the application accepts traffic.
+Implements:
+- ``GET /ready`` — Kubernetes readiness probe that checks all external
+  dependencies AND vault seal status.  A sealed worker MUST NOT be marked
+  ready — it has no access to encryption keys and cannot safely serve traffic.
+- ``GET /health/vault`` — Per-worker vault seal status report.  Returns the
+  vault seal state and this worker's PID.  Useful for multi-worker deployments
+  where each worker must be individually unsealed.
 
-Dependency checks
------------------
+Dependency checks (``/ready``)
+-------------------------------
 Three checks are performed concurrently via ``asyncio.gather``:
 
 1. **database** — executes ``SELECT 1`` via the shared async SQLAlchemy engine
@@ -19,25 +24,39 @@ Three checks are performed concurrently via ``asyncio.gather``:
 Each check has an individual 3-second timeout enforced by
 ``asyncio.wait_for``.  A single slow dependency cannot hang the entire probe.
 
+Vault seal check
+----------------
+After all dependency checks, the vault seal state is evaluated.  If the vault
+is sealed, the response status is ``503`` and the body includes
+``"vault_sealed": true`` — regardless of dependency check results.  A sealed
+worker MUST NOT be admitted to the load-balancer pool.
+
 Security properties
 -------------------
 - **No information leakage**: the 503 response body uses generic service names
   (``database``, ``cache``, ``object_store``) and never includes internal
   hostnames, ports, connection strings, or exception messages.
-- **Auth/seal exempt**: ``/ready`` is added to ``COMMON_INFRA_EXEMPT_PATHS``
-  so it bypasses ``SealGateMiddleware`` and ``AuthenticationGateMiddleware``.
+- **Auth/seal exempt**: ``/ready`` and ``/health/vault`` are added to
+  ``COMMON_INFRA_EXEMPT_PATHS`` so they bypass ``SealGateMiddleware`` and
+  ``AuthenticationGateMiddleware``.  The seal gate must not block the
+  endpoint that reports on the seal state — that would create a deadlock.
 - **Rate limiting**: ``RateLimitGateMiddleware`` still applies — ``/ready``
   is subject to the ``general_limit`` tier to prevent DDoS via probe endpoint.
 
 HTTP status mapping
 -------------------
-- ``200 OK`` — all configured dependency checks passed.
-- ``503 Service Unavailable`` — one or more checks failed.
+``/ready``:
+- ``200 OK`` — all configured dependency checks passed AND vault is unsealed.
+- ``503 Service Unavailable`` — one or more checks failed OR vault is sealed.
 
-Response schema (both 200 and 503)::
+``/health/vault``:
+- Always ``200 OK`` — this endpoint reports status; it is never unhealthy.
+
+Response schema (``/ready``, both 200 and 503)::
 
     {
         "status": "ok" | "degraded",
+        "vault_sealed": bool,
         "checks": {
             "database": "ok" | "error",
             "cache": "ok" | "error",
@@ -45,15 +64,24 @@ Response schema (both 200 and 503)::
         }
     }
 
+Response schema (``/health/vault``)::
+
+    {
+        "vault_sealed": bool,
+        "worker_pid": int
+    }
+
 CONSTITUTION Priority 0: Security — no info leakage, exempt from auth/seal gates
 Task: T48.3 — Readiness Probe & External Dependency Health Checks
 Task: P48 review F5 — Reuse shared async engine in /ready probe
+Task: T55.1 — Vault State Health Endpoint & Multi-Worker Coordination
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Coroutine
 from typing import Any
 
@@ -213,16 +241,27 @@ async def readiness_check() -> JSONResponse:
     Each check is wrapped in an individual 3-second timeout so a single slow
     service cannot hang the entire probe.
 
+    Also checks vault seal state: a sealed worker MUST NOT be marked ready
+    even if all dependency checks pass.  The vault seal state is reported in
+    the ``vault_sealed`` field of the response body.
+
     Security: the response body uses generic service names only.  Internal
     hostnames, ports, connection strings, and exception messages are logged
     at WARNING level but NEVER included in the HTTP response body.
 
     Returns:
-        ``JSONResponse`` with HTTP 200 when all checks pass, or HTTP 503 when
-        any check fails.  Both responses use the same schema::
+        ``JSONResponse`` with HTTP 200 when all checks pass AND vault is
+        unsealed, or HTTP 503 when any check fails OR vault is sealed.
+        Both responses use the same schema::
 
-            {"status": "ok"|"degraded", "checks": {"database": ..., "cache": ...}}
+            {
+                "status": "ok"|"degraded",
+                "vault_sealed": bool,
+                "checks": {"database": ..., "cache": ...}
+            }
     """
+    from synth_engine.shared.security.vault import VaultState
+
     # Run all checks concurrently. return_exceptions=True prevents gather from
     # short-circuiting — all checks run even if one fails.
     results = await asyncio.gather(
@@ -260,6 +299,14 @@ async def readiness_check() -> JSONResponse:
     else:
         checks["object_store"] = "ok"
 
+    # --- vault seal state ---
+    # A sealed worker MUST NOT be admitted to the load-balancer pool.
+    # Even if all dependency checks pass, a sealed vault means the worker
+    # cannot perform any cryptographic operations or process requests safely.
+    vault_sealed = VaultState.is_sealed()
+    if vault_sealed:
+        any_failed = True
+
     status = "degraded" if any_failed else "ok"
     http_status = 503 if any_failed else 200
 
@@ -267,6 +314,34 @@ async def readiness_check() -> JSONResponse:
         status_code=http_status,
         content={
             "status": status,
+            "vault_sealed": vault_sealed,
             "checks": checks,
+        },
+    )
+
+
+@router.get("/health/vault", tags=["ops"])
+async def vault_health() -> JSONResponse:
+    """Report this worker's vault seal status and process PID.
+
+    In multi-worker deployments (e.g. Gunicorn with multiple Uvicorn workers),
+    each worker process has an independent ``VaultState``.  This endpoint
+    lets operators verify that a specific worker has been unsealed.
+
+    This endpoint is always ``200 OK`` — it reports state, it does not assert
+    health.  Use ``/ready`` for health-gating.
+
+    Returns:
+        ``JSONResponse`` with HTTP 200 and body::
+
+            {"vault_sealed": bool, "worker_pid": int}
+    """
+    from synth_engine.shared.security.vault import VaultState
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "vault_sealed": VaultState.is_sealed(),
+            "worker_pid": os.getpid(),
         },
     )

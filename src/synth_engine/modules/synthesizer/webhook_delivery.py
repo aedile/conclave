@@ -14,8 +14,11 @@ performed by the bootstrapper layer, not here.
 SSRF protection model
 ---------------------
 ``validate_callback_url()`` (from ``shared/ssrf``) is called both at:
-1. Registration time (in the webhooks router) — rejects bad URLs upfront.
+1. Registration time (in the webhooks router) — rejects bad URLs upfront,
+   using ``strict=True`` so DNS failures cause rejection (fail-closed).
 2. Delivery time (here) — DNS-rebinding protection: the host may have changed.
+   Uses ``strict=False`` so transient DNS failures do not abort delivery;
+   the HTTP call itself will surface the error.
 
 Private IP ranges blocked: see ``shared/ssrf.BLOCKED_NETWORKS``.
 
@@ -27,6 +30,7 @@ CONSTITUTION Priority 0: Security — SSRF, no redirect following, key hygiene
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F4, F5, F6, F11
+Task: T55.4 — SSRF registration fail-closed on DNS failure
 """
 
 from __future__ import annotations
@@ -79,6 +83,11 @@ class DeliveryResult:
     delivery_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     response_code: int | None = None
     error_message: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# SSRF delivery-time helper
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -139,8 +148,9 @@ def deliver_webhook(
     backoff (1s, 4s between attempts).  Delivery is skipped for inactive
     registrations.
 
-    SSRF protection: ``validate_callback_url()`` is called before each
-    HTTP attempt (DNS-rebinding guard).
+    SSRF protection: ``_ssrf_validate_delivery()`` is called before each
+    HTTP attempt (DNS-rebinding guard, strict=False / fail-open so transient
+    DNS failures do not abort delivery).
 
     The HTTP request uses ``follow_redirects=False`` to prevent SSRF via
     open redirects.
@@ -179,9 +189,11 @@ def deliver_webhook(
     last_status_code: int | None = None
 
     for attempt in range(1, _MAX_ATTEMPTS + 1):
-        # DNS-rebinding protection: re-validate before each attempt
+        # DNS-rebinding protection: re-validate before each attempt.
+        # strict=False: DNS failures are fail-open at delivery time.
         try:
-            validate_callback_url(registration.callback_url)
+            validate_callback_url(registration.callback_url, strict=False)
+            # strict=False: DNS failures are fail-open at delivery time (T55.4)
         except ValueError as ssrf_exc:
             _logger.error(
                 "SSRF validation failed for registration %s (attempt %d): %s",

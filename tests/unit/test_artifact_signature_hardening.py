@@ -374,7 +374,9 @@ def test_signing_key_exactly_32_bytes_accepted_by_load() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         save_path = Path(tmpdir) / "artifact.pkl"
         artifact.save(str(save_path), signing_key=key_32)
-        loaded = ModelArtifact.load(str(save_path), signing_key=key_32)
+        loaded = ModelArtifact.load(
+            str(save_path), signing_key=key_32, extra_allowed_prefixes=("tests",)
+        )
         assert loaded.table_name == "edge_32_load"
 
 
@@ -422,5 +424,7 @@ def test_load_file_within_size_limit_succeeds() -> None:
         save_path = Path(tmpdir) / "artifact.pkl"
         artifact.save(str(save_path), signing_key=key)
         # Must not raise — real file is only a few KB
-        loaded = ModelArtifact.load(str(save_path), signing_key=key)
+        loaded = ModelArtifact.load(
+            str(save_path), signing_key=key, extra_allowed_prefixes=("tests",)
+        )
         assert loaded.table_name == "size_ok"

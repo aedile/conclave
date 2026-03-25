@@ -110,12 +110,10 @@ sealed".  Clients receive a clear `{"detail": "Service sealed. POST /unseal to a
 
 ### Exempt Routes
 
-The following paths bypass the seal gate and are accessible without unsealing:
-
-- `/unseal` — the unseal operation itself
-- `/health` — liveness probe for orchestrators
-- `/metrics` — Prometheus scrape (internal-only, see ADR-0011)
-- `/docs`, `/redoc`, `/openapi.json` — API documentation
+Exempt routes are defined in `src/synth_engine/bootstrapper/dependencies/_exempt_paths.py`
+(`COMMON_INFRA_EXEMPT_PATHS`). As of Phase 55, the exempt paths are:
+/unseal, /health, /health/vault, /ready, /metrics, /docs, /redoc, /openapi.json,
+/license/challenge, /license/activate
 
 ---
 
@@ -142,3 +140,5 @@ The following paths bypass the seal gate and are accessible without unsealing:
 ---
 
 **Amended Phase 38 (T38.2):** Unseal flow reordered — KEK derivation now runs before empty-passphrase check to eliminate timing side-channel.
+
+**Amended Phase 55 (P55 architecture review):** Exempt routes list updated to reference the authoritative source in `_exempt_paths.py` (`COMMON_INFRA_EXEMPT_PATHS`). Stale inline list replaced with current 10-path set.

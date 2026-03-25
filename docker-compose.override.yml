@@ -27,7 +27,6 @@ services:
     # from accidentally writing back to the host source tree.
     volumes:
       - ./src:/app/src:ro
-      - chroma_data:/app/.chroma_data
 
     # Override CMD to enable Uvicorn's --reload flag.
     # Poetry is not present in the final image; invoke uvicorn directly.
@@ -90,5 +89,4 @@ services:
 # Additional volumes used only in development
 # =============================================================================
 volumes:
-  chroma_data:
   minio_data:
