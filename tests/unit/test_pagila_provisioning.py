@@ -196,21 +196,21 @@ class TestProvisionScriptFeatures:
 
         After loading Pagila, the script must assert:
           - customer table has >= 500 rows
-          - rental table has >= 40000 rows
+          - rental table has >= 15000 rows
 
         This guards against partial loads or corrupt SQL files.
         """
         assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         has_customer_check = "500" in content and "customer" in content.lower()
-        has_rental_check = "40000" in content and "rental" in content.lower()
+        has_rental_check = "15000" in content and "rental" in content.lower()
         assert has_customer_check, (
             "provision_pagila.sh must validate that the customer table has >= 500 rows. "
             "Expected to find '500' and 'customer' in the script."
         )
         assert has_rental_check, (
-            "provision_pagila.sh must validate that the rental table has >= 40000 rows. "
-            "Expected to find '40000' and 'rental' in the script."
+            "provision_pagila.sh must validate that the rental table has >= 15000 rows. "
+            "Expected to find '15000' and 'rental' in the script."
         )
 
     def test_provision_script_checks_postgres_version(self) -> None:

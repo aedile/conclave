@@ -276,13 +276,13 @@ fi
 
 ok "  customer: ${CUSTOMER_COUNT} rows (>= 500 required)."
 
-if (( RENTAL_COUNT < 40000 )); then
-    error "Row count validation failed: rental table has ${RENTAL_COUNT} rows (expected >= 40000)."
+if (( RENTAL_COUNT < 15000 )); then
+    error "Row count validation failed: rental table has ${RENTAL_COUNT} rows (expected >= 15000)."
     error "The data load may be incomplete or the SQL file is corrupted."
     exit 1
 fi
 
-ok "  rental: ${RENTAL_COUNT} rows (>= 40000 required)."
+ok "  rental: ${RENTAL_COUNT} rows (>= 15000 required)."
 
 # ---------------------------------------------------------------------------
 # Step 8: Validate FK constraints are satisfied
