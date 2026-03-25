@@ -218,7 +218,11 @@ def list_webhooks(
     Returns:
         :class:`WebhookRegistrationListResponse` with up to 100 owner-scoped items.
     """
-    stmt = select(WebhookRegistration).where(WebhookRegistration.owner_id == current_operator).limit(100)
+    stmt = (
+        select(WebhookRegistration)
+        .where(WebhookRegistration.owner_id == current_operator)
+        .limit(100)
+    )
     registrations = session.exec(stmt).all()
     return WebhookRegistrationListResponse(
         items=[WebhookRegistrationResponse.from_orm_model(r) for r in registrations]

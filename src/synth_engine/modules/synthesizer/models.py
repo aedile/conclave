@@ -78,7 +78,8 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 ARTIFACT_VERIFICATION_FAILURE_TOTAL: Counter = Counter(
     "artifact_verification_failure_total",
-    "Total number of ModelArtifact signature verification failures "    "(HMAC mismatch, tampered payload, or invalid format).",
+    "Total number of ModelArtifact signature verification failures "
+    "(HMAC mismatch, tampered payload, or invalid format).",
 )
 
 #: Pickle protocol-2+ opcode byte (``0x80``).  All artifacts produced by
