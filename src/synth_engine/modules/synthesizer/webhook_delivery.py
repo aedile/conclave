@@ -106,9 +106,6 @@ def _ssrf_validate_delivery(url: str) -> None:
     Args:
         url: Callback URL of the webhook registration being delivered.
 
-    Raises:
-        ValueError: Only if the URL resolves to a blocked (private/reserved)
-            IP address.  DNS failures do NOT raise (strict=False).
     """
     validate_callback_url(url, strict=False)
 
