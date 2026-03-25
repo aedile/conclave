@@ -89,9 +89,6 @@ services:
     env_file:
       - .env
 
-    # --- Persistent named volumes --------------------------------------------
-    volumes:
-
     # --- NVIDIA GPU passthrough (T4.1) -----------------------------------------
     # GPU reservation moved to docker-compose.gpu.yml so that non-GPU hosts
     # (macOS, CI runners) can `docker compose up` without the NVIDIA runtime.
