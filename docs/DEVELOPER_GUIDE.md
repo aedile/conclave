@@ -487,10 +487,6 @@ Typical phase:
 8. PM spawns `pr-reviewer` → `gh pr review --approve`.
 9. PM merges with `gh pr merge --merge` (never `--squash` — preserves TDD audit trail per Constitution Priority 3).
 
-### ChromaDB Retrospective Store
-
-The `software-developer` agent queries a ChromaDB collection ("Retrospectives") before reading any task spec. Seeds are managed by `scripts/seed_chroma.py` and `scripts/seed_chroma_retro.py`.
-
 ### Constitutional Enforcement
 
 | Rule | Gate |

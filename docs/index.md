@@ -144,7 +144,7 @@ ADRs are append-only records of significant technical decisions. Superseded or r
 | ADR | Title | Status |
 |-----|-------|--------|
 | [ADR-0001](adr/ADR-0001-modular-monolith-topology.md) | Modular Monolith Topology | Accepted |
-| [ADR-0002](adr/ADR-0002-chromadb-runtime-dependency.md) | ChromaDB Runtime Dependency | Accepted |
+| [ADR-0002](adr/ADR-0002-chromadb-runtime-dependency.md) | ChromaDB Runtime Dependency | Superseded |
 | [ADR-0003](adr/ADR-0003-redis-idempotency.md) | Redis Idempotency | Accepted |
 | [ADR-0004](adr/ADR-0004-opentelemetry.md) | OpenTelemetry | Accepted |
 | [ADR-0005](adr/ADR-0005-orphan-task-reaper.md) | Orphan Task Reaper | Accepted |
