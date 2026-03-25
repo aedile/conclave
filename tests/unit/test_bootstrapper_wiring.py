@@ -5,6 +5,8 @@ Tests verify:
 - Importing main without calling create_app() fires wiring (Huey worker contract).
 - Each wire_* function registers its respective IoC callback.
 - _build_webhook_delivery_fn is defined in wiring.py with the correct return type.
+- _build_webhook_delivery_fn closure skips delivery when DATABASE_URL is empty (no-op path).
+- _build_webhook_delivery_fn closure logs exception and does not propagate on DB error.
 
 Task: T56.2 — Extract Bootstrapper Wiring Module
 CONSTITUTION Priority 3: TDD
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -31,28 +34,32 @@ class TestWiringModuleStructure:
         import synth_engine.bootstrapper.wiring as wiring  # noqa: F401 — importability check
 
     def test_wire_all_is_callable(self) -> None:
-        """wire_all must be a callable exported from wiring."""
+        """wire_all must be a callable with the expected name."""
         from synth_engine.bootstrapper.wiring import wire_all
 
         assert callable(wire_all)
+        assert wire_all.__name__ == "wire_all"
 
     def test_wire_dp_wrapper_factory_is_callable(self) -> None:
-        """wire_dp_wrapper_factory must be a callable exported from wiring."""
+        """wire_dp_wrapper_factory must be a callable with the expected name."""
         from synth_engine.bootstrapper.wiring import wire_dp_wrapper_factory
 
         assert callable(wire_dp_wrapper_factory)
+        assert wire_dp_wrapper_factory.__name__ == "wire_dp_wrapper_factory"
 
     def test_wire_spend_budget_fn_is_callable(self) -> None:
-        """wire_spend_budget_fn must be a callable exported from wiring."""
+        """wire_spend_budget_fn must be a callable with the expected name."""
         from synth_engine.bootstrapper.wiring import wire_spend_budget_fn
 
         assert callable(wire_spend_budget_fn)
+        assert wire_spend_budget_fn.__name__ == "wire_spend_budget_fn"
 
     def test_wire_webhook_delivery_fn_is_callable(self) -> None:
-        """wire_webhook_delivery_fn must be a callable exported from wiring."""
+        """wire_webhook_delivery_fn must be a callable with the expected name."""
         from synth_engine.bootstrapper.wiring import wire_webhook_delivery_fn
 
         assert callable(wire_webhook_delivery_fn)
+        assert wire_webhook_delivery_fn.__name__ == "wire_webhook_delivery_fn"
 
     def test_build_webhook_delivery_fn_is_defined_in_wiring(self) -> None:
         """_build_webhook_delivery_fn must be defined in wiring.py, not main.py."""
@@ -176,6 +183,78 @@ class TestWireAllIdempotency:
         )
         assert callable(orch._webhook_delivery_fn), (
             "The registered _webhook_delivery_fn must be callable."
+        )
+
+
+class TestBuildWebhookDeliveryFnBehavior:
+    """Behavioral tests for the closure returned by _build_webhook_delivery_fn."""
+
+    def test_no_database_url_logs_warning_and_skips_delivery(self) -> None:
+        """Closure must log a warning and return early when database_url is empty.
+
+        This covers the ``if not database_url`` guard inside ``_deliver``.
+        No DB call should be attempted; ``_logger.warning`` must fire exactly
+        once with the job_id embedded in the message.
+        """
+        from synth_engine.bootstrapper.wiring import _build_webhook_delivery_fn
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = ""
+        mock_settings.webhook_delivery_timeout_seconds = 5
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.wiring.get_settings",
+                return_value=mock_settings,
+            ),
+            patch("synth_engine.bootstrapper.wiring._logger") as mock_logger,
+            patch("synth_engine.bootstrapper.wiring.get_engine") as mock_get_engine,
+        ):
+            deliver_fn = _build_webhook_delivery_fn()
+            # Must not raise
+            deliver_fn(42, "COMPLETE")
+
+        mock_logger.warning.assert_called_once()
+        warning_call_args = mock_logger.warning.call_args
+        # The warning format string references the job_id; verify 42 appears in args
+        assert 42 in warning_call_args.args, (
+            f"Expected job_id 42 in warning args, got: {warning_call_args.args!r}"
+        )
+        # Engine must not be touched — delivery was skipped
+        mock_get_engine.assert_not_called()
+
+    def test_db_exception_logs_exception_and_does_not_propagate(self) -> None:
+        """Closure must catch DB errors, log with _logger.exception, and not re-raise.
+
+        This verifies the ``except Exception`` block inside ``_deliver``.
+        The job lifecycle must not be disrupted by webhook delivery failures.
+        """
+        from synth_engine.bootstrapper.wiring import _build_webhook_delivery_fn
+
+        mock_settings = MagicMock()
+        mock_settings.database_url = "postgresql://test:test@localhost/testdb"
+        mock_settings.webhook_delivery_timeout_seconds = 5
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.wiring.get_settings",
+                return_value=mock_settings,
+            ),
+            patch(
+                "synth_engine.bootstrapper.wiring.get_engine",
+                side_effect=RuntimeError("DB connection refused"),
+            ),
+            patch("synth_engine.bootstrapper.wiring._logger") as mock_logger,
+        ):
+            deliver_fn = _build_webhook_delivery_fn()
+            # Must NOT raise — exception must be absorbed
+            deliver_fn(99, "FAILED")
+
+        mock_logger.exception.assert_called_once()
+        exception_call_args = mock_logger.exception.call_args
+        # The exception format string references the job_id and status
+        assert 99 in exception_call_args.args, (
+            f"Expected job_id 99 in exception args, got: {exception_call_args.args!r}"
         )
 
 
