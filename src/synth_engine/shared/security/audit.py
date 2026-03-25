@@ -26,6 +26,25 @@ Security properties
   (best-effort) to publish periodic tamper-evident anchors to an
   external store.  Anchoring failures never block event logging.
 
+Chain continuity across restarts (T55.3)
+-----------------------------------------
+On startup, :class:`AuditLogger` reads the last anchor record from the
+anchor JSONL file (the same file written by :class:`LocalFileAnchorBackend`).
+If a persisted chain head is found, the logger resumes from it:
+
+- ``_prev_hash`` is set to the persisted ``chain_head_hash``.
+- ``_entry_count`` is set to the persisted ``entry_count``.
+- A ``CHAIN_RESUMED`` audit event is emitted recording the loaded state.
+
+If no anchor file path is provided, the file is missing, empty, or
+corrupt, the logger starts from genesis (``_prev_hash = "0" * 64``,
+``_entry_count = 0``).  Corrupt/unreadable files emit a WARNING.
+
+This ensures the tamper-evident hash chain is continuous across process
+restarts.  Without this feature, each restart would create a new chain
+starting from genesis — creating gaps that attackers could exploit to
+silently delete events between the last anchor and the restart.
+
 Signature format versioning (T53.2)
 ------------------------------------
 Signatures use a versioned ``<version>:<hex>`` format:
@@ -52,6 +71,7 @@ Task: P2-D3  — AuditLogger singleton & cross-request chain integrity
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: T48.4 — Immutable Audit Trail Anchoring (Rule 8 wiring)
 Task: T53.2 — Audit HMAC: Include Details Field in Signature
+Task: T55.3 — Audit Chain Continuity Across Restarts
 """
 
 from __future__ import annotations
@@ -118,16 +138,135 @@ class AuditLogger:
     returns the module-level singleton.  Direct instantiation is
     reserved for unit tests that need an isolated chain.
 
+    On initialization, if ``anchor_file_path`` is provided (or falls back
+    to the default from settings), the logger attempts to resume the chain
+    from the last persisted anchor record.  This ensures chain continuity
+    across process restarts (T55.3).
+
     Args:
         audit_key: Raw 32-byte HMAC signing key.
+        anchor_file_path: Optional path to the anchor JSONL file used to
+            resume the chain on restart.  When ``None``, the logger starts
+            from genesis (backward-compatible).  When provided, the logger
+            reads the last line of the file to initialize ``_prev_hash``
+            and ``_entry_count``.
     """
 
-    def __init__(self, audit_key: bytes) -> None:
+    def __init__(
+        self,
+        audit_key: bytes,
+        anchor_file_path: str | None = None,
+    ) -> None:
         self._audit_key = audit_key
         self._prev_hash: str = _GENESIS_HASH
         self._entry_count: int = 0
         self._log = logging.getLogger(_AUDIT_LOGGER_NAME)
         self._lock: threading.Lock = threading.Lock()
+        self._anchor_file_path: str | None = anchor_file_path
+
+        # Attempt to resume from persisted anchor state (T55.3).
+        # Failure is non-fatal: starts from genesis with a WARNING.
+        if anchor_file_path is not None:
+            self._resume_from_anchor()
+
+    def _load_persisted_chain_head(self) -> tuple[str, int] | None:
+        """Read the last anchor record from the anchor JSONL file.
+
+        Reads the anchor file and returns the ``chain_head_hash`` and
+        ``entry_count`` from the last non-empty line.  The last line is
+        used because :class:`LocalFileAnchorBackend` appends records
+        chronologically — the last record is always the most recent.
+
+        Returns:
+            A tuple ``(chain_head_hash, entry_count)`` from the last anchor
+            record, or ``None`` if:
+
+            - The file does not exist (first boot).
+            - The file is empty (first boot).
+            - The file is corrupt/unreadable (fail-safe → genesis).
+
+            A WARNING is logged for corrupt/unreadable files but NOT for
+            missing or empty files (which are expected on first boot).
+
+        """
+        if self._anchor_file_path is None:
+            return None
+
+        try:
+            with open(self._anchor_file_path, encoding="utf-8") as fh:
+                content = fh.read()
+        except FileNotFoundError:
+            # First boot — no anchor file yet.  Normal, not a warning.
+            return None
+        except OSError as exc:
+            self._log.warning(
+                "AUDIT_CHAIN_CONTINUITY: could not read anchor file '%s': %s. "
+                "Starting from genesis.",
+                self._anchor_file_path,
+                exc,
+            )
+            return None
+
+        # Find the last non-empty line.
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        if not lines:
+            # Empty file — first boot scenario.
+            return None
+
+        last_line = lines[-1]
+        try:
+            record = json.loads(last_line)
+            chain_head_hash: str = record["chain_head_hash"]
+            entry_count: int = int(record["entry_count"])
+        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            self._log.warning(
+                "AUDIT_CHAIN_CONTINUITY: anchor file '%s' is corrupt (last line: %r): %s. "
+                "Starting from genesis.",
+                self._anchor_file_path,
+                last_line[:80],  # truncate to avoid leaking large content
+                exc,
+            )
+            return None
+
+        return chain_head_hash, entry_count
+
+    def _resume_from_anchor(self) -> None:
+        """Load persisted chain state and emit CHAIN_RESUMED event.
+
+        Called during ``__init__`` when ``anchor_file_path`` is set.
+        Loads the last anchor record and, if found, sets ``_prev_hash``
+        and ``_entry_count`` to the persisted values.
+
+        After setting the chain state, emits a ``CHAIN_RESUMED`` audit
+        event so the chain records when and from where the logger resumed.
+        This event itself advances the chain: ``_entry_count`` becomes
+        ``persisted_entry_count + 1`` after this call.
+
+        If no persisted state exists (first boot), this method is a no-op.
+        """
+        result = self._load_persisted_chain_head()
+        if result is None:
+            # First boot or failed load — stay at genesis.
+            return
+
+        persisted_hash, persisted_count = result
+        self._prev_hash = persisted_hash
+        self._entry_count = persisted_count
+
+        # Emit a CHAIN_RESUMED event to record the resumption in the chain.
+        # This is done outside _load_persisted_chain_head to keep that method
+        # pure (no side effects).
+        self.log_event(
+            event_type="CHAIN_RESUMED",
+            actor="system",
+            resource="audit_chain",
+            action="resume",
+            details={
+                "resumed_from_hash": persisted_hash,
+                "resumed_from_entry_count": str(persisted_count),
+                "anchor_file": self._anchor_file_path or "",
+            },
+        )
 
     def _sign_v1(
         self,
@@ -386,6 +525,10 @@ def get_audit_logger() -> AuditLogger:
     :class:`threading.Lock` to be safe under concurrent first-call
     scenarios.
 
+    On first call, the logger attempts to resume the chain from the last
+    persisted anchor record (T55.3).  The anchor file path is read from
+    :attr:`~synth_engine.shared.settings.ConclaveSettings.anchor_file_path`.
+
     Returns:
         The process-wide :class:`AuditLogger` instance.
 
@@ -393,7 +536,16 @@ def get_audit_logger() -> AuditLogger:
     global _audit_logger_instance
     with _audit_logger_lock:
         if _audit_logger_instance is None:
-            _audit_logger_instance = AuditLogger(_load_audit_key())
+            audit_key = _load_audit_key()
+            anchor_file_path: str | None
+            try:
+                anchor_file_path = get_settings().anchor_file_path
+            except Exception:  # broad catch: missing/invalid settings must not crash
+                anchor_file_path = None
+            _audit_logger_instance = AuditLogger(
+                audit_key=audit_key,
+                anchor_file_path=anchor_file_path,
+            )
         return _audit_logger_instance
 
 

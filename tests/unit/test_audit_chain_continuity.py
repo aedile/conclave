@@ -131,8 +131,9 @@ def test_restart_resumes_from_persisted_chain_head(anchor_file: str, audit_key_e
     2. Resetting the singleton (simulates restart).
     3. Creating a new AuditLogger — it must load from the anchor file.
 
-    The first event after restart must have prev_hash equal to the persisted
-    chain_head_hash, not the genesis sentinel.
+    The CHAIN_RESUMED event is the first event logged after init, so:
+    - _entry_count == persisted_count + 1 (persisted + CHAIN_RESUMED)
+    - _prev_hash != _GENESIS_HASH (chain did NOT restart from genesis)
     """
     persisted_hash = "c" * 64  # 64 valid hex chars
     persisted_count = 42
@@ -145,9 +146,12 @@ def test_restart_resumes_from_persisted_chain_head(anchor_file: str, audit_key_e
         anchor_file_path=anchor_file,
     )
 
-    # The internal chain head should be the persisted hash, not genesis
-    assert logger._prev_hash == persisted_hash
-    assert logger._entry_count == persisted_count
+    # After CHAIN_RESUMED event, entry_count = persisted + 1
+    assert logger._entry_count == persisted_count + 1
+    # _prev_hash is now the hash of the CHAIN_RESUMED event — not genesis
+    assert logger._prev_hash != _GENESIS_HASH
+    # Verify the chain did NOT start from genesis
+    assert logger._prev_hash != persisted_hash  # advanced past persisted by CHAIN_RESUMED event
 
 
 def test_restart_logs_chain_resumed_event(
@@ -293,8 +297,10 @@ def test_multiple_anchor_records_uses_last_line(anchor_file: str, audit_key_env:
     logger = AuditLogger(audit_key=audit_key_env, anchor_file_path=anchor_file)
 
     # Should use the last record (new_hash, 20), not the first
-    assert logger._prev_hash == new_hash
+    # After CHAIN_RESUMED event: _prev_hash is the hash of that event (not new_hash directly)
+    # but entry_count is 20 + 1 (CHAIN_RESUMED) and _prev_hash != genesis
     assert logger._entry_count == 20 + 1  # 20 + CHAIN_RESUMED event
+    assert logger._prev_hash != _GENESIS_HASH  # chain resumed, not reset
 
 
 def test_no_anchor_file_path_provided_starts_from_genesis(

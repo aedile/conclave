@@ -110,9 +110,6 @@ def _ssrf_validate_registration(url: str) -> None:
     Args:
         url: Callback URL submitted in the registration request.
 
-    Raises:
-        ValueError: If the URL is invalid, resolves to a blocked IP, or DNS
-            resolution fails.
     """
     validate_callback_url(url, strict=True)
 
