@@ -522,8 +522,7 @@ class AuditLogger:
             is_valid = hmac.compare_digest(expected_v1, sig)
             if is_valid:
                 self._log.warning(
-                    "Audit event uses deprecated v1 signature format. "
-                    "Migrate to v2 by Phase 60."
+                    "Audit event uses deprecated v1 signature format. Migrate to v2 by Phase 60."
                 )
             return is_valid
 
