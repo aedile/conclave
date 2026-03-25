@@ -50,7 +50,7 @@ from synth_engine.modules.ingestion.postgres_adapter import SchemaInspector
 from synth_engine.modules.masking.registry import ColumnType, MaskingRegistry
 from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
 from synth_engine.modules.profiler.profiler import StatisticalProfiler
-from synth_engine.modules.synthesizer.engine import SynthesisEngine, apply_fk_post_processing
+from synth_engine.modules.synthesizer.training.engine import SynthesisEngine, apply_fk_post_processing
 from synth_engine.shared.exceptions import BudgetExhaustionError
 from synth_engine.shared.schema_topology import ColumnInfo, ForeignKeyInfo, SchemaTopology
 
