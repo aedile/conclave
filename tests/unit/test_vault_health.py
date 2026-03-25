@@ -28,7 +28,7 @@ from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture(autouse=True)
-def reset_vault_state() -> Generator[None, None, None]:
+def reset_vault_state() -> Generator[None]:
     """Reset VaultState class-level state after each test for isolation."""
     yield
     try:
@@ -85,9 +85,7 @@ async def test_ready_returns_503_when_vault_is_sealed(app: Any) -> None:
 
     assert VaultState.is_sealed(), "Pre-condition: vault must be sealed"
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with (
             patch(
                 "synth_engine.bootstrapper.routers.health._check_database",
@@ -122,9 +120,7 @@ async def test_ready_response_body_contains_vault_sealed_true_when_sealed(
 
     assert VaultState.is_sealed(), "Pre-condition: vault must be sealed"
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with (
             patch(
                 "synth_engine.bootstrapper.routers.health._check_database",
@@ -155,9 +151,7 @@ async def test_health_vault_returns_vault_sealed_true_when_sealed(app: Any) -> N
 
     assert VaultState.is_sealed(), "Pre-condition: vault must be sealed"
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/health/vault")
 
     assert response.status_code == 200
@@ -170,9 +164,7 @@ async def test_health_vault_returns_worker_pid(app: Any) -> None:
     """/health/vault MUST include worker_pid matching the current process PID."""
     import os as os_module
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/health/vault")
 
     assert response.status_code == 200
@@ -182,9 +174,7 @@ async def test_health_vault_returns_worker_pid(app: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ready_returns_503_again_after_reseal(
-    app: Any, vault_salt_env: str
-) -> None:
+async def test_ready_returns_503_again_after_reseal(app: Any, vault_salt_env: str) -> None:
     """After re-sealing, /ready MUST return 503 again.
 
     A worker that was unsealed and then re-sealed is no longer safe to
@@ -200,9 +190,7 @@ async def test_ready_returns_503_again_after_reseal(
     VaultState.seal()
     assert VaultState.is_sealed(), "Pre-condition: vault must be sealed after re-seal"
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with (
             patch(
                 "synth_engine.bootstrapper.routers.health._check_database",
@@ -239,9 +227,7 @@ async def test_ready_returns_200_when_vault_unsealed_and_deps_healthy(
     VaultState.unseal("correct-horse-battery-staple")
     assert not VaultState.is_sealed(), "Pre-condition: vault must be unsealed"
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with (
             patch(
                 "synth_engine.bootstrapper.routers.health._check_database",
@@ -273,9 +259,7 @@ async def test_ready_response_body_contains_vault_sealed_false_when_unsealed(
 
     VaultState.unseal("correct-horse-battery-staple")
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with (
             patch(
                 "synth_engine.bootstrapper.routers.health._check_database",
@@ -306,9 +290,7 @@ async def test_health_vault_returns_vault_sealed_false_after_unseal(
 
     VaultState.unseal("correct-horse-battery-staple")
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/health/vault")
 
     assert response.status_code == 200
