@@ -14,6 +14,8 @@ Covers edge inputs that are valid-but-degenerate, invalid, or precision-critical
 10. Negative max_length in mask_name — must not raise; returns empty string.
 11. check_budget() with zero allocated_epsilon — must raise ValueError.
 12. check_budget() with negative allocated_epsilon — must raise ValueError.
+13. Empty DataFrame guard in SynthesisEngine.train() must be in production code,
+    not delegated to CTGANSynthesizer — guards against ordering-dependent flakiness.
 
 These tests use only stdlib and production module imports — no external
 infrastructure required.  Any test that cannot run without the synthesizer
@@ -22,6 +24,7 @@ dependency group is skipped automatically via a guard.
 CONSTITUTION Priority 3: TDD
 CONSTITUTION Priority 4: 95%+ test coverage
 Task: T40.3 — Add Missing Test Categories: Boundary Values
+Task: T55.6 — Flaky Test Resolution (empty-parquet guard moved into production code)
 """
 
 from __future__ import annotations
@@ -41,12 +44,18 @@ pytestmark = pytest.mark.unit
 
 
 def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pathlib.Path) -> None:
-    """SynthesisEngine.train() must raise, not silently succeed, for an empty Parquet file.
+    """SynthesisEngine.train() must raise ValueError for an empty Parquet file.
 
     An empty source DataFrame has zero rows.  Training a generative model on
-    zero rows is meaningless and CTGANSynthesizer will raise an internal error.
-    This test asserts that the engine does NOT silently return a ModelArtifact
-    for an empty table.
+    zero rows is meaningless.  This test asserts that the engine raises
+    ValueError BEFORE reaching CTGANSynthesizer.fit(), ensuring the guard is
+    in our production code and not delegated to SDV internals.
+
+    Previously this test relied on CTGANSynthesizer.fit() raising internally,
+    which made it ordering-dependent: if CTGANSynthesizer was patched by another
+    test and the patch leaked, MagicMock.fit() would not raise, causing a
+    false pass or a hang.  The fix (T55.6) moves the empty-DataFrame guard into
+    SynthesisEngine.train() before the model is constructed.
 
     The test is skipped if the synthesizer group is not installed.
     """
@@ -75,6 +84,56 @@ def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pathlib.Path) 
 
     with pytest.raises(ValueError, match="fit dataframe is empty"):
         engine.train("empty_table", str(parquet_path))
+
+
+def test_synthesis_engine_train_empty_parquet_raises_even_with_mocked_ctgan(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Empty-parquet guard must fire before CTGANSynthesizer is constructed.
+
+    This test exposes the ordering-dependent flakiness fixed in T55.6.  It
+    patches CTGANSynthesizer with a MagicMock (simulating the state left by
+    another test that patches but fails to clean up), then asserts that
+    SynthesisEngine.train() still raises ValueError for an empty Parquet file.
+
+    If the guard were delegated to CTGANSynthesizer.fit() (the pre-T55.6 design),
+    a mocked CTGANSynthesizer would silently succeed and this test would fail.
+    The production code must raise before the model is constructed.
+
+    The test is skipped if pyarrow is not installed.
+    """
+    try:
+        import pandas as pd
+    except ImportError:
+        pytest.skip("pandas not installed")
+
+    try:
+        import pyarrow  # noqa: F401
+    except ImportError:
+        pytest.skip("pyarrow not installed (synthesizer group absent)")
+
+    parquet_path = tmp_path / "empty.parquet"
+    empty_df = pd.DataFrame({"col_a": pd.Series([], dtype="float64")})
+    empty_df.to_parquet(str(parquet_path), engine="pyarrow")
+
+    mock_ctgan_cls = MagicMock()
+    mock_ctgan_instance = MagicMock()
+    mock_ctgan_cls.return_value = mock_ctgan_instance
+
+    from synth_engine.modules.synthesizer.engine import SynthesisEngine
+
+    engine = SynthesisEngine(epochs=1)
+
+    with patch(
+        "synth_engine.modules.synthesizer.engine.CTGANSynthesizer",
+        mock_ctgan_cls,
+    ):
+        with pytest.raises(ValueError, match="fit dataframe is empty"):
+            engine.train("empty_table", str(parquet_path))
+
+    # CTGANSynthesizer must NOT have been constructed — the guard fires first.
+    mock_ctgan_cls.assert_not_called()
+    mock_ctgan_instance.fit.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
