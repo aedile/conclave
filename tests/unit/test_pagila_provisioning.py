@@ -77,17 +77,14 @@ class TestProvisionScriptSecurity:
         All downloads must use HTTPS to prevent MITM attacks during
         Pagila SQL file retrieval. Plain 'http://' URLs are forbidden.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         # Find any http:// occurrences that are not https://
         import re
 
         plain_http_matches = re.findall(r'\bhttp://[^\s"\']+', content)
         assert plain_http_matches == [], (
-            f"provision_pagila.sh contains plain HTTP URLs (must use HTTPS): "
-            f"{plain_http_matches}"
+            f"provision_pagila.sh contains plain HTTP URLs (must use HTTPS): {plain_http_matches}"
         )
 
     def test_provision_script_has_checksum_verification(self) -> None:
@@ -96,15 +93,9 @@ class TestProvisionScriptSecurity:
         Pinned checksums guard against tampered or corrupted SQL files.
         The script must perform sha256 verification before loading any SQL.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
-        has_sha256 = (
-            "sha256" in content.lower()
-            or "sha256sum" in content
-            or "shasum" in content
-        )
+        has_sha256 = "sha256" in content.lower() or "sha256sum" in content or "shasum" in content
         assert has_sha256, (
             "provision_pagila.sh must verify SHA-256 checksums of downloaded files. "
             "Pin the expected checksums in the script to detect tampering."
@@ -116,9 +107,7 @@ class TestProvisionScriptSecurity:
         Database credentials must be read from environment variables
         ($PGPASSWORD, $PGUSER, $PGHOST, $PGPORT), never hardcoded in the script.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         # Patterns that indicate hardcoded credentials
         import re
@@ -145,9 +134,7 @@ class TestProvisionScriptSecurity:
         Without 'pipefail', errors in piped commands go undetected.
         Both are required for safe, predictable shell scripting.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         has_set_e = "set -e" in content or "set -euo" in content or "set -eu" in content
         has_pipefail = "pipefail" in content
@@ -167,16 +154,10 @@ class TestProvisionScriptSecurity:
         downloaded SQL files to avoid stale/corrupted state. A 'trap ... ERR'
         or 'trap ... EXIT' handler with cleanup logic is required.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         has_trap = "trap" in content
-        has_cleanup = (
-            "cleanup" in content.lower()
-            or "rm " in content
-            or "rm\t" in content
-        )
+        has_cleanup = "cleanup" in content.lower() or "rm " in content or "rm\t" in content
         assert has_trap, (
             "provision_pagila.sh must define a 'trap' handler for cleanup on failure. "
             "Use 'trap cleanup ERR' or 'trap cleanup EXIT' to remove partial downloads."
@@ -219,9 +200,7 @@ class TestProvisionScriptFeatures:
 
         This guards against partial loads or corrupt SQL files.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         has_customer_check = "500" in content and "customer" in content.lower()
         has_rental_check = "40000" in content and "rental" in content.lower()
@@ -241,9 +220,7 @@ class TestProvisionScriptFeatures:
         detect and reject older PostgreSQL server versions with a clear
         error message.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         has_version_check = (
             "server_version_num" in content
@@ -262,13 +239,10 @@ class TestProvisionScriptFeatures:
         without errors. The script must drop and recreate the pagila database
         using 'DROP DATABASE IF EXISTS' to handle the re-run case.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         has_drop_if_exists = (
-            "DROP DATABASE IF EXISTS" in content
-            or "drop database if exists" in content.lower()
+            "DROP DATABASE IF EXISTS" in content or "drop database if exists" in content.lower()
         )
         assert has_drop_if_exists, (
             "provision_pagila.sh must use 'DROP DATABASE IF EXISTS pagila' for idempotency. "
@@ -281,9 +255,7 @@ class TestProvisionScriptFeatures:
         Downloads must come from https://github.com/devrimgunduz/pagila
         or its raw.githubusercontent.com equivalent, not mirrors or forks.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         has_official_source = (
             "devrimgunduz/pagila" in content
@@ -302,17 +274,13 @@ class TestProvisionScriptFeatures:
         environment variables to support different deployment environments
         without modifying the script.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         assert "PGHOST" in content, (
             "provision_pagila.sh must use $PGHOST for the database host. "
             "Do not hardcode localhost or any specific hostname."
         )
-        assert "PGUSER" in content, (
-            "provision_pagila.sh must use $PGUSER for the database user."
-        )
+        assert "PGUSER" in content, "provision_pagila.sh must use $PGUSER for the database user."
         assert "PGPASSWORD" in content, (
             "provision_pagila.sh must reference $PGPASSWORD for authentication."
         )
@@ -333,8 +301,7 @@ class TestPagilaReadme:
         instructions for operators.
         """
         assert README_PATH.exists(), (
-            f"sample_data/pagila/README.md not found at {README_PATH}. "
-            "Create it as part of T54.1."
+            f"sample_data/pagila/README.md not found at {README_PATH}. Create it as part of T54.1."
         )
 
     def test_pagila_readme_documents_source_and_license(self) -> None:
@@ -343,9 +310,7 @@ class TestPagilaReadme:
         Operators need to know where the data came from and under what
         license it can be used.
         """
-        assert README_PATH.exists(), (
-            f"sample_data/pagila/README.md not found at {README_PATH}."
-        )
+        assert README_PATH.exists(), f"sample_data/pagila/README.md not found at {README_PATH}."
         content = README_PATH.read_text(encoding="utf-8")
         has_source = "devrimgunduz/pagila" in content or "github.com/devrimgunduz" in content
         has_license = "PostgreSQL License" in content or "postgresql license" in content.lower()
@@ -364,9 +329,7 @@ class TestPagilaReadme:
         The 5-table subset used for E2E synthesis validation must be
         documented: customer, address, rental, inventory, film.
         """
-        assert README_PATH.exists(), (
-            f"sample_data/pagila/README.md not found at {README_PATH}."
-        )
+        assert README_PATH.exists(), f"sample_data/pagila/README.md not found at {README_PATH}."
         content = README_PATH.read_text(encoding="utf-8")
         required_tables = ["customer", "address", "rental", "inventory", "film"]
         missing = [t for t in required_tables if t not in content.lower()]
@@ -381,9 +344,7 @@ class TestPagilaReadme:
         Operators must be able to find the provisioning command in the README
         without reading the script itself.
         """
-        assert README_PATH.exists(), (
-            f"sample_data/pagila/README.md not found at {README_PATH}."
-        )
+        assert README_PATH.exists(), f"sample_data/pagila/README.md not found at {README_PATH}."
         content = README_PATH.read_text(encoding="utf-8")
         has_script_ref = "provision_pagila.sh" in content
         assert has_script_ref, (
@@ -397,9 +358,7 @@ class TestPagilaReadme:
         Operators should be able to quickly understand the dataset size
         without loading it.
         """
-        assert README_PATH.exists(), (
-            f"sample_data/pagila/README.md not found at {README_PATH}."
-        )
+        assert README_PATH.exists(), f"sample_data/pagila/README.md not found at {README_PATH}."
         content = README_PATH.read_text(encoding="utf-8")
         # Check for at least one row count figure (approximate counts)
         import re
@@ -425,9 +384,7 @@ class TestProvisionScriptEdgeCases:
         The shebang must reference bash explicitly (not /bin/sh) since the
         script uses bash-specific features.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         first_line = content.splitlines()[0] if content.splitlines() else ""
         assert first_line.startswith("#!/"), (
@@ -445,9 +402,7 @@ class TestProvisionScriptEdgeCases:
         constraints are satisfied (no orphaned rows). This detects partial
         or corrupted data loads.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         has_fk_check = (
             "foreign key" in content.lower()
@@ -470,9 +425,7 @@ class TestProvisionScriptEdgeCases:
         These are the two most common shell scripting errors that lead to
         word-splitting bugs and security issues.
         """
-        assert SCRIPT_PATH.exists(), (
-            f"provision_pagila.sh not found at {SCRIPT_PATH}."
-        )
+        assert SCRIPT_PATH.exists(), f"provision_pagila.sh not found at {SCRIPT_PATH}."
         result = subprocess.run(
             ["shellcheck", "--format=gcc", str(SCRIPT_PATH)],
             capture_output=True,
