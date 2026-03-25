@@ -755,6 +755,7 @@ def _stage_training(
     synth_engine = SynthesisEngine(epochs=epochs)
     artifacts: dict[str, Any] = {}
 
+    per_table_wrappers: list[DPTrainingWrapper] = []
     for table in topology.table_order:
         masked_path = masked_dir / f"{table}.parquet"
         if not masked_path.exists():
@@ -762,15 +763,25 @@ def _stage_training(
             continue
 
         _logger.info("Training on table '%s' ...", table)
+        # DPTrainingWrapper is single-use (Opacus wraps optimizer once).
+        # Create a fresh instance per table.
+        table_wrapper = DPTrainingWrapper(
+            max_grad_norm=dp_wrapper.max_grad_norm,
+            noise_multiplier=dp_wrapper.noise_multiplier,
+        )
         artifact = synth_engine.train(
             table_name=table,
             parquet_path=str(masked_path),
-            dp_wrapper=dp_wrapper,
+            dp_wrapper=table_wrapper,
         )
+        per_table_wrappers.append(table_wrapper)
         artifacts[table] = artifact
         _logger.info("Training complete for table '%s'.", table)
 
-    epsilon_spent = dp_wrapper.epsilon_spent(delta=delta)
+    # Sum epsilon across all per-table wrappers (sequential composition).
+    epsilon_spent = sum(
+        w.epsilon_spent(delta=delta) for w in per_table_wrappers
+    ) if per_table_wrappers else 0.0
     duration = time.monotonic() - t_start
     _logger.info(
         "Training complete: epsilon_spent=%.4f / %.4f, delta=%s (%.2fs)",
