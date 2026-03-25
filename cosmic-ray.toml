@@ -82,6 +82,12 @@ excluded-modules = [
 # -q --tb=no --no-header: suppress output noise per mutant subprocess.
 # --no-cov: skip coverage instrumentation — not needed during mutation runs.
 # -p no:randomly: disable test shuffling for deterministic per-mutant output.
+#
+# ADV-P53-03 (drain): P55 security test files are automatically included
+# because the command targets tests/unit/ (the full directory). New files added
+# in P55: test_vault_health.py, test_model_artifact_security.py,
+# test_audit_chain_continuity.py, test_ssrf_fail_closed.py,
+# test_dead_dependency_cleanup.py — all verified present.
 test-command = "python -m pytest tests/unit/ -x -q --tb=no --no-header --no-cov -p no:randomly"
 
 [cosmic-ray.distributor]

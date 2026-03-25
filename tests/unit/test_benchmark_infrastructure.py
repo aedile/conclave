@@ -415,10 +415,10 @@ class TestArtifactIntegrity:
 
 
 class TestEpsilonDeltaConsistency:
-    """Benchmark delta must match the production constant _DP_EPSILON_DELTA."""
+    """Benchmark delta must match the production constant DP_EPSILON_DELTA."""
 
     def test_benchmark_epsilon_delta_matches_production_constant(self) -> None:
-        """Assert benchmark delta equals production _DP_EPSILON_DELTA (1e-5).
+        """Assert benchmark delta equals production DP_EPSILON_DELTA (1e-5).
 
         The benchmark harness must use the same delta as production to ensure
         that epsilon values reported in benchmark results are directly comparable
@@ -440,16 +440,16 @@ class TestEpsilonDeltaConsistency:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)  # type: ignore[union-attr]
 
-        from synth_engine.modules.synthesizer.dp_accounting import _DP_EPSILON_DELTA
+        from synth_engine.modules.synthesizer.dp_accounting import DP_EPSILON_DELTA
 
         # The harness must expose its delta constant so we can assert equality
         assert hasattr(module, "_BENCHMARK_DP_DELTA"), (
             "benchmark_epsilon_curves.py must expose '_BENCHMARK_DP_DELTA' constant "
-            "so it can be compared to the production _DP_EPSILON_DELTA"
+            "so it can be compared to the production DP_EPSILON_DELTA"
         )
-        assert module._BENCHMARK_DP_DELTA == _DP_EPSILON_DELTA, (  # type: ignore[attr-defined]
+        assert module._BENCHMARK_DP_DELTA == DP_EPSILON_DELTA, (  # type: ignore[attr-defined]
             f"Benchmark delta {module._BENCHMARK_DP_DELTA!r} != "  # type: ignore[attr-defined]
-            f"production _DP_EPSILON_DELTA {_DP_EPSILON_DELTA!r}. "
+            f"production DP_EPSILON_DELTA {DP_EPSILON_DELTA!r}. "
             "The two must match so epsilon reporting is comparable."
         )
 

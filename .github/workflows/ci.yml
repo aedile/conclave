@@ -101,16 +101,16 @@ jobs:
         run: poetry install --with dev
 
       - name: Ruff lint
-        run: poetry run ruff check src/ tests/ scripts/
+        run: poetry run ruff check src/ tests/ scripts/ demos/
 
       - name: Ruff format check
-        run: poetry run ruff format --check src/ tests/ scripts/
+        run: poetry run ruff format --check src/ tests/ scripts/ demos/
 
       - name: Mypy type check
         run: poetry run mypy src/
 
       - name: Bandit security scan
-        run: poetry run bandit -c pyproject.toml -r src/ scripts/
+        run: poetry run bandit -c pyproject.toml -r src/ scripts/ demos/
 
       - name: Vulture dead code scan
         run: poetry run vulture src/ .vulture_whitelist.py

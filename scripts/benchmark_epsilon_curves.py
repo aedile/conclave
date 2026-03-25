@@ -5,7 +5,7 @@ grids and records per-run quality metrics, privacy accounting, and hardware meta
 to structured JSON and CSV artifacts.
 
 The delta used for epsilon accounting is ``_BENCHMARK_DP_DELTA`` which is explicitly
-required to match the production constant ``_DP_EPSILON_DELTA`` in
+required to match the production constant ``DP_EPSILON_DELTA`` in
 ``synth_engine.modules.synthesizer.dp_accounting``.
 
 Security requirements:
@@ -85,7 +85,7 @@ except ImportError as _missing:
 #: Artifact schema version — bump when the output format changes.
 SCHEMA_VERSION: str = "1.0"
 
-#: Delta for epsilon accounting — MUST match production _DP_EPSILON_DELTA.
+#: Delta for epsilon accounting — MUST match production DP_EPSILON_DELTA.
 #: Verified by test_benchmark_epsilon_delta_matches_production_constant.
 _BENCHMARK_DP_DELTA: float = 1e-5
 
@@ -99,7 +99,7 @@ _MAX_FILENAME_SEGMENT_LEN: int = 64
 _SAFE_FILENAME_RE: re.Pattern[str] = re.compile(r"[^a-zA-Z0-9_\-]")
 
 #: Production delta constant path for documentation purposes.
-_PRODUCTION_DELTA_IMPORT: str = "synth_engine.modules.synthesizer.dp_accounting._DP_EPSILON_DELTA"
+_PRODUCTION_DELTA_IMPORT: str = "synth_engine.modules.synthesizer.dp_accounting.DP_EPSILON_DELTA"
 
 
 # ---------------------------------------------------------------------------

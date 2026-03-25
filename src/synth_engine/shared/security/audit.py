@@ -83,6 +83,7 @@ import logging
 import threading
 from datetime import UTC, datetime
 
+from prometheus_client import Counter
 from pydantic import BaseModel
 
 from synth_engine.shared.settings import get_settings
@@ -93,6 +94,18 @@ _GENESIS_HASH = "0" * 64
 # Maximum byte length of canonical details JSON (64 KB).
 # Enforced in _sign_v2 to prevent OOM via unbounded detail payloads.
 _DETAILS_MAX_BYTES = 64 * 1024  # 64 KB
+
+# ---------------------------------------------------------------------------
+# ADV-P55-04 — Prometheus counter for audit chain resume failures.
+# Incremented when _resume_from_anchor() falls back to genesis due to a
+# corrupt, unreadable, or invalid anchor file (excludes normal first-boot
+# cases where no anchor file exists yet).
+# ---------------------------------------------------------------------------
+AUDIT_CHAIN_RESUME_FAILURE_TOTAL: Counter = Counter(
+    "audit_chain_resume_failure_total",
+    "Total number of audit chain resume failures that forced a genesis "
+    "restart (corrupt/invalid anchor file — excludes normal first-boot).",
+)
 
 # ---------------------------------------------------------------------------
 # Module-level singleton state
@@ -199,6 +212,7 @@ class AuditLogger:
             # First boot — no anchor file yet.  Normal, not a warning.
             return None
         except OSError as exc:
+            AUDIT_CHAIN_RESUME_FAILURE_TOTAL.inc()
             self._log.warning(
                 "AUDIT_CHAIN_CONTINUITY: could not read anchor file '%s': %s. "
                 "Starting from genesis.",
@@ -219,6 +233,7 @@ class AuditLogger:
             chain_head_hash: str = record["chain_head_hash"]
             entry_count: int = int(record["entry_count"])
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            AUDIT_CHAIN_RESUME_FAILURE_TOTAL.inc()
             self._log.warning(
                 "AUDIT_CHAIN_CONTINUITY: anchor file '%s' is corrupt (last line: %r): %s. "
                 "Starting from genesis.",
@@ -234,6 +249,7 @@ class AuditLogger:
         try:
             _validate_chain_head_hash(chain_head_hash)
         except ValueError as exc:
+            AUDIT_CHAIN_RESUME_FAILURE_TOTAL.inc()
             self._log.warning(
                 "AUDIT_CHAIN_CONTINUITY: anchor file '%s' chain_head_hash failed validation: %s. "
                 "Starting from genesis.",
@@ -243,6 +259,7 @@ class AuditLogger:
             return None
 
         if not isinstance(entry_count, int) or entry_count < 1:
+            AUDIT_CHAIN_RESUME_FAILURE_TOTAL.inc()
             self._log.warning(
                 "AUDIT_CHAIN_CONTINUITY: anchor file '%s' entry_count invalid: %r. "
                 "Starting from genesis.",
@@ -463,7 +480,8 @@ class AuditLogger:
         Dispatches on the version prefix stored in ``event.signature``:
 
         - ``v1:`` — Recomputes the legacy signature (details not included)
-          and compares using ``hmac.compare_digest``.
+          and compares using ``hmac.compare_digest``.  Emits a WARNING to
+          prompt migration to v2 format before Phase 60.
         - ``v2:`` — Recomputes the v2 signature (details included in HMAC)
           and compares using ``hmac.compare_digest``.
         - Any other prefix — Returns ``False`` immediately (fail-closed).
@@ -501,7 +519,12 @@ class AuditLogger:
                 event.action,
                 event.prev_hash,
             )
-            return hmac.compare_digest(expected_v1, sig)
+            is_valid = hmac.compare_digest(expected_v1, sig)
+            if is_valid:
+                self._log.warning(
+                    "Audit event uses deprecated v1 signature format. Migrate to v2 by Phase 60."
+                )
+            return is_valid
 
         # Unknown version prefix — fail-closed.
         return False

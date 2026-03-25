@@ -4,7 +4,7 @@ Covers:
 - Attack/negative tests: sealed vault returns 503, vault_sealed: true
 - Feature tests: after unseal returns 200, vault_sealed: false
 - Re-seal: returns 503 again
-- /health/vault endpoint reports correct seal state and worker PID
+- /health/vault endpoint reports correct seal state and opaque worker_id UUID (ADV-P55-01)
 
 CONSTITUTION Priority 0: Security — vault state MUST block readiness when sealed
 CONSTITUTION Priority 3: TDD — attack tests first
@@ -160,17 +160,26 @@ async def test_health_vault_returns_vault_sealed_true_when_sealed(app: Any) -> N
 
 
 @pytest.mark.asyncio
-async def test_health_vault_returns_worker_pid(app: Any) -> None:
-    """/health/vault MUST include worker_pid matching the current process PID."""
-    import os as os_module
+async def test_health_vault_returns_worker_id(app: Any) -> None:
+    """/health/vault MUST include worker_id as an opaque UUID string (ADV-P55-01).
+
+    The worker_id is a UUID generated once at import time. It is stable
+    within a process lifetime but opaque — it does not leak process topology.
+    """
+    import uuid as uuid_module
+
+    from synth_engine.bootstrapper.routers.health import _WORKER_ID
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/health/vault")
 
     assert response.status_code == 200
     body = response.json()
-    assert "worker_pid" in body
-    assert body["worker_pid"] == os_module.getpid()
+    assert "worker_id" in body
+    assert body["worker_id"] == _WORKER_ID
+    # Verify it is a valid UUID string
+    parsed = uuid_module.UUID(body["worker_id"])
+    assert str(parsed) == body["worker_id"]
 
 
 @pytest.mark.asyncio

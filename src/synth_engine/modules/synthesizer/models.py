@@ -56,6 +56,8 @@ import pickle  # nosec B403 — pickle is used intentionally for self-produced M
 from dataclasses import dataclass, field
 from typing import Any
 
+from prometheus_client import Counter
+
 from synth_engine.shared.exceptions import ArtifactTamperingError
 from synth_engine.shared.security.hmac_signing import (
     HMAC_DIGEST_SIZE,
@@ -68,6 +70,17 @@ from synth_engine.shared.security.hmac_signing import (
 __all__ = ["ModelArtifact", "RestrictedUnpickler", "SecurityError"]
 
 _logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# ADV-P55-04 — Prometheus counter for artifact verification failures.
+# Incremented in _log_verification_failure() for every failed HMAC or
+# tamper-detection check on a ModelArtifact.
+# ---------------------------------------------------------------------------
+ARTIFACT_VERIFICATION_FAILURE_TOTAL: Counter = Counter(
+    "artifact_verification_failure_total",
+    "Total number of ModelArtifact signature verification failures "
+    "(HMAC mismatch, tampered payload, or invalid format).",
+)
 
 #: Pickle protocol-2+ opcode byte (``0x80``).  All artifacts produced by
 #: :meth:`ModelArtifact.save` use ``pickle.HIGHEST_PROTOCOL`` (≥ 2), so a
@@ -296,6 +309,7 @@ def _log_verification_failure(path: str, reason: str) -> None:
         reason: Human-readable description of the failure (must not contain
             PII or secret material).
     """
+    ARTIFACT_VERIFICATION_FAILURE_TOTAL.inc()
     try:
         _logger.warning(
             "ARTIFACT_VERIFICATION_FAILURE event_type=ARTIFACT_VERIFICATION_FAILURE "
