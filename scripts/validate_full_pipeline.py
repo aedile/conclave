@@ -783,9 +783,9 @@ def _stage_training(
         _logger.info("Training complete for table '%s'.", table)
 
     # Sum epsilon across all per-table wrappers (sequential composition).
-    epsilon_spent = sum(
-        w.epsilon_spent(delta=delta) for w in per_table_wrappers
-    ) if per_table_wrappers else 0.0
+    epsilon_spent = (
+        sum(w.epsilon_spent(delta=delta) for w in per_table_wrappers) if per_table_wrappers else 0.0
+    )
     duration = time.monotonic() - t_start
     _logger.info(
         "Training complete: epsilon_spent=%.4f / %.4f, delta=%s (%.2fs)",
