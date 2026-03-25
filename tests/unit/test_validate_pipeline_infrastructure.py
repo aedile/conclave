@@ -600,3 +600,107 @@ class TestScriptAst:
             "alternative to --db-url. The env var takes precedence for security "
             "(DSN should not appear in shell history)."
         )
+
+
+# ---------------------------------------------------------------------------
+# Structural tests for _sanitize_dataframe_for_sdv (added P56 fix)
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeDataframeForSdv:
+    """Source-level structural tests for the SDV pre-processing helper.
+
+    These tests use AST/source inspection rather than dynamic import because
+    the script has heavy optional dependencies (SDV, torch, opacus) that are
+    not available in the unit test environment.
+    """
+
+    def test_sanitize_function_is_defined(self) -> None:
+        """The script must define ``_sanitize_dataframe_for_sdv``.
+
+        This function is required to strip timezone-aware timestamps and date
+        columns that SDV's CTGAN metadata inference cannot handle.
+        """
+        source = _load_source()
+
+        assert "_sanitize_dataframe_for_sdv" in source, (
+            "Helper function '_sanitize_dataframe_for_sdv' not found in script. "
+            "It is required to sanitize DataFrame column types before SDV ingestion."
+        )
+
+    def test_sanitize_function_is_called_in_subsetting_stage(self) -> None:
+        """``_sanitize_dataframe_for_sdv`` must be called after DataFrame construction.
+
+        The function must be called before ``df.to_parquet()`` to ensure that
+        sanitized data is what gets written, not the raw PostgreSQL-typed frame.
+        """
+        source = _load_source()
+
+        # The call must appear in the source — confirmed via string presence.
+        assert "df = _sanitize_dataframe_for_sdv(df," in source, (
+            "Script must call _sanitize_dataframe_for_sdv(df, table) "
+            "after constructing the DataFrame and before writing to Parquet."
+        )
+
+    def test_sanitize_function_strips_timezone_aware_columns(self) -> None:
+        """The sanitize function must strip tz info with ``dt.tz_localize(None)``.
+
+        Pagila's ``last_update`` column is timestamptz (timezone-aware).  SDV
+        raises ``InvalidMetadataError`` on tz-aware datetimes.  The fix is to
+        call ``dt.tz_localize(None)`` to produce naive datetime64.
+        """
+        source = _load_source()
+
+        assert "tz_localize(None)" in source, (
+            "Sanitize function must call dt.tz_localize(None) to strip timezone "
+            "info from tz-aware timestamp columns (e.g. Pagila's last_update timestamptz)."
+        )
+
+    def test_sanitize_function_converts_date_columns(self) -> None:
+        """The sanitize function must convert ``datetime.date`` columns to datetime64.
+
+        Pagila's ``create_date`` column arrives as Python ``datetime.date`` objects
+        in an object-dtype Series.  SDV cannot handle raw date objects — they must
+        be converted to ``datetime64`` via ``pd.to_datetime()``.
+        """
+        source = _load_source()
+
+        assert "pd.to_datetime" in source, (
+            "Sanitize function must call pd.to_datetime() to convert date columns "
+            "to datetime64 (e.g. Pagila's create_date column)."
+        )
+
+    def test_sanitize_function_drops_unsupported_types(self) -> None:
+        """The sanitize function must drop columns with array/bytea/composite types.
+
+        PostgreSQL array, bytea, and composite columns arrive as Python lists,
+        bytes, or dicts.  SDV raises ``InvalidMetadataError`` on these.  The
+        function must drop them rather than passing them through.
+        """
+        source = _load_source()
+
+        # The drop is implemented via df.drop(columns=...) with a ``dropped`` list.
+        assert "df.drop(columns=" in source, (
+            "Sanitize function must drop unsupported columns via df.drop(columns=...). "
+            "PostgreSQL array/bytea/composite columns cause SDV InvalidMetadataError."
+        )
+
+    def test_sanitize_function_has_google_docstring(self) -> None:
+        """The sanitize function must have a Google-style docstring.
+
+        Per CONSTITUTION Priority 5: all public (and private utility) functions
+        must have docstrings documenting Args and Returns.
+        """
+        source = _load_source()
+
+        # Find the function body and check for Args: and Returns: sections.
+        func_start = source.find("def _sanitize_dataframe_for_sdv(")
+        assert func_start != -1, "Function definition not found"
+
+        func_body = source[func_start : func_start + 800]
+        assert "Args:" in func_body, (
+            "_sanitize_dataframe_for_sdv is missing 'Args:' section in docstring."
+        )
+        assert "Returns:" in func_body, (
+            "_sanitize_dataframe_for_sdv is missing 'Returns:' section in docstring."
+        )

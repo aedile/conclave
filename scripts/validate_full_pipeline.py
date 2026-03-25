@@ -50,7 +50,10 @@ from synth_engine.modules.ingestion.postgres_adapter import SchemaInspector
 from synth_engine.modules.masking.registry import ColumnType, MaskingRegistry
 from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
 from synth_engine.modules.profiler.profiler import StatisticalProfiler
-from synth_engine.modules.synthesizer.training.engine import SynthesisEngine, apply_fk_post_processing
+from synth_engine.modules.synthesizer.training.engine import (
+    SynthesisEngine,
+    apply_fk_post_processing,
+)
 from synth_engine.shared.exceptions import BudgetExhaustionError
 from synth_engine.shared.schema_topology import ColumnInfo, ForeignKeyInfo, SchemaTopology
 
@@ -297,6 +300,76 @@ def _detect_nan_inf(df: pd.DataFrame, table_name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# SDV compatibility pre-processing
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_dataframe_for_sdv(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+    """Strip column types that SDV's CTGAN metadata inference cannot handle.
+
+    SDV rejects timezone-aware timestamps and raw date columns.  This function
+    normalises those types in-place on a copy so that the Parquet files written
+    to the source directory are compatible with :class:`SynthesisEngine`.
+
+    Columns with types that cannot be coerced (e.g. PostgreSQL arrays, bytea)
+    are dropped rather than passed through, because SDV would raise an
+    ``InvalidMetadataError`` on them anyway.
+
+    Args:
+        df: Raw DataFrame as read from PostgreSQL via SQLAlchemy.
+        table_name: Table name used only for log messages.
+
+    Returns:
+        A new DataFrame with SDV-compatible column types.
+    """
+    df = df.copy()
+    dropped: list[str] = []
+
+    for col in df.columns:
+        series = df[col]
+        dtype = series.dtype
+
+        # Timezone-aware datetimes → strip tz info so SDV treats as naive datetime
+        if hasattr(dtype, "tz") and dtype.tz is not None:
+            df[col] = series.dt.tz_localize(None)
+            _logger.debug("sanitize[%s.%s]: stripped timezone (was %s)", table_name, col, dtype)
+            continue
+
+        # Python date objects (object dtype containing datetime.date) → datetime64
+        if pd.api.types.is_object_dtype(dtype) and len(series.dropna()) > 0:
+            sample = series.dropna().iloc[0]
+            if isinstance(sample, datetime.date) and not isinstance(sample, datetime.datetime):
+                try:
+                    df[col] = pd.to_datetime(series)
+                    _logger.debug("sanitize[%s.%s]: converted date -> datetime64", table_name, col)
+                    continue
+                except Exception:  # coercion failure is non-fatal; column will fall through to drop
+                    _logger.debug(
+                        "sanitize[%s.%s]: date coercion failed, will drop if unsupported type",
+                        table_name,
+                        col,
+                    )
+
+        # Drop columns whose dtype is still object-with-non-scalar content
+        # (arrays, bytea, composite types).  SDV cannot infer metadata for these.
+        if pd.api.types.is_object_dtype(dtype) and len(series.dropna()) > 0:
+            sample = series.dropna().iloc[0]
+            if isinstance(sample, list | dict | bytes | memoryview):
+                dropped.append(col)
+
+    if dropped:
+        df = df.drop(columns=dropped)
+        _logger.warning(
+            "sanitize[%s]: dropped %d unsupported column(s): %s",
+            table_name,
+            len(dropped),
+            dropped,
+        )
+
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Current git branch (for report metadata)
 # ---------------------------------------------------------------------------
 
@@ -513,6 +586,7 @@ def _stage_subsetting(
 
         fallback_cols = [c.name for c in topology.columns[table]]
         df = pd.DataFrame(rows, columns=col_names if rows else fallback_cols)
+        df = _sanitize_dataframe_for_sdv(df, table)
         parquet_path = source_dir / f"{table}.parquet"
         df.to_parquet(parquet_path, engine="pyarrow", index=False)
         row_counts[table] = len(df)
