@@ -50,7 +50,7 @@ This section governs how you write and manage code.
    - You _WILL_ maintain a comprehensive test suite with **95%+ test coverage**.
    - No regressions _WILL_ be introduced. All existing tests _MUST_ pass before your work on a task is considered finished.
    - Tests _MUST_ contain at least one specific value assertion per test function. Assertions that only check truthiness (`is not None`), type (`isinstance`), or existence (`in`) without also asserting a specific expected value are insufficient as the sole assertion in any test.
-   - Mutation testing (`mutmut`) _MUST_ achieve the configured mutation score threshold on security-critical modules (`shared/security/`, `modules/privacy/`). Initial threshold: 60%, targeting 70% by Phase 55.
+   - Mutation testing (`cosmic-ray`) _MUST_ achieve the configured mutation score threshold on security-critical modules (`shared/security/`, `modules/privacy/`). Initial threshold: 60%, targeting 70% by Phase 55. See ADR-0054 for tool adoption rationale.
 5. **Code Quality (Priority 5):**
    - You _WILL_ write clean, maintainable, efficient, and well-factored code.
    - You _WILL_ adhere to all existing coding standards, style guides, and architectural patterns of the project.
@@ -104,12 +104,12 @@ This principle governs the Constitution itself and all future amendments.
 | 6 | Documentation currency | `docs-gate` CI job — every PR branch must contain a `docs:` commit |
 | 7 | Retrospectives | `docs: update RETRO_LOG` commit required per task — auditable in git log |
 | 8 | Project management | Task tracker updated per task; PM verifies at phase kickoff |
-| 0 | Auth coverage | `red-team-reviewer` on every phase [ADVISORY — no programmatic gate: `test_all_routes_require_auth()` does not exist] |
+| 0 | Auth coverage | `test_all_routes_require_auth()` in `tests/integration/` — enumerates all routes, asserts 401 on every non-exempt (path, method) pair (T53.3) |
 | 0 | Attack test coverage | `test: add negative/attack tests` commit required before `test: add failing tests` — auditable in git log [ADVISORY — no programmatic gate: commit ordering is convention-enforced only] |
 | 0 | Spec challenge | `spec-challenger` output incorporated before development — auditable in developer brief [ADVISORY — no programmatic gate: incorporation is convention-enforced only] |
 | 2.5 | Priority sequencing | spec-challenger priority-compliance sweep + PM phase-plan checklist |
 | 4 | Assertion quality | phase-boundary-auditor assertion-specificity sweep |
-| 4 | Mutation score | `mutmut run --paths-to-mutate=src/synth_engine/shared/security/ src/synth_engine/modules/privacy/` in CI |
+| 4 | Mutation score | `cosmic-ray init cosmic-ray.toml session.sqlite && cosmic-ray exec cosmic-ray.toml session.sqlite && python scripts/check_mutation_score.py session.sqlite` run locally by PM before merge — not in CI (GitHub Actions budget constraint, ADR-0054) |
 | 9 | UI/UX / Accessibility | `ui-ux-reviewer` agent spawned conditionally on frontend changes — findings committed |
 
 ## **Final Mandate: Conflict and Blockers**

@@ -14,6 +14,13 @@
 # To update an action: look up the new tag's commit SHA via
 #   gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object.sha'
 # then replace both the SHA and the version comment below.
+#
+# Mutation testing (cosmic-ray) runs LOCALLY as a PM gate, not in CI.
+# GitHub Actions shared runners cannot complete 789 mutants within a
+# reasonable timeout. See ADR-0054 (amended 2026-03-24) for rationale.
+# Local run: cosmic-ray init cosmic-ray.toml session.sqlite &&
+#             cosmic-ray exec cosmic-ray.toml session.sqlite &&
+#             python scripts/check_mutation_score.py session.sqlite
 
 name: CI
 
@@ -112,7 +119,11 @@ jobs:
         run: poetry run lint-imports
 
       - name: pip-audit dependency vulnerability scan
-        run: poetry run pip-audit
+        # CVE-2026-4539: ReDoS in pygments AdlLexer (local access only).
+        # No patched version exists on PyPI as of 2026-03-24 — pygments 2.19.2
+        # is both the latest and the affected release. Ignored until a fix is
+        # published. Track: https://github.com/pygments/pygments/issues/2834
+        run: poetry run pip-audit --ignore-vuln CVE-2026-4539
 
   # ---------------------------------------------------------------------------
   # Unit tests — pytest with 90% coverage gate

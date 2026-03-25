@@ -233,9 +233,9 @@ class TestBenchmarkYAMLSecurity:
         import re
 
         unsafe_load_calls = re.findall(r"\byaml\.load\s*\(", source)
-        # yaml.safe_load is allowed; yaml.load is not
-        assert not any("safe_load" not in call for call in unsafe_load_calls), (
-            f"Found unsafe yaml.load() calls: {unsafe_load_calls}"
+        # yaml.safe_load is allowed; yaml.load( (without safe_) is not
+        assert len(unsafe_load_calls) == 0, (
+            f"Found unsafe yaml.load() calls in {harness_path.name}: {unsafe_load_calls}"
         )
 
 

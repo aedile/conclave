@@ -27,6 +27,8 @@ and verifying that tests fail — if they don't, the test suite has a blind spot
 
 ## Decision
 
+**Amended 2026-03-24**: CI tool updated from mutmut to cosmic-ray 8.4.4; see ADR-0054 for rationale. Threshold (60% -> 70% by Phase 55) is unchanged.
+
 Add mutation testing (mutmut) as a CI gate for security-critical modules. Start with
 `shared/security/` and `modules/privacy/`. Initial threshold: 60% mutation score,
 targeting 70% by Phase 55. Also add assertion quality requirements to the Constitution.

@@ -2,6 +2,7 @@
 
 **Status**: Accepted
 **Date**: 2026-03-22
+**Amended**: 2026-03-24 (T53.2 — v2 HMAC signature format)
 **Task**: T48.4 — Immutable Audit Trail Anchoring
 **Deciders**: Development Team
 
@@ -21,12 +22,63 @@ If AUDIT_KEY is compromised, the in-process chain provides no protection: an att
 construct a parallel chain that appears valid.  The chain is tamper-*evident* within the
 process, but provides no *external attestation* that the chain has not been replaced wholesale.
 
+Additionally (identified in T53.2): the original HMAC computation excluded the `details` field
+from the signed payload.  An attacker with write access to the log store could modify `details`
+(e.g., changing a transaction amount from "100" to "9999999") without invalidating the
+signature.
+
 ## Decision
+
+### Original Decision (T48.4): Periodic Audit Chain Anchoring
 
 Introduce periodic **audit chain anchoring**: at configurable intervals, publish a snapshot of
 the chain head (hash + entry count + timestamp) to an external store.  This snapshot is an
 **anchor record**.  Even if AUDIT_KEY is compromised and the in-process chain is rewritten, an
 attacker cannot silently alter anchors already published to an S3 Object Lock bucket.
+
+### Amendment (T53.2): Versioned HMAC Signature Format
+
+Introduce a versioned signature scheme to close the `details`-exclusion gap while maintaining
+backward compatibility with events written before the upgrade.
+
+#### Signature Format
+
+Signatures are stored as `<version>:<hex-digest>` strings in the `AuditEvent.signature` field:
+
+| Version | HMAC Message Format | Notes |
+|---------|---------------------|-------|
+| `v1` | `timestamp\|event_type\|actor\|resource\|action\|prev_hash` | Legacy — `details` NOT signed |
+| `v2` | `v2\|timestamp\|event_type\|actor\|resource\|action\|prev_hash\|<details_json>` | Current — `details` signed |
+
+Where `<details_json>` is `json.dumps(details, sort_keys=True, separators=(",", ":"), allow_nan=False)`,
+encoded as UTF-8.
+
+**All new events use `v2`.**  `verify_event()` dispatches on the prefix and fails-closed on
+unknown versions.
+
+#### Design Constraints
+
+1. **Version prefix inside HMAC**: The literal string `v2` is the first component of the v2
+   HMAC message, not only a stored prefix.  This prevents a downgrade attack where an adversary
+   strips the `details` field and relabels the signature as `v1` — the HMAC over the v2 message
+   with `v2` prefix will never equal a v1 HMAC computed without it.
+
+2. **Canonical details serialization**: `json.dumps` with `sort_keys=True` ensures the
+   serialization is deterministic regardless of the insertion order of keys in the `details`
+   dict.  Compact separators (`(",", ":")`) eliminate whitespace variation.
+
+3. **Details size limit**: Canonical details JSON is limited to 64 KB (UTF-8 encoded).  Payloads
+   exceeding this limit raise `ValueError` before the HMAC is computed, guarding against
+   OOM-via-unbounded-payload attacks.
+
+4. **Non-serializable value rejection**: `allow_nan=False` causes `json.dumps` to raise
+   `ValueError` for `float('nan')` and `float('inf')`, preventing silent data corruption.
+
+5. **Fail-closed on unknown versions**: `verify_event()` returns `False` immediately for any
+   version prefix other than `v1:` or `v2:`.  It does not fall through to a default path.
+
+6. **Constant-time comparison**: Both v1 and v2 verification paths use `hmac.compare_digest`
+   to prevent timing-oracle attacks.
 
 ### Threat Model
 
@@ -39,14 +91,24 @@ attacker cannot silently alter anchors already published to an S3 Object Lock bu
 | Process crash between chain advance and anchor write | Anchoring is best-effort: backend failures are caught and logged at WARNING; audit chain is unaffected |
 | Anchor tampering after publication | S3 COMPLIANCE Object Lock prevents modification or deletion during the retention period |
 | First boot with no prior anchors | `AnchorManager` anchors immediately on the first call (no prior state) |
+| **`details` field tampering** (T53.2) | **v2 HMAC includes details in signed payload; tampering invalidates signature** |
+| **Version downgrade attack** (T53.2) | **Version prefix included in HMAC input; v2→v1 relabeling is cryptographically rejected** |
+| **OOM via oversized details** (T53.2) | **64 KB limit on canonical details JSON raises ValueError before HMAC computation** |
+| **Non-serializable details values** (T53.2) | **`allow_nan=False` rejects float('nan')/float('inf') at serialization time** |
 
 ### Design
 
 ```
 AuditLogger.log_event()
+    └─ _sign_v2(timestamp, ..., details)  ← HMAC over v2|...|details_json
     └─ advance chain (lock held)
     └─ emit JSON to logging (synchronous)
     └─ maybe_anchor(chain_head_hash, entry_count)  ← best-effort, non-blocking
+
+AuditLogger.verify_event(event)
+    ├─ sig starts with 'v2:' → _sign_v2(...) → hmac.compare_digest
+    ├─ sig starts with 'v1:' → _sign_v1(...) → hmac.compare_digest
+    └─ unknown prefix → return False (fail-closed)
 
 AnchorManager.maybe_anchor(hash, count)
     ├─ lock acquired
@@ -100,6 +162,9 @@ test fixture.
   evidence of an attack if anchors are in S3 Object Lock COMPLIANCE mode.
 - Pluggable backend design allows testing with in-memory mocks and production use with S3.
 - Best-effort design never degrades audit throughput.
+- (T53.2) `details` field is now cryptographically bound to each event's signature.
+- (T53.2) Backward-compatible: existing v1 events remain verifiable indefinitely.
+- (T53.2) Version downgrade attack is closed at the HMAC level, not just via prefix convention.
 
 **Negative / Trade-offs:**
 - LocalFileAnchorBackend (the default) provides weaker guarantees than the threat model ideally
@@ -107,8 +172,11 @@ test fixture.
 - S3ObjectLockAnchorBackend requires explicit bootstrapper wiring (an S3 client is not
   auto-constructed from settings alone).
 - AnchorManager adds a small per-event check (~2 μs) for the threshold comparison.
+- (T53.2) v2 signatures are 3 bytes longer than v1 (`v2:` prefix vs raw hex).
+- (T53.2) Canonical details serialization adds ~5–50 μs per event depending on payload size.
 
 ## Related Decisions
 
 - ADR-0010 — AuditLogger singleton and hash-chain design.
 - T48.5 — ALE Vault Dependency Enforcement (parallel task, same phase).
+- T53.2 — Audit HMAC: Include Details Field in Signature (this amendment).

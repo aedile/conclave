@@ -1,7 +1,8 @@
 # ADR-0052: mutmut / Python 3.14 Compatibility Gap — Accept with Manual Hardening
 
-**Status**: Accepted
+**Status**: Superseded by ADR-0054
 **Date**: 2026-03-23
+**Superseded**: 2026-03-24 by ADR-0054 (cosmic-ray adoption — cosmic-ray 8.4.4 confirmed functional on CPython 3.14)
 **Deciders**: PM, Engineering team
 **Task**: T50 documentation — closes ADV-T49-01, ADV-P49-03
 

@@ -3,6 +3,61 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-24] Phase 53 — Review Summary
+
+**Reviewers**: QA, DevOps, Architecture (×2), Red-team (×2)
+
+**Verdicts**: QA — FINDING (1); DevOps — PASS; Architecture — PASS (1 ADVISORY);
+Red-team — PASS (0 BLOCKERs, ADVISORIEs only)
+
+**FINDINGs fixed in review commit** (`45e6298`):
+1. Tautological assert in `test_audit_hmac_details.py:290` — `v1_hex_part == v2_hex_part`
+   compared a variable to itself. Removed vacuous assertion, consolidated to single variable.
+2. `-> Any` return type on `auth_app` fixture and 10 function params in
+   `test_all_routes_require_auth.py` — replaced with `FastAPI`.
+3. Unreachable `except ImportError: pass` in `clear_settings_cache` fixture — replaced
+   with unconditional imports.
+
+**ADVISORIEs resolved in review commit**:
+- ADR-0047 stale mutmut reference — amendment note added referencing ADR-0054.
+- `session.sqlite` not in `.gitignore` — added.
+
+**New ADVISORIEs logged** (from red-team/architecture reviews):
+- ADV-P53-01: HMAC pipe-delimiter injection — structural collision possible if fields
+  contain `|`. Mitigated: fields are system-controlled. Future hardening item.
+- ADV-P53-02: v1 signature still accepted with no deprecation timeline. Future: log
+  WARNING on v1 verify, deprecate by Phase 60.
+- ADV-P53-03: cosmic-ray test-command uses hardcoded test file list — maintenance
+  concern if new security test files are added without updating cosmic-ray.toml.
+
+---
+
+### [2026-03-24] T53.4 — Redis TLS Promotion Deduplication
+
+**Task**: Consolidate Redis TLS URL promotion into a single shared utility and
+add comprehensive edge-case test coverage for all spec-challenger inputs.
+
+**Outcome**: No production code change required. The canonical
+promote_redis_url_to_tls() implementation already resided in
+shared/task_queue.py (resolved by P52 inline). The bootstrapper already
+imported from there (ADV-P47-02 RESOLVED). T53.4 added 28 new edge-case tests
+in tests/unit/test_redis_tls_promotion_edge_cases.py documenting and
+verifying the behavioral contract for all spec-challenger inputs:
+
+- Already-TLS (rediss://) URLs: idempotent, no double-promotion
+- Empty string: no exception, returned as-is
+- Non-redis schemes (http://, https://, amqp://): pass through unchanged
+- redis+sentinel:// URLs: pass through unchanged (different protocol)
+- redis+socket:// Unix socket URLs: pass through unchanged
+- IPv6 literal host addresses ([::1], [2001:db8::1]): correctly promoted
+- Percent-encoded credentials (p%40ss): not decoded or altered
+- URL query parameters (timeout, retry_on_timeout): preserved after promotion
+- Single-implementation invariant: verified across shared/tls/config.py and
+  bootstrapper/dependencies/redis.py
+
+**Gate #1**: 2732 passed, 7 skipped. All quality gates (ruff, mypy, bandit,
+vulture) PASS.
+
 ---
 
 ## Open Advisory Items
@@ -34,12 +89,16 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P51-02~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~bump_version.sh tag hint unconditionally applies RC transform to stable versions — RESOLVED in P52 (conditional tag hint)~~ |
 | ADV-P52-01 | Arch T52.2 review | — | ADVISORY | `_DP_EPSILON_DELTA` private symbol consumed by demo code outside production boundary — should be exposed as a public constant. |
 | ADV-P52-02 | DevOps T52.2 review | — | ADVISORY | CI gap: ruff/bandit not covering `demos/` directory. Pre-existing, documented in ADR-0053. |
-| ADV-P52-03 | Red-Team P52 | — | ADVISORY | nbstripout is pre-commit hook only, not a git filter. Defense-in-depth gap if contributor commits without hooks installed. |
-| ADV-P52-04 | Red-Team P52 | — | ADVISORY | Benchmark results contain hardware metadata (CPU model, RAM, OS) — unnecessary info disclosure in public repo. |
-| ADV-P52-05 | Boundary Audit P52 | — | ADVISORY | 3 rubber-stamp attack tests in `test_benchmark_results.py` test dict literals, not production code. Batch to polish task. |
-| ADV-P52-06 | Boundary Audit P52 | — | ADVISORY | Dead `"safe_load"` filter logic at `test_benchmark_infrastructure.py:237`. Harmless but misleading. |
-| ADV-P52-07 | Boundary Audit P52 | — | ADVISORY | README "How This Was Built" metrics stale by ~5 commits / 1 PR after P52 merges. |
-| ADV-P52-08 | Boundary Audit P52 | — | ADVISORY | 84 merged local branches + ~50 merged remote branches + 14 agent worktrees pending workspace cleanup. |
+| ~~ADV-P52-03~~ | ~~Red-Team P52~~ | P53 drain | ~~ADVISORY~~ | ~~nbstripout is pre-commit hook only, not a git filter — CLOSED as accepted. Pre-commit hook is sufficient; git filter is nice-to-have.~~ |
+| ~~ADV-P52-04~~ | ~~Red-Team P52~~ | P53 drain | ~~ADVISORY~~ | ~~Benchmark results contain hardware metadata — CLOSED as accepted. Intentional for reproducibility.~~ |
+| ~~ADV-P52-05~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~3 rubber-stamp attack tests removed from `test_benchmark_results.py` — RESOLVED in P53.~~ |
+| ~~ADV-P52-06~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~Dead `"safe_load"` filter logic fixed at `test_benchmark_infrastructure.py` — RESOLVED in P53.~~ |
+| ~~ADV-P52-07~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~README metrics updated to current counts — RESOLVED in P53.~~ |
+| ~~ADV-P52-08~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~Stale branches and worktrees cleaned — RESOLVED in P53.~~ |
+| ADV-P53-01 | Red-Team P53 | — | ADVISORY | HMAC pipe-delimiter injection — structural collision if fields contain `|`. Fields are system-controlled; future hardening: length-prefixed encoding. |
+| ADV-P53-02 | Red-Team P53 | — | ADVISORY | v1 HMAC signature still accepted with no deprecation timeline. Future: log WARNING on v1 verify, deprecate by Phase 60. |
+| ADV-P53-03 | Arch P53 | — | ADVISORY | cosmic-ray test-command uses hardcoded test file list — new security test files must be manually added to cosmic-ray.toml. |
+| ADV-P53-04 | PM P53 CI | — | ADVISORY | mutation-test CI job is non-blocking (`continue-on-error: true`) — 789 mutants exceed GitHub Actions budget. Needs parallel distributor or scope reduction to become blocking. |
 
 ---
 

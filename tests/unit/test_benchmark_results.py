@@ -10,7 +10,6 @@ Tests read from the committed artifact files in ``demos/results/``.
 Attack tests (Rule 22) are written first. They cover:
   - Missing artifact files (malformed state detection)
   - Incomplete grid coverage (omitted cells are detectable)
-  - Corrupted JSON (malformed artifacts raise clear errors)
   - Path traversal: artifact paths are under ``demos/results/`` only
 
 Task: P52-T52.2 — Execute Benchmarks (Real Results)
@@ -66,54 +65,6 @@ class TestArtifactIntegrityAttacks:
             assert str(resolved).startswith(str(results_resolved)), (
                 f"Artifact path {artifact} escapes the results directory: {resolved}"
             )
-
-    def test_malformed_json_artifact_raises_json_decode_error(self, tmp_path: Path) -> None:
-        """Loading a malformed JSON artifact must raise json.JSONDecodeError.
-
-        Verifies that result-reading code does not silently swallow parse
-        errors when an artifact is corrupted.
-        """
-        bad_artifact = tmp_path / "bad.json"
-        bad_artifact.write_text("{not valid json}", encoding="utf-8")
-
-        with pytest.raises(json.JSONDecodeError):
-            json.loads(bad_artifact.read_text(encoding="utf-8"))
-
-    def test_artifact_with_missing_schema_version_fails_version_check(self, tmp_path: Path) -> None:
-        """An artifact dict without schema_version must not pass version check.
-
-        Simulates a future backward-compatibility check: any artifact that
-        lacks ``schema_version`` at the top level is structurally incomplete.
-        """
-        incomplete_artifact: dict[str, object] = {
-            "generated_at": "2026-01-01T00:00:00+00:00",
-            "run_count": 0,
-            "rows": [],
-        }
-        assert "schema_version" not in incomplete_artifact, (
-            "Test setup error: artifact must lack schema_version for this negative case."
-        )
-
-    def test_artifact_row_with_missing_wall_time_fails_positivity_check(
-        self, tmp_path: Path
-    ) -> None:
-        """A result row lacking wall_time_seconds must not pass the positivity check.
-
-        Verifies that the positive-wall-time assertion logic correctly detects
-        rows where the field is absent (None).
-        """
-        row_without_wall_time: dict[str, object] = {
-            "schema_version": "1.0",
-            "status": "COMPLETED",
-            "noise_multiplier": 1.0,
-            "epochs": 50,
-            "sample_size": 1000,
-            "seed": 42,
-            "wall_time_seconds": None,
-        }
-        assert row_without_wall_time["wall_time_seconds"] is None, (
-            "Test setup error: wall_time_seconds must be None for this negative case."
-        )
 
     def test_artifact_row_with_empty_hardware_fails_non_empty_check(self, tmp_path: Path) -> None:
         """A result row with empty hardware metadata must fail the non-empty check.
