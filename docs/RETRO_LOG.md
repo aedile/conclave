@@ -3,6 +3,26 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-25] Phase 56 — Review Summary
+
+**Reviewers**: QA, DevOps, Architecture, Red-team
+
+**Verdicts**: Architecture — FINDING (1); DevOps — FINDING (1, 1 ADVISORY); Red-team — PASS; QA — FINDING (1)
+
+**FINDINGs fixed in review commit** (`bab7077`):
+1. 11 ADRs + 3 operational docs updated with new synthesizer sub-package paths (Arch F1)
+2. `requests` upgraded to 2.33.0 to fix CVE-2026-25645 (DevOps F1)
+3. `test_synthesizer_tasks_lifecycle.py` (1,103 LOC) split into 3 files <600 LOC (QA F1)
+
+**ADVISORIEs** (not logged as new — pre-existing from P55):
+- Huey worker startup ordering: IoC globals populated via module-scope import; no startup assertion gate (DevOps, pre-existing, documented in wiring.py)
+
+**PM Judgment Calls**:
+- T56.1 patch-path resolution: "no test modification" AC relaxed to allow mock.patch() path updates (test logic unchanged). Justified: physical file relocation makes flat paths unreachable; updating patch strings is a mechanical consequence, not a behavioral change.
+- T56.2 Huey worker contract: wiring kept at module scope (not inside create_app()) to preserve Huey worker import-time side effect. Spec-challenger identified this constraint; PM resolved before developer brief.
+
+---
+
 ### [2026-03-25] Phase 55 — Review Summary
 
 **Reviewers**: QA, DevOps, Architecture, Red-team
