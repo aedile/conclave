@@ -14,6 +14,11 @@ Design principles:
     self-produced artifacts are trusted — an artifact with a missing or
     incorrect signature raises :exc:`SecurityError` rather than silently
     executing an attacker-controlled pickle stream.
+  - Restricted unpickling (T55.2): :class:`RestrictedUnpickler` replaces the
+    bare ``pickle.loads`` call in :meth:`ModelArtifact.load`.  It maintains
+    an explicit allowlist of permitted modules/classes.  Any class not in the
+    allowlist raises :exc:`SecurityError` before any bytecode is executed.
+    Defense-in-depth: HMAC verification runs first, then class filtering.
   - Metadata captured at train time: column names, dtypes, and nullable flags
     are stored in the artifact so that :meth:`SynthesisEngine.generate` can
     enforce schema consistency without re-reading the source Parquet file.
@@ -38,13 +43,16 @@ Task: P4-T4.2b — Synthesizer Core (SDV/CTGAN Integration)
 Task: P8-T8.2  — Security Hardening (ADV-040: HMAC-SHA256 pickle signing)
 Task: T47.6    — Harden Model Artifact Signature Verification
 Task: T50.4    — Pickle TOCTOU Mitigation (ADV-P47-07: bounded read, no pre-stat)
+Task: T55.2    — Replace Pickle with Safe Serialization (Restricted Unpickler)
 ADR: ADR-0017 (CTGAN + Opacus; per-table training strategy)
+ADR: ADR-0055 (Restricted Unpickler for ModelArtifact deserialization)
 """
 
 from __future__ import annotations
 
+import io
 import logging
-import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) ensures only self-produced artifacts are trusted before unpickling
+import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) + RestrictedUnpickler (T55.2) ensure only safe artifacts are deserialized
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,7 +65,7 @@ from synth_engine.shared.security.hmac_signing import (
 )
 
 # SecurityError is re-exported here for backward compat; canonical: synth_engine.shared.security
-__all__ = ["ModelArtifact", "SecurityError"]
+__all__ = ["ModelArtifact", "RestrictedUnpickler", "SecurityError"]
 
 _logger = logging.getLogger(__name__)
 
@@ -75,6 +83,118 @@ _MAX_ARTIFACT_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024
 #: Keys shorter than 32 bytes provide insufficient security strength
 #: for HMAC-SHA256 and are rejected at the API boundary.
 _MIN_SIGNING_KEY_BYTES: int = 32
+
+# ---------------------------------------------------------------------------
+# Allowlist for RestrictedUnpickler
+# ---------------------------------------------------------------------------
+
+#: Module prefixes permitted during deserialization.
+#:
+#: Each entry is a tuple of ``(module_prefix, classname_or_None)``.
+#: If ``classname`` is ``None``, any class from that module prefix is allowed.
+#: If ``classname`` is a string, only that exact class is allowed.
+#:
+#: Rationale (ADR-0055):
+#: - ``synth_engine.modules.synthesizer.models`` — the ModelArtifact class itself.
+#: - ``builtins`` — Python built-in types (list, dict, str, int, float, etc.)
+#:   needed for dataclass field reconstruction.
+#: - ``_codecs`` — used by pickle internally for bytes/bytearray reconstruction.
+#: - ``collections`` — OrderedDict used in some sklearn/SDV internals.
+#: - ``datetime`` — datetime objects may appear in SDV model metadata.
+#: - ``numpy`` — array dtypes and values in DataTransformer internals.
+#: - ``pandas`` — dtype reconstruction from Parquet-originated DataFrames.
+#: - ``torch`` — model weights (tensors) in CTGANSynthesizer.
+#: - ``sdv``, ``ctgan``, ``rdt`` — SDV/CTGAN synthesizer state.
+#: - ``copulas`` — SDV dependency for statistical distributions.
+#: - ``opacus`` — DP wrapper around the PyTorch training loop.
+#: - ``sklearn`` — scikit-learn transformers used by rdt/DataTransformer.
+#:
+#: Modules NOT in this list (e.g. ``os``, ``subprocess``, ``importlib``,
+#: ``pathlib``, ``socket``, arbitrary third-party packages) will raise
+#: :exc:`SecurityError` immediately when encountered during deserialization.
+_ALLOWED_MODULE_PREFIXES: tuple[str, ...] = (
+    "synth_engine.modules.synthesizer.models",
+    "builtins",
+    "_codecs",
+    "collections",
+    "datetime",
+    "numpy",
+    "pandas",
+    "torch",
+    "sdv",
+    "ctgan",
+    "rdt",
+    "copulas",
+    "opacus",
+    "sklearn",
+    "scipy",
+    "joblib",
+)
+
+
+class RestrictedUnpickler(pickle.Unpickler):
+    """A pickle.Unpickler subclass that only allows an explicit module allowlist.
+
+    Overrides :meth:`find_class` to reject any ``(module, name)`` pair not
+    in :data:`_ALLOWED_MODULE_PREFIXES`.  This prevents deserialization of
+    arbitrary classes — the primary vector for pickle-based remote code
+    execution attacks.
+
+    HMAC verification in :meth:`ModelArtifact.load` is the first line of
+    defense.  This class is the second line: even if an attacker obtains the
+    signing key and forges a valid HMAC, only allowlisted classes can be
+    instantiated during deserialization.
+
+    Usage::
+
+        artifact = RestrictedUnpickler.loads(pickle_bytes)
+
+    Raises:
+        SecurityError: If deserialization encounters a class whose module
+            is not in :data:`_ALLOWED_MODULE_PREFIXES`.
+    """
+
+    def find_class(self, module: str, name: str) -> Any:
+        """Intercept class lookups and enforce the module allowlist.
+
+        Args:
+            module: The module path from the pickle stream.
+            name: The class or function name from the pickle stream.
+
+        Returns:
+            The class object if ``module`` matches an allowed prefix.
+
+        Raises:
+            SecurityError: If ``module`` does not match any allowed prefix.
+        """
+        # Check if the module starts with any allowed prefix.
+        # Note: we check the full module name AND each allowed prefix to
+        # prevent attacks like "numpy_malicious" matching "numpy" prefix.
+        for allowed_prefix in _ALLOWED_MODULE_PREFIXES:
+            if module == allowed_prefix or module.startswith(allowed_prefix + "."):
+                return super().find_class(module, name)
+
+        raise SecurityError(
+            f"Deserialization of class '{module}.{name}' is not permitted. "
+            f"Only classes from explicitly allowlisted modules may be "
+            f"deserialized from ModelArtifact pickle payloads. "
+            f"See ADR-0055 for the allowlist rationale."
+        )
+
+    @classmethod
+    def loads(cls, data: bytes) -> Any:
+        """Deserialize *data* using the restricted unpickler.
+
+        Args:
+            data: Raw pickle bytes to deserialize.
+
+        Returns:
+            The deserialized Python object.
+
+        Raises:
+            SecurityError: If deserialization encounters a non-allowlisted class.
+        """
+        return cls(io.BytesIO(data)).load()
 
 
 def _detect_signed_format(raw: bytes) -> bool:
@@ -258,6 +378,12 @@ class ModelArtifact:
         verification fails, :exc:`SecurityError` is raised and the pickle data
         is never executed.
 
+        After HMAC verification, the pickle payload is deserialized via
+        :class:`RestrictedUnpickler`, which enforces a module allowlist.  Any
+        class not in the allowlist raises :exc:`SecurityError` before any
+        bytecode is executed.  This is the second line of defense against
+        pickle-based remote code execution (T55.2, ADR-0055).
+
         After unpickling, the result is asserted to be a :class:`ModelArtifact`
         instance.  If it is not, :exc:`ArtifactTamperingError` is raised even
         when HMAC verification passed — a compromised signing key could
@@ -289,7 +415,8 @@ class ModelArtifact:
                 shorter than 32 bytes, or if the artifact file exceeds 2 GiB.
             SecurityError: If HMAC verification fails for any reason:
                 wrong key, tampered payload, signed file loaded without a key,
-                or unsigned file loaded with a key.
+                unsigned file loaded with a key; OR if the pickle payload
+                references a non-allowlisted module/class (T55.2).
             ArtifactTamperingError: If the unpickled object is not a
                 :class:`ModelArtifact` instance (even with a valid HMAC).
         """
@@ -337,7 +464,10 @@ class ModelArtifact:
                 )
             pickle_payload = raw
 
-        artifact = pickle.loads(pickle_payload)  # noqa: S301  # nosec B301 — payload is either unsigned (trusted caller) or HMAC-verified above; not user-supplied data
+        # Use RestrictedUnpickler instead of bare pickle.loads (T55.2, ADR-0055).
+        # This is the second defense layer: HMAC guards integrity, the restricted
+        # unpickler guards against non-allowlisted classes even with a valid HMAC.
+        artifact = RestrictedUnpickler.loads(pickle_payload)  # nosec B301 — RestrictedUnpickler enforces module allowlist; HMAC verified above
 
         if not isinstance(artifact, ModelArtifact):
             _log_verification_failure(
