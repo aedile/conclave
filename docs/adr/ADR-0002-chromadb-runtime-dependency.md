@@ -1,8 +1,9 @@
 # ADR-0002: ChromaDB as a Runtime Dependency
 
-**Status:** Superseded — Spike Not Promoted to Production
+**Status:** Historical — Technology Decision Reversed
 **Original Status:** Accepted (2026-03-13)
 **Amended:** 2026-03-18 (T33.3 — Documentation Currency & Gaps)
+**Amended:** 2026-03-25 (T55.5 — passlib and chromadb dead dependency elimination)
 **Deciders:** Project team
 
 ## Context
@@ -34,21 +35,32 @@ This ADR originated in Phase 0.8 as part of a spike exploring autonomous agent m
 dependency group to the `dev` optional group in `pyproject.toml`. This was tracked as ADV-015.
 The production Docker image no longer includes ChromaDB.
 
-**Current state**: ChromaDB is available as `poetry install --with dev` for development
-and spike work. It is not a production runtime dependency and should not be treated as one.
+**Current state as of 2026-03-18**: ChromaDB is available as `poetry install --with dev` for
+development and spike work. It is not a production runtime dependency and should not be treated
+as one.
+
+## Amendment (Phase 55, 2026-03-25)
+
+**Amendment (Phase 55):** ChromaDB was fully removed from all dependency groups
+in T55.5 — passlib and chromadb dead dependency elimination. The scripts
+(`seed_chroma.py`, `seed_chroma_retro.py`, `init_chroma.py`) and related test
+files were deleted. The `chroma_data` Docker volume was removed. This ADR is
+now historical — the technology decision it records has been reversed.
 
 ## Consequences
 
 - **Original positive:** Fully local, no cloud egress. Compatible with air-gap deployment.
 - **Original negative:** ChromaDB is a heavyweight dependency (~135 transitive packages).
   Mitigated by moving to dev-only — production air-gap bundles no longer include it.
-- **Current state:** The air-gap bundle does not require ChromaDB. If a future phase
+- **Phase 18 state:** The air-gap bundle does not require ChromaDB. If a future phase
   promotes semantic memory to production, this ADR should be reopened and the dependency
   moved back to the main group with a corresponding ADR amendment.
+- **Phase 55 state:** ChromaDB is entirely absent from the project. No path exists to
+  re-enable it without an explicit ADR decision to reintroduce it.
 
 ## Supersession Note
 
-This ADR is marked Superseded to reflect that the original decision (ChromaDB as a
-production runtime dependency) was reversed in Phase 18. The semantic memory spike
+This ADR is marked Historical to reflect that the original decision (ChromaDB as a
+production runtime dependency) was fully reversed by Phase 55. The semantic memory spike
 described here is documented in `docs/archive/spikes/` and tracked as a potential future
 capability in `docs/backlog/deferred-items.md`.

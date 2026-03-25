@@ -326,3 +326,7 @@ def test_load_persisted_chain_head_method_exists(anchor_file: str, audit_key_env
     logger = AuditLogger(audit_key=audit_key_env, anchor_file_path=anchor_file)
     assert hasattr(logger, "_load_persisted_chain_head")
     assert callable(logger._load_persisted_chain_head)
+    # Behavioral assertion: no anchor file exists at this path (fixture provides
+    # a path but does not create the file), so the method must return None.
+    result = logger._load_persisted_chain_head()
+    assert result is None  # No anchor file → returns None
