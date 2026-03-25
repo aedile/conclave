@@ -2,7 +2,7 @@
 
 Central navigation for all Conclave Engine documentation, organized by primary audience.
 
-**Total documents indexed: 123**
+**Total documents indexed: 124**
 
 ---
 
@@ -35,6 +35,7 @@ Central navigation for all Conclave Engine documentation, organized by primary a
 | [LICENSING.md](LICENSING.md) | License activation protocol, QR code workflow, key rotation |
 | [DP_QUALITY_REPORT.md](DP_QUALITY_REPORT.md) | Empirical epsilon/delta benchmarks; use to calibrate DP parameters |
 | [E2E_VALIDATION.md](E2E_VALIDATION.md) | End-to-end validation: smoke tests, synthesis quality checks, output verification |
+| [E2E_VALIDATION_RESULTS.md](E2E_VALIDATION_RESULTS.md) | Full E2E DP synthesis validation against Pagila: pipeline execution, FK integrity, epsilon accounting, statistical comparison (T54.3) |
 | [infrastructure_security.md](infrastructure_security.md) | Infrastructure security: network isolation, capability model, secret management |
 
 ---
@@ -218,14 +219,14 @@ ADRs are append-only records of significant technical decisions. Superseded or r
 
 | Category | Count |
 |----------|-------|
-| Operator guides | 9 |
+| Operator guides | 10 |
 | Developer guides | 8 |
 | Backlog documents | 49 |
 | Retrospective archives | 3 |
 | Review prompt templates | 8 |
 | Archived documents | 6 (not indexed — see `docs/archive/`) |
 | ADRs (including template) | 46 |
-| **Total** | **123** |
+| **Total** | **124** |
 
 ---
 

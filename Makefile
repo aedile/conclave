@@ -7,6 +7,7 @@
 #   make build-airgap-bundle → create an offline deployable tar.gz bundle
 #   make load-images  → load Docker images from an extracted air-gap bundle
 #   make validate-airgap → validate an air-gap bundle end-to-end
+#   make validate-pipeline → run full E2E pipeline validation script
 #   make ci-local     → run all local CI gates (mirrors GitHub Actions)
 # =============================================================================
 
@@ -57,6 +58,13 @@ load-images: ## Load Docker images from air-gap bundle (dist/images/*.tar)
 .PHONY: validate-airgap
 validate-airgap: ## Validate air-gap bundle end-to-end (builds bundle if needed)
 	bash scripts/validate_airgap.sh
+
+# ---------------------------------------------------------------------------
+# validate-pipeline — run the full E2E pipeline validation script
+# ---------------------------------------------------------------------------
+.PHONY: validate-pipeline
+validate-pipeline: ## Run full E2E pipeline validation (requires DATABASE_URL or --db-url)
+	poetry run python scripts/validate_full_pipeline.py $(ARGS)
 
 # ---------------------------------------------------------------------------
 # smoke-test — run production smoke test via Docker
