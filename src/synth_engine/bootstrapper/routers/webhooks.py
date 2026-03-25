@@ -216,9 +216,9 @@ def list_webhooks(
         current_operator: Authenticated operator sub claim (injected).
 
     Returns:
-        :class:`WebhookRegistrationListResponse` with owner-scoped items.
+        :class:`WebhookRegistrationListResponse` with up to 100 owner-scoped items.
     """
-    stmt = select(WebhookRegistration).where(WebhookRegistration.owner_id == current_operator)
+    stmt = select(WebhookRegistration).where(WebhookRegistration.owner_id == current_operator).limit(100)
     registrations = session.exec(stmt).all()
     return WebhookRegistrationListResponse(
         items=[WebhookRegistrationResponse.from_orm_model(r) for r in registrations]

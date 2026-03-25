@@ -55,9 +55,9 @@ def list_settings(
         current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
-        :class:`SettingListResponse` with all stored key-value pairs.
+        :class:`SettingListResponse` with up to 100 stored key-value pairs.
     """
-    settings = session.exec(select(Setting)).all()
+    settings = session.exec(select(Setting).limit(100)).all()
     return SettingListResponse(
         items=[SettingResponse.model_validate(s) for s in settings],
     )
