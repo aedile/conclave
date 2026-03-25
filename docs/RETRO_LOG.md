@@ -136,8 +136,8 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P49-03~~ | ~~DevOps P49~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutmut CI gate not wired into `.github/workflows/ci.yml`. Blocked by ADV-T49-01 (Python 3.14 segfault). RESOLVED by ADR-0052 (gate deferred until upstream mutmut supports Python 3.14).~~ |
 | ~~ADV-P51-01~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~Release tag regex not end-anchored — RESOLVED in P52 (release.yml grep pattern end-anchored with `$`)~~ |
 | ~~ADV-P51-02~~ | ~~PM P51 review~~ | P52 inline | ~~ADVISORY~~ | ~~bump_version.sh tag hint unconditionally applies RC transform to stable versions — RESOLVED in P52 (conditional tag hint)~~ |
-| ADV-P52-01 | Arch T52.2 review | — | ADVISORY | `_DP_EPSILON_DELTA` private symbol consumed by demo code outside production boundary — should be exposed as a public constant. |
-| ADV-P52-02 | DevOps T52.2 review | — | ADVISORY | CI gap: ruff/bandit not covering `demos/` directory. Pre-existing, documented in ADR-0053. |
+| ~~ADV-P52-01~~ | ~~Arch T52.2 review~~ | P55 drain | ~~ADVISORY~~ | ~~`_DP_EPSILON_DELTA` renamed to public `DP_EPSILON_DELTA` — RESOLVED in P55 advisory drain.~~ |
+| ~~ADV-P52-02~~ | ~~DevOps T52.2 review~~ | P55 drain | ~~ADVISORY~~ | ~~`demos/` added to ruff and bandit CI gates — RESOLVED in P55 advisory drain.~~ |
 | ~~ADV-P52-03~~ | ~~Red-Team P52~~ | P53 drain | ~~ADVISORY~~ | ~~nbstripout is pre-commit hook only, not a git filter — CLOSED as accepted. Pre-commit hook is sufficient; git filter is nice-to-have.~~ |
 | ~~ADV-P52-04~~ | ~~Red-Team P52~~ | P53 drain | ~~ADVISORY~~ | ~~Benchmark results contain hardware metadata — CLOSED as accepted. Intentional for reproducibility.~~ |
 | ~~ADV-P52-05~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~3 rubber-stamp attack tests removed from `test_benchmark_results.py` — RESOLVED in P53.~~ |
@@ -145,15 +145,15 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P52-07~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~README metrics updated to current counts — RESOLVED in P53.~~ |
 | ~~ADV-P52-08~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~Stale branches and worktrees cleaned — RESOLVED in P53.~~ |
 | ADV-P53-01 | Red-Team P53 | — | ADVISORY | HMAC pipe-delimiter injection — structural collision if fields contain `|`. Fields are system-controlled; future hardening: length-prefixed encoding. |
-| ADV-P53-02 | Red-Team P53 | — | ADVISORY | v1 HMAC signature still accepted with no deprecation timeline. Future: log WARNING on v1 verify, deprecate by Phase 60. |
-| ADV-P53-03 | Arch P53 | — | ADVISORY | cosmic-ray test-command uses hardcoded test file list — new security test files must be manually added to cosmic-ray.toml. |
+| ~~ADV-P53-02~~ | ~~Red-Team P53~~ | P55 drain | ~~ADVISORY~~ | ~~WARNING logged on v1 HMAC signature verification, deprecation by Phase 60 — RESOLVED in P55 advisory drain.~~ |
+| ~~ADV-P53-03~~ | ~~Arch P53~~ | P55 drain | ~~ADVISORY~~ | ~~cosmic-ray.toml annotated with P55 security test files — RESOLVED in P55 advisory drain.~~ |
 | ~~ADV-P53-04~~ | ~~PM P53 CI~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutation-test CI job removed from CI entirely — runs as local PM gate instead (ADR-0054 amendment). RESOLVED in P53.~~ |
 | ADV-P54-01 | QA P54 | — | ADVISORY | E2E_VALIDATION_RESULTS.md is a template — validation script not yet executed against Pagila (requires local PostgreSQL). Run `make validate-pipeline` when infrastructure is available. |
-| ADV-P55-01 | Red-Team P55 | — | ADVISORY | `/health/vault` exposes worker PID (`os.getpid()`) — unnecessary fingerprinting surface. Replace with opaque worker UUID or restrict to authenticated requests. |
+| ~~ADV-P55-01~~ | ~~Red-Team P55~~ | P55 drain | ~~ADVISORY~~ | ~~Worker PID replaced with opaque UUID in `/health/vault` — RESOLVED in P55 advisory drain.~~ |
 | ADV-P55-02 | Red-Team P55 | — | ADVISORY | RestrictedUnpickler allowlist includes broad `joblib` prefix — `joblib.externals.loky` has process-spawning code. Tighten to specific submodules at next SDV version upgrade. |
 | ADV-P55-03 | DevOps P55 | — | ADVISORY | Per-worker audit chain: each Uvicorn worker has an independent hash chain. Concurrent appends to shared anchor file are not atomic. Document per-worker chain semantics; if cross-worker continuity required, use distributed store. |
-| ADV-P55-04 | DevOps P55 | — | ADVISORY | New failure modes (SSRF rejection, HMAC verification failure, audit chain resume failure) emit WARNING logs but have no Prometheus counters for alerting. |
-| ADV-P55-05 | Red-Team P55 | — | ADVISORY | GET /settings/ and GET /webhooks/ have no LIMIT clause. Bounded by auth ownership in practice; add pagination in future. Pre-existing. |
+| ~~ADV-P55-04~~ | ~~DevOps P55~~ | P55 drain | ~~ADVISORY~~ | ~~Prometheus counters added: `ssrf_registration_rejection_total`, `artifact_verification_failure_total`, `audit_chain_resume_failure_total` — RESOLVED in P55 advisory drain.~~ |
+| ~~ADV-P55-05~~ | ~~Red-Team P55~~ | P55 drain | ~~ADVISORY~~ | ~~`.limit(100)` added to list queries in settings and webhooks routers — RESOLVED in P55 advisory drain.~~ |
 
 ---
 
