@@ -7,6 +7,16 @@
 
 ---
 
+> **Amendment 2026-03-24 (T56.5 audit)**: The Decision section below refers to `mutmut`
+> as the CI tool. This was superseded on 2026-03-24 — the tool is `cosmic-ray 8.4.4`.
+> See ADR-0054 for the full tool-switch rationale. The `mutmut run` command on line 2
+> of the Decision list is replaced by the three-step `cosmic-ray` gate documented in
+> ADR-0054. The mutation score threshold (60%, targeting 70% by Phase 55) is unchanged.
+> The "mutmut dependency" note in Consequences is superseded — `cosmic-ray` is the
+> dependency. The `mutmut` references below are retained as historical record.
+
+---
+
 ## Context
 
 The 95% coverage gate (Constitution Priority 4) can be satisfied by shallow tests that
@@ -40,6 +50,7 @@ Specifically:
 2. **Mutation score** (Constitution Priority 4): `mutmut` MUST achieve the configured
    threshold on security-critical modules. CI command:
    `mutmut run --paths-to-mutate=src/synth_engine/shared/security/ src/synth_engine/modules/privacy/`
+   *(Superseded: use `cosmic-ray` three-step gate per ADR-0054)*
 3. **Phase-boundary-auditor** gains an Assertion Specificity sweep to catch shallow
    assertions in changed test files.
 
@@ -60,6 +71,7 @@ Specifically:
   paths (shared/security/, modules/privacy/) limits the impact.
 - Initial 60% threshold may require test improvements before the gate can be enabled.
 - mutmut is a new dependency that must be added to the dev dependency group.
+  *(Superseded: cosmic-ray is the dependency — see ADR-0054)*
 
 ---
 
@@ -81,3 +93,4 @@ Specifically:
 - CONSTITUTION.md Section 1 (Priority 4 — Comprehensive Testing)
 - CONSTITUTION.md Section 4 (Enforcement Inventory)
 - `.claude/agents/phase-boundary-auditor.md` (Assertion Specificity sweep)
+- ADR-0054 (cosmic-ray adoption — supersedes mutmut tool references above)
