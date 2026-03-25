@@ -148,7 +148,9 @@ def test_size_check_uses_buffer_not_disk_stat(tmp_path: Path) -> None:
         side_effect=AssertionError("os.path.getsize() must not be called in ModelArtifact.load()"),
     ):
         # Must succeed: no os.path.getsize() call expected
-        loaded = ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+        loaded = ModelArtifact.load(
+            str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+        )
 
     assert loaded.table_name == "toctou_test"
 
@@ -180,7 +182,9 @@ def test_oversized_buffer_raises_value_error_via_bounded_read(tmp_path: Path) ->
 
     with unittest.mock.patch("builtins.open", side_effect=_mock_open):
         with pytest.raises(ValueError, match="[Ff]ile.*too large|size.*limit|2.*GiB|2.*GB"):
-            ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+            ModelArtifact.load(
+                str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+            )
 
 
 def test_oversized_buffer_error_message_mentions_size_limit(tmp_path: Path) -> None:
@@ -203,7 +207,9 @@ def test_oversized_buffer_error_message_mentions_size_limit(tmp_path: Path) -> N
     _size_match = r"[Ff]ile.*too large|size.*limit|2.*GiB|2.*GB"
     with unittest.mock.patch("builtins.open", side_effect=_mock_open):
         with pytest.raises(ValueError, match=_size_match) as exc_info:
-            ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+            ModelArtifact.load(
+                str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+            )
 
     error_text = str(exc_info.value)
     # The error message must reference either "GiB", "bytes", or "2147483648"
@@ -235,7 +241,9 @@ def test_tampered_payload_after_signing_raises_security_error(tmp_path: Path) ->
     save_path.write_bytes(bytes(raw))
 
     with pytest.raises(SecurityError, match="HMAC verification failed"):
-        ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+        ModelArtifact.load(
+            str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+        )
 
 
 def test_signed_artifact_loaded_without_key_raises_security_error(tmp_path: Path) -> None:
@@ -261,7 +269,9 @@ def test_unsigned_artifact_loaded_with_key_raises_security_error(tmp_path: Path)
     artifact.save(str(save_path))  # unsigned
 
     with pytest.raises(SecurityError, match="HMAC verification failed"):
-        ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+        ModelArtifact.load(
+            str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+        )
 
 
 # ===========================================================================
@@ -278,7 +288,9 @@ def test_normal_signed_artifact_loads_successfully(tmp_path: Path) -> None:
     save_path = tmp_path / "artifact.pkl"
     artifact.save(str(save_path), signing_key=_VALID_KEY)
 
-    loaded = ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+    loaded = ModelArtifact.load(
+        str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+    )
 
     assert loaded.table_name == "happy_path"
     assert loaded.column_names == ["id"]
@@ -295,7 +307,7 @@ def test_unsigned_artifact_loads_successfully_without_key(tmp_path: Path) -> Non
     save_path = tmp_path / "unsigned.pkl"
     artifact.save(str(save_path))
 
-    loaded = ModelArtifact.load(str(save_path))
+    loaded = ModelArtifact.load(str(save_path), extra_allowed_prefixes=("tests",))
 
     assert loaded.table_name == "unsigned_happy"
 
@@ -312,5 +324,7 @@ def test_bounded_read_is_limit_plus_one(tmp_path: Path) -> None:
     artifact.save(str(save_path), signing_key=_VALID_KEY)
 
     # File is tiny (a few KB) — just verifying no regression at the boundary
-    loaded = ModelArtifact.load(str(save_path), signing_key=_VALID_KEY)
+    loaded = ModelArtifact.load(
+        str(save_path), signing_key=_VALID_KEY, extra_allowed_prefixes=("tests",)
+    )
     assert loaded.table_name == "at_limit"

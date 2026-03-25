@@ -136,23 +136,47 @@ class RestrictedUnpickler(pickle.Unpickler):
     """A pickle.Unpickler subclass that only allows an explicit module allowlist.
 
     Overrides :meth:`find_class` to reject any ``(module, name)`` pair not
-    in :data:`_ALLOWED_MODULE_PREFIXES`.  This prevents deserialization of
-    arbitrary classes — the primary vector for pickle-based remote code
-    execution attacks.
+    in :data:`_ALLOWED_MODULE_PREFIXES` (plus any ``extra_allowed_prefixes``
+    provided at construction time).
+
+    This prevents deserialization of arbitrary classes — the primary vector
+    for pickle-based remote code execution attacks.
 
     HMAC verification in :meth:`ModelArtifact.load` is the first line of
     defense.  This class is the second line: even if an attacker obtains the
     signing key and forges a valid HMAC, only allowlisted classes can be
     instantiated during deserialization.
 
+    Args:
+        file: File-like object to read pickle data from (passed to
+            :class:`pickle.Unpickler`).
+        extra_allowed_prefixes: Additional module prefixes to allow beyond
+            :data:`_ALLOWED_MODULE_PREFIXES`.  Used by callers that need to
+            deserialize classes from non-default modules (e.g., test stubs).
+            In production, leave empty — the production allowlist covers all
+            legitimate SDV/CTGAN/torch dependencies.
+
     Usage::
 
         artifact = RestrictedUnpickler.loads(pickle_bytes)
+        # With extra prefixes (test use only):
+        artifact = RestrictedUnpickler.loads(
+            pickle_bytes, extra_allowed_prefixes=("mypackage",)
+        )
 
     Raises:
         SecurityError: If deserialization encounters a class whose module
-            is not in :data:`_ALLOWED_MODULE_PREFIXES`.
+            is not in :data:`_ALLOWED_MODULE_PREFIXES` or
+            ``extra_allowed_prefixes``.
     """
+
+    def __init__(
+        self,
+        file: io.BytesIO,
+        extra_allowed_prefixes: tuple[str, ...] = (),
+    ) -> None:
+        super().__init__(file)
+        self._extra_allowed_prefixes = extra_allowed_prefixes
 
     def find_class(self, module: str, name: str) -> Any:
         """Intercept class lookups and enforce the module allowlist.
@@ -170,7 +194,8 @@ class RestrictedUnpickler(pickle.Unpickler):
         # Check if the module starts with any allowed prefix.
         # Note: we check the full module name AND each allowed prefix to
         # prevent attacks like "numpy_malicious" matching "numpy" prefix.
-        for allowed_prefix in _ALLOWED_MODULE_PREFIXES:
+        all_prefixes = _ALLOWED_MODULE_PREFIXES + self._extra_allowed_prefixes
+        for allowed_prefix in all_prefixes:
             if module == allowed_prefix or module.startswith(allowed_prefix + "."):
                 return super().find_class(module, name)
 
@@ -182,11 +207,20 @@ class RestrictedUnpickler(pickle.Unpickler):
         )
 
     @classmethod
-    def loads(cls, data: bytes) -> Any:
+    def loads(
+        cls,
+        data: bytes,
+        *,
+        extra_allowed_prefixes: tuple[str, ...] = (),
+    ) -> Any:
         """Deserialize *data* using the restricted unpickler.
 
         Args:
             data: Raw pickle bytes to deserialize.
+            extra_allowed_prefixes: Additional module prefixes to allow
+                beyond :data:`_ALLOWED_MODULE_PREFIXES`.  Use only for
+                test stubs or temporary compatibility; prefer extending
+                the production allowlist instead.
 
         Returns:
             The deserialized Python object.
@@ -194,7 +228,7 @@ class RestrictedUnpickler(pickle.Unpickler):
         Raises:
             SecurityError: If deserialization encounters a non-allowlisted class.
         """
-        return cls(io.BytesIO(data)).load()
+        return cls(io.BytesIO(data), extra_allowed_prefixes=extra_allowed_prefixes).load()
 
 
 def _detect_signed_format(raw: bytes) -> bool:
@@ -369,7 +403,13 @@ class ModelArtifact:
         return path
 
     @classmethod
-    def load(cls, path: str, *, signing_key: bytes | None = None) -> ModelArtifact:
+    def load(
+        cls,
+        path: str,
+        *,
+        signing_key: bytes | None = None,
+        extra_allowed_prefixes: tuple[str, ...] = (),
+    ) -> ModelArtifact:
         """Deserialise a :class:`ModelArtifact` from a pickle file.
 
         When ``signing_key`` is provided, the file is expected to begin with a
@@ -400,6 +440,12 @@ class ModelArtifact:
             signing_key: Raw signing key bytes.  Must match the key used at
                 :meth:`save` time and be at least 32 bytes.  If ``None``,
                 unsigned mode is used.
+            extra_allowed_prefixes: Additional module prefixes to allow
+                beyond :data:`_ALLOWED_MODULE_PREFIXES` during unpickling.
+                In production, leave empty — the default allowlist covers all
+                legitimate SDV/CTGAN/torch dependencies.  Test code may pass
+                test module prefixes here to allow test stubs (e.g.
+                ``extra_allowed_prefixes=("tests.unit",)``).
 
         Returns:
             The deserialised :class:`ModelArtifact` instance.
@@ -467,7 +513,10 @@ class ModelArtifact:
         # Use RestrictedUnpickler instead of bare pickle.loads (T55.2, ADR-0055).
         # This is the second defense layer: HMAC guards integrity, the restricted
         # unpickler guards against non-allowlisted classes even with a valid HMAC.
-        artifact = RestrictedUnpickler.loads(pickle_payload)  # nosec B301 — RestrictedUnpickler enforces module allowlist; HMAC verified above
+        # nosec B301 — RestrictedUnpickler enforces module allowlist; HMAC verified above
+        artifact = RestrictedUnpickler.loads(
+            pickle_payload, extra_allowed_prefixes=extra_allowed_prefixes
+        )
 
         if not isinstance(artifact, ModelArtifact):
             _log_verification_failure(

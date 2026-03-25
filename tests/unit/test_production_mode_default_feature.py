@@ -291,35 +291,37 @@ def test_production_mode_does_not_emit_dev_mode_warning(
 # ---------------------------------------------------------------------------
 
 
-def test_common_infra_exempt_paths_has_exactly_nine_paths() -> None:
-    """COMMON_INFRA_EXEMPT_PATHS must contain exactly 9 paths after removing security routes.
+def test_common_infra_exempt_paths_has_exactly_ten_paths() -> None:
+    """COMMON_INFRA_EXEMPT_PATHS must contain exactly 10 paths.
 
-    The count decreases from 11 to 9 when /security/shred and /security/keys/rotate
-    are removed (ADV-P47-04).
+    Count: 11 (T48.3) → 9 (P50, security routes removed) → 10 (T55.1, /health/vault added).
     """
     from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
 
-    assert len(COMMON_INFRA_EXEMPT_PATHS) == 9, (
-        f"Expected 9 paths in COMMON_INFRA_EXEMPT_PATHS after removing 2 security routes. "
+    assert len(COMMON_INFRA_EXEMPT_PATHS) == 10, (
+        f"Expected 10 paths in COMMON_INFRA_EXEMPT_PATHS. "
         f"Got {len(COMMON_INFRA_EXEMPT_PATHS)}: {sorted(COMMON_INFRA_EXEMPT_PATHS)}"
     )
 
 
-def test_auth_exempt_paths_has_exactly_ten_paths() -> None:
-    """AUTH_EXEMPT_PATHS must have exactly 10 paths after removing security routes.
+def test_auth_exempt_paths_has_exactly_eleven_paths() -> None:
+    """AUTH_EXEMPT_PATHS must have exactly 11 paths (10 common + /auth/token).
 
-    Count decreases from 12 to 10: 9 common + /auth/token.
+    Count: 12 (T48.3) → 10 (P50) → 11 (T55.1).
     """
     from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
-    assert len(AUTH_EXEMPT_PATHS) == 10, (
-        f"Expected 10 paths in AUTH_EXEMPT_PATHS. "
+    assert len(AUTH_EXEMPT_PATHS) == 11, (
+        f"Expected 11 paths in AUTH_EXEMPT_PATHS. "
         f"Got {len(AUTH_EXEMPT_PATHS)}: {sorted(AUTH_EXEMPT_PATHS)}"
     )
 
 
-def test_common_infra_exempt_paths_contains_expected_nine_paths() -> None:
-    """COMMON_INFRA_EXEMPT_PATHS must contain exactly the 9 expected paths."""
+def test_common_infra_exempt_paths_contains_expected_ten_paths() -> None:
+    """COMMON_INFRA_EXEMPT_PATHS must contain exactly the 10 expected paths.
+
+    T55.1 added /health/vault to this set.
+    """
     from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
 
     expected = frozenset(
@@ -327,6 +329,7 @@ def test_common_infra_exempt_paths_contains_expected_nine_paths() -> None:
             "/unseal",
             "/health",
             "/ready",
+            "/health/vault",
             "/metrics",
             "/docs",
             "/redoc",

@@ -78,7 +78,7 @@ class TestModelArtifactRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             save_path = Path(tmpdir) / "artifact.pkl"
             artifact.save(str(save_path))
-            loaded = ModelArtifact.load(str(save_path))
+            loaded = ModelArtifact.load(str(save_path), extra_allowed_prefixes=("tests",))
             assert isinstance(loaded, ModelArtifact), (
                 f"load() must return ModelArtifact instance, got {type(loaded).__name__}"
             )
@@ -92,7 +92,7 @@ class TestModelArtifactRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             save_path = Path(tmpdir) / "artifact.pkl"
             artifact.save(str(save_path))
-            loaded = ModelArtifact.load(str(save_path))
+            loaded = ModelArtifact.load(str(save_path), extra_allowed_prefixes=("tests",))
             assert loaded.table_name == "orders"
 
     def test_round_trip_preserves_column_names(self) -> None:
@@ -101,7 +101,7 @@ class TestModelArtifactRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             save_path = Path(tmpdir) / "artifact.pkl"
             artifact.save(str(save_path))
-            loaded = ModelArtifact.load(str(save_path))
+            loaded = ModelArtifact.load(str(save_path), extra_allowed_prefixes=("tests",))
             assert loaded.column_names == ["id", "name", "age"]
 
     def test_round_trip_preserves_column_dtypes(self) -> None:
@@ -110,7 +110,7 @@ class TestModelArtifactRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             save_path = Path(tmpdir) / "artifact.pkl"
             artifact.save(str(save_path))
-            loaded = ModelArtifact.load(str(save_path))
+            loaded = ModelArtifact.load(str(save_path), extra_allowed_prefixes=("tests",))
             assert loaded.column_dtypes == {"id": "int64", "name": "object", "age": "int64"}
 
     def test_round_trip_preserves_column_nullables(self) -> None:
@@ -125,7 +125,7 @@ class TestModelArtifactRoundTrip:
         with tempfile.TemporaryDirectory() as tmpdir:
             save_path = Path(tmpdir) / "artifact.pkl"
             artifact.save(str(save_path))
-            loaded = ModelArtifact.load(str(save_path))
+            loaded = ModelArtifact.load(str(save_path), extra_allowed_prefixes=("tests",))
             assert loaded.column_nullables == {"id": False, "opt_field": True}
 
     def test_load_nonexistent_file_raises_file_not_found(self) -> None:

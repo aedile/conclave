@@ -306,7 +306,7 @@ def test_rotate_empty_database_url_returns_202_and_enqueues_task(
 
 def test_shred_handler_is_async() -> None:
     """The shred route handler must be an async function (not sync def)."""
-    import asyncio
+    import inspect
 
     from synth_engine.bootstrapper.routers import security as sec_mod
 
@@ -314,12 +314,12 @@ def test_shred_handler_is_async() -> None:
     shred_routes = [r for r in sec_mod.router.routes if getattr(r, "path", "") == "/security/shred"]
     assert shred_routes, "shred route must be registered"
     handler = shred_routes[0].endpoint  # type: ignore[attr-defined]
-    assert asyncio.iscoroutinefunction(handler), "POST /security/shred handler must be async def"
+    assert inspect.iscoroutinefunction(handler), "POST /security/shred handler must be async def"
 
 
 def test_rotate_handler_is_async() -> None:
     """The rotate route handler must be an async function (not sync def)."""
-    import asyncio
+    import inspect
 
     from synth_engine.bootstrapper.routers import security as sec_mod
 
@@ -328,6 +328,6 @@ def test_rotate_handler_is_async() -> None:
     ]
     assert rotate_routes, "rotate route must be registered"
     handler = rotate_routes[0].endpoint  # type: ignore[attr-defined]
-    assert asyncio.iscoroutinefunction(handler), (
+    assert inspect.iscoroutinefunction(handler), (
         "POST /security/keys/rotate handler must be async def"
     )

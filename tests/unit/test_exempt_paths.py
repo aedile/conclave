@@ -48,19 +48,19 @@ class TestCommonInfraExemptPaths:
     Security routes are NOT included: they require JWT auth.
     """
 
-    def test_common_infra_exempt_paths_has_exactly_nine_paths(self) -> None:
-        """COMMON_INFRA_EXEMPT_PATHS must contain exactly 9 paths.
+    def test_common_infra_exempt_paths_has_exactly_ten_paths(self) -> None:
+        """COMMON_INFRA_EXEMPT_PATHS must contain exactly 10 paths.
 
         After the P50 layered exemption model:
         - /security/shred removed (now in SEAL_EXEMPT_PATHS only)
         - /security/keys/rotate removed (not exempt at any gate except route-level 423)
-        Count: 11 (T48.3) → 9 (P50 fix).
+        Count: 11 (T48.3) → 9 (P50 fix) → 10 (T55.1 added /health/vault).
         """
         from synth_engine.bootstrapper.dependencies._exempt_paths import (
             COMMON_INFRA_EXEMPT_PATHS,
         )
 
-        assert len(COMMON_INFRA_EXEMPT_PATHS) == 9
+        assert len(COMMON_INFRA_EXEMPT_PATHS) == 10
 
     def test_common_infra_exempt_paths_is_frozenset(self) -> None:
         """COMMON_INFRA_EXEMPT_PATHS must be an immutable frozenset."""
@@ -71,7 +71,7 @@ class TestCommonInfraExemptPaths:
         assert isinstance(COMMON_INFRA_EXEMPT_PATHS, frozenset)
 
     def test_common_infra_exempt_paths_contains_expected_paths(self) -> None:
-        """COMMON_INFRA_EXEMPT_PATHS must contain exactly the 9 expected paths.
+        """COMMON_INFRA_EXEMPT_PATHS must contain exactly the 10 expected paths.
 
         Security routes are excluded from this set — they require JWT auth
         and are handled by the SEAL_EXEMPT_PATHS for vault/license bypass only.
@@ -85,6 +85,7 @@ class TestCommonInfraExemptPaths:
                 "/unseal",
                 "/health",
                 "/ready",
+                "/health/vault",
                 "/metrics",
                 "/docs",
                 "/redoc",
@@ -136,13 +137,13 @@ class TestSealExemptPaths:
 
         assert isinstance(SEAL_EXEMPT_PATHS, frozenset)
 
-    def test_seal_exempt_paths_has_exactly_ten_paths(self) -> None:
-        """SEAL_EXEMPT_PATHS must have exactly 10 paths (9 common + /security/shred)."""
+    def test_seal_exempt_paths_has_exactly_eleven_paths(self) -> None:
+        """SEAL_EXEMPT_PATHS must have exactly 11 paths (10 common + /security/shred)."""
         from synth_engine.bootstrapper.dependencies._exempt_paths import (
             SEAL_EXEMPT_PATHS,
         )
 
-        assert len(SEAL_EXEMPT_PATHS) == 10
+        assert len(SEAL_EXEMPT_PATHS) == 11
 
     def test_seal_exempt_paths_contains_security_shred(self) -> None:
         """/security/shred must be in SEAL_EXEMPT_PATHS (emergency vault bypass)."""
@@ -206,17 +207,17 @@ class TestAuthExemptPaths:
 
         assert "/auth/token" in AUTH_EXEMPT_PATHS
 
-    def test_auth_exempt_paths_has_exactly_ten_paths(self) -> None:
-        """AUTH_EXEMPT_PATHS must have exactly 10 paths (9 common + /auth/token).
+    def test_auth_exempt_paths_has_exactly_eleven_paths(self) -> None:
+        """AUTH_EXEMPT_PATHS must have exactly 11 paths (10 common + /auth/token).
 
-        After the P50 layered exemption model:
-        - COMMON_INFRA_EXEMPT_PATHS has 9 paths (security routes removed)
-        - AUTH_EXEMPT_PATHS = 9 + /auth/token = 10 paths
-        Count: 12 (T48.3) → 10 (P50 fix).
+        After T55.1 added /health/vault to COMMON_INFRA_EXEMPT_PATHS:
+        - COMMON_INFRA_EXEMPT_PATHS has 10 paths
+        - AUTH_EXEMPT_PATHS = 10 + /auth/token = 11 paths
+        Count: 12 (T48.3) → 10 (P50 fix) → 11 (T55.1).
         """
         from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
-        assert len(AUTH_EXEMPT_PATHS) == 10
+        assert len(AUTH_EXEMPT_PATHS) == 11
 
     def test_auth_exempt_paths_contains_ready(self) -> None:
         """/ready must be in AUTH_EXEMPT_PATHS (T48.3 -- readiness probe)."""
