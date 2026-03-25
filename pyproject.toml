@@ -199,6 +199,14 @@ external = ["DOC"]
 # S603/S607: subprocess without shell=True / partial path — pre-existing scripts
 # UP006/UP035: typing.List is deprecated — scripts pre-date pyproject.toml; modernise in Task 2.x
 "scripts/**" = ["S603", "S607", "UP006", "UP035"]
+# Notebooks: pre-existing issues deferred to a dedicated cleanup task.
+# E402: cell-relative imports appear after setup code
+# E501: long lines in demo output strings
+# I001: unsorted imports in demo cells
+# B905: zip() strict= not present in demos
+# F541: f-string without placeholders in print statements
+# UP024: use OSError alias — pre-dates this rule
+"demos/*.ipynb" = ["E402", "E501", "I001", "B905", "F541", "UP024"]
 # S311: PRNG intentional — spike code uses random for synthetic data, not cryptography
 # S608: SQL injection — spike code uses schema identifiers from sqlite_master, not user input
 # RUF100: noqa S311 directives are intentionally co-located with nosec B311 for dual-tool

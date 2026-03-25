@@ -169,11 +169,7 @@ class RestrictedUnpickler(pickle.Unpickler):
             pickle_bytes, extra_allowed_prefixes=("mypackage",)
         )
 
-    Raises:
-        SecurityError: If deserialization encounters a class whose module
-            is not in :data:`_ALLOWED_MODULE_PREFIXES` or
-            ``extra_allowed_prefixes``.
-    """
+    """  # noqa: DOC502 — SecurityError raised in find_class(); see that method's Raises section
 
     def __init__(
         self,
@@ -232,7 +228,7 @@ class RestrictedUnpickler(pickle.Unpickler):
 
         Raises:
             SecurityError: If deserialization encounters a non-allowlisted class.
-        """
+        """  # noqa: DOC502 — SecurityError raised transitively by find_class() via .load()
         return cls(io.BytesIO(data), extra_allowed_prefixes=extra_allowed_prefixes).load()
 
 
