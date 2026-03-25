@@ -463,7 +463,8 @@ class AuditLogger:
         Dispatches on the version prefix stored in ``event.signature``:
 
         - ``v1:`` — Recomputes the legacy signature (details not included)
-          and compares using ``hmac.compare_digest``.
+          and compares using ``hmac.compare_digest``.  Emits a WARNING to
+          prompt migration to v2 format before Phase 60.
         - ``v2:`` — Recomputes the v2 signature (details included in HMAC)
           and compares using ``hmac.compare_digest``.
         - Any other prefix — Returns ``False`` immediately (fail-closed).
@@ -501,7 +502,13 @@ class AuditLogger:
                 event.action,
                 event.prev_hash,
             )
-            return hmac.compare_digest(expected_v1, sig)
+            is_valid = hmac.compare_digest(expected_v1, sig)
+            if is_valid:
+                self._log.warning(
+                    "Audit event uses deprecated v1 signature format. "
+                    "Migrate to v2 by Phase 60."
+                )
+            return is_valid
 
         # Unknown version prefix — fail-closed.
         return False
