@@ -17,9 +17,15 @@
 # If a mutant causes an infinite loop, it is killed after 10 seconds.
 # (Reduced from 30s: 30s x 789 mutants = worst-case 395 min; 10s = 131 min worst-case.
 #
-# test-command: runs only the unit tests covering the mutated modules. Integration
+# test-command: runs the full unit test suite against each mutant. Integration
 # tests are excluded (they require PostgreSQL and take minutes each). The --no-cov
 # flag disables coverage collection during mutation runs for speed.
+#
+# Speed optimization: -x (exit on first failure) means most killed mutants exit in
+# <1 second — the first relevant test that catches the mutation fails immediately and
+# pytest stops. Without -x, all 17 test files run to completion for every mutant.
+# With -x, the median mutant is caught by the first 1-2 relevant tests, reducing
+# wall-clock time from ~60 minutes to ~5-10 minutes for a full 795-mutant run.
 #
 # Note: module-path is a FILESYSTEM PATH (directory or file), not a Python module name.
 # cosmic-ray 8.4.4 calls Path(module-path).exists() to resolve targets.
@@ -72,26 +78,11 @@ excluded-modules = [
     "src/synth_engine/shared/tasks/**/*.py",
     "src/synth_engine/shared/tls/**/*.py",
 ]
-test-command = """python -m pytest \
-    tests/unit/test_audit.py \
-    tests/unit/test_audit_anchor.py \
-    tests/unit/test_audit_anchor_attack.py \
-    tests/unit/test_audit_hmac_details.py \
-    tests/unit/test_ale.py \
-    tests/unit/test_ale_vault_dependency.py \
-    tests/unit/test_ale_vault_dependency_attack.py \
-    tests/unit/test_hmac_signing.py \
-    tests/unit/test_key_versioning.py \
-    tests/unit/test_mutation_hardening_t49_5.py \
-    tests/unit/test_privacy_accountant.py \
-    tests/unit/test_dp_accounting.py \
-    tests/unit/test_dp_budget_fail_closed.py \
-    tests/unit/test_rotation.py \
-    tests/unit/test_vault.py \
-    tests/unit/test_download_hmac_bypass.py \
-    tests/unit/test_download_hmac_signing.py \
-    -x -q --tb=no --no-header --no-cov \
-    -p no:randomly"""
+# -x: exit on first failure — kills most mutants in <1s instead of running all files.
+# -q --tb=no --no-header: suppress output noise per mutant subprocess.
+# --no-cov: skip coverage instrumentation — not needed during mutation runs.
+# -p no:randomly: disable test shuffling for deterministic per-mutant output.
+test-command = "python -m pytest tests/unit/ -x -q --tb=no --no-header --no-cov -p no:randomly"
 
 [cosmic-ray.distributor]
 name = "local"
