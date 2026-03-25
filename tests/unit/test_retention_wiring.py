@@ -708,16 +708,26 @@ class TestBootstrapperWiring:
         """retention_tasks module is importable from the synthesizer package."""
         import synth_engine.modules.synthesizer.retention_tasks as rt
 
-        assert rt is not None
+        assert hasattr(rt, "periodic_cleanup_expired_jobs"), (
+            "retention_tasks module must export periodic_cleanup_expired_jobs Huey task"
+        )
 
     def test_bootstrapper_imports_retention_tasks(self) -> None:
-        """bootstrapper/main.py imports retention_tasks so worker discovers them."""
+        """bootstrapper/wiring.py imports retention_tasks so Huey worker discovers them.
+
+        T56.2: retention_tasks import moved from main.py to wiring.py. The side-effect
+        import must still be present in the bootstrapper package so Huey workers
+        that import main discover the tasks via wire_all().
+        """
         import inspect
 
-        import synth_engine.bootstrapper.main as boot
+        import synth_engine.bootstrapper.wiring as wiring
 
-        source = inspect.getsource(boot)
-        assert "retention_tasks" in source
+        source = inspect.getsource(wiring)
+        assert "retention_tasks" in source, (
+            "wiring.py must import retention_tasks for Huey task discovery (T56.2). "
+            "The import was moved from main.py to wiring.py."
+        )
 
 
 # ---------------------------------------------------------------------------

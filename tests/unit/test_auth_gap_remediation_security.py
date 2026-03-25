@@ -1,0 +1,468 @@
+"""Negative/attack and feature tests for security endpoint auth and pass-through mode (ADR-D1).
+
+Tests cover:
+- Unauthenticated, expired, empty-sub, wrong-key → 401 for security endpoints.
+- Pass-through mode (JWT_SECRET_KEY empty) allows access (dev mode).
+- Authenticated security requests succeed.
+
+Split from test_auth_gap_remediation.py (T56.3).
+
+CONSTITUTION Priority 0: Security
+Task: ADR-D1 — Add Authentication to Settings, Security & Privacy Routers
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from decimal import Decimal
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlmodel import Session, SQLModel, create_engine
+
+pytestmark = pytest.mark.unit
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_TEST_SECRET = (  # pragma: allowlist secret
+    "unit-test-jwt-secret-key-long-enough-for-hs256-32chars+"
+)
+_WRONG_SECRET = (  # pragma: allowlist secret
+    "wrong-secret-key-that-is-long-enough-for-hs256-32chars+"
+)
+_OPERATOR_SUB = "test-operator-remediation"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_token(
+    sub: str = _OPERATOR_SUB,
+    secret: str = _TEST_SECRET,
+    exp_offset: int = 3600,
+) -> str:
+    """Create a JWT token for testing.
+
+    Args:
+        sub: Subject claim value.
+        secret: HMAC secret to sign with.
+        exp_offset: Seconds from now for expiry (negative = already expired).
+
+    Returns:
+        Compact JWT string.
+    """
+    import jwt as pyjwt
+
+    now = int(time.time())
+    return pyjwt.encode(
+        {
+            "sub": sub,
+            "iat": now,
+            "exp": now + exp_offset,
+            "scope": ["read", "write", "security:admin", "settings:write"],
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+
+def _make_security_app(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Build a test FastAPI app with the security router, auth configured.
+
+    Args:
+        monkeypatch: pytest monkeypatch for env var injection.
+
+    Returns:
+        FastAPI app instance.
+    """
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+    from synth_engine.bootstrapper.errors import register_error_handlers
+    from synth_engine.bootstrapper.main import create_app
+    from synth_engine.bootstrapper.routers.security import router as security_router
+
+    monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+    from synth_engine.shared.settings import get_settings
+
+    get_settings.cache_clear()
+
+    app = create_app()
+    register_error_handlers(app)
+    app.include_router(security_router)
+
+    # Remove any override for get_current_operator so the real dependency is used
+    app.dependency_overrides.pop(get_current_operator, None)
+    return app
+
+
+def _common_patches() -> list[Any]:
+    """Return common mock patches for vault-seal and licensing checks.
+
+    Returns:
+        List of patch context managers.
+    """
+    return [
+        patch(
+            "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
+            return_value=False,
+        ),
+        patch(
+            "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
+            return_value=True,
+        ),
+    ]
+
+
+class TestSecurityUnauthenticatedReturns401:
+    """Unauthenticated requests to security endpoints must return 401."""
+
+    @pytest.mark.asyncio
+    async def test_shred_vault_unauthenticated_returns_401(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POST /security/shred without token must return 401 when JWT is configured."""
+        app = _make_security_app(monkeypatch)
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post("/security/shred")
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_rotate_keys_unauthenticated_returns_401(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POST /security/keys/rotate without token must return 401 when JWT is configured."""
+        app = _make_security_app(monkeypatch)
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/security/keys/rotate",
+                    json={"new_passphrase": "new-pass"},
+                )
+
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# ATTACK RED: Security endpoints — expired JWT → 401
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityExpiredTokenReturns401:
+    """Expired JWT tokens must return 401 on security endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_shred_vault_expired_token_returns_401(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POST /security/shred with expired JWT must return 401."""
+        app = _make_security_app(monkeypatch)
+        token = _make_token(exp_offset=-3600)
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/security/shred",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_rotate_keys_expired_token_returns_401(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POST /security/keys/rotate with expired JWT must return 401."""
+        app = _make_security_app(monkeypatch)
+        token = _make_token(exp_offset=-3600)
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/security/keys/rotate",
+                    json={"new_passphrase": "new-pass"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# ATTACK RED: Security endpoints — empty sub → 401
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityEmptySubReturns401:
+    """Tokens with empty sub must return 401 on security endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_shred_vault_empty_sub_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """POST /security/shred with token sub="" must return 401."""
+        app = _make_security_app(monkeypatch)
+        token = _make_token(sub="")
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/security/shred",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_rotate_keys_empty_sub_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """POST /security/keys/rotate with token sub="" must return 401."""
+        app = _make_security_app(monkeypatch)
+        token = _make_token(sub="")
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/security/keys/rotate",
+                    json={"new_passphrase": "new-pass"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# ATTACK RED: Security endpoints — wrong signing key → 401
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityWrongKeyReturns401:
+    """Tokens signed with wrong key must return 401 on security endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_shred_vault_wrong_key_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """POST /security/shred with token signed by wrong key must return 401."""
+        app = _make_security_app(monkeypatch)
+        token = _make_token(secret=_WRONG_SECRET)
+        patches = _common_patches()
+
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/security/shred",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# ATTACK RED: Privacy endpoints — unauthenticated → 401
+# ---------------------------------------------------------------------------
+
+
+class TestPassThroughModeAllowsAccess:
+    """When JWT_SECRET_KEY is empty, endpoints must be accessible without token."""
+
+    @pytest.mark.asyncio
+    async def test_settings_passthrough_allows_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GET /settings must allow access when JWT_SECRET_KEY is empty (pass-through mode)."""
+        from sqlalchemy.pool import StaticPool
+
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.errors import register_error_handlers
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.bootstrapper.routers.settings import router as settings_router
+
+        monkeypatch.setenv("JWT_SECRET_KEY", "")
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+
+        app = create_app()
+        register_error_handlers(app)
+        app.include_router(settings_router)
+
+        def _override_session() -> Any:
+            with Session(engine) as session:
+                yield session
+
+        app.dependency_overrides[get_db_session] = _override_session
+
+        patches = _common_patches()
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/settings")
+
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_privacy_passthrough_allows_get_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """GET /privacy/budget must allow access when JWT_SECRET_KEY is empty."""
+        from sqlalchemy.pool import StaticPool
+
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.errors import register_error_handlers
+        from synth_engine.bootstrapper.main import create_app
+        from synth_engine.bootstrapper.routers.privacy import router as privacy_router
+        from synth_engine.modules.privacy.ledger import PrivacyLedger
+
+        monkeypatch.setenv("JWT_SECRET_KEY", "")
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("AUDIT_KEY", os.urandom(32).hex())
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+        from synth_engine.shared.security.audit import reset_audit_logger
+
+        reset_audit_logger()
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+
+        with Session(engine) as session:
+            ledger = PrivacyLedger(
+                total_allocated_epsilon=Decimal("10.0"),
+                total_spent_epsilon=Decimal("2.0"),
+            )
+            session.add(ledger)
+            session.commit()
+
+        app = create_app()
+        register_error_handlers(app)
+        app.include_router(privacy_router)
+
+        def _override_session() -> Any:
+            with Session(engine) as session:
+                yield session
+
+        app.dependency_overrides[get_db_session] = _override_session
+
+        patches = _common_patches()
+        with patches[0], patches[1]:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/privacy/budget")
+
+        assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Feature tests: Authenticated requests succeed
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityAuthenticatedSucceeds:
+    """Authenticated requests to security endpoints must succeed."""
+
+    @pytest.mark.asyncio
+    async def test_shred_vault_authenticated_returns_200(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POST /security/shred with valid JWT must return 200."""
+        app = _make_security_app(monkeypatch)
+        token = _make_token()
+        patches = _common_patches()
+
+        mock_audit = MagicMock()
+        mock_audit.log_event = MagicMock()
+
+        with (
+            patches[0],
+            patches[1],
+            patch(
+                "synth_engine.bootstrapper.routers.security.get_audit_logger",
+                return_value=mock_audit,
+            ),
+            patch("synth_engine.bootstrapper.routers.security.VaultState.seal"),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/security/shred",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_rotate_keys_authenticated_returns_423_when_sealed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POST /security/keys/rotate with valid JWT returns 423 when vault is sealed.
+
+        This confirms auth passed (423 not 401) — vault being sealed is the
+        expected condition here for a simple integration test.
+        """
+        app = _make_security_app(monkeypatch)
+        token = _make_token()
+        patches = _common_patches()
+
+        # Override to simulate sealed vault for simplicity
+        with (
+            patches[0],
+            patches[1],
+            patch(
+                "synth_engine.bootstrapper.routers.security.VaultState.is_sealed",
+                return_value=True,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/security/keys/rotate",
+                    json={"new_passphrase": "new-pass"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+
+        # 423 means auth passed — the vault is sealed (expected in test context)
+        assert response.status_code == 423
