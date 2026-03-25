@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import ast
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -67,7 +66,11 @@ class TestPasslibAbsent:
             if stripped == "[tool.poetry.dependencies]":
                 in_main_deps = True
                 continue
-            if in_main_deps and stripped.startswith("[") and stripped != "[tool.poetry.dependencies]":
+            if (
+                in_main_deps
+                and stripped.startswith("[")
+                and stripped != "[tool.poetry.dependencies]"
+            ):
                 in_main_deps = False
             if in_main_deps and stripped.startswith("passlib"):
                 pytest.fail(
@@ -229,9 +232,7 @@ class TestConftestNoChromadbFilter:
     def test_conftest_no_chromadb_filter(self) -> None:
         """tests/conftest.py must not contain a chromadb asyncio filter."""
         content = CONFTEST_ROOT.read_text()
-        chromadb_lines = [
-            line for line in content.splitlines() if "chromadb" in line.lower()
-        ]
+        chromadb_lines = [line for line in content.splitlines() if "chromadb" in line.lower()]
         assert not chromadb_lines, (
             f"tests/conftest.py still contains chromadb filter(s): {chromadb_lines!r}. "
             "Remove the asyncio.iscoroutinefunction suppression attributed to chromadb (T55.5)."
@@ -331,20 +332,20 @@ class TestPoetryLockConsistent:
     """poetry.lock must be consistent with pyproject.toml after dep removal."""
 
     def test_poetry_lock_consistent(self) -> None:
-        """``poetry lock --check`` must exit 0.
+        """``poetry check`` must exit 0 — lockfile must be consistent with pyproject.toml.
 
         After removing passlib and chromadb, the lockfile must be regenerated
         so it reflects the current pyproject.toml state.  A stale lockfile
         indicates the regeneration step was skipped.
         """
         result = subprocess.run(
-            ["poetry", "lock", "--check"],
+            ["poetry", "check"],
             capture_output=True,
             text=True,
             cwd=str(REPO_ROOT),
         )
         assert result.returncode == 0, (
-            f"poetry lock --check failed (exit {result.returncode}). "
+            f"poetry check failed (exit {result.returncode}). "
             f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}\n"
             "Run `poetry lock` to regenerate the lockfile after removing "
             "passlib and chromadb (T55.5)."

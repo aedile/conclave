@@ -202,10 +202,6 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
       constructed. The fix is to use the new ``Metadata`` class, but our engine
       currently uses ``SingleTableMetadata`` through the SDV public API.  The
       warning is advisory-only; we cannot change third-party construction order.
-    * ``chromadb`` telemetry: ``chromadb.telemetry.opentelemetry`` calls
-      ``asyncio.iscoroutinefunction()`` at class-definition time.  This API is
-      deprecated in Python 3.14 for removal in 3.16; the fix is
-      ``inspect.iscoroutinefunction()``.
     * ``SQLite ResourceWarning``: SQLAlchemy in-memory engines used in unit-test
       helpers emit ``ResourceWarning`` when the engine is GC-collected without an
       explicit ``engine.dispose()`` call.  These are intentionally short-lived
@@ -262,15 +258,6 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
             "ignore",
             message="We strongly recommend saving the metadata",
             category=UserWarning,
-        )
-
-        # -----------------------------------------------------------------------
-        # chromadb 1.5.x: asyncio.iscoroutinefunction at class-definition time
-        # -----------------------------------------------------------------------
-        warnings.filterwarnings(
-            "ignore",
-            message="'asyncio.iscoroutinefunction' is deprecated",
-            category=DeprecationWarning,
         )
 
         # -----------------------------------------------------------------------

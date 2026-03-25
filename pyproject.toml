@@ -29,7 +29,6 @@ alembic = ">=1.14.0,<1.19.0"
 psycopg2-binary = ">=2.9.0,<3.0.0"
 cryptography = ">=46.0.5,<47.0.0"
 PyJWT = {version = ">=2.10.0,<3.0.0", extras = ["cryptography"]}
-passlib = {version = ">=1.7.4,<2.0.0", extras = ["bcrypt"]}
 prometheus-client = ">=0.21.0,<1.0.0"
 pydantic = ">=2.0.0,<2.13.0"
 faker = "^40.11.0"
@@ -86,13 +85,6 @@ boto3-stubs = ">=1.35.0,<2.0.0"
 # aiosqlite: async SQLite driver for unit tests using AsyncSession with SQLite
 # Required by T4.4 unit tests that test async DB infrastructure without PostgreSQL.
 aiosqlite = ">=0.19.0,<1.0.0"
-# chromadb: vector database used only in scripts/ for retrospective seeding
-# (scripts/seed_chroma.py, scripts/seed_chroma_retro.py, scripts/init_chroma.py).
-# Not imported in any src/synth_engine production module. Moved from main deps
-# to dev group in T18.2 so production installs (poetry install) do not pull in
-# the chromadb transitive tree (~25 extra packages including onnxruntime,
-# kubernetes, grpcio).
-chromadb = "^1.5.5"
 # datamodel-code-generator: CLI tool for generating TypeScript types from the
 # FastAPI OpenAPI schema (scripts/generate_ts_types.py, generate-ts-types CLI).
 # Dev-only scaffolding tool; not used at runtime in src/synth_engine.
@@ -329,13 +321,6 @@ filterwarnings = [
     # above the cmdline -W error.  The entries below serve as documentation and take
     # effect when pytest is run without an explicit -W error cmdline override.
     "error",
-    # chromadb 1.5.x uses asyncio.iscoroutinefunction (deprecated in 3.14 for
-    # removal in 3.16; the fix is inspect.iscoroutinefunction).  Scoped to the
-    # chromadb telemetry sub-package; we cannot change third-party code.
-    # chromadb is in the dev group (T18.2); this filter remains for dev/test runs
-    # where chromadb is installed.
-    # Also handled by the conftest.py autouse fixture for -W error compatibility.
-    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
     # SDV 1.x and its dependencies (rdt, copulas) emit DeprecationWarnings
     # from third-party code paths that we cannot fix.  Suppressed to keep
     # -W error clean in unit tests.
@@ -543,11 +528,9 @@ pytest_add_cli_args = [
     "--ignore=tests/unit/test_dp_training_qa_findings.py",
     "--ignore=tests/unit/test_dp_training_strategy_classes.py",
     "--ignore=tests/unit/test_e2e_load_test_script.py",
-    "--ignore=tests/unit/test_init_chroma.py",
     "--ignore=tests/unit/test_job_steps.py",
     "--ignore=tests/unit/test_migration_003_epsilon_precision.py",
     "--ignore=tests/unit/test_migration_007_encrypt_connection_metadata.py",
-    "--ignore=tests/unit/test_seed_chroma.py",
     "--ignore=tests/unit/test_seed_sample_data.py",
     "--ignore=tests/unit/test_synthesizer_engine.py",
     "--ignore=tests/unit/test_synthesizer_tasks.py",

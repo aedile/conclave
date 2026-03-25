@@ -91,7 +91,6 @@ services:
 
     # --- Persistent named volumes --------------------------------------------
     volumes:
-      - chroma_data:/app/.chroma_data
 
     # --- NVIDIA GPU passthrough (T4.1) -----------------------------------------
     # GPU reservation moved to docker-compose.gpu.yml so that non-GPU hosts
@@ -412,10 +411,6 @@ services:
 # Named volumes
 # =============================================================================
 volumes:
-  # chroma_data: persists the ChromaDB vector store between container restarts.
-  # For production deployments the host path MUST reside on a LUKS-encrypted
-  # volume — see docs/infrastructure_security.md.
-  chroma_data:
 
   # postgres_data: persists PostgreSQL WAL and data files.
   # For production deployments the host path MUST reside on a LUKS-encrypted

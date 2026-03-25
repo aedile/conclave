@@ -251,7 +251,7 @@ class TestADV066ZeroWarningPolicy:
     entries.  Because ``warnings.filterwarnings()`` prepends to the filter chain,
     ``-W error`` ends up at the TOP and overrides every ``"ignore"`` entry in
     ``pyproject.toml``, causing spurious failures from third-party
-    DeprecationWarnings in SDV/opacus/torch/chromadb.
+    DeprecationWarnings in SDV/opacus/torch.
 
     The correct fix — implemented in ``tests/conftest.py`` — is the autouse
     fixture ``_suppress_third_party_deprecation_warnings``.  It adds ``"ignore"``

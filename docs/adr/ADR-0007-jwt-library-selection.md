@@ -20,7 +20,7 @@ Replace `python-jose[cryptography]` with `PyJWT[cryptography]` (version `>=2.10.
 ## Rationale
 
 - `PyJWT` has no dependency on `ecdsa`. Its elliptic-curve support is provided entirely by the
-  `cryptography` package (already present via `passlib[bcrypt]`), which is actively maintained.
+  `cryptography` package (a direct production dependency), which is actively maintained.
 - `PyJWT` ships its own PEP 561 type stubs. No separate `types-*` package is needed; the
   `types-python-jose` dev dependency has been removed.
 - The public API used by this project (`encode`, `decode`, named exception classes) is
