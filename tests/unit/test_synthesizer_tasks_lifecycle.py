@@ -897,6 +897,7 @@ class TestMigration005:
         assert path is not None, (
             "Migration 005 not found in alembic/versions/. Expected a file matching '005*.py'."
         )
+        assert path.is_file(), f"Migration 005 path {path} is not a regular file"
 
     def test_migration_005_revision_is_005(self) -> None:
         """Migration 005 must have revision='005'."""
@@ -956,6 +957,7 @@ class TestMigration006:
         assert path is not None, (
             "Migration 006 not found in alembic/versions/. Expected a file matching '006*.py'."
         )
+        assert path.is_file(), f"Migration 006 path {path} is not a regular file"
 
     def test_migration_006_revision_is_006(self) -> None:
         """Migration 006 must have revision='006'."""

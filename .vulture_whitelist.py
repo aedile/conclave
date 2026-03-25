@@ -309,3 +309,15 @@ status  # unused variable — DeliveryResult dataclass field (webhook_delivery.p
 # ---------------------------------------------------------------------------
 
 vault_health  # unused function — bootstrapper/routers/health.py; FastAPI route handler for /health/vault
+
+# ---------------------------------------------------------------------------
+# Category Q — T56.2 wiring.py side-effect imports
+# _reaper_tasks, _retention_tasks, and _security_rotation are imported at
+# module scope in bootstrapper/wiring.py for their side effects: they register
+# Huey tasks. The underscore prefix is a naming convention for side-effect-
+# only imports. Without them, Huey workers would not discover the tasks.
+# ---------------------------------------------------------------------------
+
+_reaper_tasks  # unused import — side-effect: registers Huey reaper task at import time (wiring.py)
+_retention_tasks  # unused import — side-effect: registers Huey retention tasks at import time (wiring.py)
+_security_rotation  # unused import — side-effect: registers ALE key rotation Huey task (wiring.py)

@@ -270,7 +270,13 @@ class TestThresholdValidation:
         """Threshold == 5 (the minimum) must be accepted."""
         repo = MagicMock(spec=TaskRepository)
         reaper = OrphanTaskReaper(repository=repo, stale_threshold_minutes=5)
-        assert reaper is not None
+        assert isinstance(reaper, OrphanTaskReaper), (
+            "OrphanTaskReaper(stale_threshold_minutes=5) must return an OrphanTaskReaper "
+            f"instance, got {type(reaper)}"
+        )
+        assert reaper._threshold == 5, (
+            f"Expected _threshold=5 (the minimum allowed), got {reaper._threshold}"
+        )
 
     def test_threshold_of_0_raises(self) -> None:
         """Threshold == 0 must raise ValueError."""

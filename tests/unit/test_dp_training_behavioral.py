@@ -630,7 +630,7 @@ class TestCtganGeneratorContract:
         pytest.importorskip("ctgan")
         from ctgan.synthesizers.ctgan import Generator
 
-        assert Generator is not None, (
+        assert callable(Generator), (
             "ctgan.synthesizers.ctgan.Generator must be importable. "
             "DPCompatibleCTGAN builds a Generator for the custom DP-SGD loop."
         )
@@ -640,7 +640,7 @@ class TestCtganGeneratorContract:
         pytest.importorskip("ctgan")
         from ctgan.synthesizers.ctgan import CTGAN
 
-        assert CTGAN is not None
+        assert callable(CTGAN), "ctgan.synthesizers.ctgan.CTGAN must be a callable class"
 
 
 # ---------------------------------------------------------------------------

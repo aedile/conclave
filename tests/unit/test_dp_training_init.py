@@ -124,7 +124,9 @@ class TestDPCompatibleCTGANInit:
             epochs=5,
             dp_wrapper=mock_dp_wrapper,
         )
-        assert instance is not None
+        assert isinstance(instance, DPCompatibleCTGAN), (
+            f"Expected DPCompatibleCTGAN instance, got {type(instance)}"
+        )
 
     def test_init_dp_wrapper_defaults_to_none(self) -> None:
         """dp_wrapper must default to None — vanilla mode."""

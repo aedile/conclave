@@ -846,5 +846,8 @@ class TestSpendBudgetFactoryBootstrapper:
         import synth_engine.modules.synthesizer.job_orchestration as orch_mod
 
         assert orch_mod._spend_budget_fn is not None, (
-            "_spend_budget_fn must be wired by bootstrapper at import time (Rule 8)"
+            "_spend_budget_fn must be wired by bootstrapper at import time (Rule 8)."
+        )
+        assert callable(orch_mod._spend_budget_fn), (
+            "_spend_budget_fn must be callable after bootstrapper wiring"
         )

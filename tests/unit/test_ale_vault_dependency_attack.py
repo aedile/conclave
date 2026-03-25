@@ -191,7 +191,9 @@ def test_ale_fails_after_vault_re_seals(monkeypatch: pytest.MonkeyPatch) -> None
 
     # ALE must work when unsealed
     fernet = get_fernet()
-    assert fernet is not None
+    assert callable(fernet.encrypt), (
+        "get_fernet() must return a Fernet instance with an encrypt method when vault is unsealed"
+    )
 
     # Seal again
     VaultState.seal()

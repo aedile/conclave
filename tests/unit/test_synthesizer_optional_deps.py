@@ -28,7 +28,7 @@ class TestOptionalDepsExports:
         """_optional_deps can be imported without raising."""
         import synth_engine.modules.synthesizer._optional_deps as m
 
-        assert m is not None
+        assert hasattr(m, "torch"), "_optional_deps module must export 'torch' at module scope"
 
     def test_exports_torch(self) -> None:
         """Module exports 'torch' at module scope; is the real module when installed."""
