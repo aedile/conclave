@@ -48,16 +48,10 @@ from scipy.stats import ks_2samp
 
 from synth_engine.modules.ingestion.postgres_adapter import SchemaInspector
 from synth_engine.modules.masking.registry import ColumnType, MaskingRegistry
-from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError, DPTrainingWrapper
+from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
 from synth_engine.modules.profiler.profiler import StatisticalProfiler
-
-# SubsettingEngine is imported for type-annotation reference and architectural
-# traceability.  The validation script streams directly to Parquet rather than
-# using the DB-to-DB EgressWriter path, because the standalone validation
-# context has no second target database to write into.
-from synth_engine.modules.subsetting.core import SubsettingEngine  # noqa: F401 — see above
 from synth_engine.modules.synthesizer.engine import SynthesisEngine, apply_fk_post_processing
-from synth_engine.shared.exceptions import BudgetExhaustionError  # noqa: F811
+from synth_engine.shared.exceptions import BudgetExhaustionError
 from synth_engine.shared.schema_topology import ColumnInfo, ForeignKeyInfo, SchemaTopology
 
 # ---------------------------------------------------------------------------
@@ -250,7 +244,7 @@ def _validate_output_dir(output_dir: str) -> Path:
     try:
         path.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        _logger.error("Cannot create output directory '%s': %s", output_dir, exc)
+        _logger.error("Cannot create output directory '%s': %s", output_dir, type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     if not os.access(path, os.W_OK):
@@ -475,8 +469,8 @@ def _stage_subsetting(
 ) -> dict[str, Any]:
     """Extract a subset of rows from the source DB and write to Parquet.
 
-    Uses the SubsettingEngine with a ``customer`` seed table and a LIMIT
-    query.  Each table's rows are written to ``source_dir/<table>.parquet``.
+    Reads directly via SQLAlchemy LIMIT queries (one per table) and writes
+    each table's rows to ``source_dir/<table>.parquet``.
 
     Args:
         engine: SQLAlchemy Engine connected to the source database.
@@ -507,6 +501,8 @@ def _stage_subsetting(
             continue
 
         col_names = [col.name for col in topology.columns[table]]
+        # Allowlist guard: table must be in the known-safe set before interpolation.
+        assert table in _TARGET_TABLES, f"Table '{table}' not in allowlist"
         # Use a parameterised LIMIT to extract the subset.
         with engine.connect() as conn:
             result = conn.execute(
@@ -521,6 +517,18 @@ def _stage_subsetting(
         df.to_parquet(parquet_path, engine="pyarrow", index=False)
         row_counts[table] = len(df)
         _logger.info("Subsetted table '%s': %d rows -> %s", table, len(df), parquet_path)
+
+    # Guard: warn on empty tables; exit with infrastructure error if ALL are empty.
+    empty_tables = [t for t, n in row_counts.items() if n == 0]
+    for t in empty_tables:
+        _logger.warning("Subset table '%s' is empty — no rows extracted.", t)
+    if empty_tables and len(empty_tables) == len(row_counts):
+        _logger.error(
+            "All subset tables are empty (%s). "
+            "The source database may be unpopulated or the connection is wrong.",
+            empty_tables,
+        )
+        sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     duration = time.monotonic() - t_start
     _logger.info("Subsetting complete: %s (%.2fs)", row_counts, duration)
@@ -919,7 +927,7 @@ def _stage_validation(
                 )
 
     # --- 2. Epsilon budget ---
-    epsilon_pass = epsilon_spent < epsilon_allocated
+    epsilon_pass = epsilon_spent <= epsilon_allocated
     if not epsilon_pass:
         _logger.error(
             "Epsilon budget exceeded: spent=%.4f, allocated=%.4f",
@@ -1090,7 +1098,7 @@ def main(argv: list[str] | None = None) -> int:
         schema_result, topology = _stage_schema_reflection(engine)
         report["stages"]["schema_reflection"] = schema_result
     except Exception as exc:
-        _logger.error("Schema reflection failed: %s", exc)
+        _logger.error("Schema reflection failed: %s", type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     # --- Stage 2: Subsetting ---
@@ -1100,7 +1108,7 @@ def main(argv: list[str] | None = None) -> int:
         report["stages"]["subsetting"] = subsetting_result
         source_row_counts = subsetting_result["row_counts"]
     except Exception as exc:
-        _logger.error("Subsetting failed: %s", exc)
+        _logger.error("Subsetting failed: %s", type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     # --- Stage 3: Masking ---
@@ -1109,7 +1117,7 @@ def main(argv: list[str] | None = None) -> int:
         masking_result = _stage_masking(topology, source_dir, masked_dir)
         report["stages"]["masking"] = masking_result
     except Exception as exc:
-        _logger.error("Masking failed: %s", exc)
+        _logger.error("Masking failed: %s", type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     # --- Stage 4: Profiling ---
@@ -1118,7 +1126,7 @@ def main(argv: list[str] | None = None) -> int:
         profiling_result, baseline_profiles = _stage_profiling(topology, masked_dir)
         report["stages"]["profiling"] = profiling_result
     except Exception as exc:
-        _logger.error("Profiling failed: %s", exc)
+        _logger.error("Profiling failed: %s", type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     # --- Stage 5: Training with DP-SGD ---
@@ -1153,7 +1161,7 @@ def main(argv: list[str] | None = None) -> int:
         _write_report(report, output_dir, wall_start)
         sys.exit(EXIT_VALIDATION_FAILURE)
     except Exception as exc:
-        _logger.error("Training failed: %s", exc)
+        _logger.error("Training failed: %s", type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     # --- Stage 6: Synthetic Generation ---
@@ -1174,7 +1182,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     except Exception as exc:
-        _logger.error("Generation failed: %s", exc)
+        _logger.error("Generation failed: %s", type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     # --- Stage 7: FK Post-Processing ---
@@ -1183,7 +1191,7 @@ def main(argv: list[str] | None = None) -> int:
         fk_pp_result, synthetic_dfs = _stage_fk_post_processing(topology, synthetic_dfs)
         report["stages"]["fk_post_processing"] = fk_pp_result
     except Exception as exc:
-        _logger.error("FK post-processing failed: %s", exc)
+        _logger.error("FK post-processing failed: %s", type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     # --- Stage 8: Validation ---
@@ -1200,7 +1208,7 @@ def main(argv: list[str] | None = None) -> int:
             delta=args.delta,
         )
     except Exception as exc:
-        _logger.error("Validation stage failed: %s", exc)
+        _logger.error("Validation stage failed: %s", type(exc).__name__)
         sys.exit(EXIT_INFRASTRUCTURE_ERROR)
 
     report["stages"]["validation"] = validation_result

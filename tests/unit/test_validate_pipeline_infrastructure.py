@@ -200,33 +200,44 @@ class TestSecurityAttacks:
         """The report JSON schema must not include a field for the database URL.
 
         The report is written to disk and may be shared; it must not contain
-        the DSN which may include credentials.
+        the DSN which may include credentials.  Uses AST inspection to find
+        the ``report = {`` dict construction and assert ``db_url`` is not
+        among its string keys.
         """
         source = _load_source()
+        tree = ast.parse(source)
 
-        # The report config section should not contain database_url or db_url.
-        # We look for the report schema definition (the dict that becomes JSON).
-        report_section = re.search(
-            r'"config"\s*:\s*\{([^}]+)\}',
-            source,
-            re.DOTALL,
+        # Walk all assignments of the form: report = { ... } or report: T = { ... }
+        # Collect every string key from those dict literals.
+        report_dict_keys: list[str] = []
+        for node in ast.walk(tree):
+            # Handle plain assignment: report = {...}
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "report":
+                        if isinstance(node.value, ast.Dict):
+                            for key in node.value.keys:
+                                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                                    report_dict_keys.append(key.value)
+            # Handle annotated assignment: report: dict[...] = {...}
+            elif isinstance(node, ast.AnnAssign):
+                if isinstance(node.target, ast.Name) and node.target.id == "report":
+                    if node.value is not None and isinstance(node.value, ast.Dict):
+                        for key in node.value.keys:
+                            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                                report_dict_keys.append(key.value)
+
+        assert len(report_dict_keys) > 0, (
+            "No 'report = {...}' dict assignment found in script AST. "
+            "The report construction must be a literal dict assigned to 'report'."
         )
-        if report_section:
-            config_content = report_section.group(1)
-            assert "db_url" not in config_content, (
-                "The report 'config' section must not include 'db_url'. "
-                "DSN must not appear in the written report."
-            )
-            assert "database_url" not in config_content.lower(), (
-                "The report 'config' section must not include 'database_url'. "
-                "DSN must not appear in the written report."
-            )
-
-        # Also check that the report-building code doesn't include the url.
-        # If no explicit JSON section found, check broader: no report dict key.
-        assert "db_url" not in source or "db_url" in source.split('"config"')[0], (
-            "The report must not contain a 'db_url' key. "
-            "This assertion verifies the config dict omits the DSN."
+        assert "db_url" not in report_dict_keys, (
+            f"The report dict must not contain a 'db_url' key. "
+            f"Found keys: {report_dict_keys}. DSN must never appear in the written report."
+        )
+        assert "database_url" not in [k.lower() for k in report_dict_keys], (
+            f"The report dict must not contain a 'database_url' key. "
+            f"Found keys: {report_dict_keys}. DSN must never appear in the written report."
         )
 
 
@@ -264,7 +275,6 @@ class TestScriptStructure:
 
         required_imports = [
             "synth_engine.modules.ingestion",
-            "synth_engine.modules.subsetting",
             "synth_engine.modules.masking",
             "synth_engine.modules.profiler",
             "synth_engine.modules.synthesizer",

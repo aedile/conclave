@@ -236,11 +236,11 @@ ok "  ${DATA_FILE} checksum OK."
 # ---------------------------------------------------------------------------
 log "Dropping existing '${DATABASE}' database if it exists..."
 
-psql_postgres --command="DROP DATABASE IF EXISTS ${DATABASE};" >/dev/null
+psql_postgres --command="DROP DATABASE IF EXISTS \"${DATABASE}\";" >/dev/null
 
 log "Creating '${DATABASE}' database..."
 
-psql_postgres --command="CREATE DATABASE ${DATABASE};" >/dev/null
+psql_postgres --command="CREATE DATABASE \"${DATABASE}\";" >/dev/null
 
 ok "Database '${DATABASE}' created."
 
@@ -304,7 +304,7 @@ if (( FK_VIOLATION_COUNT > 0 )); then
     exit 1
 fi
 
-ok "  All foreign key constraints satisfied (${FK_VIOLATION_COUNT} violations)."
+ok "  All foreign key constraints are in validated state (${FK_VIOLATION_COUNT} NOT VALID constraints)."
 
 # ---------------------------------------------------------------------------
 # Done
