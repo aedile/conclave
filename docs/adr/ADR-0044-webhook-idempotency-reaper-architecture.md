@@ -1,5 +1,7 @@
 # ADR-0044 — Webhook, Idempotency & Reaper Architecture
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Status:** Accepted
 **Date:** 2026-03-21
 **Deciders:** PM + Architecture Reviewer
@@ -95,7 +97,7 @@ provides the database query using the existing async session factory.
 
 **Periodic task registration**: The reaper is registered as
 `@huey.periodic_task(crontab(minute='*/15'))` in
-`modules/synthesizer/tasks.py`, co-located with the synthesis task definitions
+`modules/synthesizer/jobs/tasks.py`, co-located with the synthesis task definitions
 that share the same Huey instance. Running every 15 minutes is sufficient for
 60-minute staleness detection and adds negligible load (a single indexed query
 per cycle).
@@ -142,7 +144,7 @@ the operator at registration time and is stored encrypted (ALE) in the
 
 **Interaction with Huey/Redis**: Webhook delivery is executed as a Huey
 background task (`@huey.task()`) dispatched immediately after a job state
-transition to COMPLETED or FAILED in `job_orchestration.py`. This decouples
+transition to COMPLETED or FAILED in `jobs/job_orchestration.py`. This decouples
 delivery latency from the synthesis job lifecycle: a slow or unavailable
 receiver cannot block the synthesis worker. The Huey task is not idempotent
 by design — if the worker crashes mid-delivery, the delivery may not be
@@ -236,4 +238,4 @@ throughput capacity.
 - `src/synth_engine/shared/tasks/reaper.py` — reaper implementation
 - `src/synth_engine/shared/tasks/repository.py` — SQLAlchemy task repository
 - `src/synth_engine/bootstrapper/routers/webhooks.py` — webhook CRUD endpoints
-- `src/synth_engine/modules/synthesizer/webhook_delivery.py` — delivery engine
+- `src/synth_engine/modules/synthesizer/jobs/webhook_delivery.py` — delivery engine

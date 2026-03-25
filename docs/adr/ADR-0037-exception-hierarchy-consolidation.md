@@ -1,5 +1,7 @@
 # ADR-0037: Exception Hierarchy Consolidation — Vault and License Exceptions
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Status:** Accepted
 **Date:** 2026-03-18
 **Deciders:** PM, Architecture Reviewer
@@ -72,7 +74,7 @@ they previously caught vault exceptions:
 | `bootstrapper/routers/jobs_streaming.py` | 116 | `except ValueError:` | No | None |
 | `bootstrapper/dependencies/request_limits.py` | 231 | `except ValueError:` | No | None |
 | `shared/security/audit.py` | 223 | `except ValueError as exc:` in hex parsing | No | None |
-| `modules/synthesizer/job_finalization.py` | 95 | `except ValueError:` | No | None |
+| `modules/synthesizer/jobs/job_finalization.py` | 95 | `except ValueError:` | No | None |
 
 **Conclusion:** No catch sites were previously catching vault exceptions via
 `except ValueError`.  The bootstrapper lifecycle and error map already catch

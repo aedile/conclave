@@ -1,5 +1,7 @@
 # ADR-0041: Data Retention and Compliance Architecture
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Status**: Accepted
 **Date**: 2026-03-21
 **Task**: T41.1 — Data Retention Policy
@@ -52,7 +54,7 @@ Audit events carry a longer default (1095 days, 3 years) than synthesis jobs (90
 because audit logs are the evidentiary record for compliance reviews. Deleting audit logs
 on the same schedule as the records they describe would undermine their value.
 
-### 2. Legal hold field on SynthesisJob (job_models.py)
+### 2. Legal hold field on SynthesisJob (jobs/job_models.py)
 
 `SynthesisJob.legal_hold` is a non-nullable boolean (`server_default=False`, `index=True`).
 
@@ -64,7 +66,7 @@ The field is indexed because the cleanup query filters on it (`WHERE legal_hold 
 in combination with `created_at`. An unindexed scan over a large `synthesis_job` table
 on every scheduled run would be unacceptable.
 
-### 3. RetentionCleanup (modules/synthesizer/retention.py)
+### 3. RetentionCleanup (modules/synthesizer/storage/retention.py)
 
 A single-responsibility class with one public method: `cleanup_expired_jobs()`.
 
@@ -83,7 +85,7 @@ audit log during routine runs when no jobs have expired.
 
 The class creates its own database session internally; callers do not pass a session.
 
-The class is placed in `modules/synthesizer/` because it exclusively operates on
+The class is placed in `modules/synthesizer/storage/` because it exclusively operates on
 `SynthesisJob` domain objects and their associated artifacts. It is not a cross-cutting
 concern — it has no reason to exist in `shared/`.
 
@@ -124,7 +126,7 @@ teams a three-year window to retrieve deletion records.
 ### Scheduler wiring — Resolved (advisory-drain-pre-p44)
 
 `RetentionCleanup.cleanup_expired_jobs()` and `cleanup_expired_artifacts()` are wired
-to Huey `@periodic_task` cron jobs in `modules/synthesizer/retention_tasks.py`:
+to Huey `@periodic_task` cron jobs in `modules/synthesizer/storage/retention_tasks.py`:
 
 - `cleanup_expired_jobs`: runs daily at 02:00 UTC
 - `cleanup_expired_artifacts`: runs daily at 03:00 UTC
@@ -189,7 +191,7 @@ model where job rows and artifacts are co-located.
 - HIPAA 45 CFR 164.530(j) — Documentation and record retention
 - ADR-0040 — IDOR Protection (establishes 404 pattern for missing resources)
 - ADR-0039 — JWT Bearer Token Authentication (auth context for admin endpoint)
-- `src/synth_engine/modules/synthesizer/retention.py` — RetentionCleanup
+- `src/synth_engine/modules/synthesizer/storage/retention.py` — RetentionCleanup
 - `src/synth_engine/bootstrapper/routers/admin.py` — Legal hold endpoint
 - `src/synth_engine/shared/settings.py` — RetentionSettings
-- `src/synth_engine/modules/synthesizer/job_models.py` — SynthesisJob.legal_hold
+- `src/synth_engine/modules/synthesizer/jobs/job_models.py` — SynthesisJob.legal_hold

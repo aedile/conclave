@@ -1,5 +1,7 @@
 # ADR-0040: IDOR Protection — Ownership Model for Resource Endpoints
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Status**: Accepted
 **Date**: 2026-03-20
 **Task**: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
@@ -101,7 +103,7 @@ An empty key leaves the application in pass-through mode with no per-operator is
 
 ### SynthesisJob file placement (ADR-0021)
 
-`SynthesisJob` lives in `modules/synthesizer/job_models.py` rather than `bootstrapper/`
+`SynthesisJob` lives in `modules/synthesizer/jobs/job_models.py` rather than `bootstrapper/`
 because it was introduced before the resource ownership model was designed. It is a domain
 model that is also used as an API resource, which places it in a grey zone between
 `modules/synthesizer/` and `bootstrapper/`.
@@ -169,7 +171,7 @@ is tracked as an advisory — no action required for the current single-operator
 - ADR-0021 — SynthesisJob placement debt (pre-existing)
 - `src/synth_engine/bootstrapper/dependencies/auth.py` — `get_current_operator()`
 - `src/synth_engine/bootstrapper/schemas/connections.py` — `Connection.owner_id`
-- `src/synth_engine/modules/synthesizer/job_models.py` — `SynthesisJob.owner_id`
+- `src/synth_engine/modules/synthesizer/jobs/job_models.py` — `SynthesisJob.owner_id`
 - `alembic/versions/008_add_owner_id_columns.py` — migration with explicit index DDL
 
 ---

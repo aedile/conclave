@@ -1,5 +1,7 @@
 # Conclave Engine — Human Developer Guide
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Audience**: Engineer onboarding to this codebase for the first time.
 
 **Purpose**: (a) How does this software work, and (b) how does the AI orchestration pipeline work — and how do you run it manually without AI?
@@ -197,7 +199,7 @@ Schema migrations: **Alembic**, files in `alembic/versions/`.
 
 ### Background Tasks
 
-Long-running synthesis jobs are queued via **Huey** (Redis-backed), singleton in `shared/task_queue.py`. Task functions live in `modules/synthesizer/tasks.py` and `shared/tasks/reaper.py`. Results stream to clients via SSE (`bootstrapper/sse.py` and the `jobs_streaming` router).
+Long-running synthesis jobs are queued via **Huey** (Redis-backed), singleton in `shared/task_queue.py`. Task functions live in `modules/synthesizer/jobs/tasks.py` and `shared/tasks/reaper.py`. Results stream to clients via SSE (`bootstrapper/sse.py` and the `jobs_streaming` router).
 
 ---
 
@@ -737,9 +739,9 @@ The same pattern applies to `DPCompatibleCTGAN`, `PrivacyEngine`, `torch`, and `
 
 | File | Names conditionally imported | Optional group |
 |------|------------------------------|----------------|
-| `modules/synthesizer/engine.py` | `CTGANSynthesizer` (sdv), `DPCompatibleCTGAN` | `synthesizer` |
-| `modules/synthesizer/dp_training.py` | `CTGANSynthesizer`, `CTGAN`, `Generator`, `detect_discrete_columns`, `torch`, `nn`, `DataLoader`, `TensorDataset` | `synthesizer` |
-| `modules/synthesizer/dp_discriminator.py` | `torch`, `nn` | `synthesizer` |
+| `modules/synthesizer/training/engine.py` | `CTGANSynthesizer` (sdv), `DPCompatibleCTGAN` | `synthesizer` |
+| `modules/synthesizer/training/dp_training.py` | `CTGANSynthesizer`, `CTGAN`, `Generator`, `detect_discrete_columns`, `torch`, `nn`, `DataLoader`, `TensorDataset` | `synthesizer` |
+| `modules/synthesizer/training/dp_discriminator.py` | `torch`, `nn` | `synthesizer` |
 | `modules/privacy/dp_engine.py` | `PrivacyEngine` (opacus) | `synthesizer` |
 | `bootstrapper/main.py` | `MinioStorageBackend` | `synthesizer` |
 | `shared/telemetry.py` | `OTLPSpanExporter` [1] | optional OTEL exporter |

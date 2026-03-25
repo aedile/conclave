@@ -1,5 +1,7 @@
 # Request Flow Documentation
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Audience**: Developer tracing a synthesis request from HTTP entry to database and back.
 
 **Purpose**: Eliminate the need to read 10+ files to understand a single end-to-end request. Every file reference, function name, and status transition has been verified against source code.
@@ -36,7 +38,7 @@ The synthesis request path crosses two runtime contexts:
 - **FastAPI process** (async, uvicorn): HTTP, JWT auth, request validation, `SynthesisJob` persistence, Huey enqueue.
 - **Huey worker process** (sync, Redis-backed): training loop, DP accounting, artifact generation. Separate OS process.
 
-The Huey queue (Redis) is the only coupling between contexts. The worker discovers tasks because `bootstrapper/main.py` imports `synth_engine.modules.synthesizer.tasks` at startup, registering `run_synthesis_job` with the shared Huey instance in `shared/task_queue.py`.
+The Huey queue (Redis) is the only coupling between contexts. The worker discovers tasks because `bootstrapper/main.py` imports `synth_engine.modules.synthesizer.jobs.tasks` at startup, registering `run_synthesis_job` with the shared Huey instance in `shared/task_queue.py`.
 
 ---
 
@@ -50,13 +52,13 @@ sequenceDiagram
     participant JobRouter as Jobs Router<br/>(bootstrapper/routers/jobs.py)
     participant DB as PostgreSQL<br/>(SynthesisJob table)
     participant Huey as Huey Queue<br/>(Redis)
-    participant Worker as Huey Worker<br/>(modules/synthesizer/tasks.py)
-    participant Orch as Orchestrator<br/>(modules/synthesizer/job_orchestration.py)
-    participant Engine as SynthesisEngine<br/>(modules/synthesizer/engine.py)
-    participant DP as DPCompatibleCTGAN<br/>(modules/synthesizer/dp_training.py)
+    participant Worker as Huey Worker<br/>(modules/synthesizer/jobs/tasks.py)
+    participant Orch as Orchestrator<br/>(modules/synthesizer/jobs/job_orchestration.py)
+    participant Engine as SynthesisEngine<br/>(modules/synthesizer/training/engine.py)
+    participant DP as DPCompatibleCTGAN<br/>(modules/synthesizer/training/dp_training.py)
     participant Privacy as PrivacyLedger<br/>(bootstrapper/factories.py → modules/privacy/)
     participant Audit as WORM Audit Log<br/>(shared/security/audit.py)
-    participant Finalize as Job Finalization<br/>(modules/synthesizer/job_finalization.py)
+    participant Finalize as Job Finalization<br/>(modules/synthesizer/jobs/job_finalization.py)
     participant SSE as SSE Stream<br/>(bootstrapper/routers/jobs_streaming.py)
 
     Note over Client,Middleware: Phase 1 — Create Job (sync, HTTP 201)
@@ -201,7 +203,7 @@ Defined in `bootstrapper/middleware.py`. Executes in LIFO order (last registered
 2. Constructs `SynthesisJob` with `status="QUEUED"` and `owner_id` from JWT `sub`.
 3. Persists via sync `sqlmodel.Session`. Returns `JobResponse` HTTP 201.
 
-Job record contains: `table_name`, `parquet_path`, `total_epochs`, `num_rows`, `checkpoint_every_n`, `enable_dp`, `noise_multiplier`, `max_grad_norm`, `owner_id`. Model: `modules/synthesizer/job_models.py`.
+Job record contains: `table_name`, `parquet_path`, `total_epochs`, `num_rows`, `checkpoint_every_n`, `enable_dp`, `noise_multiplier`, `max_grad_norm`, `owner_id`. Model: `modules/synthesizer/jobs/job_models.py`.
 
 No training starts here — the job waits for an explicit start call.
 
@@ -215,7 +217,7 @@ No training starts here — the job waits for an explicit start call.
 
 ### Step 3: Huey Task Entry Point
 
-**File**: `modules/synthesizer/tasks.py` — `run_synthesis_job(job_id, trace_carrier=None)`
+**File**: `modules/synthesizer/jobs/tasks.py` — `run_synthesis_job(job_id, trace_carrier=None)`
 
 1. `extract_trace_context(trace_carrier)` re-attaches the distributed trace.
 2. Opens a preflight session to read `job.enable_dp`, `job.max_grad_norm`, `job.noise_multiplier`.
@@ -226,32 +228,32 @@ The factory injection (`_dp_wrapper_factory`, `_spend_budget_fn`) is the DI mech
 
 ### Step 4: OOM Pre-flight Check
 
-**File**: `modules/synthesizer/job_orchestration.py` — `OomCheckStep.execute(ctx)`
+**File**: `modules/synthesizer/jobs/job_orchestration.py` — `OomCheckStep.execute(ctx)`
 
-Calls `check_memory_feasibility()` from `modules/synthesizer/guardrails.py` using Parquet row/column counts (via pyarrow), `_OOM_OVERHEAD_FACTOR = 6.0`, and `_OOM_DTYPE_BYTES = 8`.
+Calls `check_memory_feasibility()` from `modules/synthesizer/training/guardrails.py` using Parquet row/column counts (via pyarrow), `_OOM_OVERHEAD_FACTOR = 6.0`, and `_OOM_DTYPE_BYTES = 8`.
 
 On insufficient memory: returns `StepResult(success=False)`. The orchestrator sets `job.status = "FAILED"`. No status write occurs during the OOM check itself.
 
 ### Step 5: CTGAN Training
 
-**File**: `modules/synthesizer/job_orchestration.py` — `TrainingStep.execute(ctx)`
+**File**: `modules/synthesizer/jobs/job_orchestration.py` — `TrainingStep.execute(ctx)`
 
 1. Sets `job.status = "TRAINING"` (orchestrator sets status before `TrainingStep` fires).
-2. Calls `ctx.engine.train(table_name, parquet_path, dp_wrapper=ctx.dp_wrapper)` (`modules/synthesizer/engine.py`, `SynthesisEngine`).
+2. Calls `ctx.engine.train(table_name, parquet_path, dp_wrapper=ctx.dp_wrapper)` (`modules/synthesizer/training/engine.py`, `SynthesisEngine`).
    - `dp_wrapper=None`: uses `CTGANSynthesizer` from `sdv`.
-   - `dp_wrapper` set: uses `DPCompatibleCTGAN` from `modules/synthesizer/dp_training.py`.
+   - `dp_wrapper` set: uses `DPCompatibleCTGAN` from `modules/synthesizer/training/dp_training.py`.
 3. Saves checkpoint `.pkl` per epoch chunk. Updates `job.current_epoch` after each checkpoint.
 
-**DP path** (`modules/synthesizer/dp_training.py`, `DPCompatibleCTGAN`):
+**DP path** (`modules/synthesizer/training/dp_training.py`, `DPCompatibleCTGAN`):
 - `fit()` calls `_preprocess()` (SDV DataProcessor) then `_train_dp_discriminator()`.
-- Runs a WGAN loop with Opacus-wrapped discriminator (`modules/synthesizer/dp_discriminator.py`, `OpacusCompatibleDiscriminator`).
+- Runs a WGAN loop with Opacus-wrapped discriminator (`modules/synthesizer/training/dp_discriminator.py`, `OpacusCompatibleDiscriminator`).
 - `dp_wrapper.wrap()` activates `opacus.PrivacyEngine` on the discriminator optimizer (ADR-0036).
 - `dp_wrapper.check_budget()` called after every epoch as a mid-training guard.
 - On failure: falls back to `_activate_opacus_proxy()` + vanilla `CTGANSynthesizer`.
 
 ### Step 6: DP Accounting and Budget Deduction
 
-**File**: `modules/synthesizer/job_orchestration.py` — `DpAccountingStep.execute(ctx)` → `_handle_dp_accounting()`
+**File**: `modules/synthesizer/jobs/job_orchestration.py` — `DpAccountingStep.execute(ctx)` → `_handle_dp_accounting()`
 
 Skipped entirely if `ctx.dp_wrapper is None`.
 
@@ -264,11 +266,11 @@ The async `spend_budget()` in `modules/privacy/accountant.py` is only called fro
 
 ### Step 7: Synthetic Data Generation and Artifact Signing
 
-**File**: `modules/synthesizer/job_orchestration.py` — `GenerationStep.execute(ctx)`
+**File**: `modules/synthesizer/jobs/job_orchestration.py` — `GenerationStep.execute(ctx)`
 
 1. Orchestrator sets `job.status = "GENERATING"`.
 2. `ctx.engine.generate(ctx.last_artifact, n_rows=job.num_rows)` → `pandas.DataFrame`.
-3. `_write_parquet_with_signing(synthetic_df, parquet_out)` from `modules/synthesizer/job_finalization.py`:
+3. `_write_parquet_with_signing(synthetic_df, parquet_out)` from `modules/synthesizer/jobs/job_finalization.py`:
    - `df.to_parquet(path, index=False)`.
    - Versioned mode (`ARTIFACT_SIGNING_KEYS` / `ARTIFACT_SIGNING_KEY_ACTIVE`, T42.1): writes `KEY_ID (4 bytes) || HMAC-SHA256 (32 bytes)` sidecar via `shared/security/hmac_signing.sign_versioned()`.
    - Legacy mode (`ARTIFACT_SIGNING_KEY`): writes bare 32-byte HMAC sidecar via `shared/security/hmac_signing.compute_hmac()`.
@@ -277,7 +279,7 @@ The async `spend_budget()` in `modules/privacy/accountant.py` is only called fro
 
 ### Step 8: Job Finalization
 
-**File**: `modules/synthesizer/job_orchestration.py` — `_run_synthesis_job_impl()`
+**File**: `modules/synthesizer/jobs/job_orchestration.py` — `_run_synthesis_job_impl()`
 
 After `GenerationStep` succeeds: `job.status = "COMPLETE"` → commit → log.
 
@@ -337,7 +339,7 @@ Status transitions are exclusively owned by `_run_synthesis_job_impl()` in `job_
 In `bootstrapper/main.py` at module scope (Rule 8, ADR-0029):
 
 ```python
-from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks
+from synth_engine.modules.synthesizer.jobs import tasks as _synthesizer_tasks
 
 _synthesizer_tasks.set_dp_wrapper_factory(build_dp_wrapper)    # DI: ADR-0029
 _synthesizer_tasks.set_spend_budget_fn(build_spend_budget_fn())  # DI: T22.3
@@ -376,9 +378,9 @@ The new model must satisfy the duck-typed contract expected by `SynthesisEngine`
 - `model.fit(df)` — train on a pandas DataFrame.
 - `model.sample(num_rows=N)` — return a DataFrame with N rows.
 
-1. Add the model class in `modules/synthesizer/` (e.g., `vae_model.py`).
-2. Modify `SynthesisEngine.train()` in `modules/synthesizer/engine.py` to select it.
-3. Wrap GPU dependency imports in `try/except ImportError` (see existing pattern in `engine.py`).
+1. Add the model class in `modules/synthesizer/training/` (e.g., `vae_model.py`).
+2. Modify `SynthesisEngine.train()` in `modules/synthesizer/training/engine.py` to select it.
+3. Wrap GPU dependency imports in `try/except ImportError` (see existing pattern in `training/engine.py`).
 4. Add the dependency to `pyproject.toml` under `[tool.poetry.group.synthesizer]`.
 5. Write an ADR if the substitution is significant (Rule 6, CLAUDE.md).
 
@@ -390,7 +392,7 @@ The new model must satisfy the duck-typed contract expected by `SynthesisEngine`
 |---------|------|----------|------------|
 | Huey worker (sync) | `bootstrapper/factories.py` | `build_spend_budget_fn()._sync_wrapper` | After DP training |
 | FastAPI route (async) | `modules/privacy/accountant.py` | `spend_budget()` | From async privacy API routes |
-| Huey worker | `modules/synthesizer/job_orchestration.py` | `_handle_dp_accounting()` | Calls `_spend_budget_fn` |
+| Huey worker | `modules/synthesizer/jobs/job_orchestration.py` | `_handle_dp_accounting()` | Calls `_spend_budget_fn` |
 | Huey worker | `shared/security/audit.py` | `audit.log_event("PRIVACY_BUDGET_SPEND")` | After budget deduction |
 
 Both `spend_budget()` and `build_spend_budget_fn()._sync_wrapper` must implement the same pessimistic-locking protocol (`SELECT ... FOR UPDATE`). Both share the ledger model in `modules/privacy/ledger.py`.
