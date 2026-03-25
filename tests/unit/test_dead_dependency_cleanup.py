@@ -37,6 +37,7 @@ ENV_EXAMPLE = REPO_ROOT / ".env.example"
 CONFTEST_ROOT = REPO_ROOT / "tests" / "conftest.py"
 SETUP_AGILE_ENV = REPO_ROOT / "scripts" / "setup_agile_env.sh"
 MAIN_PY = REPO_ROOT / "src" / "synth_engine" / "bootstrapper" / "main.py"
+WIRING_PY = REPO_ROOT / "src" / "synth_engine" / "bootstrapper" / "wiring.py"
 DEPENDENCY_AUDIT_DOC = REPO_ROOT / "docs" / "DEPENDENCY_AUDIT.md"
 ADR_0007 = REPO_ROOT / "docs" / "adr" / "ADR-0007-jwt-library-selection.md"
 
@@ -304,13 +305,15 @@ class TestMainPyNoAnyEscapeHatches:
                     "or use a proper type alias (T55.5)."
                 )
 
-    def test_main_py_build_webhook_fn_not_returns_any(self) -> None:
-        """_build_webhook_delivery_fn must not have ``-> Any`` return type.
+    def test_wiring_py_build_webhook_fn_not_returns_any(self) -> None:
+        """_build_webhook_delivery_fn in wiring.py must not have ``-> Any`` return type.
 
+        T56.2: _build_webhook_delivery_fn moved from main.py to wiring.py.
         The return type must be ``Callable[[int, str], None]`` or equivalent —
         not ``Any`` which defeats mypy's ability to verify call sites.
         """
-        source = MAIN_PY.read_text()
+        # T56.2: _build_webhook_delivery_fn moved to wiring.py
+        source = WIRING_PY.read_text()
         tree = ast.parse(source)
 
         for node in ast.walk(tree):
