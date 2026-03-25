@@ -303,8 +303,10 @@ def _log_verification_failure(path: str, reason: str) -> None:
             path,
             reason,
         )
-    except Exception:  # noqa: S110  # nosec B110 — best-effort; must not block error propagation
-        pass
+    except Exception:  # best-effort; must not block error propagation
+        import sys
+
+        sys.stderr.write(f"CRITICAL: audit logging failed in _log_verification_failure: {path}\n")
 
 
 # Intentionally mutable: column_names, column_dtypes, and column_nullables

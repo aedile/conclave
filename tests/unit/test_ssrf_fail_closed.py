@@ -146,37 +146,41 @@ class TestSSRFFailClosedFeature:
             validate_callback_url("https://example.com/hook", strict=False)
 
     def test_webhook_registration_uses_strict_true(self) -> None:
-        """Webhook registration router calls validate_callback_url with strict=True.
+        """Webhook registration module calls validate_callback_url with strict=True.
 
         The bootstrapper registration endpoint must enforce fail-closed behavior
         by passing strict=True explicitly so that DNS failures reject the URL.
+        (P55 arch review: _ssrf_validate_registration wrapper inlined — this test
+        now verifies the inlined call at the module import level.)
 
         Args: none (no parameters).
         """
-        with patch(
-            "synth_engine.bootstrapper.routers.webhooks.validate_callback_url"
-        ) as mock_validate:
-            from synth_engine.bootstrapper.routers.webhooks import _ssrf_validate_registration
+        import inspect
 
-            _ssrf_validate_registration("https://example.com/hook")
+        import synth_engine.bootstrapper.routers.webhooks as webhooks_module
 
-        mock_validate.assert_called_once_with("https://example.com/hook", strict=True)
+        source = inspect.getsource(webhooks_module)
+        # Verify the inlined call uses strict=True
+        assert "validate_callback_url(body.callback_url, strict=True)" in source, (
+            "webhooks.py must call validate_callback_url with strict=True at registration"
+        )
 
     def test_webhook_delivery_uses_strict_false(self) -> None:
-        """Webhook delivery engine calls validate_callback_url with strict=False.
+        """Webhook delivery module calls validate_callback_url with strict=False.
 
         The delivery loop re-validates for DNS-rebinding protection but uses
         strict=False so that transient DNS failures do not abort delivery.
+        (P55 arch review: _ssrf_validate_delivery wrapper inlined — this test
+        now verifies the inlined call at the module import level.)
 
         Args: none (no parameters).
         """
-        with patch(
-            "synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"
-        ) as mock_validate:
-            from synth_engine.modules.synthesizer.webhook_delivery import (
-                _ssrf_validate_delivery,
-            )
+        import inspect
 
-            _ssrf_validate_delivery("https://example.com/hook")
+        import synth_engine.modules.synthesizer.webhook_delivery as delivery_module
 
-        mock_validate.assert_called_once_with("https://example.com/hook", strict=False)
+        source = inspect.getsource(delivery_module)
+        # Verify the inlined call uses strict=False
+        assert "validate_callback_url(registration.callback_url, strict=False)" in source, (
+            "webhook_delivery.py must call validate_callback_url with strict=False at delivery"
+        )

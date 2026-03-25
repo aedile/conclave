@@ -52,6 +52,8 @@ The allowlist includes only modules required for legitimate `ModelArtifact` dese
 | `sklearn` | scikit-learn transformers used by rdt/DataTransformer |
 | `scipy` | Statistical distributions used by copulas/SDV |
 | `joblib` | Serialization utility used by sklearn |
+| `faker` | Used internally by SDV/RDT for PII anonymization during training |
+| `random` | stdlib module used by numpy and torch internals |
 
 Any class not on this list raises `SecurityError` **before any bytecode is executed**.
 

@@ -203,7 +203,7 @@ class AuditLogger:
                 "AUDIT_CHAIN_CONTINUITY: could not read anchor file '%s': %s. "
                 "Starting from genesis.",
                 self._anchor_file_path,
-                exc,
+                type(exc).__name__,
             )
             return None
 
@@ -224,7 +224,30 @@ class AuditLogger:
                 "Starting from genesis.",
                 self._anchor_file_path,
                 last_line[:80],  # truncate to avoid leaking large content
-                exc,
+                type(exc).__name__,
+            )
+            return None
+
+        # Validate chain_head_hash before returning (red-team F1: T55 review)
+        from synth_engine.shared.security.audit_anchor import _validate_chain_head_hash
+
+        try:
+            _validate_chain_head_hash(chain_head_hash)
+        except ValueError as exc:
+            self._log.warning(
+                "AUDIT_CHAIN_CONTINUITY: anchor file '%s' chain_head_hash failed validation: %s. "
+                "Starting from genesis.",
+                self._anchor_file_path,
+                type(exc).__name__,
+            )
+            return None
+
+        if not isinstance(entry_count, int) or entry_count < 1:
+            self._log.warning(
+                "AUDIT_CHAIN_CONTINUITY: anchor file '%s' entry_count invalid: %r. "
+                "Starting from genesis.",
+                self._anchor_file_path,
+                entry_count,
             )
             return None
 
@@ -428,7 +451,8 @@ class AuditLogger:
             get_anchor_manager().maybe_anchor(chain_head, entry_count)
         except Exception as exc:  # broad catch intentional: anchoring is best-effort
             logging.getLogger(_AUDIT_LOGGER_NAME).warning(
-                "Audit anchoring failed (best-effort — event logging unaffected): %s", exc
+                "Audit anchoring failed (best-effort — event logging unaffected): %s",
+                type(exc).__name__,
             )
 
         return event

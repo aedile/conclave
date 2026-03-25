@@ -96,24 +96,6 @@ def _count_active_registrations(session: Session, owner_id: str) -> int:
     return len(results)
 
 
-def _ssrf_validate_registration(url: str) -> None:
-    """Run SSRF validation in strict (fail-closed) mode for registration.
-
-    Calls :func:`~synth_engine.shared.ssrf.validate_callback_url` with
-    ``strict=True`` so that DNS resolution failures cause the URL to be
-    rejected at registration time.
-
-    This prevents a DNS-pinning TOCTOU attack where an attacker registers an
-    unresolvable hostname, then updates its DNS record to point at an internal
-    address before delivery occurs.
-
-    Args:
-        url: Callback URL submitted in the registration request.
-
-    """
-    validate_callback_url(url, strict=True)
-
-
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -163,7 +145,8 @@ def register_webhook(
     # SSRF validation — strict=True (fail-closed): DNS failures reject the URL.
     # Log only the sanitized URL (no query string) to avoid token leakage.
     try:
-        _ssrf_validate_registration(body.callback_url)
+        validate_callback_url(body.callback_url, strict=True)
+        # strict=True: DNS failures reject registration (fail-closed, T55.4)
     except ValueError as exc:
         _logger.warning(
             "SSRF validation rejected callback URL for operator %s: %s",

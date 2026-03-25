@@ -90,26 +90,6 @@ class DeliveryResult:
 # ---------------------------------------------------------------------------
 
 
-def _ssrf_validate_delivery(url: str) -> None:
-    """Run SSRF validation in permissive (fail-open) mode for delivery.
-
-    Calls :func:`~synth_engine.shared.ssrf.validate_callback_url` with
-    ``strict=False`` so that transient DNS failures do not abort in-flight
-    delivery attempts.  The HTTP request itself will surface connectivity
-    errors for truly unreachable hosts.
-
-    This is deliberately less strict than registration-time validation
-    (``strict=True``) because at delivery time the host has already passed the
-    registration SSRF gate.  The re-validation here guards against
-    DNS-rebinding attacks where the record is changed *after* registration.
-
-    Args:
-        url: Callback URL of the webhook registration being delivered.
-
-    """
-    validate_callback_url(url, strict=False)
-
-
 # ---------------------------------------------------------------------------
 # HMAC signing
 # ---------------------------------------------------------------------------
@@ -212,7 +192,8 @@ def deliver_webhook(
         # DNS-rebinding protection: re-validate before each attempt.
         # strict=False: DNS failures are fail-open at delivery time.
         try:
-            _ssrf_validate_delivery(registration.callback_url)
+            validate_callback_url(registration.callback_url, strict=False)
+            # strict=False: DNS failures are fail-open at delivery time (T55.4)
         except ValueError as ssrf_exc:
             _logger.error(
                 "SSRF validation failed for registration %s (attempt %d): %s",
