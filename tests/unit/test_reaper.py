@@ -613,7 +613,7 @@ class TestSQLAlchemyTaskRepository:
 
         from sqlmodel import Session
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         created_at = datetime.now(UTC) - timedelta(minutes=minutes_old)
         job = SynthesisJob(
@@ -639,7 +639,7 @@ class TestSQLAlchemyTaskRepository:
         """
         from datetime import UTC, datetime, timedelta
 
-        from synth_engine.modules.synthesizer.reaper_repository import (
+        from synth_engine.modules.synthesizer.storage.reaper_repository import (
             SQLAlchemyTaskRepository,
         )
 
@@ -661,7 +661,7 @@ class TestSQLAlchemyTaskRepository:
         """
         from datetime import UTC, datetime, timedelta
 
-        from synth_engine.modules.synthesizer.reaper_repository import (
+        from synth_engine.modules.synthesizer.storage.reaper_repository import (
             SQLAlchemyTaskRepository,
         )
 
@@ -682,7 +682,7 @@ class TestSQLAlchemyTaskRepository:
         """
         from datetime import UTC, datetime, timedelta
 
-        from synth_engine.modules.synthesizer.reaper_repository import (
+        from synth_engine.modules.synthesizer.storage.reaper_repository import (
             SQLAlchemyTaskRepository,
         )
 
@@ -702,7 +702,7 @@ class TestSQLAlchemyTaskRepository:
         """
         from datetime import UTC, datetime, timedelta
 
-        from synth_engine.modules.synthesizer.reaper_repository import (
+        from synth_engine.modules.synthesizer.storage.reaper_repository import (
             SQLAlchemyTaskRepository,
         )
 
@@ -722,8 +722,8 @@ class TestSQLAlchemyTaskRepository:
         """
         from sqlmodel import Session
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.reaper_repository import (
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.storage.reaper_repository import (
             SQLAlchemyTaskRepository,
         )
 
@@ -747,7 +747,7 @@ class TestSQLAlchemyTaskRepository:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.reaper_repository import (
+        from synth_engine.modules.synthesizer.storage.reaper_repository import (
             SQLAlchemyTaskRepository,
         )
 
@@ -784,7 +784,7 @@ class TestPeriodicReapOrphanTasks:
             The inner function of periodic_reap_orphan_tasks, bypassing the
             @huey.lock_task Redis lock wrapper.
         """
-        from synth_engine.modules.synthesizer.reaper_tasks import (
+        from synth_engine.modules.synthesizer.storage.reaper_tasks import (
             periodic_reap_orphan_tasks,
         )
 
@@ -835,7 +835,7 @@ class TestPeriodicReapOrphanTasks:
             patch("synth_engine.shared.settings.get_settings", return_value=mock_settings),
             patch("synth_engine.shared.db.get_engine", return_value=mock_engine),
             patch(
-                "synth_engine.modules.synthesizer.reaper_repository.SQLAlchemyTaskRepository",
+                "synth_engine.modules.synthesizer.storage.reaper_repository.SQLAlchemyTaskRepository",
                 return_value=mock_repo,
             ),
             patch(

@@ -241,7 +241,7 @@ class TestJobFinalizationSigningKeyErrorLog:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.job_finalization import (
+        from synth_engine.modules.synthesizer.jobs.job_finalization import (
             _write_parquet_with_signing,
         )
 
@@ -290,7 +290,7 @@ class TestJobFinalizationSigningKeyErrorLog:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.job_finalization import (
+        from synth_engine.modules.synthesizer.jobs.job_finalization import (
             _write_parquet_with_signing,
         )
 
@@ -334,7 +334,7 @@ class TestJobFinalizationSigningKeyErrorLog:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.job_finalization import (
+        from synth_engine.modules.synthesizer.jobs.job_finalization import (
             _write_parquet_with_signing,
         )
 

@@ -137,7 +137,9 @@ class TestBuildDpWrapperImportBoundary:
         Import boundary: synthesizer must not know the concrete DPTrainingWrapper type.
         The dp_wrapper parameter is typed as Any to enforce this boundary.
         """
-        engine_path = pathlib.Path("src/synth_engine/modules/synthesizer/engine.py").resolve()
+        engine_path = pathlib.Path(
+            "src/synth_engine/modules/synthesizer/training/engine.py"
+        ).resolve()
         source = engine_path.read_text(encoding="utf-8")
         tree = ast.parse(source)
 
@@ -171,14 +173,18 @@ class TestSynthesisEngineRoutes:
 
     def test_train_without_dp_wrapper_uses_ctgan_synthesizer(self) -> None:
         """train() without dp_wrapper must use CTGANSynthesizer (vanilla path)."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         df = self._make_persons_df()
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
-            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.DPCompatibleCTGAN"
+            ) as mock_dp_ctgan,
         ):
             mock_instance = MagicMock()
             mock_ctgan.return_value = mock_instance
@@ -197,16 +203,18 @@ class TestSynthesisEngineRoutes:
 
     def test_train_with_dp_wrapper_uses_dp_compatible_ctgan(self) -> None:
         """train() with dp_wrapper must use DPCompatibleCTGAN (DP path)."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         df = self._make_persons_df()
         mock_dp_wrapper = MagicMock()
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer"),
-            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
+            patch("synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"),
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.DPCompatibleCTGAN"
+            ) as mock_dp_ctgan,
         ):
             mock_dp_instance = MagicMock()
             mock_dp_instance.fit.return_value = mock_dp_instance
@@ -230,16 +238,18 @@ class TestSynthesisEngineRoutes:
 
     def test_train_with_dp_wrapper_returns_model_artifact(self) -> None:
         """train() with dp_wrapper must return a ModelArtifact."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         df = self._make_persons_df()
         mock_dp_wrapper = MagicMock()
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer"),
-            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
+            patch("synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"),
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.DPCompatibleCTGAN"
+            ) as mock_dp_ctgan,
         ):
             mock_dp_instance = MagicMock()
             mock_dp_instance.fit.return_value = mock_dp_instance
@@ -270,16 +280,20 @@ class TestSynthesisEngineRoutes:
         """
         import logging
 
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         df = self._make_persons_df()
         mock_dp_wrapper = MagicMock()
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer"),
-            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
-            caplog.at_level(logging.WARNING, logger="synth_engine.modules.synthesizer.engine"),
+            patch("synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"),
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.DPCompatibleCTGAN"
+            ) as mock_dp_ctgan,
+            caplog.at_level(
+                logging.WARNING, logger="synth_engine.modules.synthesizer.training.engine"
+            ),
         ):
             mock_dp_instance = MagicMock()
             mock_dp_instance.fit.return_value = mock_dp_instance
@@ -308,15 +322,17 @@ class TestSynthesisEngineRoutes:
 
     def test_dp_compatible_ctgan_receives_dp_wrapper(self) -> None:
         """DPCompatibleCTGAN must receive the dp_wrapper when train() routes to it."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         df = self._make_persons_df()
         mock_dp_wrapper = MagicMock()
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer"),
-            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
+            patch("synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"),
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.DPCompatibleCTGAN"
+            ) as mock_dp_ctgan,
         ):
             mock_dp_instance = MagicMock()
             mock_dp_instance.fit.return_value = mock_dp_instance

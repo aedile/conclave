@@ -9,8 +9,8 @@ Patch-path compatibility
 ------------------------
 Existing tests patch names in ``job_orchestration``::
 
-    patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn")
-    patch("synth_engine.modules.synthesizer.job_orchestration.get_audit_logger")
+    patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn")
+    patch("synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger")
 
 ``_handle_dp_accounting`` preserves this by reading both names from
 ``job_orchestration``'s live namespace at call time (lazy module reference).
@@ -57,8 +57,8 @@ from synth_engine.shared.exceptions import (
 )
 
 if TYPE_CHECKING:
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
-    from synth_engine.modules.synthesizer.job_orchestration import JobContext, StepResult
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_orchestration import JobContext, StepResult
     from synth_engine.shared.protocols import DPWrapperProtocol
 
 _logger = logging.getLogger(__name__)
@@ -126,7 +126,7 @@ def _handle_dp_accounting(
     """
     # Late import: avoids circular dependency with job_orchestration and
     # ensures we read the live (potentially patched) module-level bindings.
-    import synth_engine.modules.synthesizer.job_orchestration as _orch
+    import synth_engine.modules.synthesizer.jobs.job_orchestration as _orch
 
     try:
         actual_eps = dp_wrapper.epsilon_spent(delta=DP_EPSILON_DELTA)
@@ -222,7 +222,7 @@ class DpAccountingStep:
         """
         # Late import avoids circular dependency; job_orchestration is already
         # in sys.modules by the time execute() is called.
-        from synth_engine.modules.synthesizer.job_orchestration import StepResult
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import StepResult
 
         if ctx.dp_wrapper is None:
             return StepResult(success=True)

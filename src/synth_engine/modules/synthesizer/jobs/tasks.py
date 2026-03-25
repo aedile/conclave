@@ -14,9 +14,9 @@ Status lifecycle::
 This module is the Huey task entry point only.  Implementation is split
 across two focused sub-modules (P26-T26.1):
 
-- :mod:`synth_engine.modules.synthesizer.job_orchestration` — training loop,
+- :mod:`synth_engine.modules.synthesizer.jobs.job_orchestration` — training loop,
   DP accounting, OOM pre-flight, and the injectable ``_run_synthesis_job_impl``.
-- :mod:`synth_engine.modules.synthesizer.job_finalization` — Parquet artifact
+- :mod:`synth_engine.modules.synthesizer.jobs.job_finalization` — Parquet artifact
   persistence and HMAC-SHA256 signing.
 
 Re-exports for backward compatibility
@@ -24,12 +24,12 @@ Re-exports for backward compatibility
 The following names are re-exported from this module because they are
 verifiably used as import targets from this namespace in the test suite::
 
-    from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
-    from synth_engine.modules.synthesizer.tasks import set_dp_wrapper_factory
-    from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn
-    from synth_engine.modules.synthesizer.tasks import _OOM_FALLBACK_ROWS
-    from synth_engine.modules.synthesizer.tasks import _OOM_FALLBACK_COLUMNS
-    from synth_engine.modules.synthesizer.tasks import _get_parquet_dimensions
+    from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+    from synth_engine.modules.synthesizer.jobs.tasks import set_dp_wrapper_factory
+    from synth_engine.modules.synthesizer.jobs.tasks import set_spend_budget_fn
+    from synth_engine.modules.synthesizer.jobs.tasks import _OOM_FALLBACK_ROWS
+    from synth_engine.modules.synthesizer.jobs.tasks import _OOM_FALLBACK_COLUMNS
+    from synth_engine.modules.synthesizer.jobs.tasks import _get_parquet_dimensions
 
 Internal helpers and constants that are only needed inside job_orchestration
 (e.g. _OOM_OVERHEAD_FACTOR, _DEFAULT_LEDGER_ID, _generate_and_finalize)
@@ -39,7 +39,7 @@ Bootstrapper wiring note (Rule 8)
 -----------------------------------
 ``bootstrapper/main.py`` imports this module at startup via::
 
-    from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: F401
+    from synth_engine.modules.synthesizer.jobs import tasks as _synthesizer_tasks  # noqa: F401
 
 This side-effect registers ``run_synthesis_job`` with the shared Huey instance
 so the worker process discovers it.  The bootstrapper also calls
@@ -87,13 +87,13 @@ import logging
 # mutates job_orchestration's module-level globals.
 #
 # Only names that are verifiably used as import targets from this module's
-# namespace (grep: synth_engine.modules.synthesizer.tasks.<name>) are kept.
+# namespace (grep: synth_engine.modules.synthesizer.jobs.tasks.<name>) are kept.
 # Internal helpers and constants that are only needed inside job_orchestration
 # itself are NOT re-exported; tests and callers that need them should import
 # directly from job_orchestration.
 # ---------------------------------------------------------------------------
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
-from synth_engine.modules.synthesizer.job_orchestration import (  # noqa: F401
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_orchestration import (  # noqa: F401
     _OOM_FALLBACK_COLUMNS,
     _OOM_FALLBACK_ROWS,
     _get_parquet_dimensions,
@@ -171,7 +171,7 @@ def run_synthesis_job(job_id: int, *, trace_carrier: dict[str, str] | None = Non
     # value (set by bootstrapper via set_dp_wrapper_factory).  A module-level
     # import would bind to the value at import time (None) and miss later
     # injections.
-    import synth_engine.modules.synthesizer.job_orchestration as _orch
+    import synth_engine.modules.synthesizer.jobs.job_orchestration as _orch
 
     # T25.2 AC1-AC3: Re-attach the distributed trace context propagated
     # from the dispatch site. extract_trace_context handles None gracefully
@@ -183,7 +183,7 @@ def run_synthesis_job(job_id: int, *, trace_carrier: dict[str, str] | None = Non
     with _task_tracer.start_as_current_span("run_synthesis_job", context=_trace_ctx):
         from sqlmodel import Session
 
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
         from synth_engine.shared.db import get_worker_engine
         from synth_engine.shared.settings import get_settings
 

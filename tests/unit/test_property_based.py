@@ -635,7 +635,7 @@ def test_row_count_bucket_always_returns_valid_label(n: int) -> None:
     Args:
         n: Arbitrary non-negative row count.
     """
-    from synth_engine.modules.synthesizer.engine import _row_count_bucket
+    from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
     result = _row_count_bucket(n)
     assert result in _VALID_BUCKET_LABELS, (
@@ -660,7 +660,7 @@ def test_row_count_bucket_monotonic_ordering(a: int, b: int) -> None:
         a: First non-negative row count.
         b: Second non-negative row count.
     """
-    from synth_engine.modules.synthesizer.engine import _row_count_bucket
+    from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
     lo, hi = (a, b) if a <= b else (b, a)
     bucket_lo = _BUCKET_ORDER.index(_row_count_bucket(lo))
@@ -697,7 +697,7 @@ def test_apply_fk_post_processing_no_orphans_remain(
     """
     import pandas as pd
 
-    from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+    from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
     child_df = pd.DataFrame({"parent_id": fk_values})
     result = apply_fk_post_processing(
@@ -730,7 +730,7 @@ def test_apply_fk_post_processing_preserves_row_count(
     """
     import pandas as pd
 
-    from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+    from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
     child_df = pd.DataFrame({"parent_id": fk_values})
     result = apply_fk_post_processing(

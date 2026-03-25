@@ -26,7 +26,7 @@ from tests.unit.helpers_synthesizer import _make_synthesis_job
 
 def _make_job_context(job: Any = None, **kwargs: Any) -> Any:
     """Build a JobContext with sensible defaults for unit tests."""
-    from synth_engine.modules.synthesizer.job_steps import JobContext
+    from synth_engine.modules.synthesizer.jobs.job_steps import JobContext
 
     if job is None:
         job = _make_synthesis_job()
@@ -52,7 +52,7 @@ class TestJobContext:
 
     def test_job_context_is_importable(self) -> None:
         """JobContext must be importable from job_steps."""
-        from synth_engine.modules.synthesizer.job_steps import JobContext  # noqa: F401
+        from synth_engine.modules.synthesizer.jobs.job_steps import JobContext  # noqa: F401
 
     def test_job_context_has_job_field(self) -> None:
         """JobContext must have a job field holding the SynthesisJob record."""
@@ -98,11 +98,11 @@ class TestStepResult:
 
     def test_step_result_is_importable(self) -> None:
         """StepResult must be importable from job_steps."""
-        from synth_engine.modules.synthesizer.job_steps import StepResult  # noqa: F401
+        from synth_engine.modules.synthesizer.jobs.job_steps import StepResult  # noqa: F401
 
     def test_step_result_success_true(self) -> None:
         """StepResult(success=True) must be constructable."""
-        from synth_engine.modules.synthesizer.job_steps import StepResult
+        from synth_engine.modules.synthesizer.jobs.job_steps import StepResult
 
         result = StepResult(success=True)
         assert result.success is True
@@ -110,7 +110,7 @@ class TestStepResult:
 
     def test_step_result_failure_with_msg(self) -> None:
         """StepResult(success=False, error_msg=...) must carry the failure message."""
-        from synth_engine.modules.synthesizer.job_steps import StepResult
+        from synth_engine.modules.synthesizer.jobs.job_steps import StepResult
 
         result = StepResult(success=False, error_msg="OOM: 6.8 GiB estimated")
         assert result.success is False
@@ -127,11 +127,11 @@ class TestSynthesisJobStepProtocol:
 
     def test_protocol_is_importable(self) -> None:
         """SynthesisJobStep must be importable from job_steps."""
-        from synth_engine.modules.synthesizer.job_steps import SynthesisJobStep  # noqa: F401
+        from synth_engine.modules.synthesizer.jobs.job_steps import SynthesisJobStep  # noqa: F401
 
     def test_all_step_classes_are_importable(self) -> None:
         """All concrete step classes must be importable from job_steps."""
-        from synth_engine.modules.synthesizer.job_steps import (  # noqa: F401
+        from synth_engine.modules.synthesizer.jobs.job_steps import (  # noqa: F401
             DpAccountingStep,
             GenerationStep,
             OomCheckStep,
@@ -140,7 +140,7 @@ class TestSynthesisJobStepProtocol:
 
     def test_all_steps_have_execute_method(self) -> None:
         """All concrete step classes must have an execute(ctx) method."""
-        from synth_engine.modules.synthesizer.job_steps import (
+        from synth_engine.modules.synthesizer.jobs.job_steps import (
             DpAccountingStep,
             GenerationStep,
             OomCheckStep,
@@ -161,12 +161,14 @@ class TestOomCheckStepIsolation:
 
     def test_oom_check_step_returns_success_when_memory_ok(self) -> None:
         """OomCheckStep.execute() must return StepResult(success=True) when memory OK."""
-        from synth_engine.modules.synthesizer.job_steps import OomCheckStep, StepResult
+        from synth_engine.modules.synthesizer.jobs.job_steps import OomCheckStep, StepResult
 
         ctx = _make_job_context()
         step = OomCheckStep()
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             result = step.execute(ctx)
 
         assert isinstance(result, StepResult)
@@ -174,14 +176,14 @@ class TestOomCheckStepIsolation:
 
     def test_oom_check_step_returns_failure_on_oom(self) -> None:
         """OomCheckStep.execute() must return StepResult(success=False) on OOMGuardrailError."""
-        from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError
-        from synth_engine.modules.synthesizer.job_steps import OomCheckStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import OomCheckStep
+        from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         ctx = _make_job_context()
         step = OomCheckStep()
 
         with patch(
-            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("6.8 GiB estimated, 4.0 GiB available"),
         ):
             result = step.execute(ctx)
@@ -195,15 +197,15 @@ class TestOomCheckStepIsolation:
 
         AC4: Job status transitions centralized — only the orchestrator sets job.status.
         """
-        from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError
-        from synth_engine.modules.synthesizer.job_steps import OomCheckStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import OomCheckStep
+        from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         job = _make_synthesis_job(status="QUEUED")
         ctx = _make_job_context(job=job)
         step = OomCheckStep()
 
         with patch(
-            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("too big"),
         ):
             step.execute(ctx)
@@ -224,7 +226,7 @@ class TestTrainingStepIsolation:
 
     def test_training_step_returns_success_on_normal_run(self) -> None:
         """TrainingStep.execute() must return StepResult(success=True) when training succeeds."""
-        from synth_engine.modules.synthesizer.job_steps import StepResult, TrainingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import StepResult, TrainingStep
 
         mock_engine = MagicMock()
         mock_artifact = MagicMock()
@@ -241,7 +243,7 @@ class TestTrainingStepIsolation:
 
     def test_training_step_returns_failure_on_runtime_error(self) -> None:
         """TrainingStep.execute() must return StepResult(success=False) on RuntimeError."""
-        from synth_engine.modules.synthesizer.job_steps import TrainingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import TrainingStep
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA OOM")
@@ -266,7 +268,7 @@ class TestTrainingStepIsolation:
         job = _make_synthesis_job(id=1, total_epochs=5, checkpoint_every_n=5, status="TRAINING")
         ctx = _make_job_context(job=job, engine=mock_engine)
 
-        from synth_engine.modules.synthesizer.job_steps import TrainingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import TrainingStep
 
         TrainingStep().execute(ctx)
 
@@ -277,7 +279,7 @@ class TestTrainingStepIsolation:
 
     def test_training_step_calls_engine_train(self) -> None:
         """TrainingStep.execute() must call engine.train() at least once."""
-        from synth_engine.modules.synthesizer.job_steps import TrainingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import TrainingStep
 
         mock_engine = MagicMock()
         mock_artifact = MagicMock()
@@ -291,7 +293,7 @@ class TestTrainingStepIsolation:
 
     def test_training_step_sets_context_last_artifact(self) -> None:
         """TrainingStep.execute() must store the last trained artifact on the context."""
-        from synth_engine.modules.synthesizer.job_steps import TrainingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import TrainingStep
 
         mock_engine = MagicMock()
         mock_artifact = MagicMock()

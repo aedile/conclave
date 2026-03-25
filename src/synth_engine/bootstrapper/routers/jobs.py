@@ -47,9 +47,9 @@ from synth_engine.bootstrapper.schemas.jobs import (
     JobListResponse,
     JobResponse,
 )
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
-from synth_engine.modules.synthesizer.shred import shred_artifacts
-from synth_engine.modules.synthesizer.tasks import run_synthesis_job
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.tasks import run_synthesis_job
+from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.telemetry import inject_trace_context
 

@@ -35,7 +35,7 @@ from tests.unit.helpers_synthesizer import _make_synthesis_job
 
 def _make_job_context(job: Any = None, **kwargs: Any) -> Any:
     """Build a JobContext with sensible defaults for unit tests."""
-    from synth_engine.modules.synthesizer.job_orchestration import JobContext
+    from synth_engine.modules.synthesizer.jobs.job_orchestration import JobContext
 
     if job is None:
         job = _make_synthesis_job()
@@ -61,11 +61,11 @@ class TestDpAccountingModuleExists:
 
     def test_module_is_importable(self) -> None:
         """dp_accounting module must be importable from the synthesizer package."""
-        import synth_engine.modules.synthesizer.dp_accounting  # noqa: F401
+        import synth_engine.modules.synthesizer.training.dp_accounting  # noqa: F401
 
     def test_audit_reconciliation_msg_is_exported(self) -> None:
         """_AUDIT_RECONCILIATION_MSG constant must be present in dp_accounting."""
-        from synth_engine.modules.synthesizer.dp_accounting import (
+        from synth_engine.modules.synthesizer.training.dp_accounting import (
             _AUDIT_RECONCILIATION_MSG,
         )
 
@@ -74,7 +74,7 @@ class TestDpAccountingModuleExists:
 
     def test_handle_dp_accounting_is_exported(self) -> None:
         """_handle_dp_accounting() function must be present in dp_accounting."""
-        from synth_engine.modules.synthesizer.dp_accounting import (
+        from synth_engine.modules.synthesizer.training.dp_accounting import (
             _handle_dp_accounting,
         )
 
@@ -82,13 +82,13 @@ class TestDpAccountingModuleExists:
 
     def test_dp_accounting_step_is_exported(self) -> None:
         """DpAccountingStep class must be present in dp_accounting."""
-        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+        from synth_engine.modules.synthesizer.training.dp_accounting import DpAccountingStep
 
         assert isinstance(DpAccountingStep(), DpAccountingStep)
 
     def test_dp_accounting_step_has_execute_method(self) -> None:
         """DpAccountingStep must implement the SynthesisJobStep protocol."""
-        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+        from synth_engine.modules.synthesizer.training.dp_accounting import DpAccountingStep
 
         step = DpAccountingStep()
         assert hasattr(step, "execute")
@@ -105,7 +105,7 @@ class TestDpAccountingConstants:
 
     def test_audit_reconciliation_msg_content(self) -> None:
         """_AUDIT_RECONCILIATION_MSG must mention reconciliation for operators."""
-        from synth_engine.modules.synthesizer.dp_accounting import (
+        from synth_engine.modules.synthesizer.training.dp_accounting import (
             _AUDIT_RECONCILIATION_MSG,
         )
 
@@ -117,11 +117,11 @@ class TestDpAccountingConstants:
         Ensures the constant is the single source of truth and was not duplicated
         with a different value.
         """
-        from synth_engine.modules.synthesizer.dp_accounting import (
-            _AUDIT_RECONCILIATION_MSG as DP_MSG,
-        )
-        from synth_engine.modules.synthesizer.job_orchestration import (
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import (
             _AUDIT_RECONCILIATION_MSG as ORCH_MSG,
+        )
+        from synth_engine.modules.synthesizer.training.dp_accounting import (
+            _AUDIT_RECONCILIATION_MSG as DP_MSG,
         )
 
         assert DP_MSG == ORCH_MSG, (
@@ -145,11 +145,11 @@ class TestDpAccountingStepIdentity:
         After extraction, job_orchestration imports DpAccountingStep FROM
         dp_accounting — there must be exactly one class definition.
         """
-        from synth_engine.modules.synthesizer.dp_accounting import (
-            DpAccountingStep as DpFromDpModule,
-        )
-        from synth_engine.modules.synthesizer.job_orchestration import (
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import (
             DpAccountingStep as DpFromOrchModule,
+        )
+        from synth_engine.modules.synthesizer.training.dp_accounting import (
+            DpAccountingStep as DpFromDpModule,
         )
 
         assert DpFromDpModule is DpFromOrchModule, (
@@ -170,16 +170,16 @@ class TestHandleDpAccountingBehaviour:
 
     def test_sets_actual_epsilon_on_job(self) -> None:
         """_handle_dp_accounting must set job.actual_epsilon from dp_wrapper."""
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
 
         job = _make_synthesis_job(id=1)
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 1.23
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -189,7 +189,7 @@ class TestHandleDpAccountingBehaviour:
 
     def test_raises_epsilon_measurement_error_on_epsilon_spent_failure(self) -> None:
         """_handle_dp_accounting must raise EpsilonMeasurementError when epsilon_spent() fails."""
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
         from synth_engine.shared.exceptions import EpsilonMeasurementError
 
         job = _make_synthesis_job(id=1)
@@ -197,9 +197,9 @@ class TestHandleDpAccountingBehaviour:
         mock_wrapper.epsilon_spent.side_effect = RuntimeError("DP crashed")
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
             pytest.raises(EpsilonMeasurementError),
@@ -208,7 +208,7 @@ class TestHandleDpAccountingBehaviour:
 
     def test_raises_budget_exhaustion_error_when_budget_exhausted(self) -> None:
         """_handle_dp_accounting must re-raise BudgetExhaustionError from spend_budget_fn."""
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         job = _make_synthesis_job(id=1)
@@ -224,11 +224,11 @@ class TestHandleDpAccountingBehaviour:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
             pytest.raises(BudgetExhaustionError),
@@ -237,7 +237,7 @@ class TestHandleDpAccountingBehaviour:
 
     def test_raises_audit_write_error_when_audit_fails_after_budget_spend(self) -> None:
         """_handle_dp_accounting must raise AuditWriteError when audit fails post-budget-spend."""
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
         from synth_engine.shared.exceptions import AuditWriteError
 
         job = _make_synthesis_job(id=1)
@@ -249,11 +249,11 @@ class TestHandleDpAccountingBehaviour:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=mock_audit,
             ),
             pytest.raises(AuditWriteError),
@@ -267,7 +267,7 @@ class TestHandleDpAccountingBehaviour:
         (e.g. via a custom dp_wrapper), the function must return without calling
         spend_budget_fn.
         """
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
 
         job = _make_synthesis_job(id=1)
         mock_wrapper = MagicMock()
@@ -277,11 +277,11 @@ class TestHandleDpAccountingBehaviour:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -302,7 +302,7 @@ class TestHandleDpAccountingBehaviour:
         Replaces: test_raises_audit_write_error_when_spend_budget_fn_raises_connection_error
         (which documented the OLD, incorrect wrapping behaviour).
         """
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
 
         job = _make_synthesis_job(id=1)
         mock_wrapper = MagicMock()
@@ -311,11 +311,11 @@ class TestHandleDpAccountingBehaviour:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
             pytest.raises(ConnectionError, match="DB unreachable"),
@@ -333,7 +333,7 @@ class TestHandleDpAccountingBehaviour:
         Replaces: test_unknown_exception_from_spend_budget_fn_does_not_propagate_raw
         (which documented the OLD, incorrect wrapping behaviour).
         """
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
 
         job = _make_synthesis_job(id=1)
         mock_wrapper = MagicMock()
@@ -348,11 +348,11 @@ class TestHandleDpAccountingBehaviour:
 
             with (
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                     mock_budget_fn,
                 ),
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                     return_value=MagicMock(),
                 ),
                 pytest.raises(exc_type),
@@ -366,7 +366,7 @@ class TestHandleDpAccountingBehaviour:
         EpsilonMeasurementError and only logs it, the caller cannot react
         correctly (e.g. the job would appear successful while epsilon is unknown).
         """
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
         from synth_engine.shared.exceptions import EpsilonMeasurementError
 
         job = _make_synthesis_job(id=1)
@@ -378,11 +378,11 @@ class TestHandleDpAccountingBehaviour:
         try:
             with (
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                     None,
                 ),
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                     return_value=MagicMock(),
                 ),
             ):
@@ -402,7 +402,7 @@ class TestHandleDpAccountingBehaviour:
         the orchestration layer can mark the job as FAILED. Silent swallowing
         would allow the job to continue consuming budget past the limit.
         """
-        from synth_engine.modules.synthesizer.dp_accounting import _handle_dp_accounting
+        from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         job = _make_synthesis_job(id=1)
@@ -420,11 +420,11 @@ class TestHandleDpAccountingBehaviour:
         try:
             with (
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                     mock_budget_fn,
                 ),
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                     return_value=MagicMock(),
                 ),
             ):
@@ -448,7 +448,7 @@ class TestDpAccountingStepFromDpAccountingModule:
 
     def test_step_returns_success_when_no_dp_wrapper(self) -> None:
         """DpAccountingStep.execute() must return success when dp_wrapper is None."""
-        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+        from synth_engine.modules.synthesizer.training.dp_accounting import DpAccountingStep
 
         ctx = _make_job_context(dp_wrapper=None)
         result = DpAccountingStep().execute(ctx)
@@ -457,7 +457,7 @@ class TestDpAccountingStepFromDpAccountingModule:
 
     def test_step_returns_success_on_normal_dp_flow(self) -> None:
         """DpAccountingStep.execute() must return success when DP accounting completes."""
-        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+        from synth_engine.modules.synthesizer.training.dp_accounting import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 0.5
@@ -465,9 +465,9 @@ class TestDpAccountingStepFromDpAccountingModule:
         ctx = _make_job_context(dp_wrapper=mock_wrapper)
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -477,7 +477,7 @@ class TestDpAccountingStepFromDpAccountingModule:
 
     def test_step_returns_failure_on_budget_exhaustion(self) -> None:
         """DpAccountingStep.execute() must return failure on BudgetExhaustionError."""
-        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+        from synth_engine.modules.synthesizer.training.dp_accounting import DpAccountingStep
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         mock_wrapper = MagicMock()
@@ -494,11 +494,11 @@ class TestDpAccountingStepFromDpAccountingModule:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -514,7 +514,7 @@ class TestDpAccountingStepFromDpAccountingModule:
         confirm the error message is the expected human-readable string, not an
         accidentally swallowed value or an empty string.
         """
-        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+        from synth_engine.modules.synthesizer.training.dp_accounting import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.side_effect = RuntimeError("DP crash")
@@ -522,9 +522,9 @@ class TestDpAccountingStepFromDpAccountingModule:
         ctx = _make_job_context(dp_wrapper=mock_wrapper)
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -541,7 +541,7 @@ class TestDpAccountingStepFromDpAccountingModule:
         Hardened (T49.1): kept ``is not None`` check and added length check to
         confirm the error message is non-empty and contains the sentinel word.
         """
-        from synth_engine.modules.synthesizer.dp_accounting import (
+        from synth_engine.modules.synthesizer.training.dp_accounting import (
             _AUDIT_RECONCILIATION_MSG,
             DpAccountingStep,
         )
@@ -556,11 +556,11 @@ class TestDpAccountingStepFromDpAccountingModule:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=mock_audit,
             ),
         ):
@@ -585,7 +585,7 @@ class TestDpAccountingStepFromDpAccountingModule:
         The catch-all must NOT re-raise, must NOT return success=True, and the
         error_msg must be a safe sentinel (not the raw exception message).
         """
-        from synth_engine.modules.synthesizer.dp_accounting import DpAccountingStep
+        from synth_engine.modules.synthesizer.training.dp_accounting import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 0.7
@@ -595,11 +595,11 @@ class TestDpAccountingStepFromDpAccountingModule:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):

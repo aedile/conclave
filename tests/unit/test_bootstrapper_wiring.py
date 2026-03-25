@@ -129,7 +129,7 @@ class TestWireAllIdempotency:
         """
         from synth_engine.bootstrapper.factories import build_dp_wrapper
         from synth_engine.bootstrapper.wiring import wire_dp_wrapper_factory
-        from synth_engine.modules.synthesizer import job_orchestration as orch
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
         wire_dp_wrapper_factory()
 
@@ -145,7 +145,7 @@ class TestWireAllIdempotency:
         it is a non-None callable rather than checking object identity.
         """
         from synth_engine.bootstrapper.wiring import wire_spend_budget_fn
-        from synth_engine.modules.synthesizer import job_orchestration as orch
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
         wire_spend_budget_fn()
 
@@ -161,7 +161,7 @@ class TestWireAllIdempotency:
         changes per call.
         """
         from synth_engine.bootstrapper.wiring import wire_webhook_delivery_fn
-        from synth_engine.modules.synthesizer import job_orchestration as orch
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
         # Reset first to ensure wire_webhook_delivery_fn does the registration
         orch._reset_webhook_delivery_fn()
@@ -194,7 +194,7 @@ class TestHueyWorkerContract:
         """
         from synth_engine.bootstrapper import main  # noqa: F401 — side-effect import
         from synth_engine.bootstrapper.factories import build_dp_wrapper
-        from synth_engine.modules.synthesizer import job_orchestration as orch
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
         assert orch._dp_wrapper_factory is build_dp_wrapper, (
             f"_dp_wrapper_factory must be wired at import time Got: {orch._dp_wrapper_factory!r}"
@@ -206,7 +206,7 @@ class TestHueyWorkerContract:
         Verifies Rule 8 compliance for the spend_budget IoC hook.
         """
         from synth_engine.bootstrapper import main  # noqa: F401 — side-effect import
-        from synth_engine.modules.synthesizer import job_orchestration as orch
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
         assert orch._spend_budget_fn is not None, (
             "_spend_budget_fn must be wired by bootstrapper at import time (Rule 8, Huey contract)."
@@ -219,7 +219,7 @@ class TestHueyWorkerContract:
         Verifies Rule 8 compliance for the webhook delivery IoC hook (T45.3).
         """
         from synth_engine.bootstrapper import main  # noqa: F401 — side-effect import
-        from synth_engine.modules.synthesizer import job_orchestration as orch
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
         assert orch._webhook_delivery_fn is not None, (
             "_webhook_delivery_fn must be wired by bootstrapper at import time (Rule 8 / T45.3)."

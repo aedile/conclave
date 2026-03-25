@@ -58,7 +58,7 @@ class TestDPWiringInImpl:
         Confirms that _run_synthesis_job_impl forwards dp_wrapper to every
         engine.train() call made during the training loop.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -77,10 +77,12 @@ class TestDPWiringInImpl:
         dp_wrapper = _make_mock_dp_wrapper(epsilon=2.5)
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -102,7 +104,7 @@ class TestDPWiringInImpl:
 
         Confirms the non-DP path is unaffected by the new parameter.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -118,7 +120,9 @@ class TestDPWiringInImpl:
         mock_artifact = MagicMock()
         mock_engine.train.return_value = mock_artifact
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=11,
                 session=mock_session,
@@ -139,7 +143,7 @@ class TestDPWiringInImpl:
         Confirms epsilon is read from the wrapper and persisted to the job
         record before the COMPLETE status commit.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -159,10 +163,12 @@ class TestDPWiringInImpl:
         dp_wrapper = _make_mock_dp_wrapper(epsilon=3.14)
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -181,7 +187,7 @@ class TestDPWiringInImpl:
 
         Confirms the non-DP path does not write a spurious epsilon value.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -198,7 +204,9 @@ class TestDPWiringInImpl:
         mock_artifact = MagicMock()
         mock_engine.train.return_value = mock_artifact
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=13,
                 session=mock_session,
@@ -219,7 +227,7 @@ class TestDPWiringInImpl:
 
         Updated from the pre-T37.1 behavior where this exception was swallowed.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -239,7 +247,9 @@ class TestDPWiringInImpl:
         dp_wrapper = MagicMock()
         dp_wrapper.epsilon_spent.side_effect = RuntimeError("Opacus error")
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=14,
                 session=mock_session,
@@ -276,7 +286,7 @@ class TestDPFactoryInjection:
         After calling set_dp_wrapper_factory with a mock factory, the module-
         level _dp_wrapper_factory must reference that exact callable.
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
 
         mock_factory = MagicMock(return_value=MagicMock())
         original = orch_mod._dp_wrapper_factory
@@ -297,8 +307,8 @@ class TestDPFactoryInjection:
         function body, they are patched at their source module paths rather
         than via the tasks module namespace.
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
+        import synth_engine.modules.synthesizer.jobs.tasks as tasks_mod
 
         mock_job = _make_synthesis_job(
             id=99,
@@ -361,8 +371,8 @@ class TestSpendBudgetWiring:
         Returns:
             Tuple of (job, mock_budget_fn, mock_session).
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=job_id,
@@ -390,10 +400,10 @@ class TestSpendBudgetWiring:
             orch_mod.set_spend_budget_fn(mock_budget_fn)
             with (
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
                 ),
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                     return_value=MagicMock(),
                 ),
             ):
@@ -414,7 +424,7 @@ class TestSpendBudgetWiring:
         After calling set_spend_budget_fn with a mock, the module-level
         _spend_budget_fn must reference that exact callable.
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
 
         mock_fn = MagicMock()
         original = orch_mod._spend_budget_fn
@@ -532,8 +542,8 @@ class TestSpendBudgetWiring:
         When the job does not use DP, no epsilon was spent, so no budget
         deduction should occur.
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=26,
@@ -553,7 +563,7 @@ class TestSpendBudgetWiring:
         try:
             orch_mod.set_spend_budget_fn(mock_budget_fn)
             with patch(
-                "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
             ):
                 _run_synthesis_job_impl(
                     job_id=26,
@@ -572,8 +582,8 @@ class TestSpendBudgetWiring:
         When epsilon_spent() raises, actual_epsilon stays None and budget
         deduction must be skipped (no budget was measurably spent).
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=27,
@@ -597,7 +607,7 @@ class TestSpendBudgetWiring:
         try:
             orch_mod.set_spend_budget_fn(mock_budget_fn)
             with patch(
-                "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
             ):
                 _run_synthesis_job_impl(
                     job_id=27,
@@ -616,8 +626,8 @@ class TestSpendBudgetWiring:
         Verifies that a WORM audit record is emitted with the correct
         event_type='PRIVACY_BUDGET_SPEND' and actor='system/huey-worker'.
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=28,
@@ -643,10 +653,10 @@ class TestSpendBudgetWiring:
             orch_mod.set_spend_budget_fn(mock_budget_fn)
             with (
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
                 ),
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                     return_value=mock_audit_logger,
                 ),
             ):
@@ -681,8 +691,8 @@ class TestSpendBudgetWiring:
         Previously this test asserted that ConnectionError propagated — that was the
         buggy behavior identified by ADV-P38-01. The fix catches and handles it.
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=29,
@@ -707,10 +717,10 @@ class TestSpendBudgetWiring:
             orch_mod.set_spend_budget_fn(mock_budget_fn)
             with (
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
                 ),
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                     return_value=MagicMock(),
                 ),
             ):
@@ -843,7 +853,7 @@ class TestSpendBudgetFactoryBootstrapper:
         # Importing main triggers the wiring side-effect; _spend_budget_fn
         # must be non-None after import completes.
         import synth_engine.bootstrapper.main  # noqa: F401 — side-effect import
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
 
         assert orch_mod._spend_budget_fn is not None, (
             "_spend_budget_fn must be wired by bootstrapper at import time (Rule 8)."

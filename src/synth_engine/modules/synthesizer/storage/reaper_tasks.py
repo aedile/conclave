@@ -17,11 +17,11 @@ Bootstrapper wiring note (Rule 8)
 ``bootstrapper/main.py`` imports this module at startup so the Huey worker
 process discovers the periodic task::
 
-    from synth_engine.modules.synthesizer import reaper_tasks as _reaper_tasks  # noqa: F401
+    from synth_engine.modules.synthesizer.storage import reaper_tasks as _reaper_tasks  # noqa: F401
 
 No additional DI injection is needed — the task reads settings directly from
 :func:`~synth_engine.shared.settings.get_settings` and constructs a
-:class:`~synth_engine.modules.synthesizer.reaper_repository.SQLAlchemyTaskRepository`
+:class:`~synth_engine.modules.synthesizer.storage.reaper_repository.SQLAlchemyTaskRepository`
 on each invocation.
 
 Boundary constraints (import-linter enforced):
@@ -53,7 +53,7 @@ def periodic_reap_orphan_tasks() -> int:
     """Periodic task: reap stale IN_PROGRESS synthesis jobs every 15 minutes.
 
     Constructs a
-    :class:`~synth_engine.modules.synthesizer.reaper_repository.SQLAlchemyTaskRepository`
+    :class:`~synth_engine.modules.synthesizer.storage.reaper_repository.SQLAlchemyTaskRepository`
     and an :class:`~synth_engine.shared.tasks.reaper.OrphanTaskReaper` from
     current settings and calls
     :meth:`~synth_engine.shared.tasks.reaper.OrphanTaskReaper.reap`.
@@ -68,7 +68,7 @@ def periodic_reap_orphan_tasks() -> int:
     Returns:
         The number of jobs marked FAILED in this reaper cycle.
     """
-    from synth_engine.modules.synthesizer.reaper_repository import (
+    from synth_engine.modules.synthesizer.storage.reaper_repository import (
         SQLAlchemyTaskRepository,
     )
     from synth_engine.shared.db import get_engine

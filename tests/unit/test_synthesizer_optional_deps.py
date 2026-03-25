@@ -26,7 +26,7 @@ class TestOptionalDepsExports:
 
     def test_module_is_importable(self) -> None:
         """_optional_deps can be imported without raising."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         assert hasattr(m, "torch"), "_optional_deps module must export 'torch' at module scope"
 
@@ -34,7 +34,7 @@ class TestOptionalDepsExports:
         """Module exports 'torch' at module scope; is the real module when installed."""
         import types
 
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         assert hasattr(m, "torch")
         if m.TORCH_AVAILABLE:
@@ -48,7 +48,7 @@ class TestOptionalDepsExports:
         """Module exports 'nn' at module scope; is the real module when installed."""
         import types
 
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         assert hasattr(m, "nn")
         if m.TORCH_AVAILABLE:
@@ -60,7 +60,7 @@ class TestOptionalDepsExports:
 
     def test_exports_dataloader(self) -> None:
         """Module exports 'DataLoader' class when synthesizer group is installed."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         assert hasattr(m, "DataLoader")
         if m.TORCH_AVAILABLE:
@@ -72,7 +72,7 @@ class TestOptionalDepsExports:
 
     def test_exports_tensordataset(self) -> None:
         """Module exports 'TensorDataset' class when synthesizer group is installed."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         assert hasattr(m, "TensorDataset")
         if m.TORCH_AVAILABLE:
@@ -84,13 +84,13 @@ class TestOptionalDepsExports:
 
     def test_exports_torch_available_bool(self) -> None:
         """Module exports TORCH_AVAILABLE as a bool sentinel."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         assert isinstance(m.TORCH_AVAILABLE, bool)
 
     def test_exports_require_synthesizer_callable(self) -> None:
         """Module exports require_synthesizer as a callable."""
-        from synth_engine.modules.synthesizer._optional_deps import require_synthesizer
+        from synth_engine.modules.synthesizer.training._optional_deps import require_synthesizer
 
         assert callable(require_synthesizer)
 
@@ -105,12 +105,12 @@ class TestRequireSynthesizerInstalled:
 
     def test_require_synthesizer_does_not_raise_when_torch_available(self) -> None:
         """require_synthesizer() returns None without raising when torch is present."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         if not m.TORCH_AVAILABLE:
             pytest.skip("torch not installed — skipping availability path")
 
-        from synth_engine.modules.synthesizer._optional_deps import require_synthesizer
+        from synth_engine.modules.synthesizer.training._optional_deps import require_synthesizer
 
         # Must not raise
         result = require_synthesizer()
@@ -127,7 +127,7 @@ class TestRequireSynthesizerMissing:
 
     def test_require_synthesizer_raises_import_error_when_torch_none(self) -> None:
         """require_synthesizer() raises ImportError when TORCH_AVAILABLE is False."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         original_available = m.TORCH_AVAILABLE
         try:
@@ -139,7 +139,7 @@ class TestRequireSynthesizerMissing:
 
     def test_require_synthesizer_error_message_mentions_poetry_install(self) -> None:
         """ImportError message includes actionable install instructions."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         original_available = m.TORCH_AVAILABLE
         try:
@@ -151,7 +151,7 @@ class TestRequireSynthesizerMissing:
 
     def test_require_synthesizer_error_message_mentions_torch(self) -> None:
         """ImportError message names 'torch' so the user knows what's missing."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         original_available = m.TORCH_AVAILABLE
         try:
@@ -172,7 +172,7 @@ class TestTorchAvailableSentinel:
 
     def test_torch_available_is_true_when_torch_not_none(self) -> None:
         """If torch is not None, TORCH_AVAILABLE must be True."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         if m.torch is not None:
             assert m.TORCH_AVAILABLE is True, (
@@ -181,7 +181,7 @@ class TestTorchAvailableSentinel:
 
     def test_torch_available_is_false_when_torch_is_none(self) -> None:
         """If torch is None, TORCH_AVAILABLE must be False."""
-        import synth_engine.modules.synthesizer._optional_deps as m
+        import synth_engine.modules.synthesizer.training._optional_deps as m
 
         if m.torch is None:
             assert m.TORCH_AVAILABLE is False, (

@@ -31,7 +31,7 @@ def _make_test_app() -> Any:
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     engine = create_engine(
         "sqlite:///:memory:",
@@ -106,7 +106,7 @@ class TestDownloadEndpoint404Cases:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         engine = create_engine(
             "sqlite:///:memory:",
@@ -156,7 +156,7 @@ class TestDownloadEndpoint404Cases:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         engine = create_engine(
             "sqlite:///:memory:",
@@ -206,7 +206,7 @@ class TestDownloadEndpoint404Cases:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         engine = create_engine(
             "sqlite:///:memory:",
@@ -257,7 +257,7 @@ class TestDownloadEndpoint404Cases:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         engine = create_engine(
             "sqlite:///:memory:",
@@ -308,7 +308,7 @@ class TestDownloadEndpoint404Cases:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         engine = create_engine(
             "sqlite:///:memory:",

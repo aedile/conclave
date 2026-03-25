@@ -727,7 +727,7 @@ def test_real_sdv_ctgan_training_small_dataset() -> None:
     import numpy as np
     import pandas as pd
 
-    from synth_engine.modules.synthesizer.engine import SynthesisEngine
+    from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
     rng = np.random.default_rng(42)
     df = pd.DataFrame(

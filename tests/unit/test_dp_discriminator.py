@@ -31,7 +31,7 @@ def _make_real_module() -> Any:
     Returns:
         The OpacusCompatibleDiscriminator class.
     """
-    from synth_engine.modules.synthesizer.dp_discriminator import (
+    from synth_engine.modules.synthesizer.training.dp_discriminator import (
         OpacusCompatibleDiscriminator,
     )
 
@@ -356,7 +356,7 @@ class TestMockedTorchImport:
 
     def test_module_file_is_importable_without_side_effects(self) -> None:
         """The module can be imported and exposes the expected public class."""
-        import synth_engine.modules.synthesizer.dp_discriminator as m
+        import synth_engine.modules.synthesizer.training.dp_discriminator as m
 
         assert hasattr(m, "OpacusCompatibleDiscriminator"), (
             "dp_discriminator module must expose OpacusCompatibleDiscriminator"
@@ -366,7 +366,7 @@ class TestMockedTorchImport:
         """OpacusCompatibleDiscriminator is the primary export of dp_discriminator."""
         import inspect
 
-        from synth_engine.modules.synthesizer.dp_discriminator import (
+        from synth_engine.modules.synthesizer.training.dp_discriminator import (
             OpacusCompatibleDiscriminator,
         )
 

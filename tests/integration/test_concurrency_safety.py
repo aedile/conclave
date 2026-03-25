@@ -93,7 +93,7 @@ def test_concurrent_job_starts_produce_independent_job_ids() -> None:
     from sqlalchemy.pool import StaticPool
     from sqlmodel import Session, SQLModel
 
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     shared_engine = create_engine(
         "sqlite:///:memory:",

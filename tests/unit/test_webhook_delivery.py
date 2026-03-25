@@ -159,7 +159,7 @@ class TestSSRFAtDelivery:
 
         Args: none (no parameters).
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import deliver_webhook
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
 
         reg = MagicMock()
         reg.active = True
@@ -168,7 +168,7 @@ class TestSSRFAtDelivery:
         reg.id = "reg-ssrf-fail"
 
         with patch(
-            "synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url",
+            "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url",
             side_effect=ValueError("SSRF: resolves to private IP"),
         ):
             result = deliver_webhook(
@@ -244,7 +244,7 @@ class TestHMACTampering:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             _compute_hmac_signature,
         )
 
@@ -262,7 +262,7 @@ class TestDeactivatedRegistrationNoDelivery:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             deliver_webhook,
         )
 
@@ -272,7 +272,7 @@ class TestDeactivatedRegistrationNoDelivery:
         reg.signing_key = "a" * 32
         reg.id = "reg-001"
 
-        with patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx:
+        with patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx:
             result = deliver_webhook(
                 registration=reg,
                 job_id=1,
@@ -292,7 +292,7 @@ class TestRetryExhaustion:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             deliver_webhook,
         )
 
@@ -303,9 +303,9 @@ class TestRetryExhaustion:
         reg.id = "reg-001"
 
         with (
-            patch("synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"),
-            patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx,
-            patch("synth_engine.modules.synthesizer.webhook_delivery.time.sleep"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.time.sleep"),
         ):
             mock_httpx.post.side_effect = Exception("Connection refused")
             result = deliver_webhook(
@@ -323,7 +323,7 @@ class TestRetryExhaustion:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             deliver_webhook,
         )
 
@@ -336,10 +336,10 @@ class TestRetryExhaustion:
         sleep_calls: list[float] = []
 
         with (
-            patch("synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"),
-            patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx,
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
             patch(
-                "synth_engine.modules.synthesizer.webhook_delivery.time.sleep",
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.time.sleep",
                 side_effect=lambda s: sleep_calls.append(s),
             ),
         ):
@@ -369,7 +369,7 @@ class TestHMACSignature:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             _compute_hmac_signature,
         )
 
@@ -389,7 +389,7 @@ class TestHMACSignature:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             _canonicalize_payload,
             _compute_hmac_signature,
         )
@@ -410,7 +410,7 @@ class TestHMACSignature:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import (
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             _canonicalize_payload,
         )
 
@@ -427,7 +427,7 @@ class TestDeliveryHeaders:
         Returns:
             Dict of headers passed to the mock httpx.post call.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import deliver_webhook
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
 
         reg = MagicMock()
         reg.active = True
@@ -441,8 +441,8 @@ class TestDeliveryHeaders:
         mock_response.raise_for_status.return_value = None
 
         with (
-            patch("synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"),
-            patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx,
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
 
             def _capture(*args: object, **kwargs: object) -> MagicMock:
@@ -496,7 +496,7 @@ class TestDeliveryResult:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.webhook_delivery import deliver_webhook
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
 
         reg = MagicMock()
         reg.active = True
@@ -509,8 +509,8 @@ class TestDeliveryResult:
         mock_response.raise_for_status.return_value = None
 
         with (
-            patch("synth_engine.modules.synthesizer.webhook_delivery.validate_callback_url"),
-            patch("synth_engine.modules.synthesizer.webhook_delivery.httpx") as mock_httpx,
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
             mock_httpx.post.return_value = mock_response
             result = deliver_webhook(
@@ -539,7 +539,7 @@ class TestBoundaryConstraint:
         import ast
         import importlib.util
 
-        spec = importlib.util.find_spec("synth_engine.modules.synthesizer.webhook_delivery")
+        spec = importlib.util.find_spec("synth_engine.modules.synthesizer.jobs.webhook_delivery")
         assert spec is not None, "webhook_delivery module not found"
         assert spec.origin is not None, "webhook_delivery module has no origin path"
 
@@ -569,7 +569,7 @@ class TestIoCCallback:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.job_orchestration import (
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import (
             set_webhook_delivery_fn,
         )
 
@@ -583,7 +583,7 @@ class TestIoCCallback:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.job_orchestration import (
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import (
             _fire_webhook_callback,
             _reset_webhook_delivery_fn,
             set_webhook_delivery_fn,
@@ -609,7 +609,7 @@ class TestIoCCallback:
 
         Args: none.
         """
-        from synth_engine.modules.synthesizer.job_orchestration import (
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import (
             _fire_webhook_callback,
             _reset_webhook_delivery_fn,
             set_webhook_delivery_fn,

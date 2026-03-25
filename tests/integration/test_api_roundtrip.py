@@ -78,7 +78,7 @@ def _make_sqlite_engine() -> Any:
     Returns:
         A configured SQLAlchemy engine.
     """
-    from synth_engine.modules.synthesizer.job_models import (
+    from synth_engine.modules.synthesizer.jobs.job_models import (
         SynthesisJob,  # noqa: F401  # side-effect: registers model in SQLModel metadata
     )
 
@@ -176,7 +176,7 @@ async def test_job_creation_returns_201_and_persists_to_db(
     - Job record exists in the database with the returned ``id``.
     - Job status defaults to ``QUEUED``.
     """
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     with patch(_VAULT_PATCH, return_value=False), patch(_LICENSE_PATCH, return_value=True):
         async with AsyncClient(
@@ -217,7 +217,7 @@ async def test_job_listing_returns_correct_shape_and_pagination_cursor(
     - ``next_cursor`` is populated when more results exist beyond the page.
     - A second page fetch using the cursor returns the remaining jobs.
     """
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     with Session(sqlite_engine) as session:
         for i in range(3):
@@ -291,7 +291,7 @@ async def test_get_job_by_id_returns_response_matching_db_record(
       exactly match what was written to the database.
     - GET /jobs/99999 (non-existent) returns 404 RFC 7807 body.
     """
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     with Session(sqlite_engine) as session:
         job = SynthesisJob(

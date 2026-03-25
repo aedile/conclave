@@ -570,7 +570,7 @@ class TestScriptAst:
 
         assert "apply_fk_post_processing" in source, (
             "Script must import and call apply_fk_post_processing from "
-            "synth_engine.modules.synthesizer.engine. "
+            "synth_engine.modules.synthesizer.training.engine. "
             "This is Step 7 of the documented pipeline."
         )
 

@@ -6,7 +6,7 @@ worker silently drops all messages for that task type — leading to jobs stuck
 in QUEUED status with no error.
 
 This test module verifies that:
-1. ``synth_engine.modules.synthesizer.tasks`` is importable.
+1. ``synth_engine.modules.synthesizer.jobs.tasks`` is importable.
 2. ``run_synthesis_job`` is registered on the Huey instance (accessible via
    ``huey._registry._registry``).
 3. The Huey instance used by tasks is the shared singleton from
@@ -58,9 +58,9 @@ def test_synthesizer_tasks_module_is_importable() -> None:
     giving a clear error about the missing task.
     """
     try:
-        import synth_engine.modules.synthesizer.tasks as tasks_module  # noqa: F401
+        import synth_engine.modules.synthesizer.jobs.tasks as tasks_module  # noqa: F401
     except ImportError as exc:
-        pytest.fail(f"synth_engine.modules.synthesizer.tasks is not importable: {exc}")
+        pytest.fail(f"synth_engine.modules.synthesizer.jobs.tasks is not importable: {exc}")
 
 
 def test_run_synthesis_job_is_registered_on_huey_instance() -> None:
@@ -71,13 +71,13 @@ def test_run_synthesis_job_is_registered_on_huey_instance() -> None:
     whose key contains ``run_synthesis_job``.
 
     Huey uses the fully-qualified function name as the task key by default,
-    so the key is ``synth_engine.modules.synthesizer.tasks.run_synthesis_job``.
+    so the key is ``synth_engine.modules.synthesizer.jobs.tasks.run_synthesis_job``.
 
     This test verifies that the worker will correctly receive and route
     ``run_synthesis_job`` messages from the queue.
     """
     # Import the tasks module to trigger @huey.task() registration
-    import synth_engine.modules.synthesizer.tasks as tasks_module
+    import synth_engine.modules.synthesizer.jobs.tasks as tasks_module
     from synth_engine.shared.task_queue import huey
 
     # huey._registry._registry is a dict[str, type[Task]] mapping
@@ -113,7 +113,7 @@ def test_huey_instance_is_shared_singleton() -> None:
 
     This test verifies that both modules reference the same object.
     """
-    import synth_engine.modules.synthesizer.tasks as tasks_module
+    import synth_engine.modules.synthesizer.jobs.tasks as tasks_module
     from synth_engine.shared.task_queue import huey as shared_huey
 
     # TaskWrapper.huey is the Huey instance the task was registered on.
@@ -139,7 +139,7 @@ def test_bootstrapper_di_factories_can_be_called_after_import() -> None:
     """
     from collections.abc import Callable
 
-    import synth_engine.modules.synthesizer.tasks as tasks_module
+    import synth_engine.modules.synthesizer.jobs.tasks as tasks_module
 
     # Provide a no-op function typed as Callable[[float, float], DPWrapperProtocol].
     # Cast is required because a plain no-op cannot structurally satisfy

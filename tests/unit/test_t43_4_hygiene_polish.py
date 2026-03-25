@@ -103,7 +103,7 @@ class TestDpTrainingExceptionComment:
         proxy model + CTGAN. This must be documented with an inline justification
         comment near the ``except Exception`` statement.
         """
-        source = _read_source("modules/synthesizer/dp_training.py")
+        source = _read_source("modules/synthesizer/training/dp_training.py")
         lines = source.splitlines()
         except_indices = _find_except_exception_indices(lines)
 
@@ -198,7 +198,7 @@ class TestModelArtifactMutabilityDocumented:
         corrupting the artifact state. The intentional mutability must be
         documented with explicit rationale near the class definition.
         """
-        source = _read_source("modules/synthesizer/models.py")
+        source = _read_source("modules/synthesizer/storage/models.py")
         lines = source.splitlines()
 
         class_line_idx = next(

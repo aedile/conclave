@@ -15,8 +15,8 @@ paths (``job_steps.xxx``) work transparently.
 and ``get_audit_logger`` remain as module-level names in this module so
 that existing test patch paths continue to work::
 
-    patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn")
-    patch("synth_engine.modules.synthesizer.job_orchestration.get_audit_logger")
+    patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn")
+    patch("synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger")
 
 Status lifecycle::
 
@@ -50,24 +50,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from synth_engine.modules.synthesizer.dp_accounting import (
-    _AUDIT_RECONCILIATION_MSG as _AUDIT_RECONCILIATION_MSG,
-)
-from synth_engine.modules.synthesizer.dp_accounting import (
-    DpAccountingStep as DpAccountingStep,
-)
-from synth_engine.modules.synthesizer.dp_accounting import (
-    _handle_dp_accounting as _handle_dp_accounting,
-)
-from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError
-from synth_engine.modules.synthesizer.guardrails import (
-    check_memory_feasibility as check_memory_feasibility,
-)
-from synth_engine.modules.synthesizer.job_finalization import _GENERATION_FAILED_MSG
-from synth_engine.modules.synthesizer.job_finalization import (
+from synth_engine.modules.synthesizer.jobs.job_finalization import _GENERATION_FAILED_MSG
+from synth_engine.modules.synthesizer.jobs.job_finalization import (
     _write_parquet_with_signing as _write_parquet_with_signing,
 )
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.training.dp_accounting import (
+    _AUDIT_RECONCILIATION_MSG as _AUDIT_RECONCILIATION_MSG,
+)
+from synth_engine.modules.synthesizer.training.dp_accounting import (
+    DpAccountingStep as DpAccountingStep,
+)
+from synth_engine.modules.synthesizer.training.dp_accounting import (
+    _handle_dp_accounting as _handle_dp_accounting,
+)
+from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
+from synth_engine.modules.synthesizer.training.guardrails import (
+    check_memory_feasibility as check_memory_feasibility,
+)
 from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.protocols import (
     DPWrapperProtocol,
@@ -79,7 +79,7 @@ from synth_engine.shared.security.audit import get_audit_logger as get_audit_log
 if TYPE_CHECKING:
     from sqlmodel import Session
 
-    from synth_engine.modules.synthesizer.engine import SynthesisEngine
+    from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
 _logger = logging.getLogger(__name__)
 

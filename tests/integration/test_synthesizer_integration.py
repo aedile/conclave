@@ -98,8 +98,8 @@ class TestSynthesisEngineCTGANIntegration:
 
     def test_train_returns_model_artifact(self, persons_parquet: str) -> None:
         """train() with real CTGAN must return a ModelArtifact."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine(epochs=2)
         result = engine.train(table_name="persons", parquet_path=persons_parquet)
@@ -107,7 +107,7 @@ class TestSynthesisEngineCTGANIntegration:
 
     def test_generated_schema_matches_source_column_names(self, persons_parquet: str) -> None:
         """Generated output column names must exactly match the source schema."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         source_df = pd.read_parquet(persons_parquet, engine="pyarrow")
         engine = SynthesisEngine(epochs=2)
@@ -118,7 +118,7 @@ class TestSynthesisEngineCTGANIntegration:
 
     def test_generated_schema_matches_source_dtypes(self, persons_parquet: str) -> None:
         """Generated output dtypes must exactly match the source dtypes."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         source_df = pd.read_parquet(persons_parquet, engine="pyarrow")
         engine = SynthesisEngine(epochs=2)
@@ -133,7 +133,7 @@ class TestSynthesisEngineCTGANIntegration:
 
     def test_generated_row_count_matches_request(self, persons_parquet: str) -> None:
         """generate() must return exactly the requested number of rows."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine(epochs=2)
         artifact = engine.train(table_name="persons", parquet_path=persons_parquet)
@@ -146,8 +146,8 @@ class TestSynthesisEngineCTGANIntegration:
 
         After round-trip, generate() must still produce a valid DataFrame.
         """
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with tempfile.TemporaryDirectory() as tmpdir:
             engine = SynthesisEngine(epochs=2)
@@ -171,7 +171,7 @@ class TestSynthesisEngineCTGANIntegration:
         ``id`` and ``age`` have no nulls → nullable flag must be False.
         ``opt_field`` has ~30% nulls → nullable flag must be True.
         """
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         source_df = pd.read_parquet(persons_parquet_with_nulls, engine="pyarrow")
         engine = SynthesisEngine(epochs=2)
@@ -266,8 +266,8 @@ class TestSynthesisJobTaskIntegration:
         import psycopg2
         from sqlmodel import Session, SQLModel, create_engine
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         # Build the SQLAlchemy URL from the running proc fixture.
         proc = synth_pg_proc
@@ -327,7 +327,7 @@ class TestSynthesisJobTaskIntegration:
         )
         with Session(db_engine) as session:
             with patch(
-                "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
             ):
                 _run_synthesis_job_impl(
                     job_id=job_id,

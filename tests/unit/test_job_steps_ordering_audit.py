@@ -24,7 +24,7 @@ from tests.unit.helpers_synthesizer import _make_synthesis_job
 
 def _make_job_context(job: Any = None, **kwargs: Any) -> Any:
     """Build a JobContext with sensible defaults for unit tests."""
-    from synth_engine.modules.synthesizer.job_steps import JobContext
+    from synth_engine.modules.synthesizer.jobs.job_steps import JobContext
 
     if job is None:
         job = _make_synthesis_job()
@@ -54,7 +54,7 @@ class TestStepOrdering:
         When training fails, DpAccountingStep must never be called — this
         implicitly verifies that training comes first in the step sequence.
         """
-        from synth_engine.modules.synthesizer.job_steps import (
+        from synth_engine.modules.synthesizer.jobs.job_steps import (
             DpAccountingStep,
             TrainingStep,
         )
@@ -91,14 +91,16 @@ class TestStepOrdering:
         with (
             patch.object(TrainingStep, "execute", _recording_training_execute),
             patch.object(DpAccountingStep, "execute", _recording_dp_execute),
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._get_parquet_dimensions",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._get_parquet_dimensions",
                 return_value=(100, 10),
             ),
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn"),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn"),
         ):
-            from synth_engine.modules.synthesizer.job_orchestration import (
+            from synth_engine.modules.synthesizer.jobs.job_orchestration import (
                 _run_synthesis_job_impl,
             )
 
@@ -123,7 +125,7 @@ class TestStepOrdering:
 
         Enforces that step ordering gates prevent unnecessary work on failure.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("training failure")
@@ -133,7 +135,9 @@ class TestStepOrdering:
         mock_session = MagicMock()
         mock_session.get.return_value = job
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -168,6 +172,7 @@ class TestOrchestratorSize:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "jobs"
             / "job_orchestration.py"
         )
         source = src_path.read_text()
@@ -219,7 +224,7 @@ class TestDpAccountingStepAuditFailure:
         AC1 (T38.1): If the WORM audit logger raises after budget deduction, the step
         must return a failure result — the budget has been spent but there is no audit record.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep, StepResult
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep, StepResult
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 1.5
@@ -234,11 +239,11 @@ class TestDpAccountingStepAuditFailure:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=mock_audit,
             ),
         ):
@@ -255,7 +260,7 @@ class TestDpAccountingStepAuditFailure:
         AC2 (T38.1): The error message must clearly alert operators that manual
         reconciliation is needed because budget was spent but no audit record was written.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 1.5
@@ -269,11 +274,11 @@ class TestDpAccountingStepAuditFailure:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=mock_audit,
             ),
         ):
@@ -290,7 +295,7 @@ class TestDpAccountingStepAuditFailure:
         write failed. job.actual_epsilon must reflect the measured value so operators
         know how much budget was consumed during reconciliation.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 2.7
@@ -306,11 +311,11 @@ class TestDpAccountingStepAuditFailure:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=mock_audit,
             ),
         ):
@@ -325,7 +330,7 @@ class TestDpAccountingStepAuditFailure:
         AC4 (T38.1): End-to-end orchestrator test — job must be FAILED, not COMPLETE,
         when the WORM audit write raises after a successful budget deduction.
         """
-        from synth_engine.modules.synthesizer.job_orchestration import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_engine = MagicMock()
         mock_artifact = MagicMock()
@@ -343,17 +348,19 @@ class TestDpAccountingStepAuditFailure:
         mock_session.get.return_value = job
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._get_parquet_dimensions",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._get_parquet_dimensions",
                 return_value=(100, 10),
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=mock_audit,
             ),
         ):
@@ -418,7 +425,7 @@ class TestDpAccountingStepNonBudgetError:
         DpAccountingStep.execute(). After the fix it must be caught and returned
         as a StepResult failure so the orchestrator can mark the job FAILED.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep, StepResult
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep, StepResult
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 1.5
@@ -431,11 +438,11 @@ class TestDpAccountingStepNonBudgetError:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -452,7 +459,7 @@ class TestDpAccountingStepNonBudgetError:
         ADV-P38-01: The orchestrator is the sole owner of job.status (AC4).
         The step must return a failure StepResult; the orchestrator sets FAILED.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 1.5
@@ -464,11 +471,11 @@ class TestDpAccountingStepNonBudgetError:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -484,7 +491,7 @@ class TestDpAccountingStepNonBudgetError:
         ADV-P38-01: The job's error_msg must convey that the budget spend failed
         so the operator can investigate.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 1.5
@@ -496,11 +503,11 @@ class TestDpAccountingStepNonBudgetError:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):

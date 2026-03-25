@@ -30,8 +30,8 @@ class TestSynthesisTaskOOMRejection:
 
     def test_oom_guardrail_rejection_sets_failed_status(self) -> None:
         """When OOM guardrail rejects, task must set status=FAILED."""
-        from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=2, status="QUEUED", total_epochs=100, checkpoint_every_n=5)
@@ -40,7 +40,7 @@ class TestSynthesisTaskOOMRejection:
         mock_engine = MagicMock()
 
         with patch(
-            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("6.8 GiB estimated, 4.0 GiB available"),
         ):
             _run_synthesis_job_impl(
@@ -53,8 +53,8 @@ class TestSynthesisTaskOOMRejection:
 
     def test_oom_guardrail_rejection_sets_error_msg(self) -> None:
         """When OOM guardrail rejects, task must record the guardrail error message."""
-        from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=2, status="QUEUED", total_epochs=100, checkpoint_every_n=5)
@@ -64,7 +64,7 @@ class TestSynthesisTaskOOMRejection:
 
         oom_msg = "6.8 GiB estimated, 4.0 GiB available -- reduce dataset by 2.00x"
         with patch(
-            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError(oom_msg),
         ):
             _run_synthesis_job_impl(
@@ -78,8 +78,8 @@ class TestSynthesisTaskOOMRejection:
 
     def test_oom_guardrail_rejection_never_calls_train(self) -> None:
         """When OOM guardrail rejects, engine.train() must never be called."""
-        from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=2, status="QUEUED", total_epochs=100, checkpoint_every_n=5)
@@ -88,7 +88,7 @@ class TestSynthesisTaskOOMRejection:
         mock_engine = MagicMock()
 
         with patch(
-            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("too big"),
         ):
             _run_synthesis_job_impl(
@@ -101,8 +101,8 @@ class TestSynthesisTaskOOMRejection:
 
     def test_oom_guardrail_rejection_commits_failed_status(self) -> None:
         """OOM rejection must commit the FAILED status to the database."""
-        from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=2, status="QUEUED", total_epochs=100, checkpoint_every_n=5)
@@ -111,7 +111,7 @@ class TestSynthesisTaskOOMRejection:
         mock_engine = MagicMock()
 
         with patch(
-            "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility",
             side_effect=OOMGuardrailError("too big"),
         ):
             _run_synthesis_job_impl(
@@ -138,7 +138,7 @@ class TestSynthesisTaskRuntimeFailure:
 
     def test_runtime_error_sets_failed_status(self) -> None:
         """RuntimeError during training must set status=FAILED."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
@@ -147,7 +147,9 @@ class TestSynthesisTaskRuntimeFailure:
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA out of memory at epoch 3")
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -158,7 +160,7 @@ class TestSynthesisTaskRuntimeFailure:
 
     def test_runtime_error_sets_error_msg(self) -> None:
         """RuntimeError during training must record the error message."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
@@ -167,7 +169,9 @@ class TestSynthesisTaskRuntimeFailure:
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("CUDA out of memory at epoch 3")
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -188,7 +192,7 @@ class TestSynthesisTaskRuntimeFailure:
         (the first checkpoint boundary).  When train() raises on the second
         call, the first checkpoint must already be in storage.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         # total_epochs=6, checkpoint_every_n=3 → checkpoints at epoch 3 and 6
@@ -202,7 +206,9 @@ class TestSynthesisTaskRuntimeFailure:
         mock_engine.train.side_effect = [first_artifact, RuntimeError("OOM at epoch 5")]
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -217,7 +223,7 @@ class TestSynthesisTaskRuntimeFailure:
 
     def test_failed_job_commits_to_db(self) -> None:
         """RuntimeError path must commit FAILED status to the database."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
@@ -226,7 +232,9 @@ class TestSynthesisTaskRuntimeFailure:
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("failed")
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=3,
                 session=mock_session,
@@ -242,7 +250,7 @@ class TestSynthesisTaskRuntimeFailure:
         last_ckpt_path as None.  The step-6 guard must catch this and set
         status=FAILED with an error_msg containing 'No artifact produced'.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=99,
@@ -254,7 +262,9 @@ class TestSynthesisTaskRuntimeFailure:
         mock_session.get.return_value = job
         mock_engine = MagicMock()
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=99,
                 session=mock_session,
@@ -278,7 +288,7 @@ class TestSynthesisJobNotFound:
 
     def test_task_raises_if_job_not_found(self) -> None:
         """_run_synthesis_job_impl must raise ValueError when job ID is not in DB."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         mock_session.get.return_value = None  # Job not found
@@ -307,7 +317,7 @@ class TestParquetHMACSigning:
 
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -327,7 +337,9 @@ class TestParquetHMACSigning:
         env_without_key = {k: v for k, v in os.environ.items() if k != "ARTIFACT_SIGNING_KEY"}
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             patch.dict("os.environ", env_without_key, clear=True),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
@@ -352,7 +364,7 @@ class TestParquetHMACSigning:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
         from synth_engine.shared.security.hmac_signing import HMAC_DIGEST_SIZE
 
         mock_session = MagicMock()
@@ -374,7 +386,9 @@ class TestParquetHMACSigning:
         signing_key_hex = "a" * 64
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": signing_key_hex}),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
@@ -412,7 +426,7 @@ class TestWriteParquetWithSigningEdgeCases:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -430,7 +444,9 @@ class TestWriteParquetWithSigningEdgeCases:
         mock_engine.generate.return_value = pd.DataFrame({"col": range(4)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": "not-valid-hex"}),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
@@ -464,7 +480,7 @@ class TestWriteParquetWithSigningEdgeCases:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -482,7 +498,9 @@ class TestWriteParquetWithSigningEdgeCases:
         mock_engine.generate.return_value = pd.DataFrame({"col": range(4)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             patch.dict("os.environ", {"ARTIFACT_SIGNING_KEY": "   "}),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
@@ -522,8 +540,8 @@ class TestAuditLoggerFailureAfterBudgetDeduction:
         must be marked FAILED so operators know manual reconciliation is required.
         The error message must include the reconciliation notice.
         """
-        import synth_engine.modules.synthesizer.job_orchestration as orch_mod
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=85,
@@ -554,10 +572,10 @@ class TestAuditLoggerFailureAfterBudgetDeduction:
             orch_mod.set_spend_budget_fn(mock_budget_fn)
             with (
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
                 ),
                 patch(
-                    "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                    "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                     return_value=mock_audit_logger,
                 ),
                 tempfile.TemporaryDirectory() as tmpdir,
@@ -602,7 +620,7 @@ class TestStep9OSErrorTransitionsFailed:
         """OSError during _write_parquet_with_signing must transition job to FAILED."""
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -620,9 +638,11 @@ class TestStep9OSErrorTransitionsFailed:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._write_parquet_with_signing",
                 side_effect=OSError("Disk full"),
             ),
         ):
@@ -641,7 +661,7 @@ class TestStep9OSErrorTransitionsFailed:
         """OSError in step 9 must commit FAILED status to the database."""
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -659,9 +679,11 @@ class TestStep9OSErrorTransitionsFailed:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._write_parquet_with_signing",
                 side_effect=OSError("No space left on device"),
             ),
         ):
@@ -682,7 +704,7 @@ class TestStep9OSErrorTransitionsFailed:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -700,9 +722,11 @@ class TestStep9OSErrorTransitionsFailed:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._write_parquet_with_signing",
                 side_effect=OSError("internal filesystem error xyz"),
             ),
         ):
@@ -729,7 +753,7 @@ class TestGenerationRuntimeErrorSanitized:
 
     def test_generation_runtime_error_sets_failed(self) -> None:
         """RuntimeError during generation must set job to FAILED."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -746,7 +770,9 @@ class TestGenerationRuntimeErrorSanitized:
         mock_engine.train.return_value = mock_artifact
         mock_engine.generate.side_effect = RuntimeError("generation failed")
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=65,
                 session=mock_session,
@@ -766,7 +792,7 @@ class TestGenerationRuntimeErrorSanitized:
         Finding F4 (DevOps): job.error_msg is written verbatim from the exception.
         After fix, error_msg must be a static sanitized string.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -785,7 +811,9 @@ class TestGenerationRuntimeErrorSanitized:
             "internal/path/to/model.py line 42: segfault"
         )
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=95,
                 session=mock_session,
@@ -816,7 +844,7 @@ class TestSynthesisJobNumRowsValidation:
 
         Finding F3: docstring says 'Must be >= 1' but __init__ does not enforce it.
         """
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="num_rows must be >= 1"):
             SynthesisJob(
@@ -828,7 +856,7 @@ class TestSynthesisJobNumRowsValidation:
 
     def test_synthesis_job_num_rows_negative_raises(self) -> None:
         """SynthesisJob must reject num_rows=-1 with ValueError."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="num_rows must be >= 1"):
             SynthesisJob(
@@ -840,7 +868,7 @@ class TestSynthesisJobNumRowsValidation:
 
     def test_synthesis_job_num_rows_one_is_valid(self) -> None:
         """SynthesisJob must accept num_rows=1 (minimum valid value)."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             total_epochs=10,

@@ -103,7 +103,7 @@ def test_parent_and_worker_spans_share_trace_id(
     inside the run_synthesis_job Huey task — rather than simulating the
     wiring manually.
     """
-    from synth_engine.modules.synthesizer.tasks import run_synthesis_job
+    from synth_engine.modules.synthesizer.jobs.tasks import run_synthesis_job
     from synth_engine.shared.telemetry import inject_trace_context
 
     _, exporter = otel_in_memory
@@ -137,7 +137,7 @@ def test_parent_and_worker_spans_share_trace_id(
             "sqlmodel.Session",
             return_value=_make_mock_session_cm(job_return=None),
         ),
-        patch("synth_engine.modules.synthesizer.job_orchestration._run_synthesis_job_impl"),
+        patch("synth_engine.modules.synthesizer.jobs.job_orchestration._run_synthesis_job_impl"),
     ):
         run_synthesis_job.call_local(job_id, trace_carrier=carrier)
 
@@ -179,6 +179,7 @@ def test_worker_task_accepts_trace_carrier_kwarg() -> None:
         / "synth_engine"
         / "modules"
         / "synthesizer"
+        / "jobs"
         / "tasks.py"
     )
     source = tasks_path.read_text()
@@ -209,6 +210,7 @@ def test_worker_task_carrier_defaults_to_none() -> None:
         / "synth_engine"
         / "modules"
         / "synthesizer"
+        / "jobs"
         / "tasks.py"
     )
     source = tasks_path.read_text()

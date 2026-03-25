@@ -165,7 +165,7 @@ def _fit_with_mocked_train_dp(
     Returns:
         The fitted DPCompatibleCTGAN instance.
     """
-    from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+    from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
     mock_metadata = MagicMock()
     mock_sdv_synth = _make_mock_sdv_synthesizer()
@@ -193,15 +193,15 @@ def _fit_with_mocked_train_dp(
 
     with (
         patch(
-            "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+            "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
             return_value=mock_sdv_synth,
         ),
         patch(
-            "synth_engine.modules.synthesizer.dp_training.CTGAN",
+            "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
             mock_ctgan_cls,
         ),
         patch(
-            "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+            "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
             return_value=[],
         ),
     ):
@@ -245,7 +245,7 @@ class TestDPTrainingLoopInvoked:
         """
         import numpy as np
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -278,13 +278,15 @@ class TestDPTrainingLoopInvoked:
         instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=1, dp_wrapper=mock_dp_wrapper)
 
         with patch(
-            "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator",
+            "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator",
         ) as mock_disc_cls:
             mock_disc_cls.return_value = MagicMock()
             # Configure ctgan internals
             with (
-                patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen,
-                patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+                patch(
+                    "synth_engine.modules.synthesizer.training.dp_training.Generator"
+                ) as mock_gen,
+                patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
                 patch.object(
                     instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()
                 ),
@@ -311,7 +313,7 @@ class TestDPTrainingLoopInvoked:
         """_train_dp_discriminator must call dp_wrapper.wrap() with the discriminator optimizer."""
         import numpy as np
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -343,10 +345,10 @@ class TestDPTrainingLoopInvoked:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator"),
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch("synth_engine.modules.synthesizer.training.dp_training.Generator"),
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
             patch.object(instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()),
         ):
             mock_disc_cls.return_value = MagicMock()
@@ -367,7 +369,7 @@ class TestDPTrainingLoopInvoked:
         """_train_dp_discriminator must call dp_wrapper.check_budget() once per epoch."""
         import numpy as np
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -402,10 +404,10 @@ class TestDPTrainingLoopInvoked:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator"),
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch("synth_engine.modules.synthesizer.training.dp_training.Generator"),
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
             patch.object(instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()),
         ):
             mock_disc_cls.return_value = MagicMock()
@@ -467,7 +469,7 @@ class TestBudgetExhaustion:
         """
         import numpy as np
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         mock_metadata = MagicMock()
@@ -506,10 +508,10 @@ class TestBudgetExhaustion:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator"),
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch("synth_engine.modules.synthesizer.training.dp_training.Generator"),
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
             patch.object(instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()),
         ):
             mock_disc_cls.return_value = MagicMock()
@@ -527,7 +529,7 @@ class TestBudgetExhaustion:
 
     def test_budget_exhaustion_propagates_from_fit_method(self) -> None:
         """BudgetExhaustionError raised inside _train_dp_discriminator propagates from fit()."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         mock_metadata = MagicMock()
@@ -548,11 +550,11 @@ class TestBudgetExhaustion:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv_synth,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
         ):
@@ -578,7 +580,7 @@ class TestVanillaPathUnchanged:
         """fit() with dp_wrapper=None must never call dp_wrapper.wrap()."""
         mock_dp_wrapper = _make_mock_dp_wrapper()
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_sdv_synth = _make_mock_sdv_synthesizer()
@@ -591,15 +593,15 @@ class TestVanillaPathUnchanged:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv_synth,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGAN",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
                 mock_ctgan_cls,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
         ):
@@ -618,7 +620,7 @@ class TestActivateOpacusProxyRenamed:
 
     def test_activate_opacus_proxy_method_exists(self) -> None:
         """DPCompatibleCTGAN must have _activate_opacus_proxy as the fallback method."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         assert hasattr(DPCompatibleCTGAN, "_activate_opacus_proxy"), (
             "DPCompatibleCTGAN must have _activate_opacus_proxy — the renamed fallback "
@@ -627,7 +629,7 @@ class TestActivateOpacusProxyRenamed:
 
     def test_train_dp_discriminator_method_exists(self) -> None:
         """DPCompatibleCTGAN must have _train_dp_discriminator as the primary DP method."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         assert hasattr(DPCompatibleCTGAN, "_train_dp_discriminator"), (
             "DPCompatibleCTGAN must have _train_dp_discriminator — the primary "
@@ -673,7 +675,7 @@ class TestFallbackToProxyModel:
 
     def test_fallback_to_proxy_model_logs_warning(self, caplog: Any) -> None:
         """fit() must fall back to proxy model and log WARNING when disc wrapping fails."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_sdv_synth = _make_mock_sdv_synthesizer()
@@ -700,18 +702,20 @@ class TestFallbackToProxyModel:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv_synth,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGAN",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
                 mock_ctgan_cls,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
-            caplog.at_level(logging.WARNING, logger="synth_engine.modules.synthesizer.dp_training"),
+            caplog.at_level(
+                logging.WARNING, logger="synth_engine.modules.synthesizer.training.dp_training"
+            ),
         ):
             instance.fit(_make_training_df())
 
@@ -729,7 +733,7 @@ class TestFallbackToProxyModel:
 
     def test_fallback_to_proxy_model_still_fits(self, caplog: Any) -> None:
         """fit() must succeed (set _fitted=True) even when falling back to proxy model."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_sdv_synth = _make_mock_sdv_synthesizer()
@@ -752,18 +756,20 @@ class TestFallbackToProxyModel:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv_synth,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGAN",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
                 mock_ctgan_cls,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
-            caplog.at_level(logging.WARNING, logger="synth_engine.modules.synthesizer.dp_training"),
+            caplog.at_level(
+                logging.WARNING, logger="synth_engine.modules.synthesizer.training.dp_training"
+            ),
         ):
             instance.fit(_make_training_df())
 
@@ -791,6 +797,7 @@ class TestNewImportBoundaryT303:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "training"
             / "dp_training.py"
         )
         source = dp_training_path.read_text()
@@ -807,7 +814,7 @@ class TestNewImportBoundaryT303:
 
         assert found_discriminator_import, (
             "dp_training.py must import OpacusCompatibleDiscriminator from "
-            "synth_engine.modules.synthesizer.dp_discriminator (T30.3)."
+            "synth_engine.modules.synthesizer.training.dp_discriminator (T30.3)."
         )
 
     def test_dp_training_new_imports_not_from_privacy(self) -> None:
@@ -821,6 +828,7 @@ class TestNewImportBoundaryT303:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "training"
             / "dp_training.py"
         )
         source = dp_training_path.read_text()
@@ -844,6 +852,7 @@ class TestNewImportBoundaryT303:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "training"
             / "dp_training.py"
         )
         source = dp_training_path.read_text()
@@ -865,7 +874,7 @@ class TestCheckBudgetKwargs:
         """check_budget() must be called with allocated_epsilon and delta keyword args."""
         import numpy as np
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -896,10 +905,10 @@ class TestCheckBudgetKwargs:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator"),
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch("synth_engine.modules.synthesizer.training.dp_training.Generator"),
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
             patch.object(instance, "_build_dp_dataloader", return_value=_make_mock_dataloader()),
         ):
             mock_disc_cls.return_value = MagicMock()

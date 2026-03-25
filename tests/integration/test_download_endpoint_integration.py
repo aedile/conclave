@@ -64,7 +64,7 @@ def sqlite_engine() -> Any:
     Returns:
         A SQLAlchemy engine backed by an in-memory SQLite database.
     """
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob  # noqa: F401
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob  # noqa: F401
 
     engine = create_engine(
         "sqlite:///:memory:",
@@ -83,7 +83,7 @@ class TestDownloadAfterSynthesis:
         self, tmp_path: Path, sqlite_engine: Any
     ) -> None:
         """Integration: download after synthesis returns the correct Parquet file bytes."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         expected_bytes = b"PAR1\x00\xff\xfe integration test parquet payload"
         parquet_file = tmp_path / "orders-synthetic.parquet"
@@ -129,7 +129,7 @@ class TestDownloadAfterSynthesis:
         self, tmp_path: Path, sqlite_engine: Any
     ) -> None:
         """Integration: Content-Disposition header uses '<table_name>-synthetic.parquet'."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_file = tmp_path / "analytics-synthetic.parquet"
         parquet_file.write_bytes(b"parquet payload")
@@ -175,7 +175,7 @@ class TestDownloadAfterSynthesis:
         self, tmp_path: Path, sqlite_engine: Any
     ) -> None:
         """Integration: download with a matching HMAC signature returns 200."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"PAR1\x00 signed integration test payload"
         parquet_file = tmp_path / "signed-synthetic.parquet"
@@ -226,7 +226,7 @@ class TestDownloadAfterSynthesis:
         self, tmp_path: Path, sqlite_engine: Any
     ) -> None:
         """Integration: download with a mismatched HMAC signature returns 409."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"PAR1\x00 tampered integration test payload"
         parquet_file = tmp_path / "tampered-synthetic.parquet"
@@ -281,7 +281,7 @@ class TestDownloadAfterSynthesis:
         self, tmp_path: Path, sqlite_engine: Any
     ) -> None:
         """Integration: download for a FAILED job returns 404."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with Session(sqlite_engine) as session:
             job = SynthesisJob(

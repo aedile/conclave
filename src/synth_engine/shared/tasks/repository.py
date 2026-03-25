@@ -7,7 +7,7 @@ abstraction without violating the ``shared/ → modules/`` boundary rule.
 
 The concrete ``SQLAlchemyTaskRepository`` implementation is placed in
 ``modules/synthesizer/reaper_repository.py`` where it is free to import
-:class:`~synth_engine.modules.synthesizer.job_models.SynthesisJob`.
+:class:`~synth_engine.modules.synthesizer.jobs.job_models.SynthesisJob`.
 
 Boundary constraints (import-linter enforced):
     This module must NOT import from ``modules/`` or ``bootstrapper/``.
@@ -49,7 +49,7 @@ class TaskRepository(abc.ABC):
     """Abstract repository for synthesis-job task operations used by the reaper.
 
     Concrete implementations (e.g.
-    :class:`~synth_engine.modules.synthesizer.reaper_repository.SQLAlchemyTaskRepository`)
+    :class:`~synth_engine.modules.synthesizer.storage.reaper_repository.SQLAlchemyTaskRepository`)
     handle DB access.  The abstract layer is kept here so that
     :class:`~synth_engine.shared.tasks.reaper.OrphanTaskReaper` can live in
     ``shared/`` without importing from ``modules/``.

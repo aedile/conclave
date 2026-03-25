@@ -142,7 +142,7 @@ def _make_full_app(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any, dict[str,
 
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.schemas.connections import Connection
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
@@ -338,7 +338,7 @@ async def test_integration_shred_job_idor_returns_404(
     from sqlalchemy.pool import StaticPool
 
     from synth_engine.bootstrapper.main import create_app
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
@@ -448,7 +448,7 @@ async def test_integration_download_job_idor_returns_404(
     from sqlalchemy.pool import StaticPool
 
     from synth_engine.bootstrapper.main import create_app
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")

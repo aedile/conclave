@@ -25,7 +25,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
 pytestmark = pytest.mark.integration
 
@@ -81,7 +81,7 @@ class TestRetentionCleanupIntegration:
 
     def test_expired_jobs_deleted_and_fresh_jobs_retained(self) -> None:
         """End-to-end: expired jobs deleted, fresh jobs retained."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -107,7 +107,7 @@ class TestRetentionCleanupIntegration:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -125,7 +125,7 @@ class TestRetentionCleanupIntegration:
 
     def test_legal_hold_survives_beyond_ttl(self) -> None:
         """A legal-held job is not deleted even when 500 days old."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -145,7 +145,7 @@ class TestRetentionCleanupIntegration:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -161,7 +161,7 @@ class TestRetentionCleanupIntegration:
 
     def test_artifact_file_deleted_for_expired_job(self, tmp_path: Path) -> None:
         """Artifact file on disk is removed when its job is purged."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -184,7 +184,7 @@ class TestRetentionCleanupIntegration:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -195,7 +195,7 @@ class TestRetentionCleanupIntegration:
 
     def test_artifact_file_missing_does_not_raise(self, tmp_path: Path) -> None:
         """Cleanup succeeds even if the artifact file was already removed."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -217,7 +217,7 @@ class TestRetentionCleanupIntegration:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -228,7 +228,7 @@ class TestRetentionCleanupIntegration:
 
     def test_audit_log_includes_job_id_and_table_name(self) -> None:
         """Audit event details include job_id and table_name (no PII)."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -248,7 +248,7 @@ class TestRetentionCleanupIntegration:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)

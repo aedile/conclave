@@ -107,7 +107,7 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")

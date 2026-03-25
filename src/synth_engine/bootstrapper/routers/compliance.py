@@ -53,7 +53,7 @@ from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.schemas.connections import Connection
-from synth_engine.modules.synthesizer.erasure import DeletionManifest, ErasureService
+from synth_engine.modules.synthesizer.lifecycle.erasure import DeletionManifest, ErasureService
 from synth_engine.shared.security.vault import VaultState
 
 _logger = logging.getLogger(__name__)

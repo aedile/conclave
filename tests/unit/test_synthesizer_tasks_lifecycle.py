@@ -98,7 +98,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_has_checkpoint_every_n_field(self) -> None:
         """SynthesisJob must have a checkpoint_every_n field defaulting to 5."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             status="QUEUED",
@@ -119,7 +119,7 @@ class TestSynthesisJobModel:
         __init__ to allow ORM row construction.  The guard is implemented as
         an __init__ override that raises ValueError directly.
         """
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="checkpoint_every_n must be >= 1"):
             SynthesisJob(
@@ -137,7 +137,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_enable_dp_defaults_to_true(self) -> None:
         """SynthesisJob must default enable_dp to True (privacy-by-design, OWASP A04)."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             total_epochs=10,
@@ -153,7 +153,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_noise_multiplier_defaults_to_1_1(self) -> None:
         """SynthesisJob must default noise_multiplier to 1.1 (ADR-0025 calibration)."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             total_epochs=10,
@@ -169,7 +169,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_noise_multiplier_zero_raises(self) -> None:
         """SynthesisJob must reject noise_multiplier=0 with ValueError."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="noise_multiplier must be > 0"):
             SynthesisJob(
@@ -181,7 +181,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_noise_multiplier_negative_raises(self) -> None:
         """SynthesisJob must reject negative noise_multiplier with ValueError."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="noise_multiplier must be > 0"):
             SynthesisJob(
@@ -193,7 +193,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_max_grad_norm_defaults_to_1_0(self) -> None:
         """SynthesisJob must default max_grad_norm to 1.0."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             total_epochs=10,
@@ -209,7 +209,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_max_grad_norm_zero_raises(self) -> None:
         """SynthesisJob must reject max_grad_norm=0 with ValueError."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
             SynthesisJob(
@@ -221,7 +221,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_max_grad_norm_negative_raises(self) -> None:
         """SynthesisJob must reject negative max_grad_norm with ValueError."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
             SynthesisJob(
@@ -233,7 +233,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_actual_epsilon_defaults_to_none(self) -> None:
         """SynthesisJob must default actual_epsilon to None (set after training)."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             total_epochs=10,
@@ -249,7 +249,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_noise_multiplier_above_100_raises(self) -> None:
         """SynthesisJob must reject noise_multiplier=101 with ValueError."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="noise_multiplier must be <= 100.0"):
             SynthesisJob(
@@ -261,7 +261,7 @@ class TestSynthesisJobModel:
 
     def test_synthesis_job_max_grad_norm_above_100_raises(self) -> None:
         """SynthesisJob must reject max_grad_norm=101 with ValueError."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with pytest.raises(ValueError, match="max_grad_norm must be <= 100.0"):
             SynthesisJob(
@@ -288,7 +288,7 @@ class TestHueyTaskRegistration:
         .call_local attribute that Huey tasks carry, which is the actual behavioral
         requirement.
         """
-        from synth_engine.modules.synthesizer.tasks import run_synthesis_job
+        from synth_engine.modules.synthesizer.jobs.tasks import run_synthesis_job
 
         assert hasattr(run_synthesis_job, "call_local"), (
             "run_synthesis_job must be a Huey task with a .call_local attribute"
@@ -296,7 +296,7 @@ class TestHueyTaskRegistration:
 
     def test_run_synthesis_job_is_huey_task(self) -> None:
         """run_synthesis_job must be a Huey task (has .call_local attribute)."""
-        from synth_engine.modules.synthesizer.tasks import run_synthesis_job
+        from synth_engine.modules.synthesizer.jobs.tasks import run_synthesis_job
 
         # Huey tasks expose .call_local() for synchronous testing
         assert hasattr(run_synthesis_job, "call_local")
@@ -322,7 +322,7 @@ class TestSynthesisTaskSuccessPath:
         status is already COMPLETE.  We use side_effect to snapshot the status
         at each session.add() call time instead.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
         job = _make_synthesis_job(id=1, status="QUEUED", total_epochs=3, checkpoint_every_n=5)
@@ -342,7 +342,9 @@ class TestSynthesisTaskSuccessPath:
 
         mock_session.add.side_effect = _snapshot_status
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -355,7 +357,7 @@ class TestSynthesisTaskSuccessPath:
 
     def test_task_transitions_training_to_complete(self) -> None:
         """Task must set status=COMPLETE on successful training completion."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
         job = _make_synthesis_job(id=1, status="QUEUED", total_epochs=3, checkpoint_every_n=5)
@@ -366,7 +368,9 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1_final.pkl"
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -378,7 +382,7 @@ class TestSynthesisTaskSuccessPath:
 
     def test_task_sets_artifact_path_on_complete(self) -> None:
         """Task must set artifact_path on job record after successful completion."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
         job = _make_synthesis_job(id=1, status="QUEUED", total_epochs=3, checkpoint_every_n=5)
@@ -389,7 +393,9 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1_final.pkl"
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -401,7 +407,7 @@ class TestSynthesisTaskSuccessPath:
 
     def test_task_calls_session_commit_on_status_transitions(self) -> None:
         """Task must commit the session after each status change."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
         job = _make_synthesis_job(id=1, status="QUEUED", total_epochs=3, checkpoint_every_n=5)
@@ -412,7 +418,9 @@ class TestSynthesisTaskSuccessPath:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job1.pkl"
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=1,
                 session=mock_session,
@@ -440,7 +448,7 @@ class TestSynthesisTaskCheckpointing:
         But since engine.train() is called once (not per-epoch), we verify
         that checkpoint saves happen (artifact.save called at least once).
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=4, status="QUEUED", total_epochs=10, checkpoint_every_n=5)
@@ -451,7 +459,9 @@ class TestSynthesisTaskCheckpointing:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job4_checkpoint.pkl"
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=4,
                 session=mock_session,
@@ -463,7 +473,7 @@ class TestSynthesisTaskCheckpointing:
 
     def test_current_epoch_updated_during_training(self) -> None:
         """job.current_epoch must be updated to reflect training progress."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=4, status="QUEUED", total_epochs=10, checkpoint_every_n=5)
@@ -474,7 +484,9 @@ class TestSynthesisTaskCheckpointing:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job4.pkl"
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=4,
                 session=mock_session,
@@ -491,7 +503,7 @@ class TestSynthesisTaskCheckpointing:
         artifact.save() must not be called for intermediate checkpointing.
         On completion, the final artifact is saved — so exactly 1 save().
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         # total_epochs=5 < checkpoint_every_n=10 → no intermediate checkpoints
@@ -503,7 +515,9 @@ class TestSynthesisTaskCheckpointing:
         mock_engine.train.return_value = mock_artifact
         mock_artifact.save.return_value = "/artifacts/job5_final.pkl"
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=5,
                 session=mock_session,
@@ -529,7 +543,7 @@ class TestSynthesisJobNumRowsField:
 
     def test_synthesis_job_num_rows_required(self) -> None:
         """SynthesisJob num_rows is a required integer field."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             total_epochs=10,
@@ -541,7 +555,7 @@ class TestSynthesisJobNumRowsField:
 
     def test_synthesis_job_has_output_path_field_default_none(self) -> None:
         """SynthesisJob output_path must default to None (set after generation)."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             total_epochs=10,
@@ -572,7 +586,7 @@ class TestGeneratingStatusTransition:
         the GENERATING transition happens after TRAINING completes and
         before COMPLETE is set.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -601,7 +615,9 @@ class TestGeneratingStatusTransition:
 
         mock_session.add.side_effect = _snapshot_status
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=50,
                 session=mock_session,
@@ -614,7 +630,7 @@ class TestGeneratingStatusTransition:
 
     def test_generating_precedes_complete(self) -> None:
         """GENERATING must appear before COMPLETE in the status transition sequence."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -642,7 +658,9 @@ class TestGeneratingStatusTransition:
 
         mock_session.add.side_effect = _snapshot_status
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=51,
                 session=mock_session,
@@ -672,7 +690,7 @@ class TestGenerationStep:
         AC1: After training completes, run_synthesis_job() calls artifact.model.sample(n_rows).
         The implementation routes through engine.generate(artifact, n_rows=job.num_rows).
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -692,7 +710,9 @@ class TestGenerationStep:
 
         mock_engine.generate.return_value = pd.DataFrame({"col": range(42)})
 
-        with patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"):
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+        ):
             _run_synthesis_job_impl(
                 job_id=60,
                 session=mock_session,
@@ -714,7 +734,7 @@ class TestGenerationStep:
 
     def test_output_path_set_on_job_after_generation(self) -> None:
         """job.output_path must point to a Parquet file path after generation completes (AC4)."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -735,7 +755,9 @@ class TestGenerationStep:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(10)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -752,7 +774,7 @@ class TestGenerationStep:
 
     def test_parquet_file_written_to_checkpoint_dir(self) -> None:
         """Generated Parquet must be physically written to the checkpoint directory (AC2)."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -773,7 +795,9 @@ class TestGenerationStep:
         mock_engine.generate.return_value = pd.DataFrame({"col": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -794,7 +818,7 @@ class TestGenerationStep:
 
         Option B: artifact_path = pickle, output_path = Parquet (AC4).
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -815,7 +839,9 @@ class TestGenerationStep:
         mock_engine.generate.return_value = pd.DataFrame({"col": range(5)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(
@@ -832,7 +858,7 @@ class TestGenerationStep:
 
     def test_job_reaches_complete_after_generation(self) -> None:
         """Job must reach COMPLETE status after generation succeeds (AC5)."""
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -853,7 +879,9 @@ class TestGenerationStep:
         mock_engine.generate.return_value = pd.DataFrame({"x": range(7)})
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
             tempfile.TemporaryDirectory() as tmpdir,
         ):
             _run_synthesis_job_impl(

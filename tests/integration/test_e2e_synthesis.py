@@ -6,7 +6,7 @@ database (aiosqlite) and the Dummy ML synthesizer fixture.
 Context (P6-T6.1):
     Running real PyTorch models in CI takes too long.  The ``DummyMLSynthesizer``
     fixture exercises the exact same ``ModelArtifact`` interface as
-    :class:`~synth_engine.modules.synthesizer.engine.SynthesisEngine` without
+    :class:`~synth_engine.modules.synthesizer.training.engine.SynthesisEngine` without
     performing any real ML training.  The privacy ledger tests confirm that
     ``spend_budget()`` correctly decrements epsilon and raises
     :exc:`~synth_engine.modules.privacy.dp_engine.BudgetExhaustionError` on
@@ -268,7 +268,7 @@ def test_dummy_synthesizer_train_returns_model_artifact() -> None:
     Validates that the dummy synthesizer implements the same interface as
     SynthesisEngine so it can be substituted in integration test pipelines.
     """
-    from synth_engine.modules.synthesizer.models import ModelArtifact
+    from synth_engine.modules.synthesizer.storage.models import ModelArtifact
 
     synthesizer = DummyMLSynthesizer()
     artifact = synthesizer.train("test_table", "/fake/path.parquet")

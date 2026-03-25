@@ -56,7 +56,7 @@ from sqlmodel import SQLModel
 from synth_engine.bootstrapper.schemas.connections import Connection  # noqa: F401
 from synth_engine.bootstrapper.schemas.settings import Setting  # noqa: F401
 from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction  # noqa: F401
-from synth_engine.modules.synthesizer.job_models import SynthesisJob  # noqa: F401
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob  # noqa: F401
 from tests.conftest_types import PostgreSQLProc
 
 # ---------------------------------------------------------------------------

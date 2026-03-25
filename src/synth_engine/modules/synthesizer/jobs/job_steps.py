@@ -13,10 +13,10 @@ Patch-path note
 ---------------
 Existing tests patch names in ``job_orchestration``::
 
-    patch("synth_engine.modules.synthesizer.job_orchestration.get_audit_logger")
-    patch("synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing")
-    patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility")
-    patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn")
+    patch("synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger")
+    patch("synth_engine.modules.synthesizer.jobs.job_orchestration._write_parquet_with_signing")
+    patch("synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility")
+    patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn")
 
 New tests (``test_job_steps.py``) that exercise steps in isolation should
 patch names in ``job_orchestration`` as well, OR use the re-exports below
@@ -48,7 +48,7 @@ from __future__ import annotations
 # affect the same underlying binding.
 #
 # NOTE: _spend_budget_fn is deliberately excluded — see module docstring.
-from synth_engine.modules.synthesizer.job_orchestration import (
+from synth_engine.modules.synthesizer.jobs.job_orchestration import (
     DpAccountingStep,
     GenerationStep,
     JobContext,

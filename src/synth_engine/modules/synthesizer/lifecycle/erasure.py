@@ -43,7 +43,7 @@ from dataclasses import dataclass
 
 from sqlmodel import Session, select
 
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 from synth_engine.shared.protocols import OwnedRecordModel
 from synth_engine.shared.security.audit import get_audit_logger
 
@@ -144,7 +144,7 @@ class ErasureService:
         """Delete all records referencing the data subject and return a manifest.
 
         Deletes:
-        - :class:`~synth_engine.modules.synthesizer.job_models.SynthesisJob`
+        - :class:`~synth_engine.modules.synthesizer.jobs.job_models.SynthesisJob`
           records whose ``owner_id == subject_id``.
         - Connection records whose ``owner_id == subject_id`` (when a
           ``connection_model`` was provided at construction).

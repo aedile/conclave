@@ -45,7 +45,7 @@ def _make_test_app_with_job(
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     engine = create_engine(
         "sqlite:///:memory:",
@@ -108,7 +108,7 @@ class TestShredEndpointHappyPath:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -136,7 +136,7 @@ class TestShredEndpointHappyPath:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -155,7 +155,7 @@ class TestShredEndpointHappyPath:
                 await client.post(f"/jobs/{job_id}/shred")
 
         with Session(engine) as session:
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             updated = session.get(SynthesisJob, job_id)
             assert updated is not None
@@ -169,7 +169,7 @@ class TestShredEndpointHappyPath:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -202,7 +202,7 @@ class TestShredEndpointHappyPath:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -242,7 +242,7 @@ class TestShredEndpointHappyPath:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -277,7 +277,7 @@ class TestShredEndpointHappyPath:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -317,7 +317,7 @@ class TestShredEndpointHappyPath:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -344,7 +344,7 @@ class TestShredEndpointHappyPath:
         assert response.status_code == 200
 
         with Session(engine) as session:
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             updated = session.get(SynthesisJob, job_id)
             assert updated is not None
@@ -381,7 +381,7 @@ class TestShredEndpointErrorPaths:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -404,7 +404,7 @@ class TestShredEndpointErrorPaths:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -427,7 +427,7 @@ class TestShredEndpointErrorPaths:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -450,7 +450,7 @@ class TestShredEndpointErrorPaths:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -473,7 +473,7 @@ class TestShredEndpointErrorPaths:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -496,7 +496,7 @@ class TestShredEndpointErrorPaths:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -528,7 +528,7 @@ class TestShredEndpointErrorPaths:
         with Session(engine) as session:
             from sqlmodel import select
 
-            from synth_engine.modules.synthesizer.job_models import SynthesisJob
+            from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             job = session.exec(select(SynthesisJob)).first()
             assert job is not None
@@ -568,8 +568,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_deletes_output_path(self, tmp_path: Path) -> None:
         """shred_artifacts() must delete the output Parquet file."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 
         parquet = tmp_path / "out.parquet"
         parquet.write_bytes(b"fake parquet data")
@@ -588,8 +588,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_deletes_sig_sidecar(self, tmp_path: Path) -> None:
         """shred_artifacts() must delete the .sig sidecar alongside the Parquet."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 
         parquet = tmp_path / "out.parquet"
         sig = tmp_path / "out.parquet.sig"
@@ -611,8 +611,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_deletes_artifact_path(self, tmp_path: Path) -> None:
         """shred_artifacts() must delete the model artifact pickle file."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 
         pickle_file = tmp_path / "model.pkl"
         pickle_file.write_bytes(b"fake model pickle")
@@ -631,8 +631,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_tolerates_missing_output_path(self) -> None:
         """shred_artifacts() must not raise if output_path is None."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 
         job = SynthesisJob(
             table_name="t",
@@ -649,8 +649,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_tolerates_missing_artifact_path(self, tmp_path: Path) -> None:
         """shred_artifacts() must not raise if artifact_path is None."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 
         parquet = tmp_path / "out.parquet"
         parquet.write_bytes(b"fake parquet data")
@@ -671,8 +671,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_tolerates_already_deleted_files(self) -> None:
         """shred_artifacts() must not raise if files are already gone (idempotent)."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 
         job = SynthesisJob(
             table_name="t",
@@ -689,8 +689,8 @@ class TestShredArtifactsDomainFunction:
 
     def test_shred_artifacts_tolerates_sig_already_deleted(self, tmp_path: Path) -> None:
         """shred_artifacts() must not raise if only the Parquet exists (no .sig)."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 
         parquet = tmp_path / "out.parquet"
         parquet.write_bytes(b"fake parquet data")
@@ -717,8 +717,8 @@ class TestShredArtifactsDomainFunction:
         The log message must use the basename only (never the full path) to
         avoid leaking internal filesystem topology in logs.
         """
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.shred import shred_artifacts
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
 
         parquet = tmp_path / "secret_data.parquet"
         parquet.write_bytes(b"fake parquet data")
@@ -734,7 +734,9 @@ class TestShredArtifactsDomainFunction:
 
         with (
             patch("pathlib.Path.unlink", side_effect=PermissionError("denied")),
-            caplog.at_level(logging.ERROR, logger="synth_engine.modules.synthesizer.shred"),
+            caplog.at_level(
+                logging.ERROR, logger="synth_engine.modules.synthesizer.lifecycle.shred"
+            ),
         ):
             with pytest.raises(OSError, match="denied"):
                 shred_artifacts(job)

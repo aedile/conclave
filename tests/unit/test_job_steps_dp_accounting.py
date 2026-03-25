@@ -24,7 +24,7 @@ from tests.unit.helpers_synthesizer import _make_synthesis_job
 
 def _make_job_context(job: Any = None, **kwargs: Any) -> Any:
     """Build a JobContext with sensible defaults for unit tests."""
-    from synth_engine.modules.synthesizer.job_steps import JobContext
+    from synth_engine.modules.synthesizer.jobs.job_steps import JobContext
 
     if job is None:
         job = _make_synthesis_job()
@@ -50,7 +50,7 @@ class TestDpAccountingStepIsolation:
 
     def test_dp_accounting_step_returns_success_on_normal_dp(self) -> None:
         """DpAccountingStep.execute() must return StepResult(success=True) for normal DP."""
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep, StepResult
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep, StepResult
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.return_value = 2.5
@@ -60,9 +60,9 @@ class TestDpAccountingStepIsolation:
         step = DpAccountingStep()
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -73,7 +73,7 @@ class TestDpAccountingStepIsolation:
 
     def test_dp_accounting_step_skipped_when_no_dp_wrapper(self) -> None:
         """DpAccountingStep.execute() must return success immediately when dp_wrapper is None."""
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
 
         job = _make_synthesis_job(id=1)
         ctx = _make_job_context(job=job, dp_wrapper=None)
@@ -85,7 +85,7 @@ class TestDpAccountingStepIsolation:
 
     def test_dp_accounting_step_returns_failure_on_budget_exhaustion(self) -> None:
         """DpAccountingStep.execute() must return StepResult(success=False) on exhaustion."""
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         mock_wrapper = MagicMock()
@@ -105,11 +105,11 @@ class TestDpAccountingStepIsolation:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -123,7 +123,7 @@ class TestDpAccountingStepIsolation:
 
         AC4: Job status transitions centralized — only the orchestrator sets job.status.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         mock_wrapper = MagicMock()
@@ -142,11 +142,11 @@ class TestDpAccountingStepIsolation:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn",
                 mock_budget_fn,
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -182,7 +182,7 @@ class TestDpAccountingStepEpsilonFailure:
         AC4 (T37.1): When dp_wrapper.epsilon_spent() raises RuntimeError, the step
         must return a failure result — not silently continue with actual_epsilon=None.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep, StepResult
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep, StepResult
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.side_effect = RuntimeError("DP engine crashed")
@@ -192,9 +192,9 @@ class TestDpAccountingStepEpsilonFailure:
         step = DpAccountingStep()
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -207,7 +207,7 @@ class TestDpAccountingStepEpsilonFailure:
 
     def test_dp_accounting_step_error_msg_references_budget_verification(self) -> None:
         """DpAccountingStep failure message must reference privacy budget verification (AC1)."""
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.side_effect = RuntimeError("internal DP failure")
@@ -216,9 +216,9 @@ class TestDpAccountingStepEpsilonFailure:
         ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -234,7 +234,7 @@ class TestDpAccountingStepEpsilonFailure:
         This is a guard: the bug was that actual_epsilon stayed None and the job
         silently completed. After the fix, the job must instead FAIL.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.side_effect = RuntimeError("crash")
@@ -245,9 +245,9 @@ class TestDpAccountingStepEpsilonFailure:
         ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -263,7 +263,7 @@ class TestDpAccountingStepEpsilonFailure:
         AC1 (T37.1): End-to-end orchestrator test — job must not reach COMPLETE
         if epsilon measurement fails.
         """
-        from synth_engine.modules.synthesizer.job_orchestration import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_engine = MagicMock()
         mock_artifact = MagicMock()
@@ -277,14 +277,16 @@ class TestDpAccountingStepEpsilonFailure:
         mock_session.get.return_value = job
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._get_parquet_dimensions",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._get_parquet_dimensions",
                 return_value=(100, 10),
             ),
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -306,7 +308,7 @@ class TestDpAccountingStepEpsilonFailure:
 
         AC4 (T35.1): status ownership remains with the orchestrator, even in the new failure path.
         """
-        from synth_engine.modules.synthesizer.job_steps import DpAccountingStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import DpAccountingStep
 
         mock_wrapper = MagicMock()
         mock_wrapper.epsilon_spent.side_effect = RuntimeError("crash")
@@ -315,9 +317,9 @@ class TestDpAccountingStepEpsilonFailure:
         ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
 
         with (
-            patch("synth_engine.modules.synthesizer.job_orchestration._spend_budget_fn", None),
+            patch("synth_engine.modules.synthesizer.jobs.job_orchestration._spend_budget_fn", None),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.get_audit_logger",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger",
                 return_value=MagicMock(),
             ),
         ):
@@ -342,7 +344,7 @@ class TestGenerationStepIsolation:
 
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.job_steps import GenerationStep, StepResult
+        from synth_engine.modules.synthesizer.jobs.job_steps import GenerationStep, StepResult
 
         mock_engine = MagicMock()
         mock_df = pd.DataFrame({"a": [1, 2, 3]})
@@ -362,7 +364,7 @@ class TestGenerationStepIsolation:
             step = GenerationStep()
 
             with patch(
-                "synth_engine.modules.synthesizer.job_orchestration._write_parquet_with_signing"
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._write_parquet_with_signing"
             ):
                 result = step.execute(ctx)
 
@@ -371,7 +373,7 @@ class TestGenerationStepIsolation:
 
     def test_generation_step_returns_failure_on_runtime_error(self) -> None:
         """GenerationStep.execute() must return StepResult(success=False) on RuntimeError."""
-        from synth_engine.modules.synthesizer.job_steps import GenerationStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import GenerationStep
 
         mock_engine = MagicMock()
         mock_engine.generate.side_effect = RuntimeError("generation failed")
@@ -391,7 +393,7 @@ class TestGenerationStepIsolation:
 
         AC4: Job status transitions centralized — only the orchestrator sets job.status.
         """
-        from synth_engine.modules.synthesizer.job_steps import GenerationStep
+        from synth_engine.modules.synthesizer.jobs.job_steps import GenerationStep
 
         mock_engine = MagicMock()
         mock_engine.generate.side_effect = RuntimeError("fail")

@@ -73,7 +73,7 @@ from synth_engine.bootstrapper.wiring import (  # noqa: F401 — re-exported for
 from synth_engine.shared.telemetry import configure_telemetry
 
 if TYPE_CHECKING:
-    from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
+    from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
 
 _SERVICE_NAME = "conclave-engine"
 _logger = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ _logger = logging.getLogger(__name__)
 # Deferred import so environments without the synthesizer group don't fail.
 # Bound at module scope for patch("synth_engine.bootstrapper.main.MinioStorageBackend").
 try:
-    from synth_engine.modules.synthesizer.storage import MinioStorageBackend
+    from synth_engine.modules.synthesizer.storage.storage import MinioStorageBackend
 except ImportError:  # pragma: no cover — synthesizer group not installed
     MinioStorageBackend = None  # type: ignore[assignment,misc]  # conditional import fallback: None when synthesizer group absent; type narrowed at call sites
 
@@ -97,7 +97,7 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
         A configured :class:`EphemeralStorageClient` ready to upload/download
         Parquet files.
     """
-    from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
+    from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
 
     access_key = _read_secret("minio_ephemeral_access_key")
     secret_key = _read_secret("minio_ephemeral_secret_key")

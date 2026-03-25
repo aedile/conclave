@@ -108,7 +108,7 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
@@ -181,7 +181,7 @@ def test_get_job_returns_404_for_job_owned_by_other_operator(
     with Session(engine) as session:
         from sqlmodel import select
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job_b = session.exec(
             select(SynthesisJob).where(SynthesisJob.owner_id == _OPERATOR_B_SUB)
@@ -224,7 +224,7 @@ def test_get_job_returns_200_for_own_job(
     with Session(engine) as session:
         from sqlmodel import select
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job_a = session.exec(
             select(SynthesisJob).where(SynthesisJob.owner_id == _OPERATOR_A_SUB)
@@ -275,7 +275,7 @@ def test_get_job_returns_404_not_403_for_idor_attempt(
     with Session(engine) as session:
         from sqlmodel import select
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job_b = session.exec(
             select(SynthesisJob).where(SynthesisJob.owner_id == _OPERATOR_B_SUB)
@@ -328,7 +328,7 @@ def test_idor_sequential_id_enumeration_returns_404(
     with Session(engine) as session:
         from sqlmodel import select
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         # Find the highest-ID job owned by operator B (non-owned by A)
         job_b = session.exec(
@@ -381,7 +381,7 @@ def test_get_job_returns_401_without_token(
     with Session(engine) as session:
         from sqlmodel import select
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job_a = session.exec(
             select(SynthesisJob).where(SynthesisJob.owner_id == _OPERATOR_A_SUB)
@@ -467,7 +467,7 @@ def test_start_job_returns_404_for_other_operators_job(
     with Session(engine) as session:
         from sqlmodel import select
 
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job_b = session.exec(
             select(SynthesisJob).where(SynthesisJob.owner_id == _OPERATOR_B_SUB)
@@ -515,7 +515,7 @@ def test_shred_job_returns_404_for_other_operators_job(
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")

@@ -14,16 +14,19 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from synth_engine.modules.synthesizer._optional_deps import (
+from synth_engine.modules.synthesizer.training._optional_deps import (
     DataLoader,
     TensorDataset,
     nn,
     require_synthesizer,
     torch,
 )
-from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size, parse_gan_hyperparams
-from synth_engine.modules.synthesizer.dp_discriminator import OpacusCompatibleDiscriminator
-from synth_engine.modules.synthesizer.training_strategies import (
+from synth_engine.modules.synthesizer.training.ctgan_utils import (
+    cap_batch_size,
+    parse_gan_hyperparams,
+)
+from synth_engine.modules.synthesizer.training.dp_discriminator import OpacusCompatibleDiscriminator
+from synth_engine.modules.synthesizer.training.training_strategies import (
     DpCtganStrategy,
     Optimizers,
     TrainingConfig,

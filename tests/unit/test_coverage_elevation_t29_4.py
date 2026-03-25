@@ -108,7 +108,7 @@ class TestMinioStorageBackendCoverage:
         Returns:
             A MinioStorageBackend whose _client is a MagicMock.
         """
-        from synth_engine.modules.synthesizer.storage import MinioStorageBackend
+        from synth_engine.modules.synthesizer.storage.storage import MinioStorageBackend
 
         mock_boto3_client = MagicMock()
         with patch("boto3.client", return_value=mock_boto3_client):
@@ -225,8 +225,8 @@ class TestRunSynthesisJobEnableDpFalsePath:
         Lines 202->215: the if-branch is skipped (enable_dp=False), dp_wrapper=None.
         Line 216: _orch._run_synthesis_job_impl is called with dp_wrapper=None.
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        import synth_engine.modules.synthesizer.jobs.tasks as tasks_mod
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         job = SynthesisJob(
             id=77,
@@ -252,7 +252,7 @@ class TestRunSynthesisJobEnableDpFalsePath:
             patch("synth_engine.shared.db.get_engine", return_value=MagicMock()),
             patch("sqlmodel.Session", return_value=mock_session_ctx),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._run_synthesis_job_impl",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._run_synthesis_job_impl",
                 mock_impl,
             ),
         ):
@@ -266,7 +266,7 @@ class TestRunSynthesisJobEnableDpFalsePath:
 
         Line 202: if job is not None — when job IS None, dp_wrapper stays None.
         """
-        import synth_engine.modules.synthesizer.tasks as tasks_mod
+        import synth_engine.modules.synthesizer.jobs.tasks as tasks_mod
 
         mock_session_instance = MagicMock()
         mock_session_instance.get.return_value = None  # job not found
@@ -280,7 +280,7 @@ class TestRunSynthesisJobEnableDpFalsePath:
             patch("synth_engine.shared.db.get_engine", return_value=MagicMock()),
             patch("sqlmodel.Session", return_value=mock_session_ctx),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration._run_synthesis_job_impl",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration._run_synthesis_job_impl",
                 mock_impl,
             ),
         ):

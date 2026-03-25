@@ -327,7 +327,7 @@ class TestDPPipelineE2EOrchestration:
         _run_synthesis_job_impl.  Resetting to None ensures they get that path
         regardless of prior test ordering.
         """
-        from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn
+        from synth_engine.modules.synthesizer.jobs.tasks import set_spend_budget_fn
 
         set_spend_budget_fn(None)  # type: ignore[arg-type]
 
@@ -340,8 +340,8 @@ class TestDPPipelineE2EOrchestration:
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         db_engine = _make_sync_db()
         synthesis_engine = build_synthesis_engine(epochs=2)
@@ -393,8 +393,8 @@ class TestDPPipelineE2EOrchestration:
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         db_engine = _make_sync_db()
         synthesis_engine = build_synthesis_engine(epochs=2)
@@ -453,8 +453,8 @@ class TestDPPipelineE2EOrchestration:
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import (
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import (
             _run_synthesis_job_impl,
             set_spend_budget_fn,
         )
@@ -514,7 +514,7 @@ class TestDPPipelineE2EOrchestration:
             # Restore the production spend_budget fn (Rule 8: DI must be
             # re-wired after any test override).
             from synth_engine.bootstrapper.factories import build_spend_budget_fn
-            from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn as _reset
+            from synth_engine.modules.synthesizer.jobs.tasks import set_spend_budget_fn as _reset
 
             _reset(build_spend_budget_fn())
 
@@ -528,8 +528,8 @@ class TestDPPipelineE2EOrchestration:
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import (
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import (
             _run_synthesis_job_impl,
             set_spend_budget_fn,
         )
@@ -586,7 +586,7 @@ class TestDPPipelineE2EOrchestration:
 
         finally:
             from synth_engine.bootstrapper.factories import build_spend_budget_fn
-            from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn as _reset
+            from synth_engine.modules.synthesizer.jobs.tasks import set_spend_budget_fn as _reset
 
             _reset(build_spend_budget_fn())
 
@@ -619,8 +619,8 @@ class TestDPPipelineBudgetExhaustion:
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import (
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import (
             _run_synthesis_job_impl,
             set_spend_budget_fn,
         )
@@ -688,7 +688,7 @@ class TestDPPipelineBudgetExhaustion:
 
         finally:
             from synth_engine.bootstrapper.factories import build_spend_budget_fn
-            from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn as _reset
+            from synth_engine.modules.synthesizer.jobs.tasks import set_spend_budget_fn as _reset
 
             _reset(build_spend_budget_fn())
 
@@ -704,8 +704,8 @@ class TestDPPipelineBudgetExhaustion:
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import (
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import (
             _run_synthesis_job_impl,
             set_spend_budget_fn,
         )
@@ -766,7 +766,7 @@ class TestDPPipelineBudgetExhaustion:
 
         finally:
             from synth_engine.bootstrapper.factories import build_spend_budget_fn
-            from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn as _reset
+            from synth_engine.modules.synthesizer.jobs.tasks import set_spend_budget_fn as _reset
 
             _reset(build_spend_budget_fn())
 
@@ -799,8 +799,8 @@ class TestDPPipelineBudgetRefreshResume:
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import (
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import (
             _run_synthesis_job_impl,
             set_spend_budget_fn,
         )
@@ -942,7 +942,7 @@ class TestDPPipelineBudgetRefreshResume:
                 os.environ["DATABASE_URL"] = original_db_url
 
             from synth_engine.bootstrapper.factories import build_spend_budget_fn
-            from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn as _reset
+            from synth_engine.modules.synthesizer.jobs.tasks import set_spend_budget_fn as _reset
 
             _reset(build_spend_budget_fn())
 
@@ -971,8 +971,8 @@ class TestDPWrapperEpsilonAfterOrchestration:
         from sqlmodel import Session
 
         from synth_engine.bootstrapper.factories import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.tasks import (
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.tasks import (
             _run_synthesis_job_impl,
             set_spend_budget_fn,
         )
@@ -1027,6 +1027,6 @@ class TestDPWrapperEpsilonAfterOrchestration:
         finally:
             # Restore the production DI wiring unconditionally.
             from synth_engine.bootstrapper.factories import build_spend_budget_fn
-            from synth_engine.modules.synthesizer.tasks import set_spend_budget_fn as _reset
+            from synth_engine.modules.synthesizer.jobs.tasks import set_spend_budget_fn as _reset
 
             _reset(build_spend_budget_fn())

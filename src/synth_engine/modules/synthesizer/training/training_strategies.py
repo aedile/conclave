@@ -27,16 +27,16 @@ from typing import Any
 
 import pandas as pd
 
-from synth_engine.modules.synthesizer.ctgan_types import (
+from synth_engine.modules.synthesizer.training.ctgan_types import (
     GanHyperparams as GanHyperparams,
 )
-from synth_engine.modules.synthesizer.ctgan_types import (
+from synth_engine.modules.synthesizer.training.ctgan_types import (
     Optimizers as Optimizers,
 )
-from synth_engine.modules.synthesizer.ctgan_types import (
+from synth_engine.modules.synthesizer.training.ctgan_types import (
     TrainingConfig as TrainingConfig,
 )
-from synth_engine.modules.synthesizer.ctgan_types import (
+from synth_engine.modules.synthesizer.training.ctgan_types import (
     build_proxy_dataloader as build_proxy_dataloader,
 )
 

@@ -51,7 +51,7 @@ from typing import Any
 from sqlalchemy import CursorResult, Engine, update
 from sqlmodel import Session, col, select
 
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 from synth_engine.shared.tasks.repository import StaleTask, TaskRepository
 
 #: Status string for IN_PROGRESS jobs targeted by the reaper.

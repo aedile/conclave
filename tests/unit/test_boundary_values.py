@@ -69,7 +69,7 @@ def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pathlib.Path) 
     except ImportError:
         pytest.skip("pyarrow not installed (synthesizer group absent)")
 
-    from synth_engine.modules.synthesizer.engine import CTGANSynthesizer
+    from synth_engine.modules.synthesizer.training.engine import CTGANSynthesizer
 
     if CTGANSynthesizer is None:
         pytest.skip("synthesizer group not installed")
@@ -78,7 +78,7 @@ def test_synthesis_engine_train_raises_on_empty_parquet(tmp_path: pathlib.Path) 
     empty_df = pd.DataFrame({"col_a": pd.Series([], dtype="float64")})
     empty_df.to_parquet(str(parquet_path), engine="pyarrow")
 
-    from synth_engine.modules.synthesizer.engine import SynthesisEngine
+    from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
     engine = SynthesisEngine(epochs=1)
 
@@ -120,12 +120,12 @@ def test_synthesis_engine_train_empty_parquet_raises_even_with_mocked_ctgan(
     mock_ctgan_instance = MagicMock()
     mock_ctgan_cls.return_value = mock_ctgan_instance
 
-    from synth_engine.modules.synthesizer.engine import SynthesisEngine
+    from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
     engine = SynthesisEngine(epochs=1)
 
     with patch(
-        "synth_engine.modules.synthesizer.engine.CTGANSynthesizer",
+        "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer",
         mock_ctgan_cls,
     ):
         with pytest.raises(ValueError, match="fit dataframe is empty"):
@@ -160,7 +160,7 @@ def test_synthesis_engine_train_single_row_does_not_crash_structurally(
     except ImportError:
         pytest.skip("pyarrow not installed")
 
-    from synth_engine.modules.synthesizer.engine import CTGANSynthesizer
+    from synth_engine.modules.synthesizer.training.engine import CTGANSynthesizer
 
     if CTGANSynthesizer is None:
         pytest.skip("synthesizer group not installed")
@@ -174,15 +174,15 @@ def test_synthesis_engine_train_single_row_does_not_crash_structurally(
 
     with (
         patch(
-            "synth_engine.modules.synthesizer.engine.CTGANSynthesizer",
+            "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer",
             return_value=mock_model,
         ),
         patch(
-            "synth_engine.modules.synthesizer.engine._build_metadata",
+            "synth_engine.modules.synthesizer.training.engine._build_metadata",
             return_value=mock_metadata,
         ),
     ):
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine(epochs=1)
         artifact = engine.train("single_row_table", str(parquet_path))

@@ -62,7 +62,7 @@ class TestCapBatchSizeBehavioral:
 
     def test_output_is_pac_divisible(self) -> None:
         """cap_batch_size output must always be divisible by pac."""
-        from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size
+        from synth_engine.modules.synthesizer.training.ctgan_utils import cap_batch_size
 
         for n, requested, pac in [
             (200, 500, 10),
@@ -80,7 +80,7 @@ class TestCapBatchSizeBehavioral:
 
         Contract: Opacus requires len(dataloader) >= 2 so sample_rate < 1.0.
         """
-        from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size
+        from synth_engine.modules.synthesizer.training.ctgan_utils import cap_batch_size
 
         for n, requested, pac in [(200, 500, 10), (100, 200, 5), (60, 50, 4)]:
             result = cap_batch_size(n, requested, pac)
@@ -91,7 +91,7 @@ class TestCapBatchSizeBehavioral:
 
     def test_output_at_least_pac(self) -> None:
         """cap_batch_size output must be at least pac to permit one Discriminator forward pass."""
-        from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size
+        from synth_engine.modules.synthesizer.training.ctgan_utils import cap_batch_size
 
         result = cap_batch_size(n_samples=5, requested_batch_size=500, pac=10)
         assert result >= 10, (
@@ -101,7 +101,7 @@ class TestCapBatchSizeBehavioral:
 
     def test_standard_case_produces_correct_value(self) -> None:
         """cap_batch_size(100, 500, 10) must return 50 (capped, pac-aligned)."""
-        from synth_engine.modules.synthesizer.ctgan_utils import cap_batch_size
+        from synth_engine.modules.synthesizer.training.ctgan_utils import cap_batch_size
 
         result = cap_batch_size(n_samples=100, requested_batch_size=500, pac=10)
         assert result == 50
@@ -147,28 +147,28 @@ class TestParseGanHyparamsBehavioral:
 
     def test_returned_object_has_correct_embedding_dim(self) -> None:
         """parse_gan_hyperparams must extract embedding_dim from kwargs."""
-        from synth_engine.modules.synthesizer.ctgan_utils import parse_gan_hyperparams
+        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
         result = parse_gan_hyperparams(self._make_model_kwargs(embedding_dim=64))
         assert result.embedding_dim == 64
 
     def test_returned_object_has_correct_pac(self) -> None:
         """parse_gan_hyperparams must extract pac from kwargs."""
-        from synth_engine.modules.synthesizer.ctgan_utils import parse_gan_hyperparams
+        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
         result = parse_gan_hyperparams(self._make_model_kwargs(pac=4))
         assert result.pac == 4
 
     def test_returned_object_has_correct_discriminator_steps(self) -> None:
         """parse_gan_hyperparams must extract discriminator_steps from kwargs."""
-        from synth_engine.modules.synthesizer.ctgan_utils import parse_gan_hyperparams
+        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
         result = parse_gan_hyperparams(self._make_model_kwargs(discriminator_steps=3))
         assert result.discriminator_steps == 3
 
     def test_default_values_applied_when_keys_missing(self) -> None:
         """parse_gan_hyperparams must apply sane defaults for missing keys."""
-        from synth_engine.modules.synthesizer.ctgan_utils import parse_gan_hyperparams
+        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
         result = parse_gan_hyperparams({})
         assert result.embedding_dim == 128
@@ -178,7 +178,7 @@ class TestParseGanHyparamsBehavioral:
 
     def test_generator_dim_is_tuple(self) -> None:
         """parse_gan_hyperparams must return generator_dim as a tuple."""
-        from synth_engine.modules.synthesizer.ctgan_utils import parse_gan_hyperparams
+        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
         result = parse_gan_hyperparams(self._make_model_kwargs())
         assert isinstance(result.generator_dim, tuple), (
@@ -187,7 +187,7 @@ class TestParseGanHyparamsBehavioral:
 
     def test_discriminator_dim_is_tuple(self) -> None:
         """parse_gan_hyperparams must return discriminator_dim as a tuple."""
-        from synth_engine.modules.synthesizer.ctgan_utils import parse_gan_hyperparams
+        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
         result = parse_gan_hyperparams(self._make_model_kwargs())
         assert isinstance(result.discriminator_dim, tuple), (
@@ -214,7 +214,9 @@ class TestBuildProxyDataloaderBehavioral:
         torch = pytest.importorskip("torch")
         from torch.utils.data import DataLoader, TensorDataset
 
-        from synth_engine.modules.synthesizer.training_strategies import build_proxy_dataloader
+        from synth_engine.modules.synthesizer.training.training_strategies import (
+            build_proxy_dataloader,
+        )
 
         df = _small_numeric_df(n=20)
         _, n_features = build_proxy_dataloader(
@@ -229,7 +231,9 @@ class TestBuildProxyDataloaderBehavioral:
         torch = pytest.importorskip("torch")
         from torch.utils.data import DataLoader, TensorDataset
 
-        from synth_engine.modules.synthesizer.training_strategies import build_proxy_dataloader
+        from synth_engine.modules.synthesizer.training.training_strategies import (
+            build_proxy_dataloader,
+        )
 
         df = _small_numeric_df(n=20)
         dl, _ = build_proxy_dataloader(
@@ -244,7 +248,9 @@ class TestBuildProxyDataloaderBehavioral:
         torch = pytest.importorskip("torch")
         from torch.utils.data import DataLoader, TensorDataset
 
-        from synth_engine.modules.synthesizer.training_strategies import build_proxy_dataloader
+        from synth_engine.modules.synthesizer.training.training_strategies import (
+            build_proxy_dataloader,
+        )
 
         df = _small_numeric_df(n=20)
         dl, n_features = build_proxy_dataloader(
@@ -261,7 +267,9 @@ class TestBuildProxyDataloaderBehavioral:
         torch = pytest.importorskip("torch")
         from torch.utils.data import DataLoader, TensorDataset
 
-        from synth_engine.modules.synthesizer.training_strategies import build_proxy_dataloader
+        from synth_engine.modules.synthesizer.training.training_strategies import (
+            build_proxy_dataloader,
+        )
 
         df = pd.DataFrame({"a": [1.0], "b": [2.0]})
         with pytest.raises(RuntimeError, match="too few rows"):
@@ -277,7 +285,9 @@ class TestBuildProxyDataloaderBehavioral:
         torch = pytest.importorskip("torch")
         from torch.utils.data import DataLoader, TensorDataset
 
-        from synth_engine.modules.synthesizer.training_strategies import build_proxy_dataloader
+        from synth_engine.modules.synthesizer.training.training_strategies import (
+            build_proxy_dataloader,
+        )
 
         rng = np.random.default_rng(0)
         values = rng.uniform(0.0, 1.0, size=20).tolist()
@@ -308,7 +318,7 @@ class TestGanHyperparamsBehavioral:
         """GanHyperparams must be immutable (frozen dataclass)."""
         import dataclasses
 
-        from synth_engine.modules.synthesizer.training_strategies import GanHyperparams
+        from synth_engine.modules.synthesizer.training.training_strategies import GanHyperparams
 
         hyp = GanHyperparams(
             embedding_dim=128,
@@ -325,7 +335,7 @@ class TestGanHyperparamsBehavioral:
         """TrainingConfig must be immutable (frozen dataclass)."""
         import dataclasses
 
-        from synth_engine.modules.synthesizer.training_strategies import TrainingConfig
+        from synth_engine.modules.synthesizer.training.training_strategies import TrainingConfig
 
         config = TrainingConfig(
             embedding_dim=128, data_dim=10, pac=10, batch_size=50, discriminator_steps=1
@@ -335,7 +345,7 @@ class TestGanHyperparamsBehavioral:
 
     def test_optimizers_carries_both_optimizers(self) -> None:
         """Optimizers dataclass must store both optimizer_g and dp_optimizer."""
-        from synth_engine.modules.synthesizer.training_strategies import Optimizers
+        from synth_engine.modules.synthesizer.training.training_strategies import Optimizers
 
         sentinel_g = object()
         sentinel_dp = object()
@@ -373,7 +383,7 @@ class TestDPCompatibleCTGANFitBehavioral:
         """
         from unittest.mock import patch
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         df = _small_numeric_df(n=n)
         mock_metadata = MagicMock()
@@ -417,15 +427,15 @@ class TestDPCompatibleCTGANFitBehavioral:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGAN",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
                 return_value=mock_ctgan,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
         ):
@@ -460,7 +470,7 @@ class TestDPCompatibleCTGANFitBehavioral:
 
     def test_fit_raises_value_error_for_empty_df(self) -> None:
         """fit(empty_df) must raise ValueError immediately — no mocks needed."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         instance = DPCompatibleCTGAN(metadata=MagicMock(), epochs=1)
         empty_df = pd.DataFrame({"age": [], "salary": []})
@@ -470,7 +480,7 @@ class TestDPCompatibleCTGANFitBehavioral:
 
     def test_sample_before_fit_raises_runtime_error_with_informative_message(self) -> None:
         """sample() before fit() must raise RuntimeError mentioning 'fit'."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         instance = DPCompatibleCTGAN(metadata=MagicMock(), epochs=1)
         with pytest.raises(RuntimeError, match="fit"):
@@ -598,7 +608,9 @@ class TestSdvDataProcessorContract:
         detect_fn = getattr(sdv_ctgan_mod, "detect_discrete_columns", None)
         assert detect_fn is not None, (
             "sdv.single_table.ctgan.detect_discrete_columns must exist and be callable. "
-            "Our mocks patch synth_engine.modules.synthesizer.dp_training.detect_discrete_columns. "
+            "Our mocks patch "
+            "synth_engine.modules.synthesizer.training.dp_training"
+            ".detect_discrete_columns. "
             "If this import path breaks, the DP training preprocess step will fail silently."
         )
         import inspect
@@ -690,7 +702,9 @@ class TestVanillaCtganStrategyBehavioral:
 
     def test_run_returns_ctgan_instance(self) -> None:
         """VanillaCtganStrategy.run() must return the CTGAN model instance."""
-        from synth_engine.modules.synthesizer.training_strategies import VanillaCtganStrategy
+        from synth_engine.modules.synthesizer.training.training_strategies import (
+            VanillaCtganStrategy,
+        )
 
         mock_ctgan_cls = MagicMock()
         mock_ctgan_instance = MagicMock()
@@ -711,7 +725,9 @@ class TestVanillaCtganStrategyBehavioral:
 
     def test_run_calls_ctgan_fit_with_discrete_columns(self) -> None:
         """VanillaCtganStrategy.run() must call CTGAN.fit() with discrete_columns kwarg."""
-        from synth_engine.modules.synthesizer.training_strategies import VanillaCtganStrategy
+        from synth_engine.modules.synthesizer.training.training_strategies import (
+            VanillaCtganStrategy,
+        )
 
         mock_ctgan_cls = MagicMock()
         mock_ctgan_instance = MagicMock()
@@ -735,7 +751,9 @@ class TestVanillaCtganStrategyBehavioral:
 
     def test_run_overrides_epochs_in_model_kwargs(self) -> None:
         """VanillaCtganStrategy.run() must pass the epochs parameter to CTGAN constructor."""
-        from synth_engine.modules.synthesizer.training_strategies import VanillaCtganStrategy
+        from synth_engine.modules.synthesizer.training.training_strategies import (
+            VanillaCtganStrategy,
+        )
 
         mock_ctgan_cls = MagicMock()
         mock_ctgan_cls.return_value = MagicMock()
@@ -771,8 +789,8 @@ class TestDpCtganStrategyBehavioral:
 
     def test_run_delegates_to_coordinator_train_dp_discriminator(self) -> None:
         """DpCtganStrategy.run() must delegate to coordinator._train_dp_discriminator()."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
-        from synth_engine.modules.synthesizer.training_strategies import DpCtganStrategy
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.training_strategies import DpCtganStrategy
 
         mock_dp_wrapper = MagicMock()
         coordinator = DPCompatibleCTGAN(metadata=MagicMock(), epochs=1, dp_wrapper=mock_dp_wrapper)
@@ -797,8 +815,8 @@ class TestDpCtganStrategyBehavioral:
 
     def test_run_passes_processed_df_unchanged(self) -> None:
         """DpCtganStrategy.run() must pass the processed_df through unchanged."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
-        from synth_engine.modules.synthesizer.training_strategies import DpCtganStrategy
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.training_strategies import DpCtganStrategy
 
         mock_dp_wrapper = MagicMock()
         coordinator = DPCompatibleCTGAN(metadata=MagicMock(), epochs=1, dp_wrapper=mock_dp_wrapper)
@@ -842,7 +860,7 @@ def test_vanilla_ctgan_strategy_trains_real_small_dataframe() -> None:
 
     from ctgan.synthesizers.ctgan import CTGAN
 
-    from synth_engine.modules.synthesizer.training_strategies import VanillaCtganStrategy
+    from synth_engine.modules.synthesizer.training.training_strategies import VanillaCtganStrategy
 
     ctgan_synth_cls = sdv_module.CTGANSynthesizer
     metadata_cls = sdv_metadata_module.SingleTableMetadata
@@ -900,7 +918,7 @@ class TestBuildDpDataloaderZeroNumericColumns:
 
         from torch.utils.data import DataLoader, TensorDataset
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         df_strings_only = pd.DataFrame(
             {"name": ["alice", "bob", "carol"] * 8, "city": ["nyc", "la", "chi"] * 8}
@@ -909,7 +927,7 @@ class TestBuildDpDataloaderZeroNumericColumns:
         instance = DPCompatibleCTGAN(metadata=MagicMock(), epochs=1)
         # Inject real torch objects so the real DataLoader code executes.
         # We need to monkeypatch the module-level names used by _build_dp_dataloader.
-        import synth_engine.modules.synthesizer.dp_training as dp_mod
+        import synth_engine.modules.synthesizer.training.dp_training as dp_mod
 
         original_torch = dp_mod.torch
         original_tensor_dataset = dp_mod.TensorDataset

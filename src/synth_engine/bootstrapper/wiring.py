@@ -19,8 +19,8 @@ Side-effect task-registration imports
 --------------------------------------
 Importing this module registers several Huey tasks as a side effect:
 
-- :mod:`synth_engine.modules.synthesizer.reaper_tasks` — orphan task reaper
-- :mod:`synth_engine.modules.synthesizer.retention_tasks` — nightly retention
+- :mod:`synth_engine.modules.synthesizer.storage.reaper_tasks` — orphan task reaper
+- :mod:`synth_engine.modules.synthesizer.storage.retention_tasks` — nightly retention
 - :mod:`synth_engine.shared.security.rotation` — ALE key rotation
 
 These must be imported before the Huey worker starts polling or tasks will be
@@ -29,7 +29,7 @@ silently dropped.
 Rule 8 compliance
 -----------------
 Each ``wire_*`` function corresponds to one Rule 8 IoC hook (from
-:mod:`synth_engine.modules.synthesizer.job_orchestration`):
+:mod:`synth_engine.modules.synthesizer.jobs.job_orchestration`):
 
 - :func:`wire_dp_wrapper_factory` — injects the DP wrapper factory (ADR-0029)
 - :func:`wire_spend_budget_fn` — injects the async→sync budget wrapper (T22.3)
@@ -55,16 +55,16 @@ from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.factories import build_dp_wrapper, build_spend_budget_fn
 from synth_engine.bootstrapper.schemas.webhooks import WebhookDelivery, WebhookRegistration
-from synth_engine.modules.synthesizer import (
+from synth_engine.modules.synthesizer.jobs import tasks as _synthesizer_tasks
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_orchestration import set_webhook_delivery_fn
+from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
+from synth_engine.modules.synthesizer.storage import (
     reaper_tasks as _reaper_tasks,  # noqa: F401 — side-effect: registers Huey task
 )
-from synth_engine.modules.synthesizer import (
+from synth_engine.modules.synthesizer.storage import (
     retention_tasks as _retention_tasks,  # noqa: F401 — side-effect: registers Huey task
 )
-from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
-from synth_engine.modules.synthesizer.job_orchestration import set_webhook_delivery_fn
-from synth_engine.modules.synthesizer.webhook_delivery import deliver_webhook
 from synth_engine.shared.db import get_engine
 from synth_engine.shared.security import (
     rotation as _security_rotation,  # noqa: F401 — side-effect: registers rotation task
@@ -83,7 +83,7 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
     2. Looks up the ``SynthesisJob`` to resolve the ``owner_id``.
     3. Queries all active ``WebhookRegistration`` rows for that owner.
     4. Filters registrations by subscribed event type.
-    5. Calls :func:`~synth_engine.modules.synthesizer.webhook_delivery.deliver_webhook`
+    5. Calls :func:`~synth_engine.modules.synthesizer.jobs.webhook_delivery.deliver_webhook`
        for each qualifying registration.
     6. Persists a :class:`~synth_engine.bootstrapper.schemas.webhooks.WebhookDelivery`
        audit row for each attempt.
@@ -207,7 +207,7 @@ def wire_webhook_delivery_fn() -> None:
 
     Injects the concrete delivery callback built by
     :func:`_build_webhook_delivery_fn` so that
-    :func:`~synth_engine.modules.synthesizer.job_orchestration` can trigger
+    :func:`~synth_engine.modules.synthesizer.jobs.job_orchestration` can trigger
     webhook delivery without importing from ``bootstrapper/`` (correct DI
     direction: bootstrapper → modules).
 

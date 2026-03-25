@@ -49,7 +49,7 @@ from typing import Any
 # Optional PyTorch imports — resolved centrally in _optional_deps.py (T43.2).
 # Bound at module scope for unit-test patching.
 # ---------------------------------------------------------------------------
-from synth_engine.modules.synthesizer._optional_deps import nn, torch
+from synth_engine.modules.synthesizer.training._optional_deps import nn, torch
 
 
 class OpacusCompatibleDiscriminator(nn.Module):

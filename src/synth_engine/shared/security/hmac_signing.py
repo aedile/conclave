@@ -9,7 +9,7 @@ These primitives are shared across modules requiring
 message-authentication-code operations.
 
 These primitives were extracted from
-``synth_engine.modules.synthesizer.models`` per ADR-0001 (shared/ is the
+``synth_engine.modules.synthesizer.storage.models`` per ADR-0001 (shared/ is the
 correct home for cross-cutting security utilities used by two or more
 modules).
 

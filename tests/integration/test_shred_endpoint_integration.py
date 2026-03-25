@@ -110,7 +110,7 @@ async def test_shred_deletes_real_artifact_files_and_transitions_to_shredded(
       - AC3: job.status transitions to SHREDDED in the database.
       - AC4: endpoint returns 200 with status=SHREDDED.
     """
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
     from synth_engine.shared.security.audit import AuditLogger, reset_audit_logger
 
     # Create real artifact files
@@ -187,7 +187,7 @@ async def test_shred_emits_worm_audit_event_with_correct_fields(
     Uses caplog to capture the audit log JSON emitted at INFO level from
     the ``synth_engine.security.audit`` logger.
     """
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
     from synth_engine.shared.security.audit import AuditLogger, reset_audit_logger
 
     parquet_file = tmp_path / "audit_test.parquet"
@@ -244,7 +244,7 @@ async def test_shred_emits_worm_audit_event_with_correct_fields(
 @pytest.mark.asyncio
 async def test_shred_non_complete_jobs_return_404() -> None:
     """AC4: Non-COMPLETE / already-SHREDDED jobs must return 404."""
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     non_eligible_statuses = ["QUEUED", "TRAINING", "GENERATING", "FAILED", "SHREDDED"]
     engine = _make_engine_with_schema()

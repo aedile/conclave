@@ -18,7 +18,7 @@ import pickle
 
 import pytest
 
-from synth_engine.modules.synthesizer.models import ModelArtifact
+from synth_engine.modules.synthesizer.storage.models import ModelArtifact
 from synth_engine.shared.security.hmac_signing import SecurityError
 
 # ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ def test_restricted_unpickler_rejects_os_system() -> None:
     that executes arbitrary OS commands.  The restricted unpickler MUST reject
     any reference to os.system before any bytecode is executed.
     """
-    from synth_engine.modules.synthesizer.models import RestrictedUnpickler
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
     payload = _craft_os_system_pickle("echo pwned")
     with pytest.raises(SecurityError, match="not permitted"):
@@ -138,7 +138,7 @@ def test_restricted_unpickler_rejects_subprocess_popen() -> None:
     subprocess.Popen can spawn arbitrary processes.  No legitimate ModelArtifact
     payload references subprocess.
     """
-    from synth_engine.modules.synthesizer.models import RestrictedUnpickler
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
     payload = _craft_subprocess_pickle("id")
     with pytest.raises(SecurityError, match="not permitted"):
@@ -151,7 +151,7 @@ def test_restricted_unpickler_rejects_arbitrary_module() -> None:
     Any module not in the explicit allowlist must be rejected, regardless of
     whether it exists or could be imported.
     """
-    from synth_engine.modules.synthesizer.models import RestrictedUnpickler
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
     payload = _craft_arbitrary_class_pickle("evil_library", "ExploitClass")
     with pytest.raises(SecurityError, match="not permitted"):
@@ -164,7 +164,7 @@ def test_restricted_unpickler_rejects_pathlib() -> None:
     Standard library classes that are not needed for ModelArtifact
     deserialization must be blocked by default.
     """
-    from synth_engine.modules.synthesizer.models import RestrictedUnpickler
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
     payload = _craft_arbitrary_class_pickle("pathlib", "Path")
     with pytest.raises(SecurityError, match="not permitted"):
@@ -176,7 +176,7 @@ def test_restricted_unpickler_rejects_importlib() -> None:
 
     importlib can be used to dynamically load and execute arbitrary modules.
     """
-    from synth_engine.modules.synthesizer.models import RestrictedUnpickler
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
     payload = _craft_arbitrary_class_pickle("importlib", "import_module")
     with pytest.raises(SecurityError, match="not permitted"):
@@ -194,7 +194,7 @@ def test_restricted_unpickler_accepts_model_artifact() -> None:
     The primary use case: save a ModelArtifact and reload it.  The restricted
     unpickler must not break legitimate round-trip serialization.
     """
-    from synth_engine.modules.synthesizer.models import RestrictedUnpickler
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
     artifact = ModelArtifact(
         table_name="test_table",
@@ -303,7 +303,7 @@ def test_restricted_unpickler_accepts_builtin_types() -> None:
     The allowlist includes all standard Python builtins needed for the
     dataclass fields in ModelArtifact.
     """
-    from synth_engine.modules.synthesizer.models import RestrictedUnpickler
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
     # A simple dict containing common types
     data = {"key": "value", "count": 42, "items": [1, 2, 3], "flag": True}
