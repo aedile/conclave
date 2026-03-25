@@ -306,3 +306,13 @@ reset_anchor_manager  # unused function — shared/security/audit_anchor.py; use
 _ssrf_validate_registration  # unused function — bootstrapper/routers/webhooks.py; called from register_webhook route
 _ssrf_validate_delivery  # unused function — modules/synthesizer/webhook_delivery.py; called from deliver_webhook loop
 status  # unused variable — DeliveryResult dataclass field (webhook_delivery.py); accessed via result.status by callers
+
+# ---------------------------------------------------------------------------
+# Category P — T55.1 vault health endpoint
+# vault_health is a FastAPI route handler registered via @router.get in
+# bootstrapper/routers/health.py. Vulture cannot trace FastAPI decorator-
+# based route registration. The endpoint is exercised by integration tests
+# and the /health/vault path is listed in the router's path table.
+# ---------------------------------------------------------------------------
+
+vault_health  # unused function — bootstrapper/routers/health.py; FastAPI route handler for /health/vault
