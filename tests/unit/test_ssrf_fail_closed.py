@@ -22,10 +22,9 @@ Task: T55.4 — SSRF Registration Fail-Closed for Phase 55
 from __future__ import annotations
 
 import socket
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Attack / negative tests (ATTACK RED — these must be committed first)
