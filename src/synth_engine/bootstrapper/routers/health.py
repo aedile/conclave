@@ -68,7 +68,7 @@ Response schema (``/health/vault``)::
 
     {
         "vault_sealed": bool,
-        "worker_pid": int
+        "worker_id": str
     }
 
 CONSTITUTION Priority 0: Security — no info leakage, exempt from auth/seal gates
@@ -81,7 +81,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
+import uuid
 from collections.abc import Coroutine
 from typing import Any
 
@@ -96,6 +96,10 @@ _logger = logging.getLogger(__name__)
 _CHECK_TIMEOUT_SECONDS: float = 3.0
 
 router = APIRouter(tags=["ops"])
+
+#: Opaque per-worker identifier generated once at import time.
+#: Replaces os.getpid() to avoid exposing process topology to API consumers.
+_WORKER_ID: str = str(uuid.uuid4())
 
 
 async def _check_database() -> bool:
@@ -334,7 +338,7 @@ async def vault_health() -> JSONResponse:
     Returns:
         ``JSONResponse`` with HTTP 200 and body::
 
-            {"vault_sealed": bool, "worker_pid": int}
+            {"vault_sealed": bool, "worker_id": str}
     """
     from synth_engine.shared.security.vault import VaultState
 
@@ -342,6 +346,6 @@ async def vault_health() -> JSONResponse:
         status_code=200,
         content={
             "vault_sealed": VaultState.is_sealed(),
-            "worker_pid": os.getpid(),
+            "worker_id": _WORKER_ID,
         },
     )
