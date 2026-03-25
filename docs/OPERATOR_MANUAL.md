@@ -196,6 +196,67 @@ curl -X POST http://<host>:8000/security/shred \
 
 > **Warning**: For decommissioning and incident response only. Unlike a restart, shred cannot be reversed.
 
+### 4.4 Multi-Worker Unseal Procedure
+
+In multi-worker deployments (e.g., Gunicorn with multiple Uvicorn worker processes), each worker
+process has an **independent** in-memory `VaultState`. A vault unseal command unseals only the
+worker process that receives the HTTP request — other workers remain sealed.
+
+**Why this matters**: After a deployment or rolling restart, some workers may be unsealed while
+others are not. Sealed workers return `503` on `/ready` and are excluded from the load-balancer
+pool, but they are still running. You must unseal each worker individually.
+
+#### Checking seal status per worker
+
+```bash
+# /health/vault reports this specific worker's seal status and its PID
+curl http://<host>:8000/health/vault
+# Response: {"vault_sealed": true, "worker_pid": 12345}
+```
+
+The `worker_pid` field identifies which OS process responded. Use this to confirm which workers
+have been unsealed after each unseal command.
+
+#### Unsealing all workers
+
+Because HTTP load balancers route requests to different workers, send multiple unseal requests
+until all workers confirm `"vault_sealed": false` on `/health/vault`:
+
+```bash
+# Repeat until all workers are unsealed (typically num_workers + 1 times to be safe)
+for i in $(seq 1 8); do
+  curl -X POST http://<host>:8000/unseal \
+    -H "Content-Type: application/json" \
+    -d '{"passphrase": "<operator-passphrase>"}' \
+    2>/dev/null || true
+  sleep 0.1
+done
+```
+
+Alternatively, use the `/ready` probe with the `vault_sealed` field to detect sealed workers:
+
+```bash
+# A sealed worker will return 503 with vault_sealed: true
+curl -s http://<host>:8000/ready | python3 -m json.tool
+```
+
+#### Automated unseal in orchestrated environments
+
+For Kubernetes or Docker Swarm deployments:
+
+1. Store the passphrase in a Kubernetes `Secret` or Docker secret.
+2. Use an `initContainer` or startup hook that calls `POST /unseal` on container startup.
+3. Configure the readiness probe to check `GET /ready` — sealed workers are automatically
+   excluded from the pod's ready state.
+4. The `vault_sealed` field in `/ready` allows orchestrators to distinguish a sealed-worker
+   `503` from a dependency-failure `503`.
+
+> **Security note**: The passphrase is never persisted — it is used only to derive the
+> in-memory KEK. Each worker derives the same KEK from the same passphrase, so any worker
+> can be unsealed with the same passphrase. The passphrase itself must be stored in a
+> secrets manager (Vault, AWS Secrets Manager, Kubernetes Secrets) — never in plain text.
+
+
 ---
 
 ## 5. Creating and Monitoring Synthesis Jobs
