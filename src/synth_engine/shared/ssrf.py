@@ -44,7 +44,21 @@ import logging
 import socket
 from urllib.parse import urlparse
 
+from prometheus_client import Counter
+
 _logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# ADV-P55-04 — Prometheus counter for SSRF registration rejections.
+# Incremented whenever validate_callback_url() raises ValueError with
+# strict=True, covering bad scheme, missing hostname, private IP, and
+# DNS-failure rejections.
+# ---------------------------------------------------------------------------
+SSRF_REGISTRATION_REJECTION_TOTAL: Counter = Counter(
+    "ssrf_registration_rejection_total",
+    "Total number of callback URL registrations rejected by SSRF validation "
+    "(strict=True mode — includes bad scheme, private IP, and DNS failures).",
+)
 
 # ---------------------------------------------------------------------------
 # Blocked private / reserved IP networks
@@ -109,6 +123,7 @@ def validate_callback_url(url: str, *, strict: bool = True) -> None:
     parsed = urlparse(url)
     scheme = (parsed.scheme or "").lower()
     if scheme not in ("http", "https"):
+        SSRF_REGISTRATION_REJECTION_TOTAL.inc()
         raise ValueError(
             f"Callback URL scheme must be http or https, got {scheme!r}. "
             "URL is private, reserved, or forbidden."
@@ -116,6 +131,7 @@ def validate_callback_url(url: str, *, strict: bool = True) -> None:
 
     hostname = parsed.hostname
     if not hostname:
+        SSRF_REGISTRATION_REJECTION_TOTAL.inc()
         raise ValueError("Callback URL has no hostname. URL is private, reserved, or forbidden.")
 
     # Resolve hostname to IP addresses
@@ -127,6 +143,7 @@ def validate_callback_url(url: str, *, strict: bool = True) -> None:
                 "SSRF check: DNS resolution failed for %r — rejecting (strict=True).",
                 hostname,
             )
+            SSRF_REGISTRATION_REJECTION_TOTAL.inc()
             raise ValueError(
                 f"Callback URL hostname {hostname!r} could not be resolved. "
                 "URL is private, reserved, or forbidden."
@@ -155,6 +172,7 @@ def validate_callback_url(url: str, *, strict: bool = True) -> None:
 
         for network in BLOCKED_NETWORKS:
             if ip in network:
+                SSRF_REGISTRATION_REJECTION_TOTAL.inc()
                 raise ValueError(
                     f"Callback URL resolves to a private, reserved, or forbidden "
                     f"IP address ({ip}). URL is private, reserved, or forbidden."
