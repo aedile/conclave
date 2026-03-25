@@ -260,7 +260,9 @@ def test_settings_construction_succeeds_without_vault_seal_salt(
 
     # Must not raise
     s = ConclaveSettings()
-    assert s is not None
+    assert isinstance(s, ConclaveSettings), (
+        f"ConclaveSettings() must return a ConclaveSettings instance, got {type(s)}"
+    )
 
 
 # ---------------------------------------------------------------------------

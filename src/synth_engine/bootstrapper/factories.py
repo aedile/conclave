@@ -49,7 +49,7 @@ from synth_engine.shared.protocols import SpendBudgetProtocol
 
 if TYPE_CHECKING:
     from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
-    from synth_engine.modules.synthesizer.engine import SynthesisEngine
+    from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
 _logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ def build_synthesis_engine(epochs: int = 300) -> SynthesisEngine:
     Returns:
         A configured :class:`SynthesisEngine` instance.
     """
-    from synth_engine.modules.synthesizer.engine import SynthesisEngine as _SynthesisEngine
+    from synth_engine.modules.synthesizer.training.engine import SynthesisEngine as _SynthesisEngine
 
     _logger.info("SynthesisEngine initialised (epochs=%d).", epochs)
     return _SynthesisEngine(epochs=epochs)

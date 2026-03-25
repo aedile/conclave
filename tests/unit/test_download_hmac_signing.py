@@ -67,7 +67,7 @@ class TestDownloadEndpointHMACSigningActive:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"PAR1\x00real parquet bytes for signing test"
         parquet_path = tmp_path / "signed-synthetic.parquet"
@@ -129,7 +129,7 @@ class TestDownloadEndpointHMACSigningActive:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"PAR1\x00real parquet bytes for tamper test"
         parquet_path = tmp_path / "tampered-synthetic.parquet"
@@ -193,7 +193,7 @@ class TestDownloadEndpointHMACSigningActive:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"PAR1\x00parquet bytes no sig"
         parquet_path = tmp_path / "nosig-synthetic.parquet"
@@ -251,7 +251,7 @@ class TestDownloadEndpointHMACSigningActive:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"PAR1 tamper test bytes"
         parquet_path = tmp_path / "conflict-synthetic.parquet"

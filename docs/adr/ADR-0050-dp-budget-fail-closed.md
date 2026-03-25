@@ -1,5 +1,7 @@
 # ADR-0050: DP Budget Deduction — Fail Closed on Unexpected Exceptions
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Status**: Accepted
 **Date**: 2026-03-23
 **Deciders**: Engineering team
@@ -9,7 +11,7 @@
 
 ## Context
 
-`modules/synthesizer/dp_accounting.py` is responsible for measuring the
+`modules/synthesizer/training/dp_accounting.py` is responsible for measuring the
 actual epsilon cost of a DP-SGD training run and deducting it from the
 privacy budget ledger.  The system's core value proposition is verifiable
 (epsilon, delta)-DP guarantees: the reported epsilon must accurately reflect

@@ -128,7 +128,9 @@ class TestBackwardCompatImports:
 
     def test_guardrails_oom_is_same_class(self) -> None:
         """guardrails.OOMGuardrailError must be the shared class (or its subclass)."""
-        from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError as GuardOom
+        from synth_engine.modules.synthesizer.training.guardrails import (
+            OOMGuardrailError as GuardOom,
+        )
         from synth_engine.shared.exceptions import OOMGuardrailError as SharedOom
 
         assert issubclass(GuardOom, SharedOom) or GuardOom is SharedOom

@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 from prometheus_client import Histogram
 
-from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 from synth_engine.shared.exceptions import DatasetTooLargeError
 from synth_engine.shared.protocols import DPWrapperProtocol
 from synth_engine.shared.settings import get_settings
@@ -58,7 +58,7 @@ except ImportError:  # pragma: no cover — only triggered if synthesizer group 
 if TYPE_CHECKING:
     from sdv.metadata import SingleTableMetadata
 
-    from synth_engine.modules.synthesizer.models import ModelArtifact
+    from synth_engine.modules.synthesizer.storage.models import ModelArtifact
 
 _logger = logging.getLogger(__name__)
 
@@ -251,7 +251,7 @@ class SynthesisEngine:
 
     The engine is stateless between calls: it holds no database connections,
     no global mutable state, and no cached models.  Models are encapsulated
-    in :class:`~synth_engine.modules.synthesizer.models.ModelArtifact`
+    in :class:`~synth_engine.modules.synthesizer.storage.models.ModelArtifact`
     instances returned from :meth:`train`.
 
     SDV API note: CTGANSynthesizer in SDV 1.x requires a ``SingleTableMetadata``
@@ -260,7 +260,7 @@ class SynthesisEngine:
 
     DP routing note (T7.3 — ADV-048 drain):
         When ``dp_wrapper`` is supplied to :meth:`train`, the engine uses
-        :class:`~synth_engine.modules.synthesizer.dp_training.DPCompatibleCTGAN`
+        :class:`~synth_engine.modules.synthesizer.training.dp_training.DPCompatibleCTGAN`
         instead of the vanilla ``CTGANSynthesizer``.  The ``dp_wrapper`` is
         passed through to ``DPCompatibleCTGAN`` which calls
         ``dp_wrapper.wrap()`` to activate the Opacus PrivacyEngine before
@@ -308,7 +308,7 @@ class SynthesisEngine:
     ) -> ModelArtifact:
         """Train a CTGAN model on the Parquet file at ``parquet_path``.
 
-        Routes to :class:`~synth_engine.modules.synthesizer.dp_training.DPCompatibleCTGAN`
+        Routes to :class:`~synth_engine.modules.synthesizer.training.dp_training.DPCompatibleCTGAN`
         when ``dp_wrapper`` is provided, or vanilla ``CTGANSynthesizer`` otherwise.
 
         DP routing (T7.3 — drains ADV-048):
@@ -355,7 +355,7 @@ class SynthesisEngine:
             ImportError: If the ``sdv`` package is not installed (synthesizer
                 group not installed).
         """
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
 
         if not os.path.exists(parquet_path):
             raise FileNotFoundError(

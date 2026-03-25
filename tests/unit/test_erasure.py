@@ -37,7 +37,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from synth_engine.bootstrapper.schemas.connections import Connection
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
 pytestmark = pytest.mark.unit
 
@@ -162,7 +162,7 @@ class TestErasureServiceDeletionManifest:
 
     def test_manifest_has_required_fields(self) -> None:
         """DeletionManifest has deleted_connections, deleted_jobs, retained fields."""
-        from synth_engine.modules.synthesizer.erasure import DeletionManifest
+        from synth_engine.modules.synthesizer.lifecycle.erasure import DeletionManifest
 
         manifest = DeletionManifest(
             subject_id="sub-001",
@@ -185,7 +185,7 @@ class TestErasureServiceDeletionManifest:
 
     def test_manifest_subject_id_stored(self) -> None:
         """DeletionManifest stores the subject_id used for erasure."""
-        from synth_engine.modules.synthesizer.erasure import DeletionManifest
+        from synth_engine.modules.synthesizer.lifecycle.erasure import DeletionManifest
 
         manifest = DeletionManifest(
             subject_id="data-subject-xyz",
@@ -204,7 +204,7 @@ class TestErasureServiceDeletesCorrectRecords:
 
     def test_deletes_jobs_owned_by_subject(self) -> None:
         """execute_erasure deletes SynthesisJobs whose owner_id matches subject_id."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
 
@@ -218,7 +218,7 @@ class TestErasureServiceDeletesCorrectRecords:
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
@@ -232,7 +232,7 @@ class TestErasureServiceDeletesCorrectRecords:
 
     def test_deletes_connections_owned_by_subject(self) -> None:
         """execute_erasure deletes Connections whose owner_id matches subject_id."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
 
@@ -246,7 +246,7 @@ class TestErasureServiceDeletesCorrectRecords:
         with Session(engine) as session:
             service = ErasureService(session=session, connection_model=Connection)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
@@ -260,7 +260,7 @@ class TestErasureServiceDeletesCorrectRecords:
 
     def test_no_matching_records_returns_empty_manifest(self) -> None:
         """execute_erasure with no matching records returns manifest with zeros."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
 
@@ -268,7 +268,7 @@ class TestErasureServiceDeletesCorrectRecords:
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 manifest = service.execute_erasure(
@@ -280,7 +280,7 @@ class TestErasureServiceDeletesCorrectRecords:
 
     def test_only_matching_subject_deleted_mixed_db(self) -> None:
         """execute_erasure deletes only records matching the subject, not others."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
 
@@ -294,7 +294,7 @@ class TestErasureServiceDeletesCorrectRecords:
         with Session(engine) as session:
             service = ErasureService(session=session, connection_model=Connection)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 manifest = service.execute_erasure(subject_id="subject-1", actor="operator-admin")
@@ -316,14 +316,14 @@ class TestErasureServicePreservation:
 
     def test_retained_synthesized_output_flag_is_true(self) -> None:
         """Manifest always reports retained_synthesized_output=True."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
         audit_mock = MagicMock()
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
@@ -332,14 +332,14 @@ class TestErasureServicePreservation:
 
     def test_retained_audit_trail_flag_is_true(self) -> None:
         """Manifest always reports retained_audit_trail=True."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
         audit_mock = MagicMock()
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
@@ -350,7 +350,7 @@ class TestErasureServicePreservation:
         """execute_erasure does NOT delete synthesized output files from disk."""
         import inspect
 
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         # Inspect ErasureService to ensure it does NOT delete files.
         # The service must not call unlink or os.remove on output_path.
@@ -365,14 +365,14 @@ class TestErasureServicePreservation:
 
     def test_manifest_justifications_are_non_empty(self) -> None:
         """Manifest justification fields are non-empty strings."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
         audit_mock = MagicMock()
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
@@ -386,14 +386,14 @@ class TestErasureServiceAuditLogging:
 
     def test_audit_event_emitted_on_erasure(self) -> None:
         """execute_erasure emits exactly one GDPR_ERASURE audit event."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
         audit_mock = MagicMock()
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 service.execute_erasure(subject_id="sub-001", actor="op1")
@@ -404,14 +404,14 @@ class TestErasureServiceAuditLogging:
 
     def test_audit_event_records_actor(self) -> None:
         """execute_erasure audit event records the requesting actor."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
         audit_mock = MagicMock()
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 service.execute_erasure(subject_id="sub-001", actor="operator-alice")
@@ -426,14 +426,14 @@ class TestErasureServiceAuditLogging:
         only include counts (deleted_jobs, deleted_connections), not the
         raw identifier value.
         """
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
         audit_mock = MagicMock()
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 service.execute_erasure(subject_id="pii-email@example.com", actor="op1")
@@ -446,7 +446,7 @@ class TestErasureServiceAuditLogging:
 
     def test_audit_failure_does_not_abort_erasure(self) -> None:
         """execute_erasure succeeds even if audit logging raises an exception."""
-        from synth_engine.modules.synthesizer.erasure import ErasureService
+        from synth_engine.modules.synthesizer.lifecycle.erasure import ErasureService
 
         engine = _make_engine()
         with Session(engine) as session:
@@ -459,7 +459,7 @@ class TestErasureServiceAuditLogging:
         with Session(engine) as session:
             service = ErasureService(session=session)
             with patch(
-                "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+                "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
                 return_value=audit_mock,
             ):
                 # Must not raise
@@ -531,7 +531,7 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -561,7 +561,7 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -589,7 +589,7 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-001"})
@@ -607,7 +607,7 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -632,7 +632,7 @@ class TestComplianceEndpointHappy:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -742,7 +742,7 @@ class TestComplianceEndpointVaultSealed:
         audit_mock = MagicMock()
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -853,7 +853,7 @@ class TestErasureRequestValidation:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(

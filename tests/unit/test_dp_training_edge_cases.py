@@ -154,7 +154,7 @@ class TestBatchSizeZeroGuardWiring:
           - guard line ``if batch_size == 0`` is NOT triggered here (pac > 0)
         The important invariant: batch_size arriving at _build_dp_dataloader is >= 1.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -182,10 +182,12 @@ class TestBatchSizeZeroGuardWiring:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch(
+                "synth_engine.modules.synthesizer.training.dp_training.Generator"
+            ) as mock_gen_cls,
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
         ):
             mock_disc_instance = MagicMock()
             mock_disc_instance.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
@@ -223,7 +225,7 @@ class TestBatchSizeZeroGuardWiring:
         produces a pac-multiple.  When initial batch_size is very small the
         ``max(pac, batch_size)`` ensures it is at least pac.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -245,10 +247,12 @@ class TestBatchSizeZeroGuardWiring:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch(
+                "synth_engine.modules.synthesizer.training.dp_training.Generator"
+            ) as mock_gen_cls,
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
         ):
             mock_disc_instance = MagicMock()
             mock_disc_instance.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
@@ -302,7 +306,7 @@ class TestNFeatureZeroGuardWiring:
         sets ``n_features=1`` before the Discriminator is constructed.  We verify
         by spying on the Discriminator constructor's ``input_dim`` argument.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -341,11 +345,13 @@ class TestNFeatureZeroGuardWiring:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator",
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator",
                 side_effect=spy_disc_cls,
             ),
-            patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch(
+                "synth_engine.modules.synthesizer.training.dp_training.Generator"
+            ) as mock_gen_cls,
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
         ):
             mock_gen_instance = MagicMock()
             mock_gen_instance.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
@@ -377,7 +383,7 @@ class TestNFeatureZeroGuardWiring:
         (it pads with a zeros column).  The key invariant: the DataLoader
         construction is not skipped when n_features==0.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -398,10 +404,12 @@ class TestNFeatureZeroGuardWiring:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch(
+                "synth_engine.modules.synthesizer.training.dp_training.Generator"
+            ) as mock_gen_cls,
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
         ):
             mock_disc_instance = MagicMock()
             mock_disc_instance.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
@@ -458,7 +466,7 @@ class TestRealDataPaddingGuardWiring:
         (processed_df has 2 numeric columns).  The loop must not raise a
         shape mismatch — the padding guard handles it gracefully.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -489,10 +497,12 @@ class TestRealDataPaddingGuardWiring:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch(
+                "synth_engine.modules.synthesizer.training.dp_training.Generator"
+            ) as mock_gen_cls,
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
         ):
             mock_disc_instance = MagicMock()
             mock_disc_instance.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
@@ -531,7 +541,7 @@ class TestRealDataPaddingGuardWiring:
         The ``if real_data.shape[1] < data_dim`` branch must not fire,
         and ``real_data_padded = real_data[:, :data_dim]`` is used instead.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -574,10 +584,12 @@ class TestRealDataPaddingGuardWiring:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator"
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator"
             ) as mock_disc_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch(
+                "synth_engine.modules.synthesizer.training.dp_training.Generator"
+            ) as mock_gen_cls,
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
         ):
             mock_disc_instance = MagicMock()
             mock_disc_instance.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
@@ -633,7 +645,7 @@ class TestNSamplesZeroSkipGuardWiring:
         ``n_samples = (1 // 4) * 4 = 0`` → the ``continue`` guard fires.
         The Discriminator's forward pass must NOT be called for this batch.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -667,11 +679,13 @@ class TestNSamplesZeroSkipGuardWiring:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator",
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator",
                 return_value=mock_disc_instance,
             ),
-            patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch(
+                "synth_engine.modules.synthesizer.training.dp_training.Generator"
+            ) as mock_gen_cls,
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
         ):
             mock_gen_instance = MagicMock()
             mock_gen_instance.parameters = MagicMock(return_value=iter([torch.zeros(1)]))
@@ -704,7 +718,7 @@ class TestNSamplesZeroSkipGuardWiring:
         The ``continue`` guard for ``n_samples == 0`` must silently skip the
         batch — no exception should propagate.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = _make_mock_dp_wrapper()
@@ -726,11 +740,13 @@ class TestNSamplesZeroSkipGuardWiring:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.OpacusCompatibleDiscriminator",
+                "synth_engine.modules.synthesizer.training.dp_training.OpacusCompatibleDiscriminator",
                 return_value=mock_disc_instance,
             ),
-            patch("synth_engine.modules.synthesizer.dp_training.Generator") as mock_gen_cls,
-            patch("synth_engine.modules.synthesizer.dp_training.torch") as mock_torch,
+            patch(
+                "synth_engine.modules.synthesizer.training.dp_training.Generator"
+            ) as mock_gen_cls,
+            patch("synth_engine.modules.synthesizer.training.dp_training.torch") as mock_torch,
         ):
             mock_gen_instance = MagicMock()
             mock_gen_instance.parameters = MagicMock(return_value=iter([torch.zeros(1)]))

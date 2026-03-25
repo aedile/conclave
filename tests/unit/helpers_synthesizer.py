@@ -87,7 +87,7 @@ def _make_synthesis_job(**kwargs: Any) -> Any:
     Returns:
         A SynthesisJob instance suitable for unit-test isolation.
     """
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     defaults: dict[str, Any] = {
         "id": 1,

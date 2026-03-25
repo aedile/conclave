@@ -177,7 +177,7 @@ class TestSSRFFailClosedFeature:
         """
         import inspect
 
-        import synth_engine.modules.synthesizer.webhook_delivery as delivery_module
+        import synth_engine.modules.synthesizer.jobs.webhook_delivery as delivery_module
 
         source = inspect.getsource(delivery_module)
         # Verify the inlined call uses strict=False

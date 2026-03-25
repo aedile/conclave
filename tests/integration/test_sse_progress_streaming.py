@@ -82,7 +82,7 @@ class TestSSEProgressStreaming:
           Subsequent polls may capture 10%, 20%, or 50% depending on timing.
           All of {0, 10, 20, 50} are valid observable values before COMPLETE.
         """
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         engine = create_engine(
             "sqlite:///:memory:",
@@ -203,7 +203,7 @@ class TestSSEProgressStreaming:
     @pytest.mark.asyncio
     async def test_sse_events_contain_percent_field(self) -> None:
         """SSE progress events must contain a 'percent' field in the JSON data."""
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         engine = create_engine(
             "sqlite:///:memory:",

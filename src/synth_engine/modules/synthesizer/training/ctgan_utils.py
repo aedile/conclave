@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from synth_engine.modules.synthesizer.ctgan_types import GanHyperparams
+from synth_engine.modules.synthesizer.training.ctgan_types import GanHyperparams
 
 
 def cap_batch_size(n_samples: int, requested_batch_size: int, pac: int) -> int:

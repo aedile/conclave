@@ -47,7 +47,7 @@ from sqlmodel import Session
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 from synth_engine.shared.security.audit import get_audit_logger
 
 _logger = logging.getLogger(__name__)

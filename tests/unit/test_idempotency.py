@@ -810,4 +810,6 @@ class TestFeature:
 
             importlib.reload(redis_dep)
             client = redis_dep.get_redis_client()
-            assert client is not None
+            assert isinstance(client, redis_lib.Redis), (
+                f"get_redis_client() must return a redis.Redis instance, got {type(client)}"
+            )

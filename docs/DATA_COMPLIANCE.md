@@ -1,5 +1,7 @@
 # Conclave Engine — Data Compliance & Retention Policy
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 Authoritative reference for compliance officers, auditors, and operators. Covers GDPR (Articles 5, 17, 30), CCPA, and HIPAA-adjacent deployments.
 
 - Day-to-day operations: [OPERATOR_MANUAL.md](OPERATOR_MANUAL.md)
@@ -90,7 +92,7 @@ Nothing. Source data, intermediate artifacts, and synthetic output remain within
 | Audit trail entries | **Preserved** | Required for compliance proof |
 | WORM hash chain | **Preserved** | Deletion would break cryptographic integrity |
 
-The endpoint returns a compliance receipt documenting every deletion and every preservation with written justification. Implementation: `bootstrapper/routers/compliance.py` and `modules/synthesizer/erasure.py`. See ADR-0041.
+The endpoint returns a compliance receipt documenting every deletion and every preservation with written justification. Implementation: `bootstrapper/routers/compliance.py` and `modules/synthesizer/lifecycle/erasure.py`. See ADR-0041.
 
 ### 3.2 Preservation Justifications
 
@@ -238,7 +240,7 @@ All processing occurs within the operator's deployment perimeter. No data leaves
 
 ## 8. Automated Purge Task
 
-Wired to Huey `@periodic_task` cron jobs in `modules/synthesizer/retention_tasks.py`. See ADR-0041.
+Wired to Huey `@periodic_task` cron jobs in `modules/synthesizer/storage/retention_tasks.py`. See ADR-0041.
 
 On each execution:
 
@@ -249,7 +251,7 @@ On each execution:
 5. Log a purge summary to the WORM audit trail (jobs deleted, artifacts deleted, any errors).
 6. Never touch audit events.
 
-Configuration: `src/synth_engine/modules/synthesizer/retention.py`.
+Configuration: `src/synth_engine/modules/synthesizer/storage/retention.py`.
 
 ---
 
@@ -260,12 +262,12 @@ Conclave provides these compliance-relevant properties. Operators are responsibl
 | Property | Implementation | Evidence |
 |----------|---------------|---------|
 | Data minimization (GDPR Art. 5(1)(c)) | Read-only ingestion; source data never persisted to disk in raw form | Pre-flight privilege check; ingestion module design |
-| Storage limitation (GDPR Art. 5(1)(e)) | Configurable retention TTLs; automated purge task | `ConclaveSettings` retention fields; `modules/synthesizer/retention.py` |
-| Right to erasure (GDPR Art. 17) | `DELETE /compliance/erasure` with cascade deletion and compliance receipt | `modules/synthesizer/erasure.py`; `bootstrapper/routers/compliance.py` |
+| Storage limitation (GDPR Art. 5(1)(e)) | Configurable retention TTLs; automated purge task | `ConclaveSettings` retention fields; `modules/synthesizer/storage/retention.py` |
+| Right to erasure (GDPR Art. 17) | `DELETE /compliance/erasure` with cascade deletion and compliance receipt | `modules/synthesizer/lifecycle/erasure.py`; `bootstrapper/routers/compliance.py` |
 | Audit trail integrity | WORM, HMAC-SHA256 signed, append-only; no delete path in application code | `shared/security/audit.py` |
 | Formal privacy guarantee | (ε, δ)-DP on synthesized output via Opacus DP-SGD | `spend_budget` / `reset_budget` in `modules/privacy/accountant.py`; ADR-0036 |
 | Air-gap compliance | No external network calls; offline license activation | Network isolation design; `make build-airgap-bundle` |
-| Cryptographic erasure | NIST SP 800-88 compliant shredding of synthesis artifacts | `modules/synthesizer/shred.py`; ADR-0034 |
+| Cryptographic erasure | NIST SP 800-88 compliant shredding of synthesis artifacts | `modules/synthesizer/lifecycle/shred.py`; ADR-0034 |
 | Legal hold | `legal_hold` boolean on job records; prevents purge | `PATCH /admin/jobs/{id}/legal-hold`; `bootstrapper/routers/admin.py` |
 
 ---

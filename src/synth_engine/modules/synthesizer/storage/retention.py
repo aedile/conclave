@@ -36,7 +36,7 @@ from pathlib import Path
 from sqlalchemy import Engine
 from sqlmodel import Session, col, select
 
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 from synth_engine.shared.security.audit import get_audit_logger
 
 _logger = logging.getLogger(__name__)

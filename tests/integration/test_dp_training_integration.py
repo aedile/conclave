@@ -72,7 +72,7 @@ class TestDPCompatibleCTGANSchemaIntegration:
             SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
         )
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -93,7 +93,7 @@ class TestDPCompatibleCTGANSchemaIntegration:
             SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
         )
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         n_rows = 50
 
@@ -118,7 +118,7 @@ class TestDPCompatibleCTGANSchemaIntegration:
             SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
         )
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -143,7 +143,7 @@ class TestDPCompatibleCTGANSchemaIntegration:
             SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
         )
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -197,7 +197,7 @@ class TestDPCompatibleCTGANVanillaQuality:
         )
 
         from synth_engine.modules.profiler.profiler import StatisticalProfiler
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -248,7 +248,7 @@ class TestDPCompatibleCTGANVanillaQuality:
             SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
         )
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         n_rows = 75
 
@@ -273,7 +273,7 @@ class TestDPCompatibleCTGANVanillaQuality:
             SingleTableMetadata,  # type: ignore[import-untyped]  # sdv has no py.typed marker; unfixable without upstream changes
         )
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

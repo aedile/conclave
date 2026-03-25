@@ -85,8 +85,11 @@ class TestDPTrainingWrapperRealOpacus:
             noise_multiplier=1.1,
         )
 
-        # The returned optimizer must not be None
-        assert dp_optimizer is not None
+        # The returned optimizer must be a DPOptimizer — not None
+        assert dp_optimizer is not None, "wrap() must return a non-None DP optimizer"
+        assert hasattr(dp_optimizer, "step"), (
+            f"DP optimizer must have a step() method, got {type(dp_optimizer)}"
+        )
 
     def test_epsilon_spent_returns_positive_after_training_step(
         self, simple_pytorch_setup: dict[object, object]

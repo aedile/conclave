@@ -1,10 +1,10 @@
 """Dummy ML Synthesizer — a test fixture that mirrors the SynthesisEngine API.
 
 This module provides :class:`DummyMLSynthesizer`, a lightweight stand-in for
-:class:`~synth_engine.modules.synthesizer.engine.SynthesisEngine` that:
+:class:`~synth_engine.modules.synthesizer.training.engine.SynthesisEngine` that:
 
 - Implements the exact same ``train()`` / ``generate()`` interface.
-- Returns a valid :class:`~synth_engine.modules.synthesizer.models.ModelArtifact`
+- Returns a valid :class:`~synth_engine.modules.synthesizer.storage.models.ModelArtifact`
   immediately, without performing any real ML training.
 - Generates deterministic random DataFrames (seeded NumPy RNG — no unseeded PRNG).
 - Does NOT require PyTorch, SDV, or Opacus to be installed.
@@ -40,7 +40,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from synth_engine.modules.synthesizer.models import ModelArtifact
+from synth_engine.modules.synthesizer.storage.models import ModelArtifact
 
 _logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ class DummyMLSynthesizer:
     """Lightweight stand-in for SynthesisEngine — no real ML training required.
 
     Implements the same ``train()`` / ``generate()`` interface as
-    :class:`~synth_engine.modules.synthesizer.engine.SynthesisEngine` so that
+    :class:`~synth_engine.modules.synthesizer.training.engine.SynthesisEngine` so that
     integration and E2E tests can exercise the full job pipeline without
     incurring the cost of real CTGAN training.
 
@@ -202,7 +202,7 @@ class DummyMLSynthesizer:
 
         Raises:
             ValueError: If ``n_rows`` is 0 or negative (interface parity with
-                :meth:`~synth_engine.modules.synthesizer.engine.SynthesisEngine.generate`).
+                :meth:`~synth_engine.modules.synthesizer.training.engine.SynthesisEngine.generate`).
         """
         if n_rows <= 0:
             raise ValueError(

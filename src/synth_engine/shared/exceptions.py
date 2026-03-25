@@ -252,7 +252,8 @@ class CycleDetectionError(SynthEngineError):
 class OOMGuardrailError(SynthEngineError):
     """Raised when a training job's estimated memory exceeds available memory.
 
-    Produced by :func:`synth_engine.modules.synthesizer.guardrails.check_memory_feasibility`
+    Produced by
+    :func:`synth_engine.modules.synthesizer.training.guardrails.check_memory_feasibility`
     before training begins.  The message always includes estimated bytes,
     available bytes, and the required reduction factor.
 

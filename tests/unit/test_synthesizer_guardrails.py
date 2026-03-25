@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from synth_engine.modules.synthesizer.guardrails import (
+from synth_engine.modules.synthesizer.training.guardrails import (
     OOMGuardrailError,
     check_memory_feasibility,
 )
@@ -72,7 +72,7 @@ def _build_torch_mock(cuda_available: bool, total_memory: int, reserved: int) ->
 def test_feasibility_passes_at_75_percent() -> None:
     """Input requiring 75% of 8 GiB must return None without error."""
     target_bytes = int(0.75 * _8_GiB)
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         result = check_memory_feasibility(
             rows=1,
@@ -86,7 +86,7 @@ def test_feasibility_passes_at_75_percent() -> None:
 def test_feasibility_passes_at_80_percent() -> None:
     """Input requiring 80% of 8 GiB must return None without error (spec AC)."""
     target_bytes = int(0.80 * _8_GiB)
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         result = check_memory_feasibility(
             rows=1,
@@ -110,7 +110,7 @@ def test_feasibility_raises_just_above_85_percent() -> None:
     Uses _THRESHOLD_OVER (one byte above 0.85 x available) to unambiguously
     trigger the strict-greater-than guard condition.
     """
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         with pytest.raises(OOMGuardrailError):
             check_memory_feasibility(
@@ -124,7 +124,7 @@ def test_feasibility_raises_just_above_85_percent() -> None:
 def test_feasibility_raises_at_90_percent() -> None:
     """Input requiring 90% of 8 GiB must raise OOMGuardrailError (spec AC)."""
     target_bytes = int(0.90 * _8_GiB)
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         with pytest.raises(OOMGuardrailError):
             check_memory_feasibility(
@@ -142,7 +142,7 @@ def test_feasibility_raises_at_90_percent() -> None:
 
 def test_error_message_is_human_readable() -> None:
     """OOMGuardrailError message must include GiB/MiB notation, not raw byte counts."""
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         with pytest.raises(OOMGuardrailError) as exc_info:
             check_memory_feasibility(
@@ -160,7 +160,7 @@ def test_error_message_is_human_readable() -> None:
 def test_error_message_contains_reduction_factor() -> None:
     """OOMGuardrailError message must state how much to reduce the dataset."""
     target_bytes = int(0.90 * _8_GiB)
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         with pytest.raises(OOMGuardrailError) as exc_info:
             check_memory_feasibility(
@@ -176,7 +176,7 @@ def test_error_message_contains_reduction_factor() -> None:
 
 def test_error_message_contains_both_estimated_and_available() -> None:
     """Error message must contain both estimated bytes and available bytes."""
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         with pytest.raises(OOMGuardrailError) as exc_info:
             check_memory_feasibility(
@@ -200,7 +200,7 @@ def test_billion_row_dataset_is_rejected() -> None:
     """A 1-billion-row dataset must be rejected cleanly before any training begins."""
     # 1_000_000_000 rows x 50 columns x 8 bytes x 6.0 overhead = ~2.4 TiB
     # Far exceeds any mock available memory of 8 GiB.
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         with pytest.raises(OOMGuardrailError) as exc_info:
             check_memory_feasibility(
@@ -220,7 +220,7 @@ def test_billion_row_dataset_is_rejected() -> None:
 
 def test_psutil_is_mockable() -> None:
     """psutil.virtual_memory must be patchable at the guardrails module level."""
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         # A tiny dataset: 10 rows x 1 col x 1 byte x 1.0 overhead = 10 bytes
         result = check_memory_feasibility(
@@ -248,7 +248,10 @@ def test_torch_vram_path_used_when_cuda_is_available() -> None:
     spec_mock.return_value = MagicMock()  # non-None => torch found
 
     with (
-        patch("synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec", spec_mock),
+        patch(
+            "synth_engine.modules.synthesizer.training.guardrails.importlib.util.find_spec",
+            spec_mock,
+        ),
         patch.dict(sys.modules, {"torch": torch_mock}),  # type: ignore[arg-type]
     ):
         result = check_memory_feasibility(
@@ -275,9 +278,12 @@ def test_torch_falls_back_to_ram_when_cuda_unavailable() -> None:
     spec_mock.return_value = MagicMock()  # non-None => torch found
 
     with (
-        patch("synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec", spec_mock),
+        patch(
+            "synth_engine.modules.synthesizer.training.guardrails.importlib.util.find_spec",
+            spec_mock,
+        ),
         patch.dict(sys.modules, {"torch": torch_mock}),  # type: ignore[arg-type]
-        patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil,
+        patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil,
     ):
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         result = check_memory_feasibility(
@@ -308,7 +314,7 @@ def test_oom_guardrail_error_is_exception() -> None:
 
 def test_oom_guardrail_error_is_importable() -> None:
     """OOMGuardrailError must be importable from guardrails module directly."""
-    from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError as E
+    from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError as E
 
     assert E is OOMGuardrailError
 
@@ -324,7 +330,7 @@ def test_feasibility_passes_at_threshold_floor() -> None:
     _THRESHOLD_FLOOR = int(0.85 x available) which is just below the strict-
     greater-than threshold, so the guardrail must remain silent.
     """
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         result = check_memory_feasibility(
             rows=1,
@@ -345,7 +351,7 @@ def test_error_message_shows_mib_for_medium_datasets() -> None:
     # Use a small available memory (1 MiB) so even a tiny job exceeds 85%.
     available = 1024**2  # 1 MiB
     over_threshold = int(0.85 * available) + 1
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(available)
         with pytest.raises(OOMGuardrailError) as exc_info:
             check_memory_feasibility(
@@ -362,7 +368,7 @@ def test_error_message_shows_kib_for_small_datasets() -> None:
     """Error message uses KiB notation when estimated memory is in the KiB range."""
     available = 1024  # 1 KiB
     over_threshold = int(0.85 * available) + 1
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(available)
         with pytest.raises(OOMGuardrailError) as exc_info:
             check_memory_feasibility(
@@ -380,7 +386,7 @@ def test_format_bytes_sub_kib() -> None:
     # Use a very small available memory (100 bytes) to trigger the B branch.
     available = 100
     over_threshold = int(0.85 * available) + 1
-    with patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil:
+    with patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil:
         mock_psutil.virtual_memory.return_value = _mock_vmem(available)
         with pytest.raises(OOMGuardrailError) as exc_info:
             check_memory_feasibility(
@@ -403,10 +409,10 @@ def test_falls_back_to_ram_when_torch_not_installed() -> None:
     """When torch is NOT installed (find_spec returns None), psutil RAM is used."""
     with (
         patch(
-            "synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec",
+            "synth_engine.modules.synthesizer.training.guardrails.importlib.util.find_spec",
             return_value=None,
         ),
-        patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil,
+        patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil,
     ):
         mock_psutil.virtual_memory.return_value = _mock_vmem(_8_GiB)
         result = check_memory_feasibility(
@@ -550,10 +556,10 @@ def test_psutil_raises_exception_propagates_cleanly() -> None:
     """
     with (
         patch(
-            "synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec",
+            "synth_engine.modules.synthesizer.training.guardrails.importlib.util.find_spec",
             return_value=None,
         ),
-        patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil,
+        patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil,
     ):
         mock_psutil.virtual_memory.side_effect = OSError("Cannot read /proc/meminfo")
         with pytest.raises(OSError, match="Cannot read /proc/meminfo"):
@@ -582,7 +588,10 @@ def test_torch_cuda_raises_exception_propagates_as_runtime_error() -> None:
     spec_mock.return_value = MagicMock()  # non-None => torch found
 
     with (
-        patch("synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec", spec_mock),
+        patch(
+            "synth_engine.modules.synthesizer.training.guardrails.importlib.util.find_spec",
+            spec_mock,
+        ),
         patch.dict(sys.modules, {"torch": torch_mock}),  # type: ignore[arg-type]
     ):
         with pytest.raises(RuntimeError, match="CUDA driver not loaded"):
@@ -604,10 +613,10 @@ def test_available_memory_zero_triggers_oom_rejection() -> None:
     """
     with (
         patch(
-            "synth_engine.modules.synthesizer.guardrails.importlib.util.find_spec",
+            "synth_engine.modules.synthesizer.training.guardrails.importlib.util.find_spec",
             return_value=None,
         ),
-        patch("synth_engine.modules.synthesizer.guardrails.psutil") as mock_psutil,
+        patch("synth_engine.modules.synthesizer.training.guardrails.psutil") as mock_psutil,
     ):
         mock_psutil.virtual_memory.return_value = _mock_vmem(0)
         with pytest.raises(OOMGuardrailError):

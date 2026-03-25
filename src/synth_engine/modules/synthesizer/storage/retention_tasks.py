@@ -18,7 +18,9 @@ Bootstrapper wiring note (Rule 8)
 ``bootstrapper/main.py`` imports this module at startup so the Huey worker
 process discovers the periodic tasks::
 
-    from synth_engine.modules.synthesizer import retention_tasks as _retention_tasks  # noqa: F401
+    from synth_engine.modules.synthesizer.storage import (  # noqa: F401
+        retention_tasks as _retention_tasks
+    )
 
 No additional DI injection is needed — both tasks read settings directly from
 :func:`~synth_engine.shared.settings.get_settings` and construct a
@@ -53,9 +55,9 @@ _ARTIFACT_CLEANUP_LOCK = "retention-artifact-cleanup"
 def periodic_cleanup_expired_jobs() -> int:
     """Periodic task: clean up expired synthesis job records at 02:00 UTC daily.
 
-    Constructs a :class:`~synth_engine.modules.synthesizer.retention.RetentionCleanup`
+    Constructs a :class:`~synth_engine.modules.synthesizer.storage.retention.RetentionCleanup`
     instance from current settings and calls
-    :meth:`~synth_engine.modules.synthesizer.retention.RetentionCleanup.cleanup_expired_jobs`.
+    :meth:`~synth_engine.modules.synthesizer.storage.retention.RetentionCleanup.cleanup_expired_jobs`.
 
     Only jobs in terminal states (COMPLETE or FAILED) that are not on legal
     hold and are older than ``job_retention_days`` are deleted.
@@ -66,7 +68,7 @@ def periodic_cleanup_expired_jobs() -> int:
     Returns:
         The number of job records deleted.
     """
-    from synth_engine.modules.synthesizer.retention import RetentionCleanup
+    from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
     from synth_engine.shared.db import get_engine
     from synth_engine.shared.settings import get_settings
 
@@ -91,9 +93,9 @@ def periodic_cleanup_expired_jobs() -> int:
 def periodic_cleanup_expired_artifacts() -> int:
     """Periodic task: sweep expired artifact files at 03:00 UTC daily.
 
-    Constructs a :class:`~synth_engine.modules.synthesizer.retention.RetentionCleanup`
+    Constructs a :class:`~synth_engine.modules.synthesizer.storage.retention.RetentionCleanup`
     instance from current settings and calls
-    :meth:`~synth_engine.modules.synthesizer.retention.RetentionCleanup.cleanup_expired_artifacts`.
+    :meth:`~synth_engine.modules.synthesizer.storage.retention.RetentionCleanup.cleanup_expired_artifacts`.
 
     Only artifact files belonging to terminal, non-held jobs older than
     ``artifact_retention_days`` are removed.  The ``output_path`` column is
@@ -105,7 +107,7 @@ def periodic_cleanup_expired_artifacts() -> int:
     Returns:
         The number of artifact files swept.
     """
-    from synth_engine.modules.synthesizer.retention import RetentionCleanup
+    from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
     from synth_engine.shared.db import get_engine
     from synth_engine.shared.settings import get_settings
 

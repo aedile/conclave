@@ -8,7 +8,7 @@ annotations to exactly one file (this file).
 
 Usage pattern in sibling modules::
 
-    from synth_engine.modules.synthesizer._optional_deps import (
+    from synth_engine.modules.synthesizer.training._optional_deps import (
         DataLoader,
         TensorDataset,
         TORCH_AVAILABLE,
@@ -87,7 +87,7 @@ def require_synthesizer() -> None:
 
     Example::
 
-        from synth_engine.modules.synthesizer._optional_deps import (
+        from synth_engine.modules.synthesizer.training._optional_deps import (
             require_synthesizer,
             torch,
         )

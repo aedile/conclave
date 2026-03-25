@@ -37,7 +37,7 @@ from synth_engine.shared.db import SessionFactory
 from synth_engine.shared.errors import safe_error_msg
 
 if TYPE_CHECKING:
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
 _logger = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ def _poll_job(
     """
     # Deferred import: avoids pulling synthesizer module-level state into
     # every bootstrapper import at startup.
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     with session_factory() as session:
         return session.get(SynthesisJob, job_id)

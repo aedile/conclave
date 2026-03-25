@@ -440,7 +440,7 @@ class TestEpsilonDeltaConsistency:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)  # type: ignore[union-attr]
 
-        from synth_engine.modules.synthesizer.dp_accounting import DP_EPSILON_DELTA
+        from synth_engine.modules.synthesizer.training.dp_accounting import DP_EPSILON_DELTA
 
         # The harness must expose its delta constant so we can assert equality
         assert hasattr(module, "_BENCHMARK_DP_DELTA"), (

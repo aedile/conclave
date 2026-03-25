@@ -1,3 +1,5 @@
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 # ADR-0036 — Discriminator-Level DP-SGD Architecture
 
 **Date:** 2026-03-18
@@ -109,7 +111,7 @@ block.
 ### 2. `OpacusCompatibleDiscriminator` (T30.2)
 
 A new class `OpacusCompatibleDiscriminator(nn.Module)` is created in
-`modules/synthesizer/dp_discriminator.py`. It accepts the same constructor parameters
+`modules/synthesizer/training/dp_discriminator.py`. It accepts the same constructor parameters
 as CTGAN's internal Discriminator (`input_dim`, `discriminator_dim`, `pac`) and
 replicates the same layer structure (linear → normalization → leaky relu → dropout)
 except that every `BatchNorm1d` is replaced by `GroupNorm(1, num_features)`.
@@ -183,7 +185,7 @@ differential privacy cost of training this Discriminator on this dataset.
 
 Per ADR-0001 and the import-linter contracts:
 
-- `modules/synthesizer/dp_training.py` and `modules/synthesizer/dp_discriminator.py`
+- `modules/synthesizer/training/dp_training.py` and `modules/synthesizer/training/dp_discriminator.py`
   MUST NOT import from `modules/privacy/`.
 - The `dp_wrapper` parameter in `DPCompatibleCTGAN.fit()` is typed as `Any`, consistent
   with the existing pattern in `SynthesisEngine.train()`.
@@ -265,7 +267,7 @@ module.
   the `modules/synthesizer` ↔ `modules/privacy` boundary.
 - `docs/backlog/phase-30.md` — Phase 30 task breakdown, risk register (R1–R3), and
   acceptance criteria that this ADR's Decision section maps to.
-- `src/synth_engine/modules/synthesizer/dp_training.py` — `DPCompatibleCTGAN`
+- `src/synth_engine/modules/synthesizer/training/dp_training.py` — `DPCompatibleCTGAN`
   implementation (proxy model path, to be replaced in T30.3).
 - `src/synth_engine/modules/privacy/dp_engine.py` — `DPTrainingWrapper` implementation
   (fully tested; injection target for `dp_wrapper` parameter).

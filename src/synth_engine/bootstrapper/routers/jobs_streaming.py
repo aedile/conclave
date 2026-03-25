@@ -58,7 +58,7 @@ from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.sse import job_event_stream
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 from synth_engine.shared.db import SessionFactory
 from synth_engine.shared.security.hmac_signing import (
     HMAC_DIGEST_SIZE,

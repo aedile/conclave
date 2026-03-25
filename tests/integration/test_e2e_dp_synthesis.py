@@ -314,7 +314,7 @@ class TestE2EFKPostProcessing:
         DP-CTGAN train → sample → apply_fk_post_processing → zero orphan FKs.
         """
         from synth_engine.bootstrapper.main import build_dp_wrapper, build_synthesis_engine
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         wrapper = build_dp_wrapper(max_grad_norm=1.0, noise_multiplier=1.1)
         engine = build_synthesis_engine(epochs=2)

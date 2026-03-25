@@ -205,7 +205,7 @@ class TestBuildSynthesisEngine:
     def test_returns_synthesis_engine_instance(self) -> None:
         """build_synthesis_engine() must return a SynthesisEngine instance."""
         from synth_engine.bootstrapper.main import build_synthesis_engine
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = build_synthesis_engine()
         assert isinstance(engine, SynthesisEngine)
@@ -258,7 +258,7 @@ class TestBuildEphemeralStorageClient:
     def test_returns_ephemeral_storage_client_instance(self) -> None:
         """build_ephemeral_storage_client() must return an EphemeralStorageClient."""
         from synth_engine.bootstrapper.main import build_ephemeral_storage_client
-        from synth_engine.modules.synthesizer.storage import EphemeralStorageClient
+        from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
 
         with tempfile.TemporaryDirectory() as tmpdir:
             secrets_dir = self._make_secret_files(tmpdir)

@@ -56,7 +56,7 @@ class TestDownloadEndpointHMACBypass:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"unsigned parquet content"
         parquet_path = tmp_path / "unsigned-synthetic.parquet"
@@ -118,7 +118,7 @@ class TestDownloadEndpointHMACBypass:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"parquet bytes for invalid hex key test"
         parquet_path = tmp_path / "invalid_hex-synthetic.parquet"
@@ -178,7 +178,7 @@ class TestDownloadEndpointHMACBypass:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"parquet bytes for whitespace key test"
         parquet_path = tmp_path / "ws_key-synthetic.parquet"
@@ -245,7 +245,7 @@ class TestDownloadEndpointHMACBypass:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_bytes = b"parquet bytes for oserror test"
         parquet_path = tmp_path / "oserror-synthetic.parquet"

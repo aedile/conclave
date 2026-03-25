@@ -164,17 +164,17 @@ compare  # unused method — StatisticalProfiler.compare called in synthesis pip
 written_tables  # unused property — EgressWriter.written_tables used in Saga rollback
 upload_parquet  # unused method — EphemeralStorageClient.upload_parquet (synthesis pipeline)
 download_parquet  # unused method — EphemeralStorageClient.download_parquet (synthesis pipeline)
-load  # unused method — ModelArtifact.load @classmethod; not called from production src yet — entry point for inference pipeline (synthesizer/models.py)
-_log_device_selection  # unused function — device selection utility called by tests; not called from production src directly (synthesizer/storage.py)
+load  # unused method — ModelArtifact.load @classmethod; not called from production src yet — entry point for inference pipeline (synthesizer/storage/models.py)
+_log_device_selection  # unused function — device selection utility called by tests; not called from production src directly (synthesizer/storage/storage.py)
 generate_ale_key  # unused function — ALE key provisioning utility exported for operator use (shared/security/ale.py); not called from src — intended for one-time key generation at host setup
 verify_event  # unused method — AuditLogger.verify_event used in audit chain verification
 deactivate  # unused method — LicenseManager.deactivate (shared/security/licensing.py)
-RetentionCleanup  # unused class — called by Huey scheduled tasks / CLI (modules/synthesizer/retention.py)
+RetentionCleanup  # unused class — called by Huey scheduled tasks / CLI (modules/synthesizer/storage/retention.py)
 cleanup_expired_jobs  # unused method — RetentionCleanup.cleanup_expired_jobs (retention.py)
 cleanup_expired_artifacts  # unused method — RetentionCleanup.cleanup_expired_artifacts (retention.py)
-periodic_cleanup_expired_jobs  # unused function — Huey periodic task, registered at 02:00 UTC (retention_tasks.py)
-periodic_cleanup_expired_artifacts  # unused function — Huey periodic task, registered at 03:00 UTC (retention_tasks.py)
-periodic_reap_orphan_tasks  # unused function — Huey periodic task, registered every 15 min (reaper_tasks.py)
+periodic_cleanup_expired_jobs  # unused function — Huey periodic task, registered at 02:00 UTC (storage/retention_tasks.py)
+periodic_cleanup_expired_artifacts  # unused function — Huey periodic task, registered at 03:00 UTC (storage/retention_tasks.py)
+periodic_reap_orphan_tasks  # unused function — Huey periodic task, registered every 15 min (storage/reaper_tasks.py)
 idempotency_ttl_seconds  # unused variable — ConclaveSettings field read by IdempotencyMiddleware (shared/settings.py)
 get_claims  # unused method — LicenseManager.get_claims (shared/security/licensing.py)
 
@@ -309,3 +309,15 @@ status  # unused variable — DeliveryResult dataclass field (webhook_delivery.p
 # ---------------------------------------------------------------------------
 
 vault_health  # unused function — bootstrapper/routers/health.py; FastAPI route handler for /health/vault
+
+# ---------------------------------------------------------------------------
+# Category Q — T56.2 wiring.py side-effect imports
+# _reaper_tasks, _retention_tasks, and _security_rotation are imported at
+# module scope in bootstrapper/wiring.py for their side effects: they register
+# Huey tasks. The underscore prefix is a naming convention for side-effect-
+# only imports. Without them, Huey workers would not discover the tasks.
+# ---------------------------------------------------------------------------
+
+_reaper_tasks  # unused import — side-effect: registers Huey reaper task at import time (wiring.py)
+_retention_tasks  # unused import — side-effect: registers Huey retention tasks at import time (wiring.py)
+_security_rotation  # unused import — side-effect: registers ALE key rotation Huey task (wiring.py)

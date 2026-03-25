@@ -108,7 +108,7 @@ _MIN_SIGNING_KEY_BYTES: int = 32
 #: If ``classname`` is a string, only that exact class is allowed.
 #:
 #: Rationale (ADR-0055):
-#: - ``synth_engine.modules.synthesizer.models`` — the ModelArtifact class itself.
+#: - ``synth_engine.modules.synthesizer.storage.models`` — the ModelArtifact class itself.
 #: - ``builtins`` — Python built-in types (list, dict, str, int, float, etc.)
 #:   needed for dataclass field reconstruction.
 #: - ``_codecs`` — used by pickle internally for bytes/bytearray reconstruction.
@@ -126,7 +126,7 @@ _MIN_SIGNING_KEY_BYTES: int = 32
 #: ``pathlib``, ``socket``, arbitrary third-party packages) will raise
 #: :exc:`SecurityError` immediately when encountered during deserialization.
 _ALLOWED_MODULE_PREFIXES: tuple[str, ...] = (
-    "synth_engine.modules.synthesizer.models",
+    "synth_engine.modules.synthesizer.storage.models",
     "builtins",
     "_codecs",
     "collections",

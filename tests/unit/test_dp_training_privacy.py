@@ -103,6 +103,7 @@ class TestImportBoundary:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "training"
             / "dp_training.py"
         )
         assert dp_training_path.exists(), (
@@ -125,7 +126,7 @@ class TestImportBoundary:
         """DPCompatibleCTGAN.__init__ dp_wrapper parameter must be typed as Any."""
         import inspect
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         sig = inspect.signature(DPCompatibleCTGAN.__init__)
         hints = DPCompatibleCTGAN.__init__.__annotations__
@@ -154,14 +155,14 @@ class TestDocstringDuckTypingContract:
 
     def test_dp_compatible_ctgan_has_docstring(self) -> None:
         """DPCompatibleCTGAN must have a class-level docstring."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         assert DPCompatibleCTGAN.__doc__ is not None
         assert len(DPCompatibleCTGAN.__doc__.strip()) > 0
 
     def test_docstring_documents_dp_wrapper_interface(self) -> None:
         """DPCompatibleCTGAN docstring must mention the dp_wrapper.wrap() method."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         # The docstring must document the expected dp_wrapper interface
         doc = DPCompatibleCTGAN.__doc__ or ""
@@ -194,7 +195,7 @@ class TestActivateOpacusEdgeCases:
         """
         import numpy as np
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = MagicMock()
@@ -223,7 +224,7 @@ class TestActivateOpacusEdgeCases:
         (shape (n, 0)).  The code must fall back to a 1-wide zero tensor so the DataLoader
         is valid and n_features == 1.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = MagicMock()
@@ -254,7 +255,7 @@ class TestActivateOpacusEdgeCases:
             return original_tensor_dataset(*args)
 
         with patch(
-            "synth_engine.modules.synthesizer.dp_training.TensorDataset",
+            "synth_engine.modules.synthesizer.training.dp_training.TensorDataset",
             side_effect=capturing_tensor_dataset,
         ):
             instance._activate_opacus_proxy(all_cat_df)
@@ -270,7 +271,7 @@ class TestActivateOpacusEdgeCases:
 
     def test_fit_empty_dataframe_raises_value_error(self) -> None:
         """fit() with an empty DataFrame must raise ValueError with 'empty' in the message."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2)
@@ -310,6 +311,7 @@ class TestWarningTargeting:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "training"
             / "dp_training.py"
         )
         source = dp_training_path.read_text()
@@ -337,6 +339,7 @@ class TestWarningTargeting:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "training"
             / "dp_training.py"
         )
         source = dp_training_path.read_text()
@@ -370,6 +373,7 @@ class TestSDVPrivateAttributeCoupling:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "training"
             / "dp_training.py"
         )
         source = dp_training_path.read_text()
@@ -394,6 +398,7 @@ class TestSDVPrivateAttributeCoupling:
             / "synth_engine"
             / "modules"
             / "synthesizer"
+            / "training"
             / "dp_training.py"
         )
         source = dp_training_path.read_text()
@@ -416,7 +421,7 @@ class TestSDVPrivateAttributeCoupling:
         T20.1 AC3: isolating the coupling in a helper method means SDV 2.x
         migration requires updating only one location.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         assert hasattr(DPCompatibleCTGAN, "_get_model_kwargs"), (
             "DPCompatibleCTGAN must have a _get_model_kwargs helper method. "
@@ -438,7 +443,7 @@ class TestSDVModelKwargsIntegration:
 
     def test_get_model_kwargs_reads_from_sdv_synth(self) -> None:
         """_get_model_kwargs() must extract _model_kwargs and override epochs."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_sdv_synth = _make_mock_sdv_synthesizer()
@@ -457,7 +462,7 @@ class TestSDVModelKwargsIntegration:
 
     def test_get_model_kwargs_returns_copy_not_reference(self) -> None:
         """_get_model_kwargs() must return a copy, not a reference to the private dict."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_sdv_synth = _make_mock_sdv_synthesizer()

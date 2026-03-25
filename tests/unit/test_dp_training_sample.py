@@ -106,7 +106,7 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
 
     def test_fit_without_dp_wrapper_does_not_call_wrap(self) -> None:
         """fit(df) with dp_wrapper=None must NOT call any wrap() method."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_sdv_synth = _make_mock_sdv_synthesizer()
@@ -115,15 +115,15 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv_synth,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGAN",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
                 return_value=mock_ctgan_instance,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
         ):
@@ -143,7 +143,7 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
         This test verifies wrap() is called (via _train_dp_discriminator or its
         fallback path) during fit() when dp_wrapper is provided.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_sdv_synth = _make_mock_sdv_synthesizer()
@@ -154,15 +154,15 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv_synth,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGAN",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
                 return_value=mock_ctgan_instance,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
         ):
@@ -179,7 +179,7 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
 
     def test_fit_with_dp_wrapper_wrap_called_with_required_kwargs(self) -> None:
         """dp_wrapper.wrap() must be called with optimizer, model, dataloader kwargs."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_sdv_synth = _make_mock_sdv_synthesizer()
@@ -190,15 +190,15 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv_synth,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGAN",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
                 return_value=mock_ctgan_instance,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
         ):
@@ -241,21 +241,21 @@ class TestDPCompatibleCTGANSample:
         Returns:
             Fitted DPCompatibleCTGAN instance.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGANSynthesizer",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGANSynthesizer",
                 return_value=mock_sdv_synth,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.CTGAN",
+                "synth_engine.modules.synthesizer.training.dp_training.CTGAN",
                 return_value=mock_ctgan_instance,
             ),
             patch(
-                "synth_engine.modules.synthesizer.dp_training.detect_discrete_columns",
+                "synth_engine.modules.synthesizer.training.dp_training.detect_discrete_columns",
                 return_value=[],
             ),
         ):
@@ -333,7 +333,7 @@ class TestDPCompatibleCTGANSample:
 
     def test_sample_before_fit_raises_runtime_error(self) -> None:
         """sample() before fit() must raise RuntimeError with a clear message."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2)

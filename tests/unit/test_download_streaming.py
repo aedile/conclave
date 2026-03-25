@@ -52,7 +52,7 @@ class TestDownloadEndpointSuccess:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_path = tmp_path / "customers-synthetic.parquet"
         parquet_path.write_bytes(b"fake parquet bytes")
@@ -108,7 +108,7 @@ class TestDownloadEndpointSuccess:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_path = tmp_path / "customers-synthetic.parquet"
         parquet_path.write_bytes(b"fake parquet bytes")
@@ -163,7 +163,7 @@ class TestDownloadEndpointSuccess:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         parquet_path = tmp_path / "customers-synthetic.parquet"
         parquet_path.write_bytes(b"fake parquet bytes")
@@ -221,7 +221,7 @@ class TestDownloadEndpointSuccess:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         expected_bytes = b"PAR1\x00\x01\x02\x03fake parquet content here"
         parquet_path = tmp_path / "t-synthetic.parquet"
@@ -282,7 +282,7 @@ class TestDownloadEndpointSuccess:
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         # Write a file that is 3 x 64 KiB + 1 byte -- forces multiple read iterations
         chunk_size = 65536

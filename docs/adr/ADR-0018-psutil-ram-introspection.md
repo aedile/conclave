@@ -1,3 +1,5 @@
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 # ADR-0018 — psutil as RAM Introspection Library
 
 **Date:** 2026-03-14
@@ -9,7 +11,7 @@
 
 ## Context
 
-The OOM pre-flight guardrail (`modules/synthesizer/guardrails.py`, T4.3a) must
+The OOM pre-flight guardrail (`modules/synthesizer/training/guardrails.py`, T4.3a) must
 determine available system RAM at runtime to evaluate whether a proposed training
 job fits within safe memory bounds (85% of available memory).
 
@@ -81,7 +83,7 @@ platform (Linux/ARM64 or Linux/x86_64). The wheel is already captured in
 
 ## References
 
-- `src/synth_engine/modules/synthesizer/guardrails.py` — the sole consumer of
+- `src/synth_engine/modules/synthesizer/training/guardrails.py` — the sole consumer of
   `psutil` in production code.
 - ADR-0017 (`docs/adr/ADR-0017-synthesizer-dp-library-selection.md`) —
   documents the CTGAN + Opacus decision that T4.3a supports.

@@ -41,6 +41,7 @@ _DP_TRAINING_PATH = (
     / "synth_engine"
     / "modules"
     / "synthesizer"
+    / "training"
     / "dp_training.py"
 )
 
@@ -66,7 +67,7 @@ class TestEmptyDataLoaderGuard:
         n_rows // 2 = 0, then floored to pac = 10, but drop_last=True means
         a single-row dataset produces 0 batches.
         """
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = MagicMock()
@@ -96,7 +97,7 @@ class TestEmptyDataLoaderGuard:
 
     def test_empty_dataloader_guard_message_mentions_privacy(self) -> None:
         """RuntimeError message must explain the privacy rationale for the guard."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         mock_dp_wrapper = MagicMock()
@@ -149,7 +150,7 @@ class TestWGANDocstringAccuracy:
 
     def test_train_dp_discriminator_docstring_says_wgan_not_wgan_gp(self) -> None:
         """_train_dp_discriminator docstring must not claim WGAN-GP for the DP loop."""
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         doc = DPCompatibleCTGAN._train_dp_discriminator.__doc__ or ""
         # The docstring must not claim WGAN-GP (gradient penalty is not applied in DP mode)
@@ -272,7 +273,7 @@ class TestSampleFromDPGeneratorBranches:
         """
         import torch
 
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         mock_metadata = MagicMock()
         instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=1)

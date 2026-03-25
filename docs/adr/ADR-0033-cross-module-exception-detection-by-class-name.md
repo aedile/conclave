@@ -1,5 +1,7 @@
 # ADR-0033: Cross-Module Exception Detection by Class Name
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Status:** Superseded
 **Date:** 2026-03-17
 **Deciders:** PM, Architecture Reviewer
@@ -7,7 +9,7 @@
 
 **Superseded by:** P26-T26.2, which moved `BudgetExhaustionError` to
 `shared/exceptions.py`, enabling direct class-based `except` clauses in
-`modules/synthesizer/job_orchestration.py`.  The duck-typing pattern
+`modules/synthesizer/jobs/job_orchestration.py`.  The duck-typing pattern
 documented here is no longer in use and must not be re-introduced.
 
 ---
@@ -15,7 +17,7 @@ documented here is no longer in use and must not be re-introduced.
 ## Context
 
 `BudgetExhaustionError` is defined in `modules/privacy/dp_engine.py`.  The
-synthesis pipeline in `modules/synthesizer/tasks.py` must detect when the
+synthesis pipeline in `modules/synthesizer/jobs/tasks.py` must detect when the
 privacy budget is exhausted after calling `_spend_budget_fn`.
 
 Import-linter enforces strict module independence: `modules/synthesizer` is
@@ -40,7 +42,7 @@ Three options were evaluated:
 
 ## Decision
 
-Use duck-typing exception name matching in `modules/synthesizer/tasks.py` to
+Use duck-typing exception name matching in `modules/synthesizer/jobs/tasks.py` to
 detect `BudgetExhaustionError` raised by `_spend_budget_fn` at the
 `modules/privacy` boundary:
 
@@ -110,7 +112,7 @@ propagate so Huey can record them and alert operators.
 
 ## References
 
-- `src/synth_engine/modules/synthesizer/tasks.py` — callsite with inline comment
+- `src/synth_engine/modules/synthesizer/jobs/tasks.py` — callsite with inline comment
 - `src/synth_engine/modules/privacy/dp_engine.py` — source of `BudgetExhaustionError`
 - ADR-0001: Modular Monolith Topology (import-linter enforcement)
 - ADR-0029: Architectural Requirements Gap Analysis

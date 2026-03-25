@@ -2,7 +2,7 @@
 
 Central navigation for all Conclave Engine documentation, organized by primary audience.
 
-**Total documents indexed: 124**
+**Total documents indexed: 135**
 
 ---
 
@@ -115,7 +115,8 @@ Central navigation for all Conclave Engine documentation, organized by primary a
 |----------|----------|
 | [retro_archive/phases-0-to-7.md](retro_archive/phases-0-to-7.md) | Phases 0 through 7 |
 | [retro_archive/phases-8-to-14.md](retro_archive/phases-8-to-14.md) | Phases 8 through 14 |
-| [RETRO_LOG.md](RETRO_LOG.md) | Current (active) — Phases 15 onwards |
+| [retro_archive/phases-15-to-45.md](retro_archive/phases-15-to-45.md) | Phases 15 through 45 |
+| [RETRO_LOG.md](RETRO_LOG.md) | Current (active) — Phases 46 onwards |
 
 ### Review Prompt Templates
 
@@ -169,7 +170,7 @@ ADRs are append-only records of significant technical decisions. Superseded or r
 | [ADR-0022](adr/ADR-0022-offline-license-activation.md) | Offline License Activation | Accepted |
 | [ADR-0023](adr/ADR-0023-frontend-react-vite-spa.md) | Frontend React/Vite SPA | Accepted |
 | [ADR-0024](adr/ADR-0024-pure-asgi-body-replay-middleware.md) | Pure ASGI Body Replay Middleware | Accepted |
-| [ADR-0025](adr/ADR-0025-custom-ctgan-training-loop.md) | Custom CTGAN Training Loop | Accepted |
+| [ADR-0025](adr/ADR-0025-custom-ctgan-training-loop.md) | Custom CTGAN Training Loop | Superseded by Phase 30 |
 | [ADR-0026](adr/ADR-0026-dp-parameter-accessibility.md) | DP Parameter Accessibility | Accepted |
 | [ADR-0027](adr/ADR-0027-bootstrapper-submodule-re-export-pattern.md) | Bootstrapper Submodule Re-Export Pattern | Accepted |
 | [ADR-0028](adr/ADR-0028-pytest-asyncio-1x-upgrade.md) | pytest-asyncio 1.x Upgrade | Accepted |
@@ -177,7 +178,7 @@ ADRs are append-only records of significant technical decisions. Superseded or r
 | [ADR-0030](adr/ADR-0030-float-to-numeric-epsilon-precision.md) | Float to Numeric Epsilon Precision | Accepted |
 | [ADR-0031](adr/ADR-0031-pgbouncer-image-substitution.md) | PgBouncer Image Substitution | Accepted |
 | [ADR-0032](adr/ADR-0032-mypy-synthesizer-ignore-missing-imports.md) | Mypy Synthesizer `ignore_missing_imports` | Retired (see file) |
-| [ADR-0033](adr/ADR-0033-cross-module-exception-detection-by-class-name.md) | Cross-Module Exception Detection by Class Name | Accepted |
+| [ADR-0033](adr/ADR-0033-cross-module-exception-detection-by-class-name.md) | Cross-Module Exception Detection by Class Name | Superseded |
 | [ADR-0034](adr/ADR-0034-shredded-lifecycle-state-and-audit-tolerance.md) | Shredded Lifecycle State and Audit Tolerance | Accepted |
 | [ADR-0035](adr/ADR-0035-dual-driver-db-access.md) | Dual Driver DB Access | Accepted |
 | [ADR-0036](adr/ADR-0036-discriminator-level-dp-sgd.md) | Discriminator-Level DP-SGD | Accepted |
@@ -189,6 +190,16 @@ ADRs are append-only records of significant technical decisions. Superseded or r
 | [ADR-0042](adr/ADR-0042-artifact-signing-key-versioning.md) | Artifact Signing Key Versioning | Accepted |
 | [ADR-0043](adr/ADR-0043-https-enforcement-middleware.md) | HTTPS Enforcement Middleware | Accepted |
 | [ADR-0044](adr/ADR-0044-webhook-idempotency-reaper-architecture.md) | Webhook, Idempotency & Reaper Architecture | Accepted |
+| [ADR-0045](adr/ADR-0045-mtls-inter-container-communication.md) | mTLS Inter-Container Communication | Accepted |
+| [ADR-0046](adr/ADR-0046-priority-sequencing-constraint.md) | Priority Sequencing Constraint | Accepted |
+| [ADR-0047](adr/ADR-0047-mutation-testing-gate.md) | Mutation Testing Gate | Accepted |
+| [ADR-0048](adr/ADR-0048-audit-trail-anchoring.md) | Audit Trail Anchoring | Accepted |
+| [ADR-0049](adr/ADR-0049-scope-based-authorization.md) | Scope-Based Authorization Model | Accepted |
+| [ADR-0050](adr/ADR-0050-dp-budget-fail-closed.md) | DP Budget Deduction — Fail Closed | Accepted |
+| [ADR-0052](adr/ADR-0052-mutmut-python-314-gap.md) | mutmut / Python 3.14 Compatibility Gap | Superseded by ADR-0054 |
+| [ADR-0053](adr/ADR-0053-demos-directory-placement.md) | demos/ Directory Placement and Quality Gate Scope | Accepted |
+| [ADR-0054](adr/ADR-0054-cosmic-ray-adoption.md) | Adopt cosmic-ray as Mutation Testing Tool | Accepted |
+| [ADR-0055](adr/ADR-0055-restricted-unpickler.md) | Restricted Unpickler for ModelArtifact Deserialization | Accepted |
 | [ADR-template.md](adr/ADR-template.md) | Template for new ADRs | Template |
 
 ---
@@ -222,11 +233,11 @@ ADRs are append-only records of significant technical decisions. Superseded or r
 | Operator guides | 10 |
 | Developer guides | 8 |
 | Backlog documents | 49 |
-| Retrospective archives | 3 |
+| Retrospective archives | 4 |
 | Review prompt templates | 8 |
 | Archived documents | 6 (not indexed — see `docs/archive/`) |
-| ADRs (including template) | 46 |
-| **Total** | **124** |
+| ADRs (including template) | 56 |
+| **Total** | **135** |
 
 ---
 

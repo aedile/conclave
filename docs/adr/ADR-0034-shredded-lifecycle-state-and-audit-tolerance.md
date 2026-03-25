@@ -1,5 +1,7 @@
 # ADR-0034: SHREDDED Lifecycle State and Audit Tolerance
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Status:** Accepted
 **Date:** 2026-03-17
 **Deciders:** PM, Architecture Reviewer, QA Reviewer
@@ -132,6 +134,6 @@ operation that was performed.
 
 - NIST SP 800-88 Rev. 1 — Guidelines for Media Sanitization
 - ADR-0010 — WORM audit logger design
-- `src/synth_engine/modules/synthesizer/shred.py` — domain erasure function
+- `src/synth_engine/modules/synthesizer/lifecycle/shred.py` — domain erasure function
 - `src/synth_engine/bootstrapper/routers/jobs.py` — shred endpoint router
 - `tests/unit/test_shred_endpoint.py` — acceptance tests

@@ -158,7 +158,7 @@ class TestSynthesisEngineDPWrapperType:
         Uses raw __annotations__ inspection to avoid NameError from TYPE_CHECKING
         forward references (ModelArtifact is behind TYPE_CHECKING in engine.py).
         """
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         # Access raw annotations without resolving forward refs.
         raw_annotations = SynthesisEngine.train.__annotations__
@@ -176,7 +176,7 @@ class TestSynthesisEngineDPWrapperType:
 
     def test_train_dp_wrapper_annotation_references_protocol(self) -> None:
         """SynthesisEngine.train() dp_wrapper annotation must reference DPWrapperProtocol."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         raw_annotations = SynthesisEngine.train.__annotations__
         dp_wrapper_annotation = raw_annotations.get("dp_wrapper")
@@ -194,7 +194,7 @@ class TestBuildMetadataReturnType:
 
     def test_build_metadata_return_type_is_not_any(self) -> None:
         """_build_metadata() must not return Any — must return SingleTableMetadata."""
-        from synth_engine.modules.synthesizer import engine as engine_mod
+        from synth_engine.modules.synthesizer.training import engine as engine_mod
 
         raw_annotations = engine_mod._build_metadata.__annotations__
         return_annotation = raw_annotations.get("return")
@@ -204,7 +204,7 @@ class TestBuildMetadataReturnType:
 
     def test_build_metadata_return_annotation_contains_single_table_metadata(self) -> None:
         """_build_metadata() return annotation must reference SingleTableMetadata."""
-        from synth_engine.modules.synthesizer import engine as engine_mod
+        from synth_engine.modules.synthesizer.training import engine as engine_mod
 
         raw_annotations = engine_mod._build_metadata.__annotations__
         return_annotation = raw_annotations.get("return")

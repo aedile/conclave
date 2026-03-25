@@ -6,11 +6,11 @@ warning/error log messages on failure paths.
 The paths verified in this module:
 
 1. ``_run_synthesis_job_impl`` OOM guardrail rejection → ``logger.error``
-   (``synth_engine.modules.synthesizer.job_orchestration``)
+   (``synth_engine.modules.synthesizer.jobs.job_orchestration``)
 2. ``_run_synthesis_job_impl`` RuntimeError during training → ``logger.error``
-   (``synth_engine.modules.synthesizer.job_orchestration``)
+   (``synth_engine.modules.synthesizer.jobs.job_orchestration``)
 3. ``_get_parquet_dimensions`` fallback on unreadable Parquet → ``logger.warning``
-   (``synth_engine.modules.synthesizer.job_orchestration``)
+   (``synth_engine.modules.synthesizer.jobs.job_orchestration``)
 4. ``spend_budget`` budget exhaustion → ``logger.warning``
    (``synth_engine.modules.privacy.accountant``)
 5. ``EgressWriter.rollback`` Saga rollback → ``logger.warning``
@@ -91,8 +91,8 @@ class TestCaplogOOMGuardrailError:
         - A log record at ERROR level was emitted from the tasks logger.
         - The record message contains 'OOM guardrail rejected job' and the job ID.
         """
-        from synth_engine.modules.synthesizer.guardrails import OOMGuardrailError
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=7, status="QUEUED", total_epochs=100, checkpoint_every_n=5)
@@ -102,10 +102,10 @@ class TestCaplogOOMGuardrailError:
         with (
             caplog.at_level(
                 logging.ERROR,
-                logger="synth_engine.modules.synthesizer.job_orchestration",
+                logger="synth_engine.modules.synthesizer.jobs.job_orchestration",
             ),
             patch(
-                "synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility",
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility",
                 side_effect=OOMGuardrailError("6.8 GiB estimated, 4.0 GiB available"),
             ),
         ):
@@ -123,7 +123,7 @@ class TestCaplogOOMGuardrailError:
             r
             for r in caplog.records
             if r.levelno == logging.ERROR
-            and "synth_engine.modules.synthesizer.job_orchestration" in r.name
+            and "synth_engine.modules.synthesizer.jobs.job_orchestration" in r.name
         ]
         assert error_records, (
             f"Expected an ERROR log from synthesizer.tasks on OOM rejection; "
@@ -159,7 +159,7 @@ class TestCaplogRuntimeErrorDuringTraining:
         - A log record at ERROR level was emitted from the tasks logger.
         - The record message contains 'RuntimeError during training' and the job ID.
         """
-        from synth_engine.modules.synthesizer.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=8, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
@@ -170,9 +170,11 @@ class TestCaplogRuntimeErrorDuringTraining:
         with (
             caplog.at_level(
                 logging.ERROR,
-                logger="synth_engine.modules.synthesizer.job_orchestration",
+                logger="synth_engine.modules.synthesizer.jobs.job_orchestration",
             ),
-            patch("synth_engine.modules.synthesizer.job_orchestration.check_memory_feasibility"),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.job_orchestration.check_memory_feasibility"
+            ),
         ):
             _run_synthesis_job_impl(
                 job_id=8,
@@ -188,7 +190,7 @@ class TestCaplogRuntimeErrorDuringTraining:
             r
             for r in caplog.records
             if r.levelno == logging.ERROR
-            and "synth_engine.modules.synthesizer.job_orchestration" in r.name
+            and "synth_engine.modules.synthesizer.jobs.job_orchestration" in r.name
         ]
         assert error_records, (
             f"Expected an ERROR log from synthesizer.tasks on RuntimeError; "
@@ -229,7 +231,7 @@ class TestCaplogParquetMetadataFallback:
         passing a path that does not exist — no patching of pyarrow is required.
         This is simpler and more reliable than sys.modules manipulation.
         """
-        from synth_engine.modules.synthesizer.tasks import (
+        from synth_engine.modules.synthesizer.jobs.tasks import (
             _OOM_FALLBACK_COLUMNS,
             _OOM_FALLBACK_ROWS,
             _get_parquet_dimensions,
@@ -241,7 +243,7 @@ class TestCaplogParquetMetadataFallback:
 
         with caplog.at_level(
             logging.WARNING,
-            logger="synth_engine.modules.synthesizer.job_orchestration",
+            logger="synth_engine.modules.synthesizer.jobs.job_orchestration",
         ):
             rows, cols = _get_parquet_dimensions(nonexistent_path)
 
@@ -258,7 +260,7 @@ class TestCaplogParquetMetadataFallback:
             r
             for r in caplog.records
             if r.levelno == logging.WARNING
-            and "synth_engine.modules.synthesizer.job_orchestration" in r.name
+            and "synth_engine.modules.synthesizer.jobs.job_orchestration" in r.name
         ]
         assert warning_records, (
             f"Expected a WARNING log from synthesizer.tasks on Parquet metadata failure; "

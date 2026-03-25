@@ -67,6 +67,7 @@ class TestMigration003Exists:
             f"{ALEMBIC_VERSIONS}. P16-T16.1 requires migration 003 to ALTER "
             "epsilon columns from FLOAT8 to NUMERIC(20,10)."
         )
+        assert migration.is_file(), f"Migration path {migration} exists but is not a file."
 
 
 class TestMigration003RevisionChain:

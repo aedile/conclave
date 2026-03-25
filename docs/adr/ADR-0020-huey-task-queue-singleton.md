@@ -1,5 +1,7 @@
 # ADR-0020 — Huey Task Queue Singleton Pattern
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Date:** 2026-03-15
 **Status:** Accepted
 **Deciders:** PM + Architect
@@ -63,7 +65,7 @@ worker starts (or before any task is enqueued from the API).
 `bootstrapper/main.py` performs this import explicitly at module load time:
 
 ```python
-from synth_engine.modules.synthesizer import tasks as _synthesizer_tasks  # noqa: F401
+from synth_engine.modules.synthesizer.jobs import tasks as _synthesizer_tasks  # noqa: F401
 ```
 
 This import side-effect registers `run_synthesis_job` with the shared Huey
@@ -80,7 +82,7 @@ Two similarly named locations exist in `shared/`:
 | Path | Purpose |
 |---|---|
 | `shared/task_queue.py` | Huey instance construction (infrastructure) |
-| `modules/synthesizer/` | Periodic task definitions (retention, etc.) |
+| `modules/synthesizer/jobs/` | Periodic task definitions (retention, etc.) |
 
 `shared/task_queue.py` is the **queue infrastructure module** — it constructs
 and configures the Huey instance. It contains no task definitions.
@@ -88,7 +90,7 @@ and configures the Huey instance. It contains no task definitions.
 **Note (Phase 41, T41.1):** The `shared/tasks/` directory described in the original
 ADR was never created (ADR-0005 orphan reaper was removed in T32.1). Periodic task
 definitions (e.g., `cleanup_expired_jobs`, `cleanup_expired_artifacts`) are in
-`modules/synthesizer/retention_tasks.py`, which imports the Huey instance from `shared/task_queue.py`.
+`modules/synthesizer/storage/retention_tasks.py`, which imports the Huey instance from `shared/task_queue.py`.
 
 ---
 
@@ -97,7 +99,7 @@ definitions (e.g., `cleanup_expired_jobs`, `cleanup_expired_artifacts`) are in
 **Why a singleton in `shared/` rather than constructed in `bootstrapper/`?**
 
 The Huey instance must be importable by task-decorated functions in
-`modules/synthesizer/tasks.py`. Task modules may not import from
+`modules/synthesizer/jobs/tasks.py`. Task modules may not import from
 `bootstrapper/` (import-linter contract). Therefore the Huey instance must
 live in `shared/`, which all modules are permitted to import from.
 
@@ -118,7 +120,7 @@ decorator wrapper) must be exercised without spawning a real worker process.
 **Alternatives considered:**
 
 - *Construct Huey in `bootstrapper/main.py` and pass it as a dependency:*
-  Rejected — `modules/synthesizer/tasks.py` cannot import from `bootstrapper/`
+  Rejected — `modules/synthesizer/jobs/tasks.py` cannot import from `bootstrapper/`
   (import-linter contract violation).
 - *One Huey instance per module:* Rejected — tasks would be registered on
   different instances, making cross-module coordination impossible.
@@ -173,14 +175,14 @@ place (`main.py`).
 `shared/tasks/` was created in T45.2 for abstract task repository interfaces
 (`TaskRepository` ABC, `StaleTask` value object) and reaper business logic
 (`OrphanTaskReaper`).  The concrete `SQLAlchemyTaskRepository` implementation
-lives in `modules/synthesizer/reaper_repository.py` where it is free to import
+lives in `modules/synthesizer/storage/reaper_repository.py` where it is free to import
 `SynthesisJob`.  The periodic `periodic_reap_orphan_tasks` Huey task is defined
-in `modules/synthesizer/reaper_tasks.py` and registered via a side-effect import
+in `modules/synthesizer/storage/reaper_tasks.py` and registered via a side-effect import
 in `bootstrapper/main.py`.
 
 | Path | Purpose |
 |------|---------|
 | `shared/tasks/repository.py` | `TaskRepository` ABC + `StaleTask` value object |
 | `shared/tasks/reaper.py` | `OrphanTaskReaper` business logic |
-| `modules/synthesizer/reaper_repository.py` | `SQLAlchemyTaskRepository` concrete impl |
-| `modules/synthesizer/reaper_tasks.py` | Huey periodic task registration |
+| `modules/synthesizer/storage/reaper_repository.py` | `SQLAlchemyTaskRepository` concrete impl |
+| `modules/synthesizer/storage/reaper_tasks.py` | Huey periodic task registration |

@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from synth_engine.modules.synthesizer.models import ModelArtifact
+from synth_engine.modules.synthesizer.storage.models import ModelArtifact
 
 
 class _PicklableModelStub:
@@ -144,7 +144,7 @@ class TestFkPostProcessing:
 
     def test_no_orphans_unchanged(self) -> None:
         """Rows with valid FK values must be left unchanged."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2, 3}
         child_df = pd.DataFrame({"id": [10, 11, 12], "parent_id": [1, 2, 3]})
@@ -158,7 +158,7 @@ class TestFkPostProcessing:
 
     def test_orphan_fk_replaced(self) -> None:
         """Orphan FK values must be replaced with values from parent PK set."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2, 3}
         child_df = pd.DataFrame({"id": [10, 11], "parent_id": [999, 888]})
@@ -173,7 +173,7 @@ class TestFkPostProcessing:
 
     def test_orphan_fk_count_preserved(self) -> None:
         """Row count must be unchanged after FK post-processing."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2, 3}
         child_df = pd.DataFrame({"id": [10, 11, 12], "parent_id": [999, 2, 888]})
@@ -187,7 +187,7 @@ class TestFkPostProcessing:
 
     def test_mixed_valid_orphan_fks(self) -> None:
         """Valid FK rows must be preserved; only orphan rows must be resampled."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2, 3}
         child_df = pd.DataFrame({"id": [10, 11, 12], "parent_id": [1, 999, 3]})
@@ -205,7 +205,7 @@ class TestFkPostProcessing:
 
     def test_empty_dataframe_returns_empty(self) -> None:
         """Empty child DataFrame must return empty DataFrame without error."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2, 3}
         child_df = pd.DataFrame(
@@ -224,7 +224,7 @@ class TestFkPostProcessing:
 
     def test_empty_parent_pks_raises_value_error(self) -> None:
         """Empty parent_pks set must raise ValueError (nowhere to resample)."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         child_df = pd.DataFrame({"id": [10], "parent_id": [999]})
         with pytest.raises(ValueError, match="parent_pks"):
@@ -237,7 +237,7 @@ class TestFkPostProcessing:
 
     def test_returns_dataframe(self) -> None:
         """apply_fk_post_processing must return a pd.DataFrame."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2}
         child_df = pd.DataFrame({"id": [10], "parent_id": [1]})
@@ -251,7 +251,7 @@ class TestFkPostProcessing:
 
     def test_missing_fk_column_raises_key_error(self) -> None:
         """apply_fk_post_processing must raise KeyError if fk_column is absent."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2, 3}
         child_df = pd.DataFrame({"id": [10, 11], "parent_id": [1, 2]})
@@ -265,7 +265,7 @@ class TestFkPostProcessing:
 
     def test_original_df_not_mutated(self) -> None:
         """apply_fk_post_processing must not mutate the original child_df."""
-        from synth_engine.modules.synthesizer.engine import apply_fk_post_processing
+        from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2, 3}
         original_values = [999, 888, 777]
@@ -300,12 +300,14 @@ class TestSynthesisEngineTrain:
 
     def test_train_returns_model_artifact(self) -> None:
         """train() must return a ModelArtifact instance."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
         ):
             mock_instance = MagicMock()
             mock_ctgan.return_value = mock_instance
@@ -326,11 +328,13 @@ class TestSynthesisEngineTrain:
 
     def test_train_calls_fit_on_model(self) -> None:
         """train() must call fit() on the CTGANSynthesizer with the loaded DataFrame."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
         ):
             mock_instance = MagicMock()
             mock_ctgan.return_value = mock_instance
@@ -346,11 +350,13 @@ class TestSynthesisEngineTrain:
 
     def test_train_artifact_has_correct_table_name(self) -> None:
         """train() must set the table_name on the returned ModelArtifact."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
         ):
             mock_instance = MagicMock()
             mock_ctgan.return_value = mock_instance
@@ -366,11 +372,13 @@ class TestSynthesisEngineTrain:
 
     def test_train_artifact_preserves_column_names(self) -> None:
         """train() must record all column names in the ModelArtifact."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
         ):
             mock_instance = MagicMock()
             mock_ctgan.return_value = mock_instance
@@ -386,11 +394,13 @@ class TestSynthesisEngineTrain:
 
     def test_train_artifact_preserves_column_dtypes(self) -> None:
         """train() must record all column dtypes in the ModelArtifact."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
         ):
             mock_instance = MagicMock()
             mock_ctgan.return_value = mock_instance
@@ -411,9 +421,9 @@ class TestSynthesisEngineTrain:
 
     def test_train_missing_parquet_raises_file_not_found(self) -> None:
         """train() must raise FileNotFoundError for non-existent parquet_path."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
-        with patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer"):
+        with patch("synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"):
             engine = SynthesisEngine()
             with pytest.raises(FileNotFoundError):
                 engine.train(table_name="persons", parquet_path="/tmp/nonexistent.parquet")
@@ -442,7 +452,7 @@ class TestSynthesisEngineGenerate:
 
     def test_generate_returns_dataframe(self) -> None:
         """generate() must return a pd.DataFrame."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
@@ -451,7 +461,7 @@ class TestSynthesisEngineGenerate:
 
     def test_generate_calls_sample_with_n_rows(self) -> None:
         """generate() must call artifact.model.sample() with the requested row count."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
@@ -460,7 +470,7 @@ class TestSynthesisEngineGenerate:
 
     def test_generate_returns_correct_row_count(self) -> None:
         """generate() must return a DataFrame with n_rows rows."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
@@ -469,7 +479,7 @@ class TestSynthesisEngineGenerate:
 
     def test_generate_returns_correct_columns(self) -> None:
         """generate() result must contain all columns from the artifact."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
@@ -478,7 +488,7 @@ class TestSynthesisEngineGenerate:
 
     def test_generate_zero_rows_raises_value_error(self) -> None:
         """generate() with n_rows=0 must raise ValueError."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
@@ -487,7 +497,7 @@ class TestSynthesisEngineGenerate:
 
     def test_generate_negative_rows_raises_value_error(self) -> None:
         """generate() with n_rows<0 must raise ValueError."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
@@ -552,8 +562,8 @@ class TestSynthesisEngineWithDPWrapper:
         T7.3: When dp_wrapper is provided, DPCompatibleCTGAN is used instead of
         CTGANSynthesizer.  Both are patched so no real SDV calls occur.
         """
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         mock_dp_wrapper = MagicMock()
         mock_dp_wrapper.check_budget.return_value = None
@@ -562,8 +572,12 @@ class TestSynthesisEngineWithDPWrapper:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
-            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.DPCompatibleCTGAN"
+            ) as mock_dp_ctgan,
         ):
             mock_ctgan.return_value = MagicMock()
             mock_dp_instance = MagicMock()
@@ -591,12 +605,14 @@ class TestSynthesisEngineWithDPWrapper:
 
     def test_train_without_dp_wrapper_still_works(self) -> None:
         """train() without dp_wrapper must behave identically to pre-T4.3b behavior."""
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
         ):
             mock_instance = MagicMock()
             mock_ctgan.return_value = mock_instance
@@ -631,8 +647,8 @@ class TestSynthesisEngineWithDPWrapper:
         """
         import logging
 
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
-        from synth_engine.modules.synthesizer.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         mock_dp_wrapper = MagicMock()
         mock_dp_wrapper.check_budget.return_value = None
@@ -641,9 +657,15 @@ class TestSynthesisEngineWithDPWrapper:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
-            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
-            caplog.at_level(logging.INFO, logger="synth_engine.modules.synthesizer.engine"),
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.DPCompatibleCTGAN"
+            ) as mock_dp_ctgan,
+            caplog.at_level(
+                logging.INFO, logger="synth_engine.modules.synthesizer.training.engine"
+            ),
         ):
             mock_ctgan.return_value = MagicMock()
             mock_dp_instance = MagicMock()
@@ -683,7 +705,7 @@ class TestSynthesisEngineWithDPWrapper:
         """train() dp_wrapper parameter must default to None."""
         import inspect
 
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         sig = inspect.signature(SynthesisEngine.train)
         assert "dp_wrapper" in sig.parameters
@@ -721,7 +743,7 @@ class TestSynthesisMsPerRowHistogram:
 
     def test_synthesis_ms_per_row_histogram_is_module_attribute(self) -> None:
         """engine module must expose synthesis_ms_per_row as a module-level name."""
-        import synth_engine.modules.synthesizer.engine as engine_mod
+        import synth_engine.modules.synthesizer.training.engine as engine_mod
 
         assert hasattr(engine_mod, "SYNTHESIS_MS_PER_ROW"), (
             "engine module must expose SYNTHESIS_MS_PER_ROW Histogram."
@@ -731,7 +753,7 @@ class TestSynthesisMsPerRowHistogram:
         """SYNTHESIS_MS_PER_ROW must be a prometheus_client.Histogram instance."""
         from prometheus_client import Histogram
 
-        from synth_engine.modules.synthesizer.engine import SYNTHESIS_MS_PER_ROW
+        from synth_engine.modules.synthesizer.training.engine import SYNTHESIS_MS_PER_ROW
 
         assert isinstance(SYNTHESIS_MS_PER_ROW, Histogram)
 
@@ -739,7 +761,7 @@ class TestSynthesisMsPerRowHistogram:
         """train() must observe a value in the histogram after vanilla CTGAN fit."""
         import prometheus_client
 
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         # Read the pre-call sample count using REGISTRY
         before = prometheus_client.REGISTRY.get_sample_value(
@@ -750,7 +772,9 @@ class TestSynthesisMsPerRowHistogram:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
         ):
             mock_instance = MagicMock()
             mock_ctgan.return_value = mock_instance
@@ -776,7 +800,7 @@ class TestSynthesisMsPerRowHistogram:
         """train() with dp_wrapper must use model_type='dp' label."""
         import prometheus_client
 
-        from synth_engine.modules.synthesizer.engine import SynthesisEngine
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         before = prometheus_client.REGISTRY.get_sample_value(
             "synthesis_ms_per_row_count",
@@ -790,8 +814,12 @@ class TestSynthesisMsPerRowHistogram:
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
-            patch("synth_engine.modules.synthesizer.engine.CTGANSynthesizer") as mock_ctgan,
-            patch("synth_engine.modules.synthesizer.engine.DPCompatibleCTGAN") as mock_dp_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.CTGANSynthesizer"
+            ) as mock_ctgan,
+            patch(
+                "synth_engine.modules.synthesizer.training.engine.DPCompatibleCTGAN"
+            ) as mock_dp_ctgan,
         ):
             mock_ctgan.return_value = MagicMock()
             mock_dp_instance = MagicMock()
@@ -827,49 +855,49 @@ class TestRowCountBucketLogic:
 
     def test_bucket_1_row(self) -> None:
         """1 row must fall in '1-100' bucket."""
-        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+        from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
         assert _row_count_bucket(1) == "1-100"
 
     def test_bucket_100_rows(self) -> None:
         """100 rows must fall in '1-100' bucket."""
-        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+        from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
         assert _row_count_bucket(100) == "1-100"
 
     def test_bucket_101_rows(self) -> None:
         """101 rows must fall in '101-1000' bucket."""
-        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+        from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
         assert _row_count_bucket(101) == "101-1000"
 
     def test_bucket_1000_rows(self) -> None:
         """1000 rows must fall in '101-1000' bucket."""
-        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+        from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
         assert _row_count_bucket(1000) == "101-1000"
 
     def test_bucket_1001_rows(self) -> None:
         """1001 rows must fall in '1001-10000' bucket."""
-        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+        from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
         assert _row_count_bucket(1001) == "1001-10000"
 
     def test_bucket_10000_rows(self) -> None:
         """10000 rows must fall in '1001-10000' bucket."""
-        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+        from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
         assert _row_count_bucket(10000) == "1001-10000"
 
     def test_bucket_10001_rows(self) -> None:
         """10001 rows must fall in '10001+' bucket."""
-        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+        from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
         assert _row_count_bucket(10001) == "10001+"
 
     def test_bucket_zero_rows(self) -> None:
         """0 rows must fall in '1-100' bucket (degenerate case)."""
-        from synth_engine.modules.synthesizer.engine import _row_count_bucket
+        from synth_engine.modules.synthesizer.training.engine import _row_count_bucket
 
         assert _row_count_bucket(0) == "1-100"
 

@@ -1,5 +1,7 @@
 # ADR-0021 — SSE Streaming Protocol and Bootstrapper-Owned SQLModel Tables
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Date:** 2026-03-15
 **Status:** Accepted
 **Deciders:** PM + Architect
@@ -173,13 +175,13 @@ dependencies beyond `starlette`, which is already a FastAPI dependency.
 
 The original table in section 2 listed `SynthesisJob` as belonging in
 `bootstrapper/schemas/job.py`. In practice, `SynthesisJob` resides in
-`modules/synthesizer/job_models.py` and has remained there since Phase 5.
+`modules/synthesizer/jobs/job_models.py` and has remained there since Phase 5.
 
 **Why accept the deviation:**
 
 1. **Domain coupling has grown.** SynthesisJob is directly referenced by
-   `modules/synthesizer/job_orchestration.py`, `job_finalization.py`,
-   `job_steps.py`, and `engine.py`. These are domain services, not HTTP
+   `modules/synthesizer/jobs/job_orchestration.py`, `jobs/job_finalization.py`,
+   `jobs/job_steps.py`, and `training/engine.py`. These are domain services, not HTTP
    handlers. The model is a participant in domain logic, not merely a
    CRUD record.
 
@@ -196,7 +198,7 @@ The original table in section 2 listed `SynthesisJob` as belonging in
 
 | Table | Location | Justification |
 |-------|----------|---------------|
-| `SynthesisJob` | `modules/synthesizer/job_models.py` | Domain-coupled: referenced by domain services, carries DP-SGD parameters and training config. Accepted deviation from the CRUD-only rule. |
+| `SynthesisJob` | `modules/synthesizer/jobs/job_models.py` | Domain-coupled: referenced by domain services, carries DP-SGD parameters and training config. Accepted deviation from the CRUD-only rule. |
 
 **Rule clarification:** The table placement rule in section 2 applies to
 tables that are *exclusively* API CRUD concerns. When a table accrues domain

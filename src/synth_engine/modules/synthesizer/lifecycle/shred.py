@@ -2,7 +2,7 @@
 
 Provides :func:`shred_artifacts`, the domain-level function responsible for
 deleting all synthesis output artifacts associated with a
-:class:`~synth_engine.modules.synthesizer.job_models.SynthesisJob`.
+:class:`~synth_engine.modules.synthesizer.jobs.job_models.SynthesisJob`.
 
 NIST 800-88 context
 -------------------
@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from synth_engine.modules.synthesizer.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
 _logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def shred_artifacts(job: SynthesisJob) -> None:
     responsibility of the calling router.
 
     Args:
-        job: The :class:`~synth_engine.modules.synthesizer.job_models.SynthesisJob`
+        job: The :class:`~synth_engine.modules.synthesizer.jobs.job_models.SynthesisJob`
             whose artifacts should be erased.  Only ``output_path`` and
             ``artifact_path`` fields are accessed.
 

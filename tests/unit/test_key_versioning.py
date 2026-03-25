@@ -348,7 +348,7 @@ class TestJobFinalizationVersionedSigning:
 
     def test_write_parquet_writes_versioned_sig_file(self, tmp_path: Path) -> None:
         """_write_parquet_with_signing writes a KEY_ID_SIZE+HMAC_DIGEST_SIZE sig file."""
-        from synth_engine.modules.synthesizer.job_finalization import (
+        from synth_engine.modules.synthesizer.jobs.job_finalization import (
             _write_parquet_with_signing,
         )
         from synth_engine.shared.settings import get_settings
@@ -386,7 +386,7 @@ class TestJobFinalizationVersionedSigning:
         self, tmp_path: Path
     ) -> None:
         """Falls back to legacy single-key signing when only ARTIFACT_SIGNING_KEY is set."""
-        from synth_engine.modules.synthesizer.job_finalization import (
+        from synth_engine.modules.synthesizer.jobs.job_finalization import (
             _write_parquet_with_signing,
         )
         from synth_engine.shared.settings import get_settings
@@ -420,13 +420,15 @@ class TestJobFinalizationVersionedSigning:
         """_write_versioned_signature logs ERROR and skips signing when active key not in dict."""
         import logging
 
-        from synth_engine.modules.synthesizer.job_finalization import _write_versioned_signature
+        from synth_engine.modules.synthesizer.jobs.job_finalization import (
+            _write_versioned_signature,
+        )
 
         parquet_path = str(tmp_path / "nosig.parquet")
         Path(parquet_path).write_bytes(b"PAR1\x00data")
         parquet_name = "nosig.parquet"
 
-        _logger_name = "synth_engine.modules.synthesizer.job_finalization"
+        _logger_name = "synth_engine.modules.synthesizer.jobs.job_finalization"
         keys_dict = {"00000002": "bb" * 32}  # active key 00000001 is NOT present
         with caplog.at_level(logging.ERROR, logger=_logger_name):
             _write_versioned_signature(
@@ -448,13 +450,15 @@ class TestJobFinalizationVersionedSigning:
         """_write_versioned_signature logs ERROR and skips signing when key decodes to empty."""
         import logging
 
-        from synth_engine.modules.synthesizer.job_finalization import _write_versioned_signature
+        from synth_engine.modules.synthesizer.jobs.job_finalization import (
+            _write_versioned_signature,
+        )
 
         parquet_path = str(tmp_path / "emptykey.parquet")
         Path(parquet_path).write_bytes(b"PAR1\x00data")
         parquet_name = "emptykey.parquet"
 
-        _logger_name = "synth_engine.modules.synthesizer.job_finalization"
+        _logger_name = "synth_engine.modules.synthesizer.jobs.job_finalization"
         # Empty hex string decodes to zero-length bytes
         keys_dict = {"00000001": ""}
         with caplog.at_level(logging.ERROR, logger=_logger_name):

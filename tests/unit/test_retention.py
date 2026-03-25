@@ -24,7 +24,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
 pytestmark = pytest.mark.unit
 
@@ -229,7 +229,7 @@ class TestRetentionCleanupExpiredJobs:
 
     def test_expired_job_is_deleted(self) -> None:
         """A job older than job_retention_days is deleted."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -248,7 +248,7 @@ class TestRetentionCleanupExpiredJobs:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -264,7 +264,7 @@ class TestRetentionCleanupExpiredJobs:
 
     def test_non_expired_job_is_retained(self) -> None:
         """A job younger than job_retention_days is NOT deleted."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -281,7 +281,7 @@ class TestRetentionCleanupExpiredJobs:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -297,7 +297,7 @@ class TestRetentionCleanupExpiredJobs:
 
     def test_legal_hold_prevents_deletion(self) -> None:
         """A job with legal_hold=True is NOT deleted even if expired."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -317,7 +317,7 @@ class TestRetentionCleanupExpiredJobs:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -334,7 +334,7 @@ class TestRetentionCleanupExpiredJobs:
 
     def test_deletion_emits_audit_event(self) -> None:
         """Each deleted job emits a JOB_RETENTION_PURGE audit event."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -361,7 +361,7 @@ class TestRetentionCleanupExpiredJobs:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -374,13 +374,13 @@ class TestRetentionCleanupExpiredJobs:
 
     def test_no_audit_event_when_nothing_deleted(self) -> None:
         """No audit event is emitted when no jobs are deleted."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -391,7 +391,7 @@ class TestRetentionCleanupExpiredJobs:
 
     def test_mixed_expired_and_held_jobs(self) -> None:
         """Only un-held expired jobs are deleted; held and fresh jobs survive."""
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = _make_engine()
 
@@ -433,7 +433,7 @@ class TestRetentionCleanupExpiredJobs:
 
         audit_mock = MagicMock()
         with patch(
-            "synth_engine.modules.synthesizer.retention.get_audit_logger",
+            "synth_engine.modules.synthesizer.storage.retention.get_audit_logger",
             return_value=audit_mock,
         ):
             cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -464,7 +464,7 @@ class TestDeleteArtifactOSError:
         """_delete_artifact does not raise when Path.unlink raises PermissionError."""
         from pathlib import Path
 
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = MagicMock()
         cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -488,7 +488,7 @@ class TestDeleteArtifactOSError:
         import logging
         from pathlib import Path
 
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         engine = MagicMock()
         cleanup = RetentionCleanup(engine=engine, job_retention_days=90)
@@ -501,7 +501,9 @@ class TestDeleteArtifactOSError:
             num_rows=1,
         )
 
-        with caplog.at_level(logging.WARNING, logger="synth_engine.modules.synthesizer.retention"):
+        with caplog.at_level(
+            logging.WARNING, logger="synth_engine.modules.synthesizer.storage.retention"
+        ):
             with patch.object(Path, "unlink", side_effect=PermissionError("access denied")):
                 cleanup._delete_artifact(job)
 
@@ -666,7 +668,7 @@ class TestLegalHoldEndpoint:
 
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.routers.admin import router as admin_router
-        from synth_engine.modules.synthesizer.job_models import SynthesisJob
+        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         app = FastAPI()
         app.include_router(admin_router)
@@ -727,7 +729,7 @@ class TestAuditRetentionGuard:
         """
         import inspect
 
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         # RetentionCleanup must have no method that touches an audit events table.
         # Validate via inspection: cleanup_expired_jobs must not reference any
@@ -742,7 +744,7 @@ class TestAuditRetentionGuard:
         """RetentionCleanup.cleanup_expired_jobs operates only on synthesis_job table."""
         import inspect
 
-        from synth_engine.modules.synthesizer.retention import RetentionCleanup
+        from synth_engine.modules.synthesizer.storage.retention import RetentionCleanup
 
         source = inspect.getsource(RetentionCleanup.cleanup_expired_jobs)
         # Must reference SynthesisJob (the target table)

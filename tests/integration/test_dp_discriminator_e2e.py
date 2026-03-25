@@ -100,7 +100,7 @@ class TestDPTrainingProducesPositiveEpsilon:
         )
 
         from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         metadata = SingleTableMetadata()
         with warnings.catch_warnings():
@@ -163,7 +163,7 @@ class TestDPTrainingSampling:
         )
 
         from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
 
         metadata = SingleTableMetadata()
         with warnings.catch_warnings():
@@ -239,7 +239,7 @@ class TestBudgetExhaustionRaisesError:
         )
 
         from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
-        from synth_engine.modules.synthesizer.dp_training import DPCompatibleCTGAN
+        from synth_engine.modules.synthesizer.training.dp_training import DPCompatibleCTGAN
         from synth_engine.shared.exceptions import BudgetExhaustionError
 
         metadata = SingleTableMetadata()

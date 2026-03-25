@@ -131,7 +131,7 @@ class SpendBudgetProtocol(Protocol):
 class OwnedRecordModel(Protocol):
     """Structural interface for DB models that have an owner_id column.
 
-    Used by :class:`~synth_engine.modules.synthesizer.erasure.ErasureService`
+    Used by :class:`~synth_engine.modules.synthesizer.lifecycle.erasure.ErasureService`
     to type the constructor-injected connection model without creating a
     cross-module import dependency from ``modules/synthesizer/`` into
     ``bootstrapper/``.
@@ -163,7 +163,7 @@ WebhookDeliveryCallback = Callable[[int, str], None]
 class WebhookRegistrationProtocol(Protocol):
     """Structural interface for a webhook registration object.
 
-    Used by :func:`~synth_engine.modules.synthesizer.webhook_delivery.deliver_webhook`
+    Used by :func:`~synth_engine.modules.synthesizer.jobs.webhook_delivery.deliver_webhook`
     as the type for its ``registration`` parameter.  This avoids importing
     the SQLModel ``WebhookRegistration`` class from ``bootstrapper/schemas/``
     into the synthesizer module, which would violate the import-linter contract.

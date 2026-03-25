@@ -1,5 +1,7 @@
 # ADR-0025 — Custom CTGAN Training Loop Architecture
 
+> **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
+
 **Date:** 2026-03-15
 **Status:** Accepted → Superseded by Phase 30 (discriminator-level DP-SGD is the primary path; proxy model retained as fallback).
 **Deciders:** PM + Architect
@@ -102,7 +104,7 @@ components that must be reimplemented.
 
 ## Decision
 
-Implement `DPCompatibleCTGAN` in `modules/synthesizer/dp_training.py` — a custom CTGAN
+Implement `DPCompatibleCTGAN` in `modules/synthesizer/training/dp_training.py` — a custom CTGAN
 training loop that:
 
 1. **Reuses** SDV's `DataTransformer` (via `CTGANSynthesizer.preprocess()` +
@@ -195,7 +197,7 @@ This is the standard approach in DP-GAN literature (Xie et al., 2018; Jordon et 
 
 Per ADR-0001 and import-linter contracts:
 
-- `modules/synthesizer/dp_training.py` must NOT import from `modules/privacy/`.
+- `modules/synthesizer/training/dp_training.py` must NOT import from `modules/privacy/`.
 - The `dp_wrapper` parameter is typed as `Any` (same pattern as existing
   `SynthesisEngine.train()`).
 - `DPTrainingWrapper` is injected by the bootstrapper — the synthesizer module never
@@ -207,7 +209,7 @@ Per ADR-0001 and import-linter contracts:
 
 ### For T7.2 (Custom CTGAN Training Loop)
 
-`DPCompatibleCTGAN` is implemented in `modules/synthesizer/dp_training.py` with:
+`DPCompatibleCTGAN` is implemented in `modules/synthesizer/training/dp_training.py` with:
 - `__init__(metadata, epochs, dp_wrapper=None)` accepting optional DP wrapper
 - `fit(df)` implementing the custom training loop with exposed PyTorch objects
 - `sample(num_rows)` delegating to the trained Generator
@@ -261,7 +263,7 @@ gracefully as epsilon decreases (more noise → more privacy → less utility).
 - ADV-048: BLOCKER advisory tracking the missing `build_dp_wrapper()` wiring.
 - `src/synth_engine/modules/privacy/dp_engine.py`: Existing `DPTrainingWrapper`
   implementation (fully tested, awaiting SDV integration).
-- `src/synth_engine/modules/synthesizer/engine.py`: Existing `SynthesisEngine` with
+- `src/synth_engine/modules/synthesizer/training/engine.py`: Existing `SynthesisEngine` with
   `dp_wrapper` parameter that currently logs a warning.
 - Xie, L. et al. (2018). "Differentially Private Generative Adversarial Network."
   arXiv:1802.06739. Established the approach of applying DP-SGD only to the

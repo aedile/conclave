@@ -38,7 +38,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from synth_engine.bootstrapper.schemas.connections import Connection
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
 pytestmark = pytest.mark.integration
 
@@ -208,7 +208,7 @@ class TestErasureEndpointCascadeDeletion:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -242,7 +242,7 @@ class TestErasureEndpointCascadeDeletion:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -279,7 +279,7 @@ class TestErasureEndpointCascadeDeletion:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -319,7 +319,7 @@ class TestErasureAuditTrailPreservation:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-E2E"})
@@ -344,7 +344,7 @@ class TestErasureAuditTrailPreservation:
 
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-E2E"})
@@ -367,7 +367,7 @@ class TestErasureAuditTrailPreservation:
         subject_id = "pii-user@example.com"
         client = TestClient(app)
         with patch(
-            "synth_engine.modules.synthesizer.erasure.get_audit_logger",
+            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
             client.request("DELETE", "/compliance/erasure", json={"subject_id": subject_id})

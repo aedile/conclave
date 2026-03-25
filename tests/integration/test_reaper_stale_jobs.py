@@ -33,8 +33,8 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, text
 
-from synth_engine.modules.synthesizer.job_models import SynthesisJob
-from synth_engine.modules.synthesizer.reaper_repository import SQLAlchemyTaskRepository
+from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+from synth_engine.modules.synthesizer.storage.reaper_repository import SQLAlchemyTaskRepository
 from synth_engine.shared.tasks.reaper import OrphanTaskReaper
 
 pytestmark = pytest.mark.integration
