@@ -291,3 +291,18 @@ maybe_anchor  # unused method — AnchorManager; called from AuditLogger.log_eve
 verify_chain_against_anchors  # unused function — shared/security/audit_anchor.py; called from scripts/verify-audit-chain.py and tests
 get_anchor_manager  # unused function — shared/security/audit_anchor.py; singleton accessor called from AuditLogger and bootstrapper
 reset_anchor_manager  # unused function — shared/security/audit_anchor.py; used in tests to reset singleton between runs
+
+# ---------------------------------------------------------------------------
+# Category O — T55.4 SSRF fail-closed helpers
+# _ssrf_validate_registration and _ssrf_validate_delivery are thin wrappers
+# around validate_callback_url() that encode the strict= contract at each
+# call site (registration: strict=True, delivery: strict=False). They are
+# called from within the same module (webhooks.py and webhook_delivery.py)
+# but vulture cannot trace intra-module calls from FastAPI route handlers or
+# the delivery loop. status is a DeliveryResult dataclass field consumed by
+# callers via attribute access; vulture sees no direct assignment after __init__.
+# ---------------------------------------------------------------------------
+
+_ssrf_validate_registration  # unused function — bootstrapper/routers/webhooks.py; called from register_webhook route
+_ssrf_validate_delivery  # unused function — modules/synthesizer/webhook_delivery.py; called from deliver_webhook loop
+status  # unused variable — DeliveryResult dataclass field (webhook_delivery.py); accessed via result.status by callers
