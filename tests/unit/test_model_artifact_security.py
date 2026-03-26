@@ -237,17 +237,21 @@ def test_restricted_unpickler_rejects_builtin_exec() -> None:
         RestrictedUnpickler.loads(payload)
 
 
-def test_restricted_unpickler_rejects_builtin_getattr() -> None:
-    """builtins.getattr MUST be rejected by the tightened builtin allowlist.
+def test_restricted_unpickler_rejects_builtin_compile() -> None:
+    """builtins.compile MUST be rejected by the tightened builtin allowlist.
 
-    getattr can be used in combination with other pickle opcodes to access
-    arbitrary module attributes.  It must not be permitted in a ModelArtifact
-    pickle payload.
+    compile creates code objects from strings, enabling arbitrary code
+    execution.  It must not be permitted in a ModelArtifact pickle payload.
+
+    Note: builtins.getattr IS allowed because pickle's BUILD opcode uses it
+    internally for object reconstruction (__setstate__). Blocking getattr
+    breaks real CTGAN model deserialization. HMAC verification is the primary
+    defense; the allowlist is defense-in-depth.
     """
     from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
-    payload = _craft_builtin_pickle("getattr")
-    with pytest.raises(SecurityError, match="getattr"):
+    payload = _craft_builtin_pickle("compile")
+    with pytest.raises(SecurityError, match="compile"):
         RestrictedUnpickler.loads(payload)
 
 

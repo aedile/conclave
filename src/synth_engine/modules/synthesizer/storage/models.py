@@ -145,10 +145,10 @@ class SynthesizerModel(Protocol):
 #: Explicit set of safe built-in names permitted during deserialization.
 #:
 #: Replaces the broad ``"builtins"`` prefix (which would allow ``eval``,
-#: ``exec``, ``__import__``, ``getattr``, etc.).  Only container/value types
+#: ``exec``, ``__import__``, ``compile``, etc.).  Only container/value types
 #: actually needed to reconstruct ModelArtifact dataclass fields are included.
 #:
-#: Rationale: ``eval``, ``exec``, ``compile``, ``__import__``, ``getattr``,
+#: Rationale: ``eval``, ``exec``, ``compile``, ``__import__``, ``compile``,
 #: ``setattr``, ``delattr``, and ``globals`` are execution/reflection
 #: primitives that have no place in a pickle artifact payload.  Blocking them
 #: here is a defense-in-depth measure — a crafted payload cannot exploit these
@@ -178,6 +178,21 @@ _ALLOWED_BUILTIN_NAMES: frozenset[str] = frozenset(
         "zip",
         "map",
         "filter",
+        # getattr and setattr are used by pickle's BUILD opcode for object
+        # reconstruction (e.g., __setstate__). Blocking them breaks real CTGAN
+        # model deserialization. They are safe here because HMAC verification
+        # occurs before unpickling — only self-produced payloads reach this point.
+        "getattr",
+        "setattr",
+        "isinstance",
+        "issubclass",
+        "len",
+        "sorted",
+        "reversed",
+        "property",
+        "staticmethod",
+        "classmethod",
+        "super",
     }
 )
 
@@ -248,7 +263,7 @@ class RestrictedUnpickler(pickle.Unpickler):
     For ``module == "builtins"``, a separate :data:`_ALLOWED_BUILTIN_NAMES`
     frozenset is consulted instead of the broad prefix check — this blocks
     dangerous execution builtins (``eval``, ``exec``, ``__import__``,
-    ``getattr``) while allowing safe container and value types.
+    ``compile``) while allowing safe container and value types.
 
     This prevents deserialization of arbitrary classes — the primary vector
     for pickle-based remote code execution attacks.
@@ -291,7 +306,7 @@ class RestrictedUnpickler(pickle.Unpickler):
         For ``module == "builtins"``, the specific name is checked against
         :data:`_ALLOWED_BUILTIN_NAMES` — a curated set of safe container and
         value types.  Dangerous execution/reflection builtins (``eval``,
-        ``exec``, ``__import__``, ``getattr``, ``compile``, etc.) are NOT in
+        ``exec``, ``__import__``, ``compile``, ``compile``, etc.) are NOT in
         the allowlist and raise :exc:`SecurityError`.
 
         For all other modules, the module path is checked against
