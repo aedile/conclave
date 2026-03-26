@@ -76,7 +76,7 @@ _logger = logging.getLogger(__name__)
 _APP_SEED: bytes = b"conclave-license-v1"
 
 #: Application version embedded in challenge payloads.
-_APP_VERSION: str = "1.0.0rc1"
+_APP_VERSION: str = "1.0.0"
 
 # ---------------------------------------------------------------------------
 # Embedded public key — fallback placeholder

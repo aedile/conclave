@@ -10,6 +10,91 @@ For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`
 
 ---
 
+## [v1.0.0] — Phase 59 — Production Readiness & v1.0 Release
+*2026-03-26 | PR TBD (branch: feat/P59-production-readiness-v1)*
+
+- API versioning: all business-logic routes migrated to `/api/v1/` prefix via parent
+  `APIRouter`; infrastructure routes (`/auth/token`, `/security/shred`, `/license/*`,
+  `/health/*`) remain at root. Security invariant: no `/api/v1/` path in any
+  middleware exempt-path set, enforced by integration test (T59.1).
+- Load test script `scripts/load_test.py`: configurable `--row-count`, `--epochs`,
+  `--epsilon` (0 < ε ≤ 10.0), peak RSS via `resource.getrusage`, Markdown results report;
+  exit codes 0/1/2; DSN never echoed to stdout/stderr (T59.2).
+- OpenAPI enrichment: `openapi_metadata.py` adds RFC 7807 error schemas, `TAGS_METADATA`
+  for all 11 tag groups, `COMMON_ERROR_RESPONSES` / `CONFLICT_ERROR_RESPONSES` dicts.
+  Every route decorator has `summary`, `description`, and `responses=` (T59.3).
+- Version bumped to `1.0.0`; `__version__` reads from `pyproject.toml` via
+  `importlib.metadata`; `CHANGELOG.md` updated through Phase 59 (T59.4).
+
+## Phase 57 — Critical Audit Findings Remediation
+*2026-03-26 | PR [#206](../../pull/206)*
+
+- Resolved 7 critical audit findings across security, correctness, and architecture
+  categories (T57.1–T57.7).
+- `ErasureResponse.audit_logged` always set from real audit service result (T57.1).
+- Conflict-guard logic corrected; stale `ENV=` variable references unified under
+  `CONCLAVE_ENV=`; ADR-0056 documents the ENV alias deprecation strategy (T57.6).
+- Pygments CVE-2026-4539 patched; `ErasureResponse` audit result wired end-to-end.
+
+## ADV-P53-01 Fix — v3 Length-Prefixed HMAC Signature Format
+*2026-03-26 | PR [#205](../../pull/205)*
+
+- v3 HMAC signature format adds length-prefixed field concatenation eliminating
+  pipe-delimiter collision attack surface (ADV-P53-01).
+- Attack tests verify collision resistance for adjacent fields.
+
+## Phase 56 — Synthesizer Decomposition & Refactoring Priorities
+*2026-03-26 | PRs [#200](../../pull/200)–[#201](../../pull/201)*
+
+- Synthesizer module decomposed into `training/`, `jobs/`, `storage/`, `lifecycle/`
+  sub-packages; no file exceeds 600 LOC (T56.1, T56.3).
+- Bootstrapper wiring extracted to `wiring.py` for explicit module-scope IoC
+  registration (T56.2).
+- All 55 ADR statuses audited and reconciled against current implementation (T56.5).
+- RETRO_LOG Phases 15–45 archived to reduce active context load (T56.4).
+
+## Phase 55 — Critical Issues Remediation
+*2026-03-26 | PRs [#198](../../pull/198)–[#199](../../pull/199)*
+
+- `VaultState` hardened with `threading.Lock` to prevent multi-worker unseal race (T55.1).
+- `SecretStr` used for all secret settings fields, preventing credential leakage via
+  `repr()` / logging (T55.2).
+- `RestrictedUnpickler` allowlist tightened: `eval`, `exec`, `getattr` blocked (T55.3).
+- SSRF validation fail-closed: DNS failures reject webhook registration (T55.4).
+- picomatch patched for GHSA-c2c7-rcm5-vvqj (ReDoS + method injection).
+
+## Phase 54 — E2E DP Synthesis Validation
+*2026-03-26 | PRs [#197](../../pull/197)–[#204](../../pull/204)*
+
+- Full Pagila pipeline validated: 3-table subset (customer, rental, inventory) at 5,000+
+  rows with real DP-SGD; results documented in `docs/E2E_VALIDATION_RESULTS.md`.
+- `address` and `film` tables documented as divergent under DP-SGD with current
+  hyperparameters; remediation documented in ADR-0055.
+- `validate_full_pipeline.py` fixed: fresh `DPTrainingWrapper` per table, DataFrame type
+  sanitization for SDV compatibility, Pagila rental threshold corrected to 15,000.
+
+## Phase 53 — Mutation Testing & Advisory Drain
+*2026-03-25 | PRs [#185](../../pull/185)–[#196](../../pull/196)*
+
+- Adopted `cosmic-ray` for mutation testing (Python 3.14 compatible); `mutmut` abandoned
+  due to SIGSEGV on Python 3.14 (ADR-0047 amended, T53.1).
+- Local mutation testing gate: 795/795 mutants killed (100% score) across
+  `shared/security/` and `modules/privacy/` (T53.1).
+- HMAC audit signature extended to include `details` field; versioned v2 format (T53.2).
+- Programmatic authentication coverage gate added to CI (T53.3).
+- Redis TLS promotion consolidation deduplicated across connection paths (T53.4).
+- ChromaDB references removed from active documentation and agent prompts.
+
+## Phase 52 — Demos, Benchmarks & Documentation
+*2026-03-25 | PRs [#191](../../pull/191)–[#193](../../pull/193)*
+
+- Benchmark infrastructure: parametrized grid across epsilon, row count, and table count;
+  results CSV committed; ADR-0053 documents `demos/` directory placement (T52.1–T52.2).
+- Quickstart notebook (`demos/quickstart.ipynb`) and epsilon curves notebook created;
+  SQL table name validation guard added; `nbstripout` normalizes cell IDs (T52.3–T52.4).
+- AI builder training data notebook for Conclave fine-tuning data generation (T52.5).
+- README updated with Demos & Benchmarks section and current test/coverage metrics (T52.6).
+
 ## Phase 51 — Release Engineering
 *2026-03-23 | PR TBD*
 
@@ -548,5 +633,5 @@ For a narrative account of the project, see [`docs/archive/DEVELOPMENT_STORY.md`
 
 ---
 
-*This changelog covers Phase 0.8 through Phase 50 (as of 2026-03-23).*
+*This changelog covers Phase 0.8 through Phase 59 — v1.0.0 release (as of 2026-03-26).*
 *For the most current state, refer to `git log` and the merged PR list.*

@@ -5,7 +5,7 @@
 Run the load test with:
 
 ```bash
-DATABASE_URL=postgresql://user:pass@localhost:5432/pagila \
+DATABASE_URL=postgresql://user:pass@localhost:5432/pagila \  # pragma: allowlist secret
   poetry run python scripts/load_test.py \
   --row-count 5000 --epochs 50 --epsilon 10.0
 ```

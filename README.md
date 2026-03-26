@@ -1,6 +1,6 @@
 # Conclave
 
-**An enterprise-grade, air-gapped synthetic data generation engine.**
+**An enterprise-grade, air-gapped synthetic data generation engine. v1.0.0**
 
 Conclave transforms production databases into privacy-safe synthetic replicas — inside your perimeter, on your hardware, with zero network calls out. For data scientists who need statistically faithful training data, QA engineers who need a structurally intact production subset, and compliance officers who need mathematical proof that no real PII left the building.
 
@@ -337,16 +337,16 @@ Development follows attack-first TDD (Red → Green → Refactor). Every task re
 
 A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.md), [`CLAUDE.md`](CLAUDE.md), backlog tasks, architecture specifications). AI agents executed every development task: writing failing tests first, implementing minimal passing code, running all quality gates, and submitting for multi-agent review before merge. No code was written outside this process.
 
-**Timeline**: March 9–24, 2026 — 15 calendar days from first commit to Phase 53.
+**Timeline**: March 9–26, 2026 — 17 calendar days from first commit to v1.0.0 release (Phase 59).
 
 | Metric | Value |
 |--------|-------|
-| Commits | ~1,085 |
-| Pull requests merged | 192 |
-| Architecture Decision Records | 54 |
-| Production source lines | ~23,200 |
-| Test lines | ~89,700 |
-| Test coverage | 96.81% |
+| Commits | ~1,150 |
+| Pull requests merged | ~210 |
+| Architecture Decision Records | 56 |
+| Production source lines | ~24,000 |
+| Test lines | ~95,000 |
+| Test coverage | 96.53% |
 
 Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_STORY.md).
 
@@ -370,7 +370,7 @@ Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_S
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, development history |
 | [Development Story](docs/archive/DEVELOPMENT_STORY.md) | How this codebase was built (archived) |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
-| [Changelog](CHANGELOG.md) | Phase-by-phase release notes, Phase 1–52 |
+| [Changelog](CHANGELOG.md) | Phase-by-phase release notes, Phase 1–59 (v1.0.0) |
 | [API Reference](docs/api/API_REFERENCE.md) | REST API endpoint reference (static OpenAPI export) |
 | [Demo Suite](demos/README.md) | Jupyter notebooks and benchmark scripts |
 
