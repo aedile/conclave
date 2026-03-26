@@ -96,15 +96,26 @@ def build_ephemeral_storage_client() -> EphemeralStorageClient:
     Returns:
         A configured :class:`EphemeralStorageClient` ready to upload/download
         Parquet files.
+
+    Raises:
+        RuntimeError: If ``MinioStorageBackend`` is unavailable because the
+            synthesizer dependency group is not installed.  Install it with
+            ``pip install 'synth-engine[synthesizer]'`` or
+            ``poetry install --extras synthesizer``.
     """
     from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
 
     access_key = _read_secret("minio_ephemeral_access_key")
     secret_key = _read_secret("minio_ephemeral_secret_key")
 
-    assert MinioStorageBackend is not None, (  # pragma: no cover
-        "MinioStorageBackend unavailable — install the synthesizer dependency group"
-    )
+    # T57.2: Replace assert with RuntimeError — asserts are stripped by python -O
+    # and raise unhelpful AssertionError.  RuntimeError carries install instructions.
+    if MinioStorageBackend is None:
+        raise RuntimeError(
+            "MinioStorageBackend unavailable — install the synthesizer dependency group: "
+            "pip install 'synth-engine[synthesizer]' or poetry install --extras synthesizer"
+        )
+
     backend = MinioStorageBackend(
         endpoint_url=_MINIO_ENDPOINT,
         access_key=access_key,

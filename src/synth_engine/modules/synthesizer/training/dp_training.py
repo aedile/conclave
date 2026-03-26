@@ -169,7 +169,8 @@ class DPCompatibleCTGAN:
     def _wrap_discriminator_with_opacus(
         self, discriminator: Any, optimizer_d: Any, dataloader: Any, batch_size: int
     ) -> tuple[Any, Any]:
-        assert self._dp_wrapper is not None
+        if self._dp_wrapper is None:  # T57.2: RuntimeError replaces assert (stripped by python -O)
+            raise RuntimeError("_dp_wrapper must not be None — this is a programming error")
         max_grad_norm = float(getattr(self._dp_wrapper, "max_grad_norm", 1.0))
         noise_multiplier = float(getattr(self._dp_wrapper, "noise_multiplier", 1.1))
         _logger.info(
@@ -257,10 +258,15 @@ class DPCompatibleCTGAN:
         Args:
             processed_df: Preprocessed DataFrame from SDV DataProcessor.
             model_kwargs: CTGAN hyperparameters from _get_model_kwargs().
+
+        Raises:
+            RuntimeError: If ``_dp_wrapper`` is ``None`` when called, indicating
+                a programming error (T57.2: replaces bare assert).
         """
-        assert self._dp_wrapper is not None, (
-            "_train_dp_discriminator must only be called when dp_wrapper is not None"
-        )
+        if self._dp_wrapper is None:  # T57.2: RuntimeError replaces assert (stripped by python -O)
+            raise RuntimeError(
+                "_train_dp_discriminator must only be called when dp_wrapper is not None"
+            )
         hyp = parse_gan_hyperparams(model_kwargs)
         self._dp_embedding_dim = hyp.embedding_dim
         self._dp_numeric_columns = list(processed_df.select_dtypes(include=[float, int]).columns)
@@ -320,8 +326,13 @@ class DPCompatibleCTGAN:
 
         Args:
             processed_df: VGM-normalized DataFrame.
+
+        Raises:
+            RuntimeError: If ``_dp_wrapper`` is ``None`` when called (T57.2:
+                replaces bare assert that is stripped by ``python -O``).
         """
-        assert self._dp_wrapper is not None
+        if self._dp_wrapper is None:  # T57.2: RuntimeError — asserts are stripped by python -O
+            raise RuntimeError("_dp_wrapper must not be None — this is a programming error")
         require_synthesizer()
         dataloader, n_features = self._build_proxy_dataloader(processed_df)
         proxy_model = nn.Linear(n_features, 1)

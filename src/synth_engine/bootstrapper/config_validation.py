@@ -73,6 +73,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
 from synth_engine.shared.settings import get_settings
 
@@ -365,7 +367,14 @@ def validate_config() -> None:
         from synth_engine.bootstrapper.config_validation import validate_config
         validate_config()
     """
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except ValidationError as exc:
+        raise SystemExit(
+            f"Startup configuration error: the following required environment "
+            f"variable(s) are not set or are misconfigured: {exc}. "
+            f"Set them before starting the Conclave Engine."
+        ) from exc
     required = list(_ALWAYS_REQUIRED)
     if _is_production():
         required.extend(_PRODUCTION_REQUIRED)
