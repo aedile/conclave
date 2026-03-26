@@ -67,6 +67,7 @@ Task: T57.6 — Unify Environment Configuration
 from __future__ import annotations
 
 import logging
+import os
 from functools import lru_cache
 
 from pydantic import Field, SecretStr, model_validator
@@ -645,6 +646,37 @@ class ConclaveSettings(BaseSettings):
             if field_errors:
                 raise ValueError(" ".join(field_errors))
 
+        return self
+
+    @model_validator(mode="after")
+    def _warn_unrecognized_conclave_env_vars(self) -> ConclaveSettings:
+        """Log a WARNING for any CONCLAVE_ env var that doesn't match a known field.
+
+        Keeps ``extra="ignore"`` (fail-open) to avoid breaking deployments with
+        OS-level or CI-platform env vars.  The WARNING gives operators visibility
+        into potential typos without causing startup failures.
+
+        Known CONCLAVE_ fields are derived from :attr:`model_fields` by
+        collecting the subset of field names that start with ``conclave_``.
+
+        Returns:
+            The validated ``ConclaveSettings`` instance (self).
+        """
+        known_conclave_env_vars: frozenset[str] = frozenset(
+            field_name.upper()
+            for field_name in self.__class__.model_fields
+            if field_name.startswith("conclave_")
+        )
+        for env_var, value in os.environ.items():
+            if env_var.startswith("CONCLAVE_") and env_var not in known_conclave_env_vars:
+                _logger.warning(
+                    "Unrecognized CONCLAVE_ environment variable: %s=%r — "
+                    "this variable is not a known ConclaveSettings field and will be ignored. "
+                    "Check for typos. Known CONCLAVE_ vars: %s",
+                    env_var,
+                    value,
+                    sorted(known_conclave_env_vars),
+                )
         return self
 
     # -----------------------------------------------------------------------
