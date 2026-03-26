@@ -146,7 +146,7 @@ class TestSSEProgressStreaming:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    f"/jobs/{job_id}/stream",
+                    f"/api/v1/jobs/{job_id}/stream",
                     headers={"Accept": "text/event-stream"},
                 )
 
@@ -257,7 +257,7 @@ class TestSSEProgressStreaming:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    f"/jobs/{job_id}/stream",
+                    f"/api/v1/jobs/{job_id}/stream",
                     headers={"Accept": "text/event-stream"},
                 )
 

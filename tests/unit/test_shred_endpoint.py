@@ -124,7 +124,7 @@ class TestShredEndpointHappyPath:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         assert response.status_code == 200
 
@@ -152,7 +152,7 @@ class TestShredEndpointHappyPath:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.post(f"/jobs/{job_id}/shred")
+                await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         with Session(engine) as session:
             from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
@@ -185,7 +185,7 @@ class TestShredEndpointHappyPath:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         body = response.json()
         assert body.get("status") == "SHREDDED"
@@ -228,7 +228,7 @@ class TestShredEndpointHappyPath:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.post(f"/jobs/{job_id}/shred")
+                await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         # FINDING 5 fix: verify shred_artifacts was called with the correct job.
         assert len(captured_ids) == 1
@@ -263,7 +263,7 @@ class TestShredEndpointHappyPath:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.post(f"/jobs/{job_id}/shred")
+                await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         mock_audit_logger.log_event.assert_called_once()
         call_kwargs = mock_audit_logger.log_event.call_args.kwargs
@@ -298,7 +298,7 @@ class TestShredEndpointHappyPath:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.post(f"/jobs/{job_id}/shred")
+                await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         call_kwargs = mock_audit_logger.log_event.call_args.kwargs
         assert call_kwargs["details"]["job_id"] == str(job_id)
@@ -339,7 +339,7 @@ class TestShredEndpointHappyPath:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         assert response.status_code == 200
 
@@ -369,7 +369,7 @@ class TestShredEndpointErrorPaths:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post("/jobs/99999/shred")
+                response = await client.post("/api/v1/jobs/99999/shred")
 
         assert response.status_code == 404
 
@@ -392,7 +392,7 @@ class TestShredEndpointErrorPaths:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         assert response.status_code == 404
 
@@ -415,7 +415,7 @@ class TestShredEndpointErrorPaths:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         assert response.status_code == 404
 
@@ -438,7 +438,7 @@ class TestShredEndpointErrorPaths:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         assert response.status_code == 404
 
@@ -461,7 +461,7 @@ class TestShredEndpointErrorPaths:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         assert response.status_code == 404
 
@@ -484,7 +484,7 @@ class TestShredEndpointErrorPaths:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         assert response.status_code == 404
 
@@ -507,7 +507,7 @@ class TestShredEndpointErrorPaths:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         body = response.json()
         assert body.get("status") == 404
@@ -547,7 +547,7 @@ class TestShredEndpointErrorPaths:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/shred")
+                response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
         assert response.status_code == 500
         body = response.json()

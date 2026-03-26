@@ -290,8 +290,8 @@ async def test_authenticated_endpoint_rate_limited_per_operator(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             headers = {"Authorization": f"Bearer {token}"}
-            r1 = await client.get("/jobs", headers=headers)
-            r2 = await client.get("/jobs", headers=headers)
+            r1 = await client.get("/api/v1/jobs", headers=headers)
+            r2 = await client.get("/api/v1/jobs", headers=headers)
 
     assert r1.status_code != 429, f"First request must not be rate limited; got {r1.status_code}"
     assert r2.status_code == 429, f"Second request must be rate limited (429); got {r2.status_code}"
@@ -327,10 +327,10 @@ async def test_different_operators_independent_limits_full_stack(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             # Exhaust operator A
-            await client.get("/jobs", headers={"Authorization": f"Bearer {token_a}"})
-            r_a2 = await client.get("/jobs", headers={"Authorization": f"Bearer {token_a}"})
+            await client.get("/api/v1/jobs", headers={"Authorization": f"Bearer {token_a}"})
+            r_a2 = await client.get("/api/v1/jobs", headers={"Authorization": f"Bearer {token_a}"})
             # Operator B should still be allowed
-            r_b1 = await client.get("/jobs", headers={"Authorization": f"Bearer {token_b}"})
+            r_b1 = await client.get("/api/v1/jobs", headers={"Authorization": f"Bearer {token_b}"})
 
     assert r_a2.status_code == 429, "Operator A must be rate limited after exceeding"
     assert r_b1.status_code != 429, "Operator B must NOT be affected by operator A's limit"

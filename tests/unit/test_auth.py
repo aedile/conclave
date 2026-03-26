@@ -491,7 +491,7 @@ async def test_middleware_pass_through_when_jwt_secret_not_configured(
     middleware = AuthenticationGateMiddleware(mock_app)
 
     mock_request = MagicMock()
-    mock_request.url.path = "/jobs"
+    mock_request.url.path = "/api/v1/jobs"
     mock_request.headers = MagicMock()
     mock_request.headers.get = MagicMock(return_value=None)
 
@@ -523,7 +523,7 @@ async def test_middleware_returns_401_for_missing_token(
     middleware = AuthenticationGateMiddleware(mock_app)
 
     mock_request = MagicMock()
-    mock_request.url.path = "/jobs"
+    mock_request.url.path = "/api/v1/jobs"
     mock_request.headers = MagicMock()
     mock_request.headers.get = MagicMock(return_value=None)
 
@@ -554,7 +554,7 @@ async def test_middleware_returns_401_for_invalid_bearer_format(
     middleware = AuthenticationGateMiddleware(mock_app)
 
     mock_request = MagicMock()
-    mock_request.url.path = "/jobs"
+    mock_request.url.path = "/api/v1/jobs"
     mock_request.headers = MagicMock()
     mock_request.headers.get = MagicMock(return_value="Token not-bearer-scheme")
 
@@ -588,7 +588,7 @@ async def test_middleware_returns_401_for_empty_bearer_token(
     middleware = AuthenticationGateMiddleware(mock_app)
 
     mock_request = MagicMock()
-    mock_request.url.path = "/jobs"
+    mock_request.url.path = "/api/v1/jobs"
     mock_request.headers = MagicMock()
     # "Bearer " with a trailing space but no token — token string is ""
     mock_request.headers.get = MagicMock(return_value="Bearer ")
@@ -625,7 +625,7 @@ async def test_middleware_returns_401_for_invalid_token_string(
     middleware = AuthenticationGateMiddleware(mock_app)
 
     mock_request = MagicMock()
-    mock_request.url.path = "/jobs"
+    mock_request.url.path = "/api/v1/jobs"
     mock_request.headers = MagicMock()
     mock_request.headers.get = MagicMock(return_value="Bearer this-is-not-a-valid-jwt-token")
 
@@ -659,7 +659,7 @@ async def test_middleware_passes_valid_token(monkeypatch: pytest.MonkeyPatch) ->
     middleware = AuthenticationGateMiddleware(mock_app)
 
     mock_request = MagicMock()
-    mock_request.url.path = "/jobs"
+    mock_request.url.path = "/api/v1/jobs"
     mock_request.headers = MagicMock()
     mock_request.headers.get = MagicMock(return_value=f"Bearer {token}")
 

@@ -196,7 +196,7 @@ async def test_unauthenticated_request_to_protected_endpoint_returns_401(
         patch(_LICENSE_PATCH, return_value=True),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get("/jobs")
+            response = await client.get("/api/v1/jobs")
 
     assert response.status_code == 401
     body = response.json()
@@ -224,7 +224,7 @@ async def test_expired_token_returns_401(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                "/jobs",
+                "/api/v1/jobs",
                 headers={"Authorization": f"Bearer {expired_token}"},
             )
 
@@ -251,7 +251,7 @@ async def test_valid_token_reaches_route_handler(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                "/jobs",
+                "/api/v1/jobs",
                 headers={"Authorization": f"Bearer {valid_token}"},
             )
 
@@ -352,7 +352,7 @@ async def test_algorithm_confusion_attack_rejected(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                "/jobs",
+                "/api/v1/jobs",
                 headers={"Authorization": f"Bearer {forged_token}"},
             )
 
@@ -479,7 +479,7 @@ async def test_issued_token_can_authenticate_subsequent_request(
 
             # Step 2: use token on a protected endpoint
             jobs_response = await client.get(
-                "/jobs",
+                "/api/v1/jobs",
                 headers={"Authorization": f"Bearer {access_token}"},
             )
 
@@ -506,7 +506,7 @@ async def test_401_response_is_rfc7807_format(
         patch(_LICENSE_PATCH, return_value=True),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get("/jobs")
+            response = await client.get("/api/v1/jobs")
 
     assert response.status_code == 401
     body = response.json()

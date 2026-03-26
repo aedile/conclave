@@ -91,7 +91,7 @@ class TestDownloadEndpoint404Cases:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/jobs/99999/download")
+                response = await client.get("/api/v1/jobs/99999/download")
 
         assert response.status_code == 404
         body = response.json()
@@ -143,7 +143,7 @@ class TestDownloadEndpoint404Cases:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 404
 
@@ -193,7 +193,7 @@ class TestDownloadEndpoint404Cases:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 404
 
@@ -244,7 +244,7 @@ class TestDownloadEndpoint404Cases:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 404
 
@@ -295,7 +295,7 @@ class TestDownloadEndpoint404Cases:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 404
 
@@ -345,6 +345,6 @@ class TestDownloadEndpoint404Cases:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 404

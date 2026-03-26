@@ -99,7 +99,7 @@ class TestDownloadEndpointHMACBypass:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
 
@@ -161,7 +161,7 @@ class TestDownloadEndpointHMACBypass:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
 
@@ -221,7 +221,7 @@ class TestDownloadEndpointHMACBypass:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
 
@@ -302,7 +302,7 @@ class TestDownloadEndpointHMACBypass:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         # None return → verification skipped → streaming proceeds → 200
         assert response.status_code == 200

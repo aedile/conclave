@@ -155,7 +155,7 @@ async def test_shred_deletes_real_artifact_files_and_transitions_to_shredded(
         ),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post(f"/jobs/{job_id}/shred")
+            response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
     # AC4: HTTP 200 with SHREDDED body
     assert response.status_code == 200
@@ -226,7 +226,7 @@ async def test_shred_emits_worm_audit_event_with_correct_fields(
         caplog.at_level(logging.INFO, logger="synth_engine.security.audit"),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            await client.post(f"/jobs/{job_id}/shred")
+            await client.post(f"/api/v1/jobs/{job_id}/shred")
 
     # AC2: Verify the audit log contains the expected event
     audit_records = [r for r in caplog.records if r.name == "synth_engine.security.audit"]
@@ -274,7 +274,7 @@ async def test_shred_non_complete_jobs_return_404() -> None:
     with vault_patch, license_patch:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             for jid, status in job_ids:
-                response = await client.post(f"/jobs/{jid}/shred")
+                response = await client.post(f"/api/v1/jobs/{jid}/shred")
                 assert response.status_code == 404, (
                     f"Expected 404 for status={status!r}, got {response.status_code}"
                 )

@@ -116,7 +116,7 @@ class TestDownloadEndpointHMACSigningActive:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
 
@@ -178,7 +178,7 @@ class TestDownloadEndpointHMACSigningActive:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 409
         body = response.json()
@@ -238,7 +238,7 @@ class TestDownloadEndpointHMACSigningActive:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 409
 
@@ -298,7 +298,7 @@ class TestDownloadEndpointHMACSigningActive:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 409
         body = response.json()

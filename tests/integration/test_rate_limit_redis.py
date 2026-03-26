@@ -131,11 +131,11 @@ def _build_app(
     async def _auth_route() -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
-    @app.get("/jobs")
+    @app.get("/api/v1/jobs")
     async def _jobs_route() -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
-    @app.get("/jobs/{job_id}/download")
+    @app.get("/api/v1/jobs/{job_id}/download")
     async def _download_route(job_id: str) -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
@@ -337,10 +337,10 @@ async def test_different_operators_independent_limits_with_live_redis(
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Exhaust operator A
-        await client.get("/jobs", headers={"Authorization": f"Bearer {token_a}"})
-        r_a2 = await client.get("/jobs", headers={"Authorization": f"Bearer {token_a}"})
+        await client.get("/api/v1/jobs", headers={"Authorization": f"Bearer {token_a}"})
+        r_a2 = await client.get("/api/v1/jobs", headers={"Authorization": f"Bearer {token_a}"})
         # Operator B should still be allowed
-        r_b1 = await client.get("/jobs", headers={"Authorization": f"Bearer {token_b}"})
+        r_b1 = await client.get("/api/v1/jobs", headers={"Authorization": f"Bearer {token_b}"})
 
     assert r_a2.status_code == 429, "Operator A must be rate limited after exceeding"
     assert r_b1.status_code == 200, "Operator B must NOT be affected by operator A's limit"

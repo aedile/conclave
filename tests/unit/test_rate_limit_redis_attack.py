@@ -70,7 +70,7 @@ def _build_redis_app(
     async def _auth_route() -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
-    @app.get("/jobs")
+    @app.get("/api/v1/jobs")
     async def _jobs_route() -> JSONResponse:
         return JSONResponse(content={"ok": True})
 

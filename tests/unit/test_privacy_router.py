@@ -215,7 +215,7 @@ class TestBudgetQueryEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         assert response.status_code == 200
 
@@ -229,7 +229,7 @@ class TestBudgetQueryEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         body = response.json()
         assert "total_allocated_epsilon" in body
@@ -247,7 +247,7 @@ class TestBudgetQueryEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         body = response.json()
         assert body["total_allocated_epsilon"] == pytest.approx(10.0)
@@ -300,7 +300,7 @@ class TestBudgetQueryEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         body = response.json()
         assert body["is_exhausted"] is True
@@ -351,7 +351,7 @@ class TestBudgetQueryEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         body = response.json()
         assert body["is_exhausted"] is True
@@ -367,7 +367,7 @@ class TestBudgetQueryEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         assert response.status_code == 404
         body = response.json()
@@ -396,7 +396,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Monthly budget refresh by admin"},
                 )
 
@@ -413,7 +413,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Monthly budget refresh by admin"},
                 )
 
@@ -432,7 +432,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Monthly budget refresh by admin"},
                 )
 
@@ -451,7 +451,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={
                         "justification": "Q2 allocation increase by admin",
                         "new_allocated_epsilon": 20.0,
@@ -474,7 +474,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={},
                 )
 
@@ -491,7 +491,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "short"},
                 )
 
@@ -508,7 +508,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={
                         "justification": "Testing zero allocation rejection",
                         "new_allocated_epsilon": 0.0,
@@ -528,7 +528,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={
                         "justification": "Testing negative allocation rejection",
                         "new_allocated_epsilon": -5.0,
@@ -559,7 +559,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Audit test justification"},
                 )
 
@@ -634,7 +634,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Operator identity test"},
                 )
 
@@ -652,7 +652,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "This ledger does not exist yet"},
                 )
 
@@ -683,7 +683,7 @@ class TestBudgetRefreshEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Testing audit failure path"},
                 )
 
@@ -718,7 +718,7 @@ class TestBudgetRFC7807ErrorFormat:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         body = response.json()
         assert body["type"] == "about:blank"
@@ -734,7 +734,7 @@ class TestBudgetRFC7807ErrorFormat:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "tiny"},
                 )
 

@@ -314,7 +314,7 @@ class TestPrivacyAuditUsesJwtSub:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "JWT sub audit actor test"},
                     headers={
                         "Authorization": f"Bearer {token}",
@@ -439,7 +439,7 @@ class TestJobsShredAuditUsesCurrentOperator:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    f"/jobs/{job_id}/shred",
+                    f"/api/v1/jobs/{job_id}/shred",
                     headers={"Authorization": f"Bearer {token}"},
                 )
 

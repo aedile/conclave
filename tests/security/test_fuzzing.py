@@ -209,7 +209,7 @@ class TestNestedJsonFuzz:
         """
         body = _build_nested_json(depth=101)
         response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=body,
             headers={"Content-Type": "application/json"},
         )
@@ -228,7 +228,7 @@ class TestNestedJsonFuzz:
         """
         body = _build_nested_json(depth=500)
         response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=body,
             headers={"Content-Type": "application/json"},
         )
@@ -246,7 +246,7 @@ class TestNestedJsonFuzz:
         """
         body = _build_nested_json(depth=1000)
         response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=body,
             headers={"Content-Type": "application/json"},
         )
@@ -268,7 +268,7 @@ class TestNestedJsonFuzz:
         """
         body = _build_nested_json(depth=_MAX_JSON_DEPTH)
         response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=body,
             headers={"Content-Type": "application/json"},
         )
@@ -297,7 +297,7 @@ class TestLargePayloadFuzz:
         # Build a payload just over 1 MiB
         oversized_body = "x" * (_MAX_BODY_BYTES + 1024)
         response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=oversized_body,
             headers={"Content-Type": "application/json"},
         )
@@ -318,7 +318,7 @@ class TestLargePayloadFuzz:
         """
         exact_body = "x" * _MAX_BODY_BYTES
         response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=exact_body,
             headers={"Content-Type": "application/json"},
         )
@@ -342,7 +342,7 @@ class TestLargePayloadFuzz:
         # Send oversized payload
         oversized_body = "x" * (_MAX_BODY_BYTES + 1024)
         reject_response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=oversized_body,
             headers={"Content-Type": "application/json"},
         )
@@ -381,7 +381,7 @@ class TestNanInfinityFuzz:
             ' "total_epochs": NaN, "checkpoint_every_n": 1}'
         )
         response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=body,
             headers={"Content-Type": "application/json"},
         )
@@ -405,7 +405,7 @@ class TestNanInfinityFuzz:
             ' "total_epochs": Infinity, "checkpoint_every_n": 1}'
         )
         response = app_client.post(
-            "/jobs",
+            "/api/v1/jobs",
             content=body,
             headers={"Content-Type": "application/json"},
         )
@@ -495,7 +495,7 @@ class TestNanInfinityFuzz:
             "total_epochs": None,  # null — not a valid int
             "checkpoint_every_n": 1,
         }
-        response = app_client.post("/jobs", json=payload)
+        response = app_client.post("/api/v1/jobs", json=payload)
         assert response.status_code == 422, (
             f"null total_epochs must be rejected with 422, got {response.status_code}."
         )
@@ -517,7 +517,7 @@ class TestNanInfinityFuzz:
             "total_epochs": 0,
             "checkpoint_every_n": 1,
         }
-        response = app_client.post("/jobs", json=payload)
+        response = app_client.post("/api/v1/jobs", json=payload)
         assert response.status_code == 422, (
             f"total_epochs=0 must be rejected with 422, got {response.status_code}."
         )
@@ -541,7 +541,7 @@ class TestNanInfinityFuzz:
             "total_epochs": 10**18,  # 1 quintillion
             "checkpoint_every_n": 1,
         }
-        response = app_client.post("/jobs", json=payload)
+        response = app_client.post("/api/v1/jobs", json=payload)
         # Server must respond (not crash) — status can be 201, 400, 422, or 500
         assert response.status_code in {201, 400, 422, 500}, (
             f"Very large total_epochs must not crash server, got status {response.status_code}."

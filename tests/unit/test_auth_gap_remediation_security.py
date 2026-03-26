@@ -330,7 +330,7 @@ class TestPassThroughModeAllowsAccess:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/settings")
+                response = await client.get("/api/v1/settings")
 
         assert response.status_code == 200
 
@@ -389,7 +389,7 @@ class TestPassThroughModeAllowsAccess:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         assert response.status_code == 200
 

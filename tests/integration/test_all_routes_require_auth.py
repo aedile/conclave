@@ -215,7 +215,7 @@ async def test_attack_no_token_returns_401_not_500(auth_app: FastAPI) -> None:
         async with AsyncClient(
             transport=ASGITransport(app=auth_app), base_url="http://test"
         ) as client:
-            response = await client.get("/jobs")
+            response = await client.get("/api/v1/jobs")
 
     assert response.status_code == 401, (
         f"Expected 401 for no-token request; got {response.status_code}: {response.text}"
@@ -241,7 +241,7 @@ async def test_attack_garbage_token_returns_401(auth_app: FastAPI) -> None:
             transport=ASGITransport(app=auth_app), base_url="http://test"
         ) as client:
             response = await client.get(
-                "/jobs",
+                "/api/v1/jobs",
                 headers={"Authorization": f"Bearer {_GARBAGE_TOKEN}"},
             )
 
@@ -270,7 +270,7 @@ async def test_attack_expired_token_returns_401_not_500(auth_app: FastAPI) -> No
             transport=ASGITransport(app=auth_app), base_url="http://test"
         ) as client:
             response = await client.get(
-                "/jobs",
+                "/api/v1/jobs",
                 headers={"Authorization": f"Bearer {expired_token}"},
             )
 
@@ -303,7 +303,7 @@ async def test_attack_trailing_slash_on_auth_route_returns_401(auth_app: FastAPI
             transport=ASGITransport(app=auth_app), base_url="http://test"
         ) as client:
             # follow_redirects=False so we see the raw 301/307 if there is one
-            response = await client.get("/jobs/", follow_redirects=False)
+            response = await client.get("/api/v1/jobs/", follow_redirects=False)
 
     # 401 is the expected response (auth rejection before routing).
     # 404 is acceptable if FastAPI does not match the trailing-slash path.
@@ -333,7 +333,7 @@ async def test_attack_401_response_body_has_no_stack_trace(auth_app: FastAPI) ->
         async with AsyncClient(
             transport=ASGITransport(app=auth_app), base_url="http://test"
         ) as client:
-            response = await client.get("/privacy/budget")
+            response = await client.get("/api/v1/privacy/budget")
 
     assert response.status_code == 401, (
         f"Expected 401 for unauthenticated request; got {response.status_code}"
@@ -365,7 +365,7 @@ async def test_attack_401_response_is_rfc7807_format(auth_app: FastAPI) -> None:
         async with AsyncClient(
             transport=ASGITransport(app=auth_app), base_url="http://test"
         ) as client:
-            response = await client.get("/jobs")
+            response = await client.get("/api/v1/jobs")
 
     assert response.status_code == 401
     body = response.json()

@@ -83,7 +83,7 @@ class TestSettingsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/settings")
+                response = await client.get("/api/v1/settings")
 
         assert response.status_code == 200
         body = response.json()
@@ -112,8 +112,8 @@ class TestSettingsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.put("/settings/color_scheme", json={"value": "dark"})
-                response = await client.get("/settings")
+                await client.put("/api/v1/settings/color_scheme", json={"value": "dark"})
+                response = await client.get("/api/v1/settings")
 
         assert response.status_code == 200
         body = response.json()
@@ -145,7 +145,7 @@ class TestSettingsCRUD:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.put(
-                    "/settings/max_epochs",
+                    "/api/v1/settings/max_epochs",
                     json={"value": "300"},
                 )
 
@@ -176,8 +176,8 @@ class TestSettingsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.put("/settings/batch_size", json={"value": "32"})
-                response = await client.put("/settings/batch_size", json={"value": "64"})
+                await client.put("/api/v1/settings/batch_size", json={"value": "32"})
+                response = await client.put("/api/v1/settings/batch_size", json={"value": "64"})
 
         assert response.status_code == 200
         body = response.json()
@@ -204,8 +204,8 @@ class TestSettingsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.put("/settings/theme", json={"value": "dark"})
-                response = await client.get("/settings/theme")
+                await client.put("/api/v1/settings/theme", json={"value": "dark"})
+                response = await client.get("/api/v1/settings/theme")
 
         assert response.status_code == 200
         body = response.json()
@@ -230,7 +230,7 @@ class TestSettingsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/settings/nonexistent_key_abc")
+                response = await client.get("/api/v1/settings/nonexistent_key_abc")
 
         assert response.status_code == 404
 
@@ -252,8 +252,8 @@ class TestSettingsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.put("/settings/to_delete", json={"value": "x"})
-                response = await client.delete("/settings/to_delete")
+                await client.put("/api/v1/settings/to_delete", json={"value": "x"})
+                response = await client.delete("/api/v1/settings/to_delete")
 
         assert response.status_code == 204
 
@@ -279,9 +279,9 @@ class TestSettingsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.put("/settings/ephemeral_key", json={"value": "to_be_deleted"})
-                await client.delete("/settings/ephemeral_key")
-                response = await client.get("/settings/ephemeral_key")
+                await client.put("/api/v1/settings/ephemeral_key", json={"value": "to_be_deleted"})
+                await client.delete("/api/v1/settings/ephemeral_key")
+                response = await client.get("/api/v1/settings/ephemeral_key")
 
         assert response.status_code == 404, (
             "Setting must not be retrievable after deletion; "

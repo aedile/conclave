@@ -1,15 +1,24 @@
 """Attack and negative tests for T59.1 — API versioning.
 
 Verifies that:
-- Old unversioned business routes return 404 after versioning.
+- Old unversioned business route paths are not registered in the app.
 - No /api/v1/ path appears in any exempt-paths set.
 - /security/shred remains reachable when the vault is sealed (SEAL_EXEMPT_PATHS
   must still contain the unversioned /security/shred path).
 - /auth/token exact path is in AUTH_EXEMPT_PATHS (not a versioned alias).
 - OpenAPI paths for business endpoints use the /api/v1/ prefix.
 
-All tests are written BEFORE the feature implementation (ATTACK RED phase),
-per CLAUDE.md Rule 22.
+Design note on 404 vs 401 for unregistered paths:
+-------------------------------------------------
+FastAPI's authentication middleware runs BEFORE route matching. An
+unauthenticated request to any path — registered or not — will return 401
+when a JWT secret is configured and the path is not in AUTH_EXEMPT_PATHS.
+Therefore "route not registered" cannot be inferred from an HTTP status code
+alone: both registered-protected and unregistered paths return 401.
+
+The authoritative test is to enumerate ``app.routes`` and assert that the
+unversioned business paths are NOT registered as ``APIRoute`` objects.  This
+is the programmatic enforcement mechanism for T59.1.
 
 CONSTITUTION Priority 0: Security
 Task: T59.1 — API Versioning
@@ -21,6 +30,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
 pytestmark = pytest.mark.integration
@@ -35,16 +45,17 @@ _TEST_SECRET = (
     "versioning-test-secret-key-long-enough-for-hs256-32chars+"  # pragma: allowlist secret
 )
 
-#: Business-logic path roots that must NOT be reachable at unversioned paths
-#: after /api/v1/ versioning is applied.
-_UNVERSIONED_BUSINESS_PATHS = [
+#: Business-logic path roots that must NOT be registered at unversioned paths
+#: after /api/v1/ versioning is applied.  These are the exact path prefixes
+#: that belonged to the business domain routers before versioning.
+_UNVERSIONED_BUSINESS_PATH_PREFIXES = [
     "/jobs",
     "/connections",
     "/settings",
     "/webhooks",
-    "/privacy/budget",
-    "/admin/jobs/0/legal-hold",
-    "/compliance/erasure",
+    "/privacy",
+    "/admin",
+    "/compliance",
 ]
 
 
@@ -86,38 +97,79 @@ def versioned_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_old_unversioned_business_routes_return_404(
+def test_old_unversioned_business_routes_not_registered(
     versioned_app: FastAPI,
 ) -> None:
-    """Old unversioned business routes must return 404 after /api/v1/ versioning.
+    """Old unversioned business route paths must not be registered in the app.
 
-    When the /api/v1/ prefix is applied, the unversioned paths (/jobs,
-    /connections, /settings, /webhooks, /privacy/budget) must no longer be
-    registered in the app and must return 404.
+    After /api/v1/ versioning is applied, the route table must contain NO
+    APIRoute whose path starts with a business-domain prefix at root level
+    (e.g. "/jobs", "/connections", "/settings", "/webhooks", "/privacy",
+    "/admin", "/compliance").
 
-    A 200 or 401 at an unversioned path would indicate the route still exists
-    at the old path — a backwards-compatibility gap that breaks API contract
-    stability.
+    Note: Auth middleware fires BEFORE route resolution, so an HTTP 401
+    response at /jobs does NOT prove the route is absent — it only proves the
+    request was intercepted before routing.  The programmatic test is to
+    enumerate app.routes directly.
 
-    Arrange: versioned app; vault open, license active.
-    Act: GET each unversioned business path with no token.
-    Assert: 404 (not 401, not 200).
+    Arrange: versioned app.
+    Assert: no APIRoute path starts with an unversioned business prefix.
     """
-    with (
-        patch(_VAULT_PATCH, return_value=False),
-        patch(_LICENSE_PATCH, return_value=True),
-    ):
-        async with AsyncClient(
-            transport=ASGITransport(app=versioned_app), base_url="http://test"
-        ) as client:
-            for path in _UNVERSIONED_BUSINESS_PATHS:
-                response = await client.get(path, follow_redirects=False)
-                assert response.status_code == 404, (
-                    f"Unversioned path {path!r} must return 404 after versioning; "
-                    f"got {response.status_code}. "
-                    "This indicates the route is still registered at the old path."
-                )
+    registered_paths = [
+        route.path
+        for route in versioned_app.routes
+        if isinstance(route, APIRoute)
+    ]
+
+    violations: list[str] = []
+    for path in registered_paths:
+        for prefix in _UNVERSIONED_BUSINESS_PATH_PREFIXES:
+            if path.startswith(prefix):
+                violations.append(path)
+                break
+
+    assert not violations, (
+        f"The following business-logic routes are registered without the /api/v1/ prefix "
+        f"({len(violations)} violation(s)):\n"
+        + "\n".join(f"  - {p}" for p in sorted(violations))
+        + "\nAll business routes must be under /api/v1/."
+    )
+
+
+def test_versioned_routes_registered_correctly(
+    versioned_app: FastAPI,
+) -> None:
+    """Business routes must be registered under /api/v1/ after versioning.
+
+    Arrange: versioned app.
+    Assert: at least the known core business paths exist under /api/v1/.
+    """
+    registered_paths = {
+        route.path
+        for route in versioned_app.routes
+        if isinstance(route, APIRoute)
+    }
+
+    required_v1_paths = [
+        "/api/v1/jobs",
+        "/api/v1/connections",
+        "/api/v1/settings",
+        "/api/v1/webhooks/",
+        "/api/v1/privacy/budget",
+        "/api/v1/compliance/erasure",
+    ]
+
+    missing: list[str] = []
+    for path in required_v1_paths:
+        if path not in registered_paths:
+            missing.append(path)
+
+    assert not missing, (
+        f"The following /api/v1/ routes are missing from the app "
+        f"({len(missing)} missing):\n"
+        + "\n".join(f"  - {p}" for p in missing)
+        + f"\nRegistered paths: {sorted(registered_paths)}"
+    )
 
 
 def test_versioned_routes_not_in_exempt_paths() -> None:

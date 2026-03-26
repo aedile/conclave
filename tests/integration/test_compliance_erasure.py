@@ -213,7 +213,7 @@ class TestErasureEndpointCascadeDeletion:
         ):
             response = client.request(
                 "DELETE",
-                "/compliance/erasure",
+                "/api/v1/compliance/erasure",
                 json={"subject_id": "subject-A"},
             )
 
@@ -247,7 +247,7 @@ class TestErasureEndpointCascadeDeletion:
         ):
             response = client.request(
                 "DELETE",
-                "/compliance/erasure",
+                "/api/v1/compliance/erasure",
                 json={"subject_id": "subject-A"},
             )
 
@@ -284,7 +284,7 @@ class TestErasureEndpointCascadeDeletion:
         ):
             response = client.request(
                 "DELETE",
-                "/compliance/erasure",
+                "/api/v1/compliance/erasure",
                 json={"subject_id": "subject-A"},
             )
 
@@ -322,7 +322,7 @@ class TestErasureAuditTrailPreservation:
             "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-E2E"})
+            client.request("DELETE", "/api/v1/compliance/erasure", json={"subject_id": "sub-E2E"})
 
         audit_mock.log_event.assert_called_once()
         call_kwargs = audit_mock.log_event.call_args.kwargs
@@ -347,7 +347,7 @@ class TestErasureAuditTrailPreservation:
             "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-E2E"})
+            client.request("DELETE", "/api/v1/compliance/erasure", json={"subject_id": "sub-E2E"})
 
         call_kwargs = audit_mock.log_event.call_args.kwargs
         details: dict[str, str] = call_kwargs["details"]
@@ -370,7 +370,7 @@ class TestErasureAuditTrailPreservation:
             "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            client.request("DELETE", "/compliance/erasure", json={"subject_id": subject_id})
+            client.request("DELETE", "/api/v1/compliance/erasure", json={"subject_id": subject_id})
 
         call_kwargs = audit_mock.log_event.call_args.kwargs
         details: dict[str, str] = call_kwargs["details"]
@@ -409,7 +409,7 @@ class TestErasureVaultSealedGate:
         client = TestClient(app, raise_server_exceptions=False)
         response = client.request(
             "DELETE",
-            "/compliance/erasure",
+            "/api/v1/compliance/erasure",
             json={"subject_id": "sub-sealed"},
         )
 
@@ -440,7 +440,7 @@ class TestErasureVaultSealedGate:
         client = TestClient(app, raise_server_exceptions=False)
         response = client.request(
             "DELETE",
-            "/compliance/erasure",
+            "/api/v1/compliance/erasure",
             json={"subject_id": "sub-sealed"},
         )
 
@@ -477,7 +477,7 @@ class TestErasureVaultSealedGate:
         client = TestClient(app, raise_server_exceptions=False)
         client.request(
             "DELETE",
-            "/compliance/erasure",
+            "/api/v1/compliance/erasure",
             json={"subject_id": "sub-sealed"},
         )
 
