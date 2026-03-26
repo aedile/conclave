@@ -728,10 +728,11 @@ def test_audit_logger_fallback_emits_warning(
     fake_settings = _FakeSettings()
 
     with patch(
-        "synth_engine.shared.security.audit.get_settings",
+        "synth_engine.shared.security.audit_singleton.get_settings",
         return_value=fake_settings,
     ):
-        with caplog.at_level(logging.WARNING, logger="synth_engine.shared.security.audit"):
+        _logger_name = "synth_engine.shared.security.audit_singleton"
+        with caplog.at_level(logging.WARNING, logger=_logger_name):
             from synth_engine.shared.security.audit import get_audit_logger
 
             get_audit_logger()
@@ -760,7 +761,7 @@ def test_audit_logger_unexpected_exception_propagates(
     from synth_engine.shared.security.audit import get_audit_logger
 
     with patch(
-        "synth_engine.shared.security.audit.get_settings",
+        "synth_engine.shared.security.audit_singleton.get_settings",
         side_effect=RuntimeError("programming error"),
     ):
         with pytest.raises(RuntimeError, match="programming error"):

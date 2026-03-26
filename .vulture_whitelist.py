@@ -331,3 +331,16 @@ _security_rotation  # unused import — side-effect: registers ALE key rotation 
 # ---------------------------------------------------------------------------
 
 _warn_unrecognized_conclave_env_vars  # Pydantic model_validator — called at construction time
+
+# ---------------------------------------------------------------------------
+# Category S — T58.4 backward-compat AuditLogger wrapper methods
+# _sign_v1, _sign_v2, _sign_v3 are thin backward-compatibility wrapper
+# methods on AuditLogger that delegate to the standalone sign_v1/sign_v2/sign_v3
+# functions after the audit.py split. They are called from existing tests that
+# pre-date the split and reference these as instance methods. Vulture cannot
+# trace test-only instance method calls.
+# ---------------------------------------------------------------------------
+
+_sign_v1  # unused method — AuditLogger backward-compat wrapper (audit_logger.py); called from test_audit.py
+_sign_v2  # unused method — AuditLogger backward-compat wrapper (audit_logger.py); called from test_audit.py
+_sign_v3  # unused method — AuditLogger backward-compat wrapper (audit_logger.py); called from test_audit.py

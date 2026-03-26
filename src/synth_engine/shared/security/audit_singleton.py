@@ -18,6 +18,7 @@ import logging
 import threading
 
 from synth_engine.shared.security.audit_logger import AuditLogger
+from synth_engine.shared.settings import get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -39,8 +40,6 @@ def _load_audit_key() -> bytes:
         ValueError: If ``AUDIT_KEY`` is absent, wrong length, or not
             valid hexadecimal.
     """
-    from synth_engine.shared.settings import get_settings
-
     raw = get_settings().audit_key.get_secret_value()
     if not raw:
         raise ValueError(
@@ -87,8 +86,6 @@ def get_audit_logger() -> AuditLogger:
             audit_key = _load_audit_key()
             anchor_file_path: str | None
             try:
-                from synth_engine.shared.settings import get_settings
-
                 anchor_file_path = get_settings().anchor_file_path
             except (AttributeError, KeyError, TypeError) as exc:
                 # T57.5: Narrow to expected exception types only.

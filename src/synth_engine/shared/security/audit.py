@@ -26,6 +26,8 @@ Task: T58.4 — Split audit.py into signatures/logger/singleton
 """
 
 from synth_engine.shared.security.audit_logger import (
+    _AUDIT_LOGGER_NAME,
+    _GENESIS_HASH,
     AUDIT_CHAIN_RESUME_FAILURE_TOTAL,
     AuditEvent,
     AuditLogger,
@@ -39,6 +41,8 @@ from synth_engine.shared.security.audit_singleton import (
 
 __all__ = [
     "AUDIT_CHAIN_RESUME_FAILURE_TOTAL",
+    "_AUDIT_LOGGER_NAME",
+    "_GENESIS_HASH",
     "AuditEvent",
     "AuditLogger",
     "_load_audit_key",
