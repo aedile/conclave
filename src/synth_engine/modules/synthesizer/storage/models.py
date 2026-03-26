@@ -50,6 +50,7 @@ ADR: ADR-0055 (Restricted Unpickler for ModelArtifact deserialization)
 
 from __future__ import annotations
 
+import builtins
 import io
 import logging
 import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) + RestrictedUnpickler (T55.2) ensure only safe artifacts are deserialized
@@ -141,6 +142,45 @@ class SynthesizerModel(Protocol):
 # Allowlist for RestrictedUnpickler
 # ---------------------------------------------------------------------------
 
+#: Explicit set of safe built-in names permitted during deserialization.
+#:
+#: Replaces the broad ``"builtins"`` prefix (which would allow ``eval``,
+#: ``exec``, ``__import__``, ``getattr``, etc.).  Only container/value types
+#: actually needed to reconstruct ModelArtifact dataclass fields are included.
+#:
+#: Rationale: ``eval``, ``exec``, ``compile``, ``__import__``, ``getattr``,
+#: ``setattr``, ``delattr``, and ``globals`` are execution/reflection
+#: primitives that have no place in a pickle artifact payload.  Blocking them
+#: here is a defense-in-depth measure — a crafted payload cannot exploit these
+#: even if an attacker signs it with a stolen HMAC key.
+_ALLOWED_BUILTIN_NAMES: frozenset[str] = frozenset(
+    {
+        "dict",
+        "list",
+        "set",
+        "tuple",
+        "frozenset",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "bytes",
+        "bytearray",
+        "complex",
+        "slice",
+        "range",
+        "type",
+        "object",
+        "True",
+        "False",
+        "None",
+        "enumerate",
+        "zip",
+        "map",
+        "filter",
+    }
+)
+
 #: Module prefixes permitted during deserialization.
 #:
 #: Each entry is a tuple of ``(module_prefix, classname_or_None)``.
@@ -149,8 +189,9 @@ class SynthesizerModel(Protocol):
 #:
 #: Rationale (ADR-0055):
 #: - ``synth_engine.modules.synthesizer.storage.models`` — the ModelArtifact class itself.
-#: - ``builtins`` — Python built-in types (list, dict, str, int, float, etc.)
-#:   needed for dataclass field reconstruction.
+#: - ``builtins`` — NOT listed here; handled separately by ``_ALLOWED_BUILTIN_NAMES``
+#:   to prevent allowing dangerous builtins such as ``eval``, ``exec``, and
+#:   ``__import__``.  See :meth:`RestrictedUnpickler.find_class`.
 #: - ``_codecs`` — used by pickle internally for bytes/bytearray reconstruction.
 #: - ``collections`` — OrderedDict used in some sklearn/SDV internals.
 #: - ``datetime`` — datetime objects may appear in SDV model metadata.
@@ -161,13 +202,13 @@ class SynthesizerModel(Protocol):
 #: - ``copulas`` — SDV dependency for statistical distributions.
 #: - ``opacus`` — DP wrapper around the PyTorch training loop.
 #: - ``sklearn`` — scikit-learn transformers used by rdt/DataTransformer.
+#: - ``joblib`` — joblib internals used by sklearn transformers (Pipeline, etc.).
 #:
 #: Modules NOT in this list (e.g. ``os``, ``subprocess``, ``importlib``,
 #: ``pathlib``, ``socket``, arbitrary third-party packages) will raise
 #: :exc:`SecurityError` immediately when encountered during deserialization.
 _ALLOWED_MODULE_PREFIXES: tuple[str, ...] = (
     "synth_engine.modules.synthesizer.storage.models",
-    "builtins",
     "_codecs",
     "collections",
     "datetime",
@@ -196,6 +237,11 @@ class RestrictedUnpickler(pickle.Unpickler):
     Overrides :meth:`find_class` to reject any ``(module, name)`` pair not
     in :data:`_ALLOWED_MODULE_PREFIXES` (plus any ``extra_allowed_prefixes``
     provided at construction time).
+
+    For ``module == "builtins"``, a separate :data:`_ALLOWED_BUILTIN_NAMES`
+    frozenset is consulted instead of the broad prefix check — this blocks
+    dangerous execution builtins (``eval``, ``exec``, ``__import__``,
+    ``getattr``) while allowing safe container and value types.
 
     This prevents deserialization of arbitrary classes — the primary vector
     for pickle-based remote code execution attacks.
@@ -235,16 +281,42 @@ class RestrictedUnpickler(pickle.Unpickler):
     def find_class(self, module: str, name: str) -> Any:
         """Intercept class lookups and enforce the module allowlist.
 
+        For ``module == "builtins"``, the specific name is checked against
+        :data:`_ALLOWED_BUILTIN_NAMES` — a curated set of safe container and
+        value types.  Dangerous execution/reflection builtins (``eval``,
+        ``exec``, ``__import__``, ``getattr``, ``compile``, etc.) are NOT in
+        the allowlist and raise :exc:`SecurityError`.
+
+        For all other modules, the module path is checked against
+        :data:`_ALLOWED_MODULE_PREFIXES` (and any ``extra_allowed_prefixes``
+        passed at construction).
+
         Args:
             module: The module path from the pickle stream.
             name: The class or function name from the pickle stream.
 
         Returns:
-            The class object if ``module`` matches an allowed prefix.
+            The class object if ``module`` matches an allowed prefix and, for
+            ``builtins``, if ``name`` is in :data:`_ALLOWED_BUILTIN_NAMES`.
 
         Raises:
-            SecurityError: If ``module`` does not match any allowed prefix.
+            SecurityError: If ``module`` does not match any allowed prefix,
+                or if ``module == "builtins"`` and ``name`` is not in
+                :data:`_ALLOWED_BUILTIN_NAMES`.
         """
+        # Special-case builtins: use the explicit name allowlist, not a
+        # broad prefix match.  This blocks eval, exec, __import__, getattr,
+        # compile, globals, and other execution primitives that have no place
+        # in a ModelArtifact pickle payload.
+        if module == "builtins":
+            if name in _ALLOWED_BUILTIN_NAMES:
+                return getattr(builtins, name)
+            raise SecurityError(
+                f"Builtin '{name}' is not permitted during ModelArtifact "
+                f"deserialization. Only safe container and value types are "
+                f"allowed. See _ALLOWED_BUILTIN_NAMES for the full list."
+            )
+
         # Check if the module starts with any allowed prefix.
         # Note: we check the full module name AND each allowed prefix to
         # prevent attacks like "numpy_malicious" matching "numpy" prefix.
