@@ -3,6 +3,29 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-26] Phase 59 — Review Summary
+
+**Reviewers**: QA, DevOps, Architecture, Red-team
+
+**Verdicts**: DevOps — BLOCKER (1) + ADVISORY; Arch — FINDING (2 critical + 1 advisory); Red-team — FINDING (5) + 2 ADVISORY; QA — FINDING (2)
+
+**FINDINGs fixed in review commit** (`57270dd`):
+1. `docs/api/openapi.json` regenerated from live versioned app — all 4 reviewers flagged stale paths (BLOCKER)
+2. Frontend `client.ts` updated to `/api/v1/` paths; Vite proxy rewrite removed (Arch critical)
+3. Input validation: `max_length=255` on ConnectionCreateRequest fields, `max_length=10000` on settings value, `min_length=1` on RotateRequest passphrase (Red-team F1-F3)
+4. `GET /api/v1/connections` capped at `.limit(100)` (Red-team F4)
+5. ADR-0057 documents API versioning strategy (Arch)
+6. Frontend E2E tests updated for versioned paths
+7. Integration test for compliance erasure fixed for versioned router wiring
+
+**ADVISORIEs** (logged, not blocking):
+- CI SBOM omits synthesizer dependency group — document as dev-only subset (DevOps)
+- `asyncio.run()` in threadpool for budget refresh — reliability concern under concurrent load (Red-team)
+- `X-Forwarded-For` unconditionally trusted — deployment topology assumption (Red-team)
+- 400 error not in explicit COMMON_ERROR_RESPONSES — covered by FastAPI default handler (QA)
+
+---
+
 ### [2026-03-26] Phase 57 — Review Summary
 
 **Reviewers**: QA, DevOps, Architecture, Red-team
