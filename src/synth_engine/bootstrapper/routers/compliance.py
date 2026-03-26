@@ -100,6 +100,9 @@ class ErasureResponse(BaseModel):
         retained_audit_trail: Always ``True`` — required compliance evidence.
         retained_synthesized_output_justification: GDPR-basis explanation.
         retained_audit_trail_justification: GDPR-basis explanation.
+        audit_logged: ``True`` when the audit chain entry was written
+            successfully.  ``False`` indicates partial erasure — the DB
+            records were deleted but the audit trail entry failed.
     """
 
     subject_id: str
@@ -109,6 +112,7 @@ class ErasureResponse(BaseModel):
     retained_audit_trail: bool
     retained_synthesized_output_justification: str
     retained_audit_trail_justification: str
+    audit_logged: bool
 
     model_config = {"from_attributes": True}
 
@@ -132,6 +136,7 @@ class ErasureResponse(BaseModel):
                 manifest.retained_synthesized_output_justification
             ),
             retained_audit_trail_justification=manifest.retained_audit_trail_justification,
+            audit_logged=manifest.audit_logged,
         )
 
 
@@ -194,4 +199,11 @@ def erasure(
         actor=current_operator,
     )
 
-    return ErasureResponse.from_manifest(manifest)
+    response = ErasureResponse.from_manifest(manifest)
+    if not manifest.audit_logged:
+        _logger.warning(
+            "Erasure audit log failed for subject (ID withheld — no PII in logs). "
+            "DB records deleted but audit chain entry was not written. "
+            "Manual audit chain reconciliation required.",
+        )
+    return response

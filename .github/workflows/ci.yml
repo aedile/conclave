@@ -394,7 +394,6 @@ jobs:
           # env_file: .env in docker-compose.yml forwards these to the container.
           {
             echo "CONCLAVE_ENV=development"
-            echo "ENV=development"
             echo "DATABASE_URL=postgresql+asyncpg://conclave:${CI_PG_PASSWORD}@pgbouncer:5432/conclave"
             echo "AUDIT_KEY=$(openssl rand -hex 32)"
             echo "ARTIFACT_SIGNING_KEY=$(openssl rand -hex 32)"

@@ -510,18 +510,26 @@ def test_validation_error_does_not_expose_database_url_value(
     from pydantic import ValidationError
 
     monkeypatch.setenv("CONCLAVE_ENV", "production")
-    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://user:S3cr3tP@ss@localhost/db",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
 
     from synth_engine.shared.settings import ConclaveSettings
 
-    # DATABASE_URL is empty — triggers the validator
+    # DATABASE_URL contains credentials — the validator must not echo it back.
+    # We deliberately set a non-empty (but syntactically valid) URL so we can
+    # trigger a production-mode error via an absent AUDIT_KEY-style failure,
+    # then assert the URL value never appears in error output.  We clear
+    # AUDIT_KEY so the validator still raises.
+    monkeypatch.setenv("AUDIT_KEY", "")  # force a validation error
 
     try:
         ConclaveSettings()
     except ValidationError as exc:
         error_text = str(exc)
-        # The raw URL value must not appear verbatim in error messages
+        # The raw URL value — including the password — must NOT appear in error messages.
         assert "S3cr3tP@ss" not in error_text, (
             f"ValidationError must not expose raw DATABASE_URL credentials: got {error_text!r}"
         )
@@ -826,9 +834,13 @@ def test_env_alias_deprecation_emits_warning_when_used(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Using ENV= (legacy alias) must emit a deprecation WARNING.
+    """Using ENV= (legacy alias) must emit a deprecation WARNING and a conflict WARNING.
 
     Operators relying on ENV= must be notified to migrate to CONCLAVE_ENV=.
+    When ENV and CONCLAVE_ENV differ (here: ENV=development, CONCLAVE_ENV=production),
+    the conflict-warning guard must fire regardless of the CONCLAVE_ENV value (T57.6).
+    The broken guard ``and self.conclave_env != "production"`` suppressed this warning
+    when conclave_env was the default "production" — this test encodes the correct behavior.
     """
     monkeypatch.setenv("ENV", "development")
     # CONCLAVE_ENV unset — defaults to "production", so we must set DATABASE_URL and AUDIT_KEY
@@ -845,12 +857,23 @@ def test_env_alias_deprecation_emits_warning_when_used(
         ConclaveSettings()
 
     warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+    # Assertion 1: deprecation warning must fire.
     assert any(
         "env" in msg.lower() and ("deprecat" in msg.lower() or "conclave_env" in msg.lower())
         for msg in warning_messages
     ), (
         "Using ENV= must emit a deprecation WARNING mentioning CONCLAVE_ENV: "
         f"got: {warning_messages}"
+    )
+    # Assertion 2: conflict warning must ALSO fire when ENV and CONCLAVE_ENV differ.
+    # Previously suppressed by the broken ``and self.conclave_env != "production"`` guard.
+    assert any(
+        "conflict" in msg.lower() or "takes precedence" in msg.lower() for msg in warning_messages
+    ), (
+        "When ENV and CONCLAVE_ENV differ, a conflict WARNING must fire regardless of "
+        "whether conclave_env is 'production'. The broken guard suppressed this warning "
+        "when conclave_env was default 'production'. "
+        f"Got warnings: {warning_messages}"
     )
 
 

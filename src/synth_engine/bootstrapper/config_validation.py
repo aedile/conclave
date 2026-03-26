@@ -8,8 +8,7 @@ Required in all deployment modes:
   - ``DATABASE_URL``  — async-compatible PostgreSQL DSN (e.g. ``postgresql+asyncpg://...``).
   - ``AUDIT_KEY``     — hex-encoded HMAC key for the audit logger.
 
-Required additionally in production mode (``ENV=production`` or
-``CONCLAVE_ENV=production``):
+Required additionally in production mode (``CONCLAVE_ENV=production`` — ``ENV=`` is deprecated):
   - ``ARTIFACT_SIGNING_KEY`` — hex-encoded HMAC key for ModelArtifact pickle signing.
   - ``MASKING_SALT``         — secret salt for deterministic HMAC masking.  Without
     this, production masking falls back to a hardcoded development salt, making
@@ -315,7 +314,7 @@ def validate_config() -> None:
     """Validate required environment variables at application startup.
 
     Checks that all required environment variables are set and non-empty.
-    In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
+    In production mode (``CONCLAVE_ENV=production`` — ``ENV=`` is deprecated),
     also validates that ``ARTIFACT_SIGNING_KEY``, ``MASKING_SALT``,
     ``JWT_SECRET_KEY``, and ``OPERATOR_CREDENTIALS_HASH`` are present and
     correctly formed.

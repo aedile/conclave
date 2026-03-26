@@ -263,11 +263,8 @@ class ConclaveSettings(BaseSettings):
     env: str = Field(
         default="",
         description=(
-            "DEPRECATED: Legacy deployment environment alias. "
-            "Use CONCLAVE_ENV= instead. "
-            "When set and CONCLAVE_ENV is absent, the value is copied to conclave_env. "
-            "When both ENV and CONCLAVE_ENV are set and conflict, CONCLAVE_ENV wins. "
-            "A deprecation WARNING is emitted whenever ENV= is used (T57.6)."
+            "Deprecated. Use CONCLAVE_ENV instead. When set, a deprecation warning is logged. "
+            "The effective mode is always determined by conclave_env (default: production)."
         ),
     )
 
@@ -618,7 +615,7 @@ class ConclaveSettings(BaseSettings):
                 "Current value: ENV=%r",
                 self.env,
             )
-            if self.env.lower() != self.conclave_env.lower() and self.conclave_env != "production":
+            if self.env.lower() != self.conclave_env.lower():
                 # Both are explicitly set and conflict — conclave_env wins.
                 _logger.warning(
                     "ENV=%r and CONCLAVE_ENV=%r conflict; CONCLAVE_ENV takes precedence (T57.6).",
