@@ -654,7 +654,7 @@ def test_v3_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> N
 
 
 def test_failed_v1_verification_logs_warning(
-    logger_instance: "AuditLogger",  # noqa: F821
+    logger_instance: AuditLogger,  # type: ignore[name-defined]  # noqa: F821
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """verify_event() logs WARNING when a v1 event fails HMAC verification.
@@ -693,12 +693,8 @@ def test_failed_v1_verification_logs_warning(
 
     # The warning message must include identifying event fields
     warning_text = " ".join(r.getMessage() for r in warning_records)
-    assert "TEST_EVENT" in warning_text, (
-        f"WARNING must include event_type; got: {warning_text!r}"
-    )
-    assert "attacker" in warning_text, (
-        f"WARNING must include actor; got: {warning_text!r}"
-    )
+    assert "TEST_EVENT" in warning_text, f"WARNING must include event_type; got: {warning_text!r}"
+    assert "attacker" in warning_text, f"WARNING must include actor; got: {warning_text!r}"
 
     # Must NOT include the raw signature hex (oracle risk)
     assert "deadbeef" not in warning_text, (
@@ -707,7 +703,7 @@ def test_failed_v1_verification_logs_warning(
 
 
 def test_failed_v2_verification_logs_warning(
-    logger_instance: "AuditLogger",  # noqa: F821
+    logger_instance: AuditLogger,  # type: ignore[name-defined]  # noqa: F821
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """verify_event() logs WARNING when a v2 event fails HMAC verification.
@@ -746,12 +742,8 @@ def test_failed_v2_verification_logs_warning(
 
     # The warning message must include identifying event fields
     warning_text = " ".join(r.getMessage() for r in warning_records)
-    assert "TEST_EVENT" in warning_text, (
-        f"WARNING must include event_type; got: {warning_text!r}"
-    )
-    assert "attacker" in warning_text, (
-        f"WARNING must include actor; got: {warning_text!r}"
-    )
+    assert "TEST_EVENT" in warning_text, f"WARNING must include event_type; got: {warning_text!r}"
+    assert "attacker" in warning_text, f"WARNING must include actor; got: {warning_text!r}"
 
     # Must NOT include the raw signature hex (oracle risk)
     assert "cafebabe" not in warning_text, (

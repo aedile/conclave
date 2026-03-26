@@ -616,8 +616,7 @@ def test_unrecognized_conclave_env_var_logs_warning(
     warning_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     matching = [m for m in warning_messages if "CONCLAVE_UNKNOWN_SETTING" in m]
     assert len(matching) >= 1, (
-        f"Expected a WARNING mentioning CONCLAVE_UNKNOWN_SETTING; "
-        f"got warnings: {warning_messages}"
+        f"Expected a WARNING mentioning CONCLAVE_UNKNOWN_SETTING; got warnings: {warning_messages}"
     )
 
 

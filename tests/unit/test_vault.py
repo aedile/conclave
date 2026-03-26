@@ -429,12 +429,8 @@ def test_vault_state_is_sealed_and_kek_have_classvar_annotations() -> None:
 
     annotations = typing.get_type_hints(VaultState, include_extras=True)
 
-    assert "_is_sealed" in annotations, (
-        "VaultState._is_sealed must have a type annotation"
-    )
-    assert "_kek" in annotations, (
-        "VaultState._kek must have a type annotation"
-    )
+    assert "_is_sealed" in annotations, "VaultState._is_sealed must have a type annotation"
+    assert "_kek" in annotations, "VaultState._kek must have a type annotation"
 
     # Verify ClassVar wrapping — get_type_hints strips ClassVar on Python < 3.11,
     # so we inspect __annotations__ directly to confirm the raw string contains ClassVar.

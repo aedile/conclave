@@ -322,3 +322,12 @@ vault_health  # unused function — bootstrapper/routers/health.py; FastAPI rout
 _reaper_tasks  # unused import — side-effect: registers Huey reaper task at import time (wiring.py)
 _retention_tasks  # unused import — side-effect: registers Huey retention tasks at import time (wiring.py)
 _security_rotation  # unused import — side-effect: registers ALE key rotation Huey task (wiring.py)
+
+# ---------------------------------------------------------------------------
+# Category R — P58 model_validator methods in ConclaveSettings
+# _warn_unrecognized_conclave_env_vars is a Pydantic model_validator decorated
+# method — it is called by Pydantic at model construction time, never directly.
+# Vulture cannot trace the indirect invocation via @model_validator(mode="after").
+# ---------------------------------------------------------------------------
+
+_warn_unrecognized_conclave_env_vars  # Pydantic model_validator — called at construction time

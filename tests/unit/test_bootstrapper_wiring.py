@@ -363,11 +363,14 @@ class TestWebhookDeliveryExceptionHandling:
         The delivery function must not propagate the exception — it must catch it,
         log it, and return silently to preserve the "never crash the job" contract.
         """
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from sqlalchemy.exc import SQLAlchemyError
 
-        monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")  # pragma: allowlist secret
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql://user:pass@localhost/db",  # pragma: allowlist secret
+        )
         monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
         monkeypatch.setenv("CONCLAVE_ENV", "development")
 
@@ -398,7 +401,10 @@ class TestWebhookDeliveryExceptionHandling:
         """
         from unittest.mock import patch
 
-        monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")  # pragma: allowlist secret
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql://user:pass@localhost/db",  # pragma: allowlist secret
+        )
         monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
         monkeypatch.setenv("CONCLAVE_ENV", "development")
 
@@ -407,11 +413,11 @@ class TestWebhookDeliveryExceptionHandling:
         deliver_fn = _build_webhook_delivery_fn()
 
         # Inject a totally unexpected programming error (not a DB/network error)
-        class _ProgrammingBug(RuntimeError):
+        class _ProgrammingBugError(RuntimeError):
             pass
 
         with patch("synth_engine.bootstrapper.wiring.get_engine") as mock_engine:
-            mock_engine.side_effect = _ProgrammingBug("unexpected internal error")
+            mock_engine.side_effect = _ProgrammingBugError("unexpected internal error")
             with patch("synth_engine.bootstrapper.wiring._logger") as mock_logger:
                 # Must not raise
                 deliver_fn(job_id=99, status="COMPLETE")

@@ -563,9 +563,7 @@ class TestDataDrivenExceptionHandlers:
         """_OPERATOR_ERROR_HANDLERS must be defined in router_registry.py."""
         from synth_engine.bootstrapper.router_registry import _OPERATOR_ERROR_HANDLERS
 
-        assert isinstance(_OPERATOR_ERROR_HANDLERS, list), (
-            "_OPERATOR_ERROR_HANDLERS must be a list"
-        )
+        assert isinstance(_OPERATOR_ERROR_HANDLERS, list), "_OPERATOR_ERROR_HANDLERS must be a list"
         assert len(_OPERATOR_ERROR_HANDLERS) >= 9, (
             f"_OPERATOR_ERROR_HANDLERS must contain at least 9 exception types; "
             f"got {len(_OPERATOR_ERROR_HANDLERS)}"
@@ -599,9 +597,7 @@ class TestDataDrivenExceptionHandlers:
         }
         registered = set(_OPERATOR_ERROR_HANDLERS)
         missing = expected - registered
-        assert not missing, (
-            f"_OPERATOR_ERROR_HANDLERS is missing exception types: {missing}"
-        )
+        assert not missing, f"_OPERATOR_ERROR_HANDLERS is missing exception types: {missing}"
 
     def test_privilege_escalation_response_uses_static_detail_string(self) -> None:
         """PrivilegeEscalationError handler must use STATIC detail — not str(exc).
