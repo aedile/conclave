@@ -164,7 +164,7 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P52-06~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~Dead `"safe_load"` filter logic fixed at `test_benchmark_infrastructure.py` — RESOLVED in P53.~~ |
 | ~~ADV-P52-07~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~README metrics updated to current counts — RESOLVED in P53.~~ |
 | ~~ADV-P52-08~~ | ~~Boundary Audit P52~~ | P53 drain | ~~ADVISORY~~ | ~~Stale branches and worktrees cleaned — RESOLVED in P53.~~ |
-| ADV-P53-01 | Red-Team P53 | — | ADVISORY | HMAC pipe-delimiter injection — structural collision if fields contain `|`. Fields are system-controlled; future hardening: length-prefixed encoding. |
+| ~~ADV-P53-01~~ | ~~Red-Team P53~~ | fix/ADV-P53-01 drain | ~~ADVISORY~~ | ~~HMAC pipe-delimiter injection — RESOLVED in fix/ADV-P53-01-hmac-length-prefixed: v3 length-prefixed HMAC format implemented; `_sign_v3` uses 4-byte big-endian length prefixes eliminating field-boundary collisions. 10 attack tests added. All new events use v3: format.~~ |
 | ~~ADV-P53-02~~ | ~~Red-Team P53~~ | P55 drain | ~~ADVISORY~~ | ~~WARNING logged on v1 HMAC signature verification, deprecation by Phase 60 — RESOLVED in P55 advisory drain.~~ |
 | ~~ADV-P53-03~~ | ~~Arch P53~~ | P55 drain | ~~ADVISORY~~ | ~~cosmic-ray.toml annotated with P55 security test files — RESOLVED in P55 advisory drain.~~ |
 | ~~ADV-P53-04~~ | ~~PM P53 CI~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutation-test CI job removed from CI entirely — runs as local PM gate instead (ADR-0054 amendment). RESOLVED in P53.~~ |
