@@ -3,6 +3,23 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-26] Phase 58 — Review Summary
+
+**Reviewers**: Red-team, Architecture, DevOps (QA agent crashed — API 500)
+
+**Verdicts**: Red-team — PASS (0 findings); Arch — PASS (1 ADVISORY); DevOps — FINDING (1 BLOCKER)
+
+**BLOCKERs fixed in commit** (`d4761d3`):
+1. `_warn_unrecognized_conclave_env_vars()` logged raw env var values at WARNING — replaced with redacted `"***"` (DevOps BLOCKER)
+
+**ADVISORIEs** (logged, not blocking):
+- Dead `_sign_v1/_sign_v2/_sign_v3` wrapper methods on AuditLogger — 78 lines of vestigial code after extraction to standalone functions (Arch)
+- Consider adding `unexpected_webhook_errors_total` Prometheus counter on wiring.py CRITICAL branch (DevOps)
+
+**T58.5 (settings sub-models) DEFERRED**: Breaking configuration change requires ADR and extensive deployment testing. Not suitable for a quality-hardening phase.
+
+---
+
 ### [2026-03-26] Phase 59 — Review Summary
 
 **Reviewers**: QA, DevOps, Architecture, Red-team

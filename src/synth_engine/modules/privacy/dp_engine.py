@@ -11,20 +11,31 @@ Boundary constraints (import-linter enforced):
   - Must NOT import from ``modules/synthesizer/``.
   - Must NOT import from ``modules/ingestion/``, ``modules/masking/``,
     ``modules/profiler/``, or ``modules/subsetting/``.
-  - Cross-module data transfer uses only generic PyTorch types (``Any``).
+  - Cross-module data transfer uses TYPE_CHECKING-guarded PyTorch types so
+    that environments without the synthesizer group do not fail at import time.
 
 Task: P4-T4.3b — DP Engine Wiring
 Task: P7-T7.3 — Opacus End-to-End Wiring (adds constructor params; drains ADV-048)
 Task: P26-T26.2 — Exception Hierarchy (BudgetExhaustionError moved to shared)
 ADR: ADR-0017 (CTGAN + Opacus; RDP accountant for Epsilon tracking)
 Task: T47.9 — Scrub epsilon from check_budget() BudgetExhaustionError; log via WARNING
+Task: T58.1 — Replace Any with TYPE_CHECKING-guarded Opacus/PyTorch types
 """
 
 from __future__ import annotations
 
 import logging
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    # These are PyTorch types used only in method annotations.
+    # PEP 563 (from __future__ import annotations) makes all annotations
+    # lazy strings — they are NEVER evaluated at runtime.  Therefore these
+    # imports do NOT cause ImportError/NameError when torch is absent.
+    from torch.nn import Module
+    from torch.optim import Optimizer
+    from torch.utils.data import DataLoader
 
 from synth_engine.shared.exceptions import BudgetExhaustionError
 
@@ -39,11 +50,17 @@ _logger = logging.getLogger(__name__)
 #
 # PrivacyEngine is bound at module scope for unit-test patching:
 #   patch('synth_engine.modules.privacy.dp_engine.PrivacyEngine')
+#
+# PrivacyEngine is intentionally NOT in the TYPE_CHECKING block above —
+# it is needed at runtime (PrivacyEngine() constructor call in wrap()).
+# The instance attribute annotation ``self._privacy_engine: PrivacyEngine | None``
+# uses the runtime name.  When opacus is absent (pragma: no cover branch),
+# PrivacyEngine is None and wrap() raises ImportError before instantiating.
 # ---------------------------------------------------------------------------
 try:
     from opacus import PrivacyEngine
 except ImportError:  # pragma: no cover — only triggered if synthesizer group absent
-    PrivacyEngine = None  # Opacus not installed; DP training unavailable
+    PrivacyEngine = None  # type: ignore  # pragma: no cover (opacus absent fallback)
 
 #: Default maximum L2 norm for per-sample gradient clipping.
 _DEFAULT_MAX_GRAD_NORM: float = 1.0
@@ -63,16 +80,6 @@ class DPTrainingWrapper:
     A single :class:`DPTrainingWrapper` instance is single-use — calling
     :meth:`wrap` twice raises :exc:`RuntimeError`.  This prevents accidental
     double-wrapping that would corrupt Epsilon accounting.
-
-    T7.3 addition: ``max_grad_norm`` and ``noise_multiplier`` are now accepted
-    as constructor arguments and stored on the instance.  This allows the
-    bootstrapper factory ``build_dp_wrapper()`` to configure the wrapper at
-    construction time, and allows ``DPCompatibleCTGAN.fit()`` to read these
-    values via duck-typing when calling :meth:`wrap`.
-
-    Backward compatibility: both parameters default to the canonical values
-    (``max_grad_norm=1.0``, ``noise_multiplier=1.1``), so existing callers
-    that construct ``DPTrainingWrapper()`` without arguments continue to work.
 
     Usage::
 
@@ -135,23 +142,24 @@ class DPTrainingWrapper:
         #: Readable by downstream callers (e.g. DPCompatibleCTGAN) via duck-typing.
         self.noise_multiplier: float = noise_multiplier
 
-        self._privacy_engine: Any = None  # set by wrap()
+        #: The Opacus PrivacyEngine instance, set by wrap().  None until wrap() is called.
+        self._privacy_engine: PrivacyEngine | None = None
         self._wrapped: bool = False
         #: The Opacus-wrapped ``GradSampleModule`` returned by ``make_private()``.
         #: Set by :meth:`wrap`.  Callers that need to disable/enable Opacus grad-sample
         #: hooks during Generator steps (to avoid Poisson sampling conflicts) may
         #: access this attribute after :meth:`wrap` returns.
-        self.wrapped_module: Any = None  # set by wrap()
+        self.wrapped_module: Module | None = None
 
     def wrap(
         self,
-        optimizer: Any,
-        model: Any,
-        dataloader: Any,
+        optimizer: Optimizer,
+        model: Module,
+        dataloader: DataLoader[Any],
         *,
         max_grad_norm: float,
         noise_multiplier: float,
-    ) -> Any:
+    ) -> Optimizer:
         """Wrap optimizer with Opacus PrivacyEngine for DP-SGD training.
 
         Constructs an Opacus :class:`~opacus.PrivacyEngine`, calls
@@ -238,7 +246,10 @@ class DPTrainingWrapper:
         self.wrapped_module = _dp_model
 
         _logger.info("Opacus PrivacyEngine active — DP-SGD optimizer installed.")
-        return dp_optimizer
+        # Opacus DPOptimizer is a subclass of Optimizer; cast to satisfy mypy's
+        # no-any-return check — Opacus stubs type the make_private() return union
+        # in a way that mypy cannot resolve to Optimizer without an explicit cast.
+        return cast("Optimizer", dp_optimizer)
 
     def epsilon_spent(self, *, delta: float) -> float:
         """Return the cumulative Epsilon spent so far in this training run.

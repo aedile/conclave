@@ -411,3 +411,36 @@ def test_vault_state_has_class_level_lock() -> None:
     assert isinstance(VaultState._lock, type(threading.Lock())), (  # type: ignore[attr-defined]
         "_lock must be a threading.Lock instance"
     )
+
+
+def test_vault_state_is_sealed_and_kek_have_classvar_annotations() -> None:
+    """VaultState._is_sealed and _kek must be annotated as ClassVar.
+
+    ClassVar annotation ensures mypy and static analysis tools correctly
+    model these as class-level attributes, not instance attributes.
+    This test inspects __annotations__ on the class to confirm both fields
+    carry ClassVar-typed annotations.
+
+    Task: P58 — Fix ClassVar annotations on VaultState._is_sealed and _kek
+    """
+    import typing
+
+    from synth_engine.shared.security.vault import VaultState
+
+    annotations = typing.get_type_hints(VaultState, include_extras=True)
+
+    assert "_is_sealed" in annotations, "VaultState._is_sealed must have a type annotation"
+    assert "_kek" in annotations, "VaultState._kek must have a type annotation"
+
+    # Verify ClassVar wrapping — get_type_hints strips ClassVar on Python < 3.11,
+    # so we inspect __annotations__ directly to confirm the raw string contains ClassVar.
+    raw_annotations: dict[str, object] = VaultState.__annotations__
+    is_sealed_annotation = str(raw_annotations.get("_is_sealed", ""))
+    kek_annotation = str(raw_annotations.get("_kek", ""))
+
+    assert "ClassVar" in is_sealed_annotation, (
+        f"VaultState._is_sealed annotation must use ClassVar; got: {is_sealed_annotation!r}"
+    )
+    assert "ClassVar" in kek_annotation, (
+        f"VaultState._kek annotation must use ClassVar; got: {kek_annotation!r}"
+    )

@@ -249,6 +249,9 @@ def get_current_operator(request: Request) -> str:
             )
         # Non-production pass-through: return sentinel "".
         # This matches the default owner_id for pre-T39.2 resources.
+        # T58.2: Populate jwt_claims with empty dict so require_scope does not
+        # get AttributeError when reading request.state.jwt_claims.
+        request.state.jwt_claims = {}
         return ""
 
     auth_header: str | None = request.headers.get("Authorization")
@@ -290,6 +293,9 @@ def get_current_operator(request: Request) -> str:
             detail="Token sub claim must not be empty.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # T58.2: Cache decoded claims on request.state so require_scope can read
+    # them without a second call to verify_token (eliminates double-decode).
+    request.state.jwt_claims = claims
     return sub
 
 
@@ -349,7 +355,8 @@ def require_scope(scope: str) -> Callable[..., str]:
             The operator sub claim on success.
 
         Raises:
-            HTTPException: 401 if JWT is unconfigured in production mode.
+            HTTPException: 401 if JWT is unconfigured in production mode, or if
+                request.state.jwt_claims is absent (middleware reorder guard).
                 403 Forbidden if the scope claim is absent, not a list,
                 or does not contain the required scope.
         """
@@ -367,27 +374,21 @@ def require_scope(scope: str) -> Callable[..., str]:
             # Non-production pass-through: no JWT configured → skip scope check.
             return operator
 
-        # Extract and re-verify the token to read scope claims.
-        # get_current_operator has already verified token authenticity.
-        # Re-reading from headers is safe — we need the claims dict.
-        auth_header: str | None = request.headers.get("Authorization")
-        if auth_header is None or not auth_header.startswith("Bearer "):
-            # Defensive: this branch is unreachable if get_current_operator
-            # ran first (it would have raised 401 already).
+        # T58.2: Read claims from request.state.jwt_claims (set by
+        # get_current_operator during token verification).  This eliminates
+        # the second call to verify_token that the previous implementation
+        # performed by re-parsing the Authorization header.
+        #
+        # If jwt_claims is absent (e.g. middleware reorder or direct call
+        # bypassing get_current_operator), raise 401 rather than AttributeError.
+        if not hasattr(request.state, "jwt_claims"):
             raise HTTPException(
-                status_code=403,
-                detail="Forbidden. Required scope not present.",
+                status_code=401,
+                detail="Authentication required. Provide a valid Bearer token.",
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
-        token = auth_header[len("Bearer ") :]
-        try:
-            claims = verify_token(token)
-        except AuthenticationError as exc:
-            raise HTTPException(
-                status_code=403,
-                detail="Forbidden. Required scope not present.",
-            ) from exc
-
+        claims = request.state.jwt_claims
         raw_scope = claims.get("scope")
 
         # SECURITY: scope MUST be a list.  A bare string is an injection

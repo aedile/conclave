@@ -1,75 +1,20 @@
 """FastAPI router for readiness probe and vault health endpoints.
 
 Implements:
-- ``GET /ready`` — Kubernetes readiness probe that checks all external
-  dependencies AND vault seal status.  A sealed worker MUST NOT be marked
-  ready — it has no access to encryption keys and cannot safely serve traffic.
-- ``GET /health/vault`` — Per-worker vault seal status report.  Returns the
-  vault seal state and this worker's PID.  Useful for multi-worker deployments
-  where each worker must be individually unsealed.
-
-Dependency checks (``/ready``)
--------------------------------
-Three checks are performed concurrently via ``asyncio.gather``:
-
-1. **database** — executes ``SELECT 1`` via the shared async SQLAlchemy engine
-   from :func:`~synth_engine.shared.db.get_async_engine`.  The shared engine
-   has ``pool_pre_ping=True`` and is reused across probes (no per-probe
-   engine creation overhead).
-2. **cache** — sends ``PING`` to Redis via the sync client (run in thread).
-3. **object_store** — calls ``head_bucket`` on the configured MinIO bucket
-   (run in thread).  Skipped and reported as ``"skipped"`` when MinIO is not
-   configured (Docker secrets absent).
-
-Each check has an individual 3-second timeout enforced by
-``asyncio.wait_for``.  A single slow dependency cannot hang the entire probe.
-
-Vault seal check
-----------------
-After all dependency checks, the vault seal state is evaluated.  If the vault
-is sealed, the response status is ``503`` and the body includes
-``"vault_sealed": true`` — regardless of dependency check results.  A sealed
-worker MUST NOT be admitted to the load-balancer pool.
+- ``GET /ready`` — Kubernetes readiness probe.  Checks database (SELECT 1),
+  Redis (PING), and MinIO (head_bucket) concurrently with 3-second timeouts.
+  Returns 503 if any check fails OR if the vault is sealed.
+- ``GET /health/vault`` — Per-worker vault seal status.  Always 200 OK.
 
 Security properties
 -------------------
-- **No information leakage**: the 503 response body uses generic service names
-  (``database``, ``cache``, ``object_store``) and never includes internal
-  hostnames, ports, connection strings, or exception messages.
-- **Auth/seal exempt**: ``/ready`` and ``/health/vault`` are added to
-  ``COMMON_INFRA_EXEMPT_PATHS`` so they bypass ``SealGateMiddleware`` and
-  ``AuthenticationGateMiddleware``.  The seal gate must not block the
-  endpoint that reports on the seal state — that would create a deadlock.
-- **Rate limiting**: ``RateLimitGateMiddleware`` still applies — ``/ready``
-  is subject to the ``general_limit`` tier to prevent DDoS via probe endpoint.
+- No information leakage: 503 body uses generic names (database, cache,
+  object_store) — no hostnames, ports, or exception messages.
+- Auth/seal exempt: both endpoints are in ``COMMON_INFRA_EXEMPT_PATHS`` to
+  avoid a deadlock where the seal gate blocks the seal-status endpoint.
+- Rate limited: ``/ready`` is subject to the general_limit tier.
 
-HTTP status mapping
--------------------
-``/ready``:
-- ``200 OK`` — all configured dependency checks passed AND vault is unsealed.
-- ``503 Service Unavailable`` — one or more checks failed OR vault is sealed.
-
-``/health/vault``:
-- Always ``200 OK`` — this endpoint reports status; it is never unhealthy.
-
-Response schema (``/ready``, both 200 and 503)::
-
-    {
-        "status": "ok" | "degraded",
-        "vault_sealed": bool,
-        "checks": {
-            "database": "ok" | "error",
-            "cache": "ok" | "error",
-            "object_store": "ok" | "error" | "skipped"  # present only when checked
-        }
-    }
-
-Response schema (``/health/vault``)::
-
-    {
-        "vault_sealed": bool,
-        "worker_id": str
-    }
+Response schema is published in OpenAPI (see ``docs/api/openapi.json``).
 
 CONSTITUTION Priority 0: Security — no info leakage, exempt from auth/seal gates
 Task: T48.3 — Readiness Probe & External Dependency Health Checks

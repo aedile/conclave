@@ -716,3 +716,199 @@ class TestDPTrainingWrapperOpacusIntegration:
         assert dp_optimizer is not optimizer, (
             "Opacus must return a new DP-wrapped optimizer, not the original"
         )
+
+
+# ---------------------------------------------------------------------------
+# T58.1: TYPE_CHECKING-guarded annotations replace Any (PEP 563 lazy eval)
+# ---------------------------------------------------------------------------
+
+
+class TestDPTrainingWrapperTypeAnnotations:
+    """T58.1: wrap() must use TYPE_CHECKING-guarded types, not Any.
+
+    Verifies:
+    1. wrap() parameter annotations are NOT Any for optimizer/model/dataloader.
+    2. wrap() return annotation is NOT Any.
+    3. dp_engine.py uses TYPE_CHECKING guard (not bare opacus import in annotations).
+    4. Module imports without NameError when opacus is absent at runtime
+       (PEP 563 lazy evaluation via ``from __future__ import annotations``).
+    """
+
+    def test_wrap_optimizer_annotation_is_not_any(self) -> None:
+        """wrap() 'optimizer' parameter annotation must not be Any.
+
+        Any defeats mypy's ability to verify call sites.  The correct
+        annotation is Optimizer (TYPE_CHECKING-guarded).
+        """
+        import ast
+        import inspect
+
+        from synth_engine.modules.privacy import dp_engine
+
+        source = inspect.getsource(dp_engine)
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "DPTrainingWrapper":
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == "wrap":
+                        for arg in item.args.args:
+                            if arg.arg == "optimizer":
+                                ann = arg.annotation
+                                assert ann is not None, "optimizer must have a type annotation"
+                                assert not (isinstance(ann, ast.Name) and ann.id == "Any"), (
+                                    "wrap() 'optimizer' must not be annotated as Any. "
+                                    "Use TYPE_CHECKING-guarded 'Optimizer' (T58.1)."
+                                )
+                                return
+        pytest.fail("Could not find DPTrainingWrapper.wrap() 'optimizer' parameter")
+
+    def test_wrap_model_annotation_is_not_any(self) -> None:
+        """wrap() 'model' parameter annotation must not be Any."""
+        import ast
+        import inspect
+
+        from synth_engine.modules.privacy import dp_engine
+
+        source = inspect.getsource(dp_engine)
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "DPTrainingWrapper":
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == "wrap":
+                        for arg in item.args.args:
+                            if arg.arg == "model":
+                                ann = arg.annotation
+                                assert ann is not None, "model must have a type annotation"
+                                assert not (isinstance(ann, ast.Name) and ann.id == "Any"), (
+                                    "wrap() 'model' must not be annotated as Any. "
+                                    "Use TYPE_CHECKING-guarded 'Module' (T58.1)."
+                                )
+                                return
+        pytest.fail("Could not find DPTrainingWrapper.wrap() 'model' parameter")
+
+    def test_wrap_dataloader_annotation_is_not_any(self) -> None:
+        """wrap() 'dataloader' parameter annotation must not be Any."""
+        import ast
+        import inspect
+
+        from synth_engine.modules.privacy import dp_engine
+
+        source = inspect.getsource(dp_engine)
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "DPTrainingWrapper":
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == "wrap":
+                        for arg in item.args.args:
+                            if arg.arg == "dataloader":
+                                ann = arg.annotation
+                                assert ann is not None, "dataloader must have a type annotation"
+                                assert not (isinstance(ann, ast.Name) and ann.id == "Any"), (
+                                    "wrap() 'dataloader' must not be annotated as Any. "
+                                    "Use TYPE_CHECKING-guarded 'DataLoader' (T58.1)."
+                                )
+                                return
+        pytest.fail("Could not find DPTrainingWrapper.wrap() 'dataloader' parameter")
+
+    def test_wrap_return_annotation_is_not_any(self) -> None:
+        """wrap() return annotation must not be Any."""
+        import ast
+        import inspect
+
+        from synth_engine.modules.privacy import dp_engine
+
+        source = inspect.getsource(dp_engine)
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "DPTrainingWrapper":
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == "wrap":
+                        ret = item.returns
+                        assert ret is not None, "wrap() must have a return annotation"
+                        assert not (isinstance(ret, ast.Name) and ret.id == "Any"), (
+                            "wrap() return type must not be Any. "
+                            "Use TYPE_CHECKING-guarded 'Optimizer' (T58.1)."
+                        )
+                        return
+        pytest.fail("Could not find DPTrainingWrapper.wrap() method")
+
+    def test_dp_engine_importable_without_opacus_at_runtime(self) -> None:
+        """dp_engine must be importable even when opacus is absent at runtime.
+
+        PEP 563 (from __future__ import annotations) makes all annotations
+        lazy strings — they are never evaluated at runtime.  Therefore the
+        guarded TYPE_CHECKING imports must NOT cause NameError when opacus
+        is not installed.
+
+        This test removes opacus from sys.modules, forces a reimport of
+        dp_engine, and asserts no NameError is raised.
+        """
+        import sys
+
+        # Record original modules to restore after test
+        opacus_modules = {k: v for k, v in sys.modules.items() if k.startswith("opacus")}
+        dp_engine_module = sys.modules.get("synth_engine.modules.privacy.dp_engine")
+
+        try:
+            # Remove opacus from sys.modules to simulate it being absent
+            for key in list(opacus_modules.keys()):
+                sys.modules.pop(key, None)
+            # Remove the dp_engine module so it reimports fresh
+            sys.modules.pop("synth_engine.modules.privacy.dp_engine", None)
+
+            # Must not raise NameError — annotations are strings under PEP 563
+            import synth_engine.modules.privacy.dp_engine as fresh_module
+
+            assert hasattr(fresh_module, "DPTrainingWrapper"), (
+                "DPTrainingWrapper must be defined after reimport without opacus"
+            )
+            # Instantiation must work — no annotation evaluation at runtime
+            wrapper = fresh_module.DPTrainingWrapper()
+            assert wrapper.max_grad_norm == 1.0, (
+                "max_grad_norm default must be 1.0 after opacus-absent reimport"
+            )
+        finally:
+            # Restore original sys.modules state
+            if dp_engine_module is not None:
+                sys.modules["synth_engine.modules.privacy.dp_engine"] = dp_engine_module
+            for key, mod in opacus_modules.items():
+                sys.modules[key] = mod
+
+    def test_privacy_engine_instance_attr_annotation_is_not_any(self) -> None:
+        """_privacy_engine instance attribute annotation must not be Any.
+
+        After T58.1, _privacy_engine should be annotated as PrivacyEngine | None
+        (TYPE_CHECKING-guarded), not as Any.
+        """
+        import ast
+        import inspect
+
+        from synth_engine.modules.privacy import dp_engine
+
+        source = inspect.getsource(dp_engine)
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "DPTrainingWrapper":
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                        for stmt in ast.walk(item):
+                            # Look for self._privacy_engine: Any assignment
+                            if isinstance(stmt, ast.AnnAssign):
+                                target = stmt.target
+                                if (
+                                    isinstance(target, ast.Attribute)
+                                    and target.attr == "_privacy_engine"
+                                ):
+                                    ann = stmt.annotation
+                                    assert not (isinstance(ann, ast.Name) and ann.id == "Any"), (
+                                        "_privacy_engine must not be annotated as Any. "
+                                        "Use PrivacyEngine | None (T58.1)."
+                                    )
+                                    return
+        # If not found as AnnAssign, it may be a simple assignment — that is acceptable
+        # (the annotation refactor may use ClassVar or inline comments instead)

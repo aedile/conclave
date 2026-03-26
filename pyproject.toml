@@ -291,6 +291,15 @@ ignore_missing_imports = true
 module = ["limits", "limits.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# dp_engine.py has a fallback PrivacyEngine = None in a pragma: no cover branch.
+# The type: ignore on that line is needed when opacus is absent but flagged as
+# unused when opacus is installed.  warn_unused_ignores is disabled for this
+# file only so the fallback type annotation remains correct in both environments.
+# T58.1 — TYPE_CHECKING-guarded types for Opacus/PyTorch.
+module = ["synth_engine.modules.privacy.dp_engine"]
+warn_unused_ignores = false
+
 # ---------------------------------------------------------------------------
 # Bandit — Security Scanner (src/, scripts/, and demos/)
 # ---------------------------------------------------------------------------

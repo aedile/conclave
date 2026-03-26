@@ -55,9 +55,17 @@ Task: T48.3 — Readiness Probe & External Dependency Health Checks
 Task: T59.1 — API Versioning
     All business-logic routes moved to /api/v1/ prefix via parent APIRouter.
     Infrastructure routes (auth, security, licensing, health) remain at root.
+Task: P58 — Replace 9 identical exception handlers with data-driven loop.
+    _OPERATOR_ERROR_HANDLERS collects all domain exception types.  A single
+    async handler function is registered for each type via loop.  Security
+    contract preserved: PrivilegeEscalationError and ArtifactTamperingError
+    still delegate to operator_error_response() which uses STATIC detail
+    strings from OPERATOR_ERROR_MAP — never str(exc).
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -70,9 +78,37 @@ from synth_engine.shared.exceptions import (
     LicenseError,
     OOMGuardrailError,
     PrivilegeEscalationError,
+    SynthEngineError,
     VaultAlreadyUnsealedError,
     VaultSealedError,
 )
+
+if TYPE_CHECKING:
+    pass
+
+# ---------------------------------------------------------------------------
+# Data-driven exception handler registration (P58)
+#
+# All 9 domain exception types that delegate uniformly to operator_error_response().
+#
+# Security note: PrivilegeEscalationError and ArtifactTamperingError are
+# intentionally included here.  operator_error_response() looks up each
+# exception in OPERATOR_ERROR_MAP and returns the STATIC detail string
+# defined there — it never uses str(exc).  The raw exception message is
+# written to the server-side WARNING log inside operator_error_response()
+# and is never forwarded in the HTTP response body (ADV-036+044).
+# ---------------------------------------------------------------------------
+_OPERATOR_ERROR_HANDLERS: list[type[SynthEngineError]] = [
+    CycleDetectionError,
+    BudgetExhaustionError,
+    OOMGuardrailError,
+    VaultSealedError,
+    VaultAlreadyUnsealedError,
+    LicenseError,
+    CollisionError,
+    PrivilegeEscalationError,
+    ArtifactTamperingError,
+]
 
 
 def _include_routers(app: FastAPI) -> None:
@@ -139,6 +175,11 @@ def _register_exception_handlers(app: FastAPI) -> None:
     looks up the exception class in :data:`OPERATOR_ERROR_MAP` and returns
     the correct RFC 7807 body with operator-friendly title and detail.
 
+    Domain exception types are registered via a data-driven loop over
+    :data:`_OPERATOR_ERROR_HANDLERS` — a single async handler closure is
+    bound for each exception type, eliminating 9 identical boilerplate
+    handler definitions.
+
     ADV-022: CycleDetectionError -> HTTP 422 RFC 7807 Problem Details.
     T5.1: Generic Exception -> HTTP 500 RFC 7807 Problem Details (ADV-036+044).
     T6.2: RequestValidationError -> HTTP 422 with NaN/Infinity-safe serialization.
@@ -161,161 +202,36 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     register_error_handlers(app)
 
-    @app.exception_handler(CycleDetectionError)
-    async def _cycle_detection_error_handler(
-        request: Request, exc: CycleDetectionError
-    ) -> JSONResponse:
-        """Handle CycleDetectionError with operator-friendly RFC 7807 422 response.
+    # Register all domain exception handlers via a data-driven loop.
+    # Each handler is a trivial async wrapper that delegates to
+    # operator_error_response(exc).  The default-argument capture
+    # `_exc_type=exc_type` is required to avoid the classic Python
+    # loop-closure variable capture bug.
+    for exc_type in _OPERATOR_ERROR_HANDLERS:
 
-        A cycle in the schema FK graph is a client-side data error (the schema
-        is malformed).  Delegates to operator_error_response() for consistency
-        with all other domain exception handlers.
+        async def _domain_handler(
+            request: Request,
+            exc: SynthEngineError,
+            _exc_type: type[SynthEngineError] = exc_type,
+        ) -> JSONResponse:
+            """Handle a domain exception with an operator-friendly RFC 7807 response.
 
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The CycleDetectionError raised by the subsetting engine.
+            Delegates to operator_error_response() which looks up the exception
+            class in OPERATOR_ERROR_MAP and returns the correct RFC 7807 body.
+            Security-critical exceptions (PrivilegeEscalationError,
+            ArtifactTamperingError) use STATIC detail strings from the map —
+            the raw exception message is never forwarded in the HTTP response.
 
-        Returns:
-            JSONResponse with HTTP 422 and operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
+            Args:
+                request: The incoming HTTP request (required by FastAPI signature).
+                exc: The domain exception raised by the engine.
+                _exc_type: Captured loop variable — the specific exception type
+                    this handler was registered for (unused at runtime; the
+                    capture prevents the closure bug).
 
-    @app.exception_handler(BudgetExhaustionError)
-    async def _budget_exhaustion_error_handler(
-        request: Request, exc: BudgetExhaustionError
-    ) -> JSONResponse:
-        """Handle BudgetExhaustionError with operator-friendly RFC 7807 response.
+            Returns:
+                JSONResponse with RFC 7807 body and appropriate HTTP status code.
+            """
+            return operator_error_response(exc)
 
-        Returns "Privacy Budget Exceeded" with remediation instructions.
-        The technical epsilon/delta details are logged but not exposed via HTTP.
-
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The BudgetExhaustionError raised by the privacy accountant.
-
-        Returns:
-            JSONResponse with HTTP 409 and operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
-
-    @app.exception_handler(OOMGuardrailError)
-    async def _oom_guardrail_error_handler(
-        request: Request, exc: OOMGuardrailError
-    ) -> JSONResponse:
-        """Handle OOMGuardrailError with operator-friendly RFC 7807 response.
-
-        Returns "Memory Limit Exceeded" with a suggestion to reduce the dataset.
-        The technical memory estimates are logged but not exposed via HTTP.
-
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The OOMGuardrailError raised by the memory guardrail.
-
-        Returns:
-            JSONResponse with HTTP 422 and operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
-
-    @app.exception_handler(VaultSealedError)
-    async def _vault_sealed_error_handler(request: Request, exc: VaultSealedError) -> JSONResponse:
-        """Handle VaultSealedError with operator-friendly RFC 7807 response.
-
-        Returns "Vault Is Sealed" with an instruction to call POST /unseal.
-
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The VaultSealedError raised when vault is sealed.
-
-        Returns:
-            JSONResponse with HTTP 423 and operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
-
-    @app.exception_handler(VaultAlreadyUnsealedError)
-    async def _vault_already_unsealed_error_handler(
-        request: Request, exc: VaultAlreadyUnsealedError
-    ) -> JSONResponse:
-        """Handle VaultAlreadyUnsealedError with operator-friendly RFC 7807 response.
-
-        Returns "Vault Already Unsealed" with an informational message.
-        No remediation is needed — the vault is operational.
-
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The VaultAlreadyUnsealedError raised when unseal is attempted twice.
-
-        Returns:
-            JSONResponse with HTTP 409 and operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
-
-    @app.exception_handler(LicenseError)
-    async def _license_error_handler(request: Request, exc: LicenseError) -> JSONResponse:
-        """Handle LicenseError with operator-friendly RFC 7807 response.
-
-        Returns "License Validation Failed" with remediation instructions.
-        The internal license token details are logged but not exposed via HTTP.
-
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The LicenseError raised by the license validator.
-
-        Returns:
-            JSONResponse with HTTP 403 and operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
-
-    @app.exception_handler(CollisionError)
-    async def _collision_error_handler(request: Request, exc: CollisionError) -> JSONResponse:
-        """Handle CollisionError with operator-friendly RFC 7807 response.
-
-        Returns "Masking Collision Detected" with remediation instructions.
-
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The CollisionError raised by the masking registry.
-
-        Returns:
-            JSONResponse with HTTP 409 and operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
-
-    @app.exception_handler(PrivilegeEscalationError)
-    async def _privilege_escalation_error_handler(
-        request: Request, exc: PrivilegeEscalationError
-    ) -> JSONResponse:
-        """Handle PrivilegeEscalationError with a sanitized RFC 7807 403 response.
-
-        Security: the exception message may contain database role names or
-        privilege details.  The HTTP response uses the FIXED, STATIC detail
-        string from OPERATOR_ERROR_MAP — never str(exc).  The raw message is
-        logged at WARNING level by operator_error_response().
-
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The PrivilegeEscalationError raised by the ingestion adapter.
-
-        Returns:
-            JSONResponse with HTTP 403 and sanitized operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
-
-    @app.exception_handler(ArtifactTamperingError)
-    async def _artifact_tampering_error_handler(
-        request: Request, exc: ArtifactTamperingError
-    ) -> JSONResponse:
-        """Handle ArtifactTamperingError with a sanitized RFC 7807 422 response.
-
-        Security: the exception message may contain artifact paths or HMAC
-        signing-key hints.  The HTTP response uses the FIXED, STATIC detail
-        string from OPERATOR_ERROR_MAP — never str(exc).  The raw message is
-        logged at WARNING level by operator_error_response().
-
-        Args:
-            request: The incoming HTTP request (required by FastAPI signature).
-            exc: The ArtifactTamperingError raised by the HMAC signing module.
-
-        Returns:
-            JSONResponse with HTTP 422 and sanitized operator-friendly RFC 7807 body.
-        """
-        return operator_error_response(exc)
+        app.exception_handler(exc_type)(_domain_handler)

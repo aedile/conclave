@@ -198,13 +198,16 @@ class TestModelArtifactMutabilityDocumented:
         corrupting the artifact state. The intentional mutability must be
         documented with explicit rationale near the class definition.
         """
-        source = _read_source("modules/synthesizer/storage/models.py")
+        # T58.4: ModelArtifact moved to artifact.py; check there first, fall back to models.py
+        source = _read_source("modules/synthesizer/storage/artifact.py")
         lines = source.splitlines()
 
         class_line_idx = next(
             (i for i, line in enumerate(lines) if "class ModelArtifact" in line), None
         )
-        assert class_line_idx is not None, "ModelArtifact class not found in models.py"
+        assert class_line_idx is not None, (
+            "ModelArtifact class not found in artifact.py (T58.4: moved from models.py)"
+        )
 
         # Look for mutability documentation in the 15 lines before the class definition
         # (comment block above) plus the 60 lines of the class body (docstring)

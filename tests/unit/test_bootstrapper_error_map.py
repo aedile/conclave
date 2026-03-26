@@ -546,3 +546,95 @@ class TestT343CompleteOperatorErrorMap:
         assert "secret_model.pkl" not in str(body)
         assert "0xdeadbeef" not in str(body)
         assert body["type"] == "about:blank"
+
+
+class TestDataDrivenExceptionHandlers:
+    """P58: Exception handler registration must use data-driven loop.
+
+    The 9 identical single-line exception handlers in router_registry.py
+    should be replaced with a data-driven loop to eliminate boilerplate.
+    This test asserts structural correctness of the refactored approach
+    and verifies that security-critical handlers preserve STATIC detail strings.
+
+    Task: P58 — Replace 9 exception handlers with data-driven loop
+    """
+
+    def test_operator_error_handlers_list_exists_in_router_registry(self) -> None:
+        """_OPERATOR_ERROR_HANDLERS must be defined in router_registry.py."""
+        from synth_engine.bootstrapper.router_registry import _OPERATOR_ERROR_HANDLERS
+
+        assert isinstance(_OPERATOR_ERROR_HANDLERS, list), "_OPERATOR_ERROR_HANDLERS must be a list"
+        assert len(_OPERATOR_ERROR_HANDLERS) >= 9, (
+            f"_OPERATOR_ERROR_HANDLERS must contain at least 9 exception types; "
+            f"got {len(_OPERATOR_ERROR_HANDLERS)}"
+        )
+
+    def test_operator_error_handlers_contains_all_expected_types(self) -> None:
+        """_OPERATOR_ERROR_HANDLERS must contain all 9 domain exception types."""
+        from synth_engine.bootstrapper.router_registry import _OPERATOR_ERROR_HANDLERS
+        from synth_engine.shared.exceptions import (
+            ArtifactTamperingError,
+            BudgetExhaustionError,
+            CollisionError,
+            CycleDetectionError,
+            LicenseError,
+            OOMGuardrailError,
+            PrivilegeEscalationError,
+            VaultAlreadyUnsealedError,
+            VaultSealedError,
+        )
+
+        expected = {
+            CycleDetectionError,
+            BudgetExhaustionError,
+            OOMGuardrailError,
+            VaultSealedError,
+            VaultAlreadyUnsealedError,
+            LicenseError,
+            CollisionError,
+            PrivilegeEscalationError,
+            ArtifactTamperingError,
+        }
+        registered = set(_OPERATOR_ERROR_HANDLERS)
+        missing = expected - registered
+        assert not missing, f"_OPERATOR_ERROR_HANDLERS is missing exception types: {missing}"
+
+    def test_privilege_escalation_response_uses_static_detail_string(self) -> None:
+        """PrivilegeEscalationError handler must use STATIC detail — not str(exc).
+
+        Security: the raw exception message may contain DB role names or
+        privilege details.  The HTTP response detail must come from
+        OPERATOR_ERROR_MAP, never from str(exc).
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.shared.exceptions import PrivilegeEscalationError
+
+        assert PrivilegeEscalationError in OPERATOR_ERROR_MAP, (
+            "PrivilegeEscalationError must be in OPERATOR_ERROR_MAP"
+        )
+        entry = OPERATOR_ERROR_MAP[PrivilegeEscalationError]
+        static_detail = entry["detail"]
+        assert isinstance(static_detail, str), "detail must be a string"
+        assert len(static_detail) > 0, "detail must not be empty"
+        # Ensure it does NOT forward raw exception text (regression guard)
+        assert "role" not in static_detail.lower() or "contact" in static_detail.lower(), (
+            "Static detail should not expose DB role details verbatim"
+        )
+
+    def test_artifact_tampering_response_uses_static_detail_string(self) -> None:
+        """ArtifactTamperingError handler must use STATIC detail — not str(exc).
+
+        Security: the raw exception message may contain artifact paths or HMAC
+        signing-key hints.  The HTTP response detail must come from
+        OPERATOR_ERROR_MAP, never from str(exc).
+        """
+        from synth_engine.bootstrapper.errors import OPERATOR_ERROR_MAP
+        from synth_engine.shared.exceptions import ArtifactTamperingError
+
+        assert ArtifactTamperingError in OPERATOR_ERROR_MAP, (
+            "ArtifactTamperingError must be in OPERATOR_ERROR_MAP"
+        )
+        entry = OPERATOR_ERROR_MAP[ArtifactTamperingError]
+        static_detail = entry["detail"]
+        assert isinstance(static_detail, str), "detail must be a string"
+        assert len(static_detail) > 0, "detail must not be empty"

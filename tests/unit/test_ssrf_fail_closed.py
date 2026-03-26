@@ -146,41 +146,127 @@ class TestSSRFFailClosedFeature:
             validate_callback_url("https://example.com/hook", strict=False)
 
     def test_webhook_registration_uses_strict_true(self) -> None:
-        """Webhook registration module calls validate_callback_url with strict=True.
+        """Webhook registration endpoint calls validate_callback_url with strict=True.
+
+        Behavioral test: calls the actual POST /webhooks/ endpoint handler and
+        asserts that validate_callback_url is invoked with strict=True.
 
         The bootstrapper registration endpoint must enforce fail-closed behavior
         by passing strict=True explicitly so that DNS failures reject the URL.
-        (P55 arch review: _ssrf_validate_registration wrapper inlined — this test
-        now verifies the inlined call at the module import level.)
 
         Args: none (no parameters).
         """
-        import inspect
+        from collections.abc import Generator
+        from unittest.mock import MagicMock, patch
 
-        import synth_engine.bootstrapper.routers.webhooks as webhooks_module
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from sqlmodel import Session
 
-        source = inspect.getsource(webhooks_module)
-        # Verify the inlined call uses strict=True
-        assert "validate_callback_url(body.callback_url, strict=True)" in source, (
-            "webhooks.py must call validate_callback_url with strict=True at registration"
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.routers.webhooks import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+
+        mock_session = MagicMock(spec=Session)
+        # Simulate empty registration list (no limit exceeded)
+        mock_session.exec.return_value.all.return_value = []
+        mock_session.commit = MagicMock()
+
+        def mock_add(obj: object) -> None:
+            # After add+commit, populate required fields for response serialization
+            if hasattr(obj, "callback_url"):
+                obj.id = "test-id-123"  # type: ignore[union-attr]
+                obj.events = '["job.completed"]'  # type: ignore[union-attr]
+                obj.active = True  # type: ignore[union-attr]
+                obj.owner_id = "op-test"  # type: ignore[union-attr]
+
+        mock_session.add = mock_add
+        mock_session.refresh = MagicMock()
+
+        def override_db_session() -> Generator[Session]:
+            yield mock_session
+
+        def override_get_current_operator() -> str:
+            return "op-test"
+
+        app.dependency_overrides[get_db_session] = override_db_session
+        app.dependency_overrides[get_current_operator] = override_get_current_operator
+
+        callback_url = "https://hooks.example.com/webhook"
+        signing_key = "a" * 32  # 32-char minimum
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.routers.webhooks.get_settings",
+            ) as mock_wh_settings,
+            patch(
+                "synth_engine.bootstrapper.routers.webhooks.validate_callback_url"
+            ) as mock_validate,
+        ):
+            mock_wh_settings.return_value.is_production.return_value = False
+            mock_wh_settings.return_value.webhook_max_registrations = 10
+
+            client = TestClient(app, raise_server_exceptions=True)
+            response = client.post(
+                "/api/v1/webhooks/",
+                json={
+                    "callback_url": callback_url,
+                    "signing_key": signing_key,
+                    "events": ["job.completed"],
+                },
+            )
+
+        # Assert validate_callback_url was called with strict=True
+        mock_validate.assert_called_once_with(callback_url, strict=True)
+        assert response.status_code == 201, (
+            f"Expected 201 Created, got {response.status_code}: {response.text!r}"
         )
 
     def test_webhook_delivery_uses_strict_false(self) -> None:
-        """Webhook delivery module calls validate_callback_url with strict=False.
+        """Webhook delivery calls validate_callback_url with strict=False.
 
-        The delivery loop re-validates for DNS-rebinding protection but uses
-        strict=False so that transient DNS failures do not abort delivery.
-        (P55 arch review: _ssrf_validate_delivery wrapper inlined — this test
-        now verifies the inlined call at the module import level.)
+        Behavioral test: calls deliver_webhook() directly and asserts that
+        validate_callback_url is invoked with (url, strict=False) for
+        DNS-rebinding protection with fail-open behavior.
 
         Args: none (no parameters).
         """
-        import inspect
+        from unittest.mock import MagicMock, patch
 
-        import synth_engine.modules.synthesizer.jobs.webhook_delivery as delivery_module
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
 
-        source = inspect.getsource(delivery_module)
-        # Verify the inlined call uses strict=False
-        assert "validate_callback_url(registration.callback_url, strict=False)" in source, (
-            "webhook_delivery.py must call validate_callback_url with strict=False at delivery"
+        mock_registration = MagicMock()
+        mock_registration.active = True
+        mock_registration.id = "reg-uuid-001"
+        mock_registration.callback_url = "https://delivery.example.com/hook"
+        mock_registration.signing_key = "b" * 32
+        mock_registration.events = ["job.completed"]
+
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"
+            ) as mock_validate,
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx.post") as mock_post,
+        ):
+            mock_validate.return_value = None  # SSRF check passes
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.raise_for_status = MagicMock()
+            mock_post.return_value = mock_response
+
+            deliver_webhook(
+                registration=mock_registration,
+                job_id=42,
+                event_type="job.completed",
+                payload={"job_id": "42", "status": "COMPLETE"},
+                timeout_seconds=5,
+            )
+
+        # validate_callback_url must be called with strict=False (fail-open at delivery)
+        mock_validate.assert_called_once_with(
+            "https://delivery.example.com/hook",
+            strict=False,
         )

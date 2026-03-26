@@ -51,6 +51,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+import httpx
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.factories import build_dp_wrapper, build_spend_budget_fn
@@ -165,9 +167,20 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
 
                 session.commit()
 
-        except Exception:
+        except (SQLAlchemyError, ConnectionError, OSError, httpx.HTTPError) as exc:
             _logger.exception(
-                "Webhook delivery failed unexpectedly for job %d (%s).", job_id, status
+                "Webhook delivery failed for job %d (%s): %s",
+                job_id,
+                status,
+                type(exc).__name__,
+            )
+        except Exception as exc:  # broad catch intentional: protect job lifecycle
+            # Unexpected programming error — log at CRITICAL so it is highly visible
+            # but still never propagated (preserves "never crash the job" contract).
+            _logger.critical(
+                "Unexpected error in webhook delivery (job_id=%d): %s",
+                job_id,
+                type(exc).__name__,
             )
 
     return _deliver

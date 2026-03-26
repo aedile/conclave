@@ -646,3 +646,106 @@ def test_v3_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> N
     assert re.fullmatch(r"[0-9a-f]{64}", hex_part), (
         f"Hex portion must be lowercase hex; got {hex_part!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix 2 (P58): Failed v1/v2 HMAC verification logging
+# ---------------------------------------------------------------------------
+
+
+def test_failed_v1_verification_logs_warning(
+    logger_instance: AuditLogger,  # type: ignore[name-defined]  # noqa: F821
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """verify_event() logs WARNING when a v1 event fails HMAC verification.
+
+    Security: the WARNING must NOT include the raw signature hex (oracle risk).
+    It MUST include event_type, timestamp, and actor to aid incident triage.
+
+    Task: P58 — Log failed v1/v2 HMAC verification attempts at WARNING
+    """
+    import logging
+
+    from synth_engine.shared.security.audit import AuditEvent
+
+    # Construct a v1 event with a tampered (invalid) signature
+    tampered_v1 = AuditEvent(
+        timestamp="2026-01-01T00:00:00+00:00",
+        event_type="TEST_EVENT",
+        actor="attacker",
+        resource="vault",
+        action="read",
+        details={},
+        prev_hash="0" * 64,
+        signature="v1:" + "deadbeef" * 8,  # wrong signature  # pragma: allowlist secret
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = logger_instance.verify_event(tampered_v1)
+
+    assert result is False, "Tampered v1 event must fail verification"
+
+    # Must emit a WARNING
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warning_records) >= 1, (
+        "verify_event() must log at least one WARNING on v1 HMAC failure"
+    )
+
+    # The warning message must include identifying event fields
+    warning_text = " ".join(r.getMessage() for r in warning_records)
+    assert "TEST_EVENT" in warning_text, f"WARNING must include event_type; got: {warning_text!r}"
+    assert "attacker" in warning_text, f"WARNING must include actor; got: {warning_text!r}"
+
+    # Must NOT include the raw signature hex (oracle risk)
+    assert "deadbeef" not in warning_text, (
+        "WARNING must NOT include raw signature hex (oracle risk)"
+    )
+
+
+def test_failed_v2_verification_logs_warning(
+    logger_instance: AuditLogger,  # type: ignore[name-defined]  # noqa: F821
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """verify_event() logs WARNING when a v2 event fails HMAC verification.
+
+    Security: the WARNING must NOT include the raw signature hex (oracle risk).
+    It MUST include event_type, timestamp, and actor to aid incident triage.
+
+    Task: P58 — Log failed v1/v2 HMAC verification attempts at WARNING
+    """
+    import logging
+
+    from synth_engine.shared.security.audit import AuditEvent
+
+    # Construct a v2 event with a tampered (invalid) signature
+    tampered_v2 = AuditEvent(
+        timestamp="2026-01-01T00:00:00+00:00",
+        event_type="TEST_EVENT",
+        actor="attacker",
+        resource="vault",
+        action="read",
+        details={"k": "v"},
+        prev_hash="0" * 64,
+        signature="v2:" + "cafebabe" * 8,  # wrong signature  # pragma: allowlist secret
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = logger_instance.verify_event(tampered_v2)
+
+    assert result is False, "Tampered v2 event must fail verification"
+
+    # Must emit a WARNING
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warning_records) >= 1, (
+        "verify_event() must log at least one WARNING on v2 HMAC failure"
+    )
+
+    # The warning message must include identifying event fields
+    warning_text = " ".join(r.getMessage() for r in warning_records)
+    assert "TEST_EVENT" in warning_text, f"WARNING must include event_type; got: {warning_text!r}"
+    assert "attacker" in warning_text, f"WARNING must include actor; got: {warning_text!r}"
+
+    # Must NOT include the raw signature hex (oracle risk)
+    assert "cafebabe" not in warning_text, (
+        "WARNING must NOT include raw signature hex (oracle risk)"
+    )
