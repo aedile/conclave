@@ -38,6 +38,7 @@ Task: P26-T26.2 — Exception Hierarchy (VaultSealedError moved to shared)
 Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 Task: T38.2 — Eliminate vault unseal timing side-channel
 Task: fix/review-critical-issues — Add threading.Lock to VaultState
+Task: P58 — Add ClassVar annotations to _is_sealed and _kek
 """
 
 from __future__ import annotations
@@ -104,8 +105,8 @@ class VaultState:
     """
 
     _lock: ClassVar[threading.Lock] = threading.Lock()
-    _is_sealed: bool = True
-    _kek: bytearray | None = None
+    _is_sealed: ClassVar[bool] = True
+    _kek: ClassVar[bytearray | None] = None
 
     @classmethod
     def unseal(cls, passphrase: str) -> None:
