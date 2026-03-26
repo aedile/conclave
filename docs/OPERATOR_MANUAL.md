@@ -363,7 +363,50 @@ docker compose exec app cat /tmp/audit.log
 
 Each event is HMAC-signed with `AUDIT_KEY`. Tampering is detectable.
 
-### 7.3 Common Issues
+### 7.3 Multi-Worker Audit Chain Semantics
+
+Each Uvicorn worker process maintains an **independent** audit hash chain in memory.
+The chain links events within a single worker: each event's `prev_hash` points to the
+hash of the previous event logged by that same worker.
+
+In multi-worker deployments (e.g., `uvicorn --workers 4`), all workers append to the
+same anchor file (e.g., `/tmp/audit_anchor.jsonl`). Appends from different workers are
+interleaved on disk — the file order does not reflect a single global chain.
+
+**What this means for compliance:**
+
+| Requirement | Behaviour |
+|-------------|-----------|
+| Per-worker chain integrity | Guaranteed — each worker's chain is independently verifiable via `GET /audit/verify` |
+| Cross-worker chain contiguity | Not guaranteed — anchor file entries are interleaved |
+| Single global chain | Not provided in multi-worker mode |
+
+**Compliance recommendation:** If your audit policy requires a single unbroken chain
+(e.g., ISO 27001 log integrity controls), deploy with a single worker:
+
+```bash
+uvicorn src.synth_engine.bootstrapper.main:create_app --workers 1
+```
+
+Or, for production throughput with chain compliance, use an external chain-coordinator
+service (e.g., a dedicated audit service that receives events via a queue and maintains
+the chain itself) and configure `AUDIT_ANCHOR_BACKEND` accordingly.
+
+**Verifying a single worker's chain:**
+
+```bash
+# All events from a specific worker can be extracted and verified independently
+curl -H "Authorization: Bearer ${TOKEN}" http://<host>:8000/audit/verify
+# Response: {"chain_valid": true, "event_count": 42}
+```
+
+The `/audit/verify` endpoint verifies the chain for the worker that handles the
+request. In multi-worker mode, send the request to each worker in turn (using the
+`worker_pid` from `/health/vault` to confirm which worker responded).
+
+---
+
+### 7.4 Common Issues
 
 **`423 Locked` on all routes** — vault is sealed. Unseal before making API requests (exempt routes: `/health`, `/unseal`, `/metrics`, `/docs`, `/license/challenge`, `/license/activate`).
 
