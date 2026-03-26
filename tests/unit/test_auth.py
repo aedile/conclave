@@ -777,7 +777,7 @@ def test_conclave_settings_jwt_secret_key_default(monkeypatch: pytest.MonkeyPatc
     from synth_engine.shared.settings import ConclaveSettings
 
     settings = ConclaveSettings()
-    assert settings.jwt_secret_key == ""
+    assert settings.jwt_secret_key.get_secret_value() == ""
 
 
 def test_conclave_settings_jwt_fields_accept_env_values(
@@ -800,7 +800,8 @@ def test_conclave_settings_jwt_fields_accept_env_values(
     assert settings.jwt_algorithm == "HS384"
     assert settings.jwt_expiry_seconds == 7200
     assert settings.operator_credentials_hash == "$2b$12$fakehash"
-    assert settings.jwt_secret_key == "my-custom-secret-key"  # pragma: allowlist secret
+    secret_key_value = settings.jwt_secret_key.get_secret_value()
+    assert secret_key_value == "my-custom-secret-key"  # pragma: allowlist secret
 
 
 # ---------------------------------------------------------------------------

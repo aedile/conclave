@@ -232,7 +232,9 @@ class TestBuildWebhookDeliveryFnBehavior:
         from synth_engine.bootstrapper.wiring import _build_webhook_delivery_fn
 
         mock_settings = MagicMock()
-        mock_settings.database_url = "postgresql://test:test@localhost/testdb"
+        mock_settings.database_url = (
+            "postgresql://test:test@localhost/testdb"  # pragma: allowlist secret
+        )
         mock_settings.webhook_delivery_timeout_seconds = 5
 
         with (

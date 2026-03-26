@@ -379,7 +379,7 @@ def test_concurrent_unseal_only_one_succeeds(vault_salt_env: str) -> None:
         except VaultAlreadyUnsealedError:
             with lock:
                 already_unsealed_errors.append(1)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # broad catch intentional
             with lock:
                 other_errors.append(exc)
 
@@ -395,8 +395,7 @@ def test_concurrent_unseal_only_one_succeeds(vault_salt_env: str) -> None:
         f"This indicates a race condition in VaultState."
     )
     assert len(already_unsealed_errors) == n_threads - 1, (
-        f"Expected {n_threads - 1} VaultAlreadyUnsealedError, "
-        f"got {len(already_unsealed_errors)}."
+        f"Expected {n_threads - 1} VaultAlreadyUnsealedError, got {len(already_unsealed_errors)}."
     )
     # Confirm vault is now unsealed with a valid KEK
     kek = VaultState.get_kek()

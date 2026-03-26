@@ -25,6 +25,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import SecretStr
 
 pytestmark = pytest.mark.unit
 
@@ -255,7 +256,7 @@ class TestJobFinalizationSigningKeyErrorLog:
             with patch("synth_engine.shared.settings.get_settings") as mock_get_settings:
                 mock_settings = mock_get_settings.return_value
                 # "GGGG" is not valid hex — bytes.fromhex() raises ValueError
-                mock_settings.artifact_signing_key = "GGGG"
+                mock_settings.artifact_signing_key = SecretStr("GGGG")
                 # Explicitly empty so the versioned branch is skipped (T42.1)
                 mock_settings.artifact_signing_keys = {}
                 mock_settings.artifact_signing_key_active = None
@@ -301,7 +302,7 @@ class TestJobFinalizationSigningKeyErrorLog:
 
             with patch("synth_engine.shared.settings.get_settings") as mock_get_settings:
                 mock_settings = mock_get_settings.return_value
-                mock_settings.artifact_signing_key = "GGGG"
+                mock_settings.artifact_signing_key = SecretStr("GGGG")
                 # Explicitly empty so the versioned branch is skipped (T42.1)
                 mock_settings.artifact_signing_keys = {}
                 mock_settings.artifact_signing_key_active = None
@@ -345,7 +346,7 @@ class TestJobFinalizationSigningKeyErrorLog:
 
             with patch("synth_engine.shared.settings.get_settings") as mock_get_settings:
                 mock_settings = mock_get_settings.return_value
-                mock_settings.artifact_signing_key = ""  # empty = absent
+                mock_settings.artifact_signing_key = SecretStr("")  # empty = absent
                 # Explicitly empty so the versioned branch is skipped (T42.1)
                 mock_settings.artifact_signing_keys = {}
                 mock_settings.artifact_signing_key_active = None

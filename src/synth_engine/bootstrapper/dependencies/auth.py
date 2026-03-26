@@ -123,7 +123,9 @@ def create_token(*, sub: str, scope: list[str]) -> str:
         "exp": now + settings.jwt_expiry_seconds,
         "scope": scope,
     }
-    return pyjwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return pyjwt.encode(
+        payload, settings.jwt_secret_key.get_secret_value(), algorithm=settings.jwt_algorithm
+    )
 
 
 def verify_token(token: str) -> dict[str, object]:
@@ -147,7 +149,7 @@ def verify_token(token: str) -> dict[str, object]:
     try:
         claims: dict[str, object] = pyjwt.decode(
             token,
-            settings.jwt_secret_key,
+            settings.jwt_secret_key.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
             options={"require": ["sub", "exp", "iat"]},
         )
@@ -226,7 +228,7 @@ def get_current_operator(request: Request) -> str:
 
     # Pass-through mode: when JWT is not configured, return sentinel "".
     # This matches the default owner_id for pre-T39.2 resources.
-    if not settings.jwt_secret_key:
+    if not settings.jwt_secret_key.get_secret_value():
         return ""
 
     auth_header: str | None = request.headers.get("Authorization")
@@ -330,7 +332,7 @@ def require_scope(scope: str) -> Callable[..., str]:
         settings = get_settings()
 
         # Pass-through mode: no JWT configured → skip scope check.
-        if not settings.jwt_secret_key:
+        if not settings.jwt_secret_key.get_secret_value():
             return operator
 
         # Extract and re-verify the token to read scope claims.
@@ -453,7 +455,7 @@ class AuthenticationGateMiddleware(BaseHTTPMiddleware):
         # This allows development and testing without JWT credentials configured.
         # SECURITY: Production deployments MUST set JWT_SECRET_KEY.
         settings = get_settings()
-        if not settings.jwt_secret_key:
+        if not settings.jwt_secret_key.get_secret_value():
             _logger.warning(
                 "JWT authentication not configured (JWT_SECRET_KEY is empty). "
                 "Request to %s is allowed in unconfigured mode. "

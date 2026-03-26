@@ -6,10 +6,13 @@ Tests verify that:
 - ``VAULT_SEAL_SALT`` is NOT read at boot (deferred to vault unseal time).
 - Production mode enforces required fields via Pydantic validators.
 - The model correctly parses each env var category.
+- Secret fields (audit_key, jwt_secret_key, artifact_signing_key, masking_salt)
+  are typed as SecretStr and do NOT leak raw values via repr() (fix/review-critical-issues).
 
 CONSTITUTION Priority 0: Security — centralized config prevents silent misconfiguration
 CONSTITUTION Priority 3: TDD — RED/GREEN/REFACTOR
 Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
+Task: fix/review-critical-issues — SecretStr repr leakage prevention
 """
 
 from __future__ import annotations
@@ -39,14 +42,17 @@ def test_settings_parses_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_settings_parses_audit_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.audit_key is populated from AUDIT_KEY env var."""
+    """ConclaveSettings.audit_key is populated from AUDIT_KEY env var.
+
+    The field is SecretStr; the raw value must be accessed via .get_secret_value().
+    """
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("AUDIT_KEY", "bb" * 32)
 
     from synth_engine.shared.settings import ConclaveSettings
 
     s = ConclaveSettings()
-    assert s.audit_key == "bb" * 32
+    assert s.audit_key.get_secret_value() == "bb" * 32
 
 
 def test_settings_parses_conclave_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,7 +158,10 @@ def test_settings_parses_redis_url(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_settings_parses_masking_salt(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.masking_salt is populated from MASKING_SALT env var."""
+    """ConclaveSettings.masking_salt is populated from MASKING_SALT env var.
+
+    The field is SecretStr; the raw value must be accessed via .get_secret_value().
+    """
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MASKING_SALT", "my-secret-salt")
@@ -160,11 +169,15 @@ def test_settings_parses_masking_salt(monkeypatch: pytest.MonkeyPatch) -> None:
     from synth_engine.shared.settings import ConclaveSettings
 
     s = ConclaveSettings()
-    assert s.masking_salt == "my-secret-salt"
+    assert s.masking_salt is not None
+    assert s.masking_salt.get_secret_value() == "my-secret-salt"
 
 
 def test_settings_parses_artifact_signing_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.artifact_signing_key is populated from ARTIFACT_SIGNING_KEY."""
+    """ConclaveSettings.artifact_signing_key is populated from ARTIFACT_SIGNING_KEY.
+
+    The field is SecretStr; the raw value must be accessed via .get_secret_value().
+    """
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "ab" * 32)
@@ -172,7 +185,8 @@ def test_settings_parses_artifact_signing_key(monkeypatch: pytest.MonkeyPatch) -
     from synth_engine.shared.settings import ConclaveSettings
 
     s = ConclaveSettings()
-    assert s.artifact_signing_key == "ab" * 32
+    assert s.artifact_signing_key is not None
+    assert s.artifact_signing_key.get_secret_value() == "ab" * 32
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +216,7 @@ def test_settings_missing_database_url_defaults_to_empty_string(
 def test_settings_missing_audit_key_defaults_to_empty_string(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """ConclaveSettings.audit_key defaults to empty string when AUDIT_KEY is absent.
+    """ConclaveSettings.audit_key defaults to empty SecretStr when AUDIT_KEY is absent.
 
     The model itself does not raise on missing AUDIT_KEY — runtime validation
     is handled by config_validation.validate_config() at startup (all modes)
@@ -214,7 +228,7 @@ def test_settings_missing_audit_key_defaults_to_empty_string(
     monkeypatch.delenv("AUDIT_KEY", raising=False)
 
     s = ConclaveSettings()
-    assert s.audit_key == ""
+    assert s.audit_key.get_secret_value() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -460,3 +474,111 @@ def test_settings_huey_immediate_parses_true(monkeypatch: pytest.MonkeyPatch) ->
 
     s = ConclaveSettings()
     assert s.huey_immediate is True
+
+
+# ---------------------------------------------------------------------------
+# Tests: SecretStr repr leakage prevention (fix/review-critical-issues)
+# ---------------------------------------------------------------------------
+
+
+def test_settings_repr_does_not_leak_audit_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """repr(settings) must NOT contain the raw AUDIT_KEY value.
+
+    SecretStr fields render as '**********' in repr and model_dump output.
+    This prevents accidental exposure of key material in logs, error messages,
+    and debugger output.
+    """
+    secret_value = "cc" * 32  # pragma: allowlist secret
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUDIT_KEY", secret_value)
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("ENV", "development")
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    s = ConclaveSettings()
+    settings_repr = repr(s)
+    assert secret_value not in settings_repr, (
+        "Raw audit_key value appeared in repr(settings). "
+        "audit_key must be SecretStr to prevent credential leakage."
+    )
+
+
+def test_settings_repr_does_not_leak_jwt_secret_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """repr(settings) must NOT contain the raw JWT_SECRET_KEY value."""
+    secret_value = "my-super-secret-jwt-key-for-test"  # pragma: allowlist secret
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.setenv("JWT_SECRET_KEY", secret_value)
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("ENV", "development")
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    s = ConclaveSettings()
+    settings_repr = repr(s)
+    assert secret_value not in settings_repr, (
+        "Raw jwt_secret_key value appeared in repr(settings). "
+        "jwt_secret_key must be SecretStr to prevent credential leakage."
+    )
+
+
+def test_settings_repr_does_not_leak_artifact_signing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """repr(settings) must NOT contain the raw ARTIFACT_SIGNING_KEY value."""
+    secret_value = "ab" * 32  # pragma: allowlist secret
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", secret_value)
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("ENV", "development")
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    s = ConclaveSettings()
+    settings_repr = repr(s)
+    assert secret_value not in settings_repr, (
+        "Raw artifact_signing_key value appeared in repr(settings). "
+        "artifact_signing_key must be SecretStr to prevent credential leakage."
+    )
+
+
+def test_settings_repr_does_not_leak_masking_salt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """repr(settings) must NOT contain the raw MASKING_SALT value."""
+    secret_value = "my-production-masking-salt-value"  # pragma: allowlist secret
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.setenv("MASKING_SALT", secret_value)
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("ENV", "development")
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    s = ConclaveSettings()
+    settings_repr = repr(s)
+    assert secret_value not in settings_repr, (
+        "Raw masking_salt value appeared in repr(settings). "
+        "masking_salt must be SecretStr to prevent credential leakage."
+    )
+
+
+def test_secret_fields_are_secret_str_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    """audit_key and jwt_secret_key must be SecretStr instances, not plain str."""
+    from pydantic import SecretStr
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.setenv("JWT_SECRET_KEY", "some-key")  # pragma: allowlist secret
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("ENV", "development")
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    s = ConclaveSettings()
+    assert isinstance(s.audit_key, SecretStr), (
+        f"audit_key must be SecretStr, got {type(s.audit_key)}"
+    )
+    assert isinstance(s.jwt_secret_key, SecretStr), (
+        f"jwt_secret_key must be SecretStr, got {type(s.jwt_secret_key)}"
+    )

@@ -124,7 +124,7 @@ def _validate_jwt_secret_key(errors: list[str]) -> None:
             appended in-place.
     """
     settings = get_settings()
-    key_value = settings.jwt_secret_key.strip()
+    key_value = settings.jwt_secret_key.get_secret_value().strip()
 
     if not key_value:
         if _is_production():

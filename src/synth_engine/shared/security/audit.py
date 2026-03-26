@@ -540,7 +540,7 @@ def _load_audit_key() -> bytes:
         ValueError: If ``AUDIT_KEY`` is absent, wrong length, or not
             valid hexadecimal.
     """
-    raw = get_settings().audit_key
+    raw = get_settings().audit_key.get_secret_value()
     if not raw:
         raise ValueError(
             "AUDIT_KEY environment variable is not set. "

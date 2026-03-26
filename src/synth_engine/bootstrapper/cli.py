@@ -83,7 +83,8 @@ def _get_cli_masking_salt() -> str:
     """
     from synth_engine.shared.settings import get_settings
 
-    salt = get_settings().masking_salt
+    _salt_secret = get_settings().masking_salt
+    salt = _salt_secret.get_secret_value() if _salt_secret is not None else None
     if not salt:
         _logger.warning(
             "MASKING_SALT env var not set; using hardcoded CLI fallback. "
