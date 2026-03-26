@@ -1,38 +1,20 @@
 """FastAPI router for authentication endpoints.
 
-Implements:
-- POST /auth/token — issues a short-lived JWT Bearer token in exchange for
-  valid operator credentials (username + passphrase).
+Implements POST /auth/token — issues a short-lived JWT Bearer token in
+exchange for valid operator credentials (username + passphrase).
 
-This endpoint is explicitly exempt from :class:`AuthenticationGateMiddleware`
-(listed in :data:`AUTH_EXEMPT_PATHS`) so that operators can obtain a token
-before they have one.
-
-All 401 responses use RFC 7807 Problem Details format consistent with
-the rest of the application.
-
-Authentication model
---------------------
-For MVP, a single-operator model is used: one operator identity with a
-bcrypt-hashed passphrase stored in ``ConclaveSettings.operator_credentials_hash``.
-The username field is accepted for display/logging purposes but not used for
-credential dispatch — the single configured hash is checked against the supplied
-passphrase.
-
-Future extension: replace with a multi-operator registry backed by the
-vault KEK-encrypted operator store (tracked as post-T39.1 backlog item).
-
-Token scopes
-------------
-The default scope list issued to any authenticated operator is:
-``["read", "write", "security:admin", "settings:write"]``.
-
-This is a single-operator system — the one configured operator receives all
-scopes unconditionally.  Future multi-operator support would require
-per-operator scope assignment at registration time.
+Security rationale
+------------------
+- Algorithm pinned to HS256 (configurable); "alg:none" attacks rejected at
+  the JWT library level — no manual alg-field check needed.
+- Credentials are verified via bcrypt to prevent timing attacks on hash
+  comparison; raw passwords are never logged.
+- In production, :func: raises :exc:
+  when no operator is configured — hard fail, never a silent pass.
+- 401 responses use RFC 7807 Problem Details format for consistency.
+- Token issuance is rate-limited by :class:.
 
 CONSTITUTION Priority 0: Security — credentials never logged, bcrypt verify
-CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T47.1 — Scope-based auth for security endpoints
 Task: T47.3 — Scope-based auth for settings write endpoints

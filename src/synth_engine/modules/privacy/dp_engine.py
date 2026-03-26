@@ -81,16 +81,6 @@ class DPTrainingWrapper:
     :meth:`wrap` twice raises :exc:`RuntimeError`.  This prevents accidental
     double-wrapping that would corrupt Epsilon accounting.
 
-    T7.3 addition: ``max_grad_norm`` and ``noise_multiplier`` are now accepted
-    as constructor arguments and stored on the instance.  This allows the
-    bootstrapper factory ``build_dp_wrapper()`` to configure the wrapper at
-    construction time, and allows ``DPCompatibleCTGAN.fit()`` to read these
-    values via duck-typing when calling :meth:`wrap`.
-
-    Backward compatibility: both parameters default to the canonical values
-    (``max_grad_norm=1.0``, ``noise_multiplier=1.1``), so existing callers
-    that construct ``DPTrainingWrapper()`` without arguments continue to work.
-
     Usage::
 
         wrapper = DPTrainingWrapper(max_grad_norm=1.0, noise_multiplier=1.1)
