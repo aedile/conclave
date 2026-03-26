@@ -54,16 +54,27 @@ Signatures use a versioned ``<version>:<hex>`` format:
   The ``details`` field is NOT included in the signed payload.
   Supported for backward-compatible verification only.
 
-- ``v2:<hex>`` — Current format.  HMAC is computed over
+- ``v2:<hex>`` — Superseded format.  HMAC is computed over
   ``v2|timestamp|event_type|actor|resource|action|prev_hash|<details_json>``
   where ``<details_json>`` is the canonical JSON serialization of the
   details dict (``json.dumps(details, sort_keys=True, separators=(",", ":"))``,
   UTF-8 encoded).  The version string ``v2`` is included IN the HMAC
   computation (not just the prefix) to prevent version downgrade attacks.
   Details payloads exceeding 64 KB (canonical UTF-8) are rejected.
+  Supported for backward-compatible verification only (ADV-P53-01: latent
+  pipe-delimiter injection vulnerability — use v3 for new events).
 
-All new events use ``v2``.  ``verify_event`` dispatches on the stored
-prefix and fails-closed on unknown versions.
+- ``v3:<hex>`` — Current format.  Uses length-prefixed encoding to eliminate
+  the pipe-delimiter injection vulnerability (ADV-P53-01).  Each field is
+  encoded as a 4-byte big-endian length followed by the field's UTF-8 bytes.
+  The ``b"v3"`` version literal is prepended to the message bytes (included
+  IN the HMAC, not just the prefix) to prevent downgrade attacks.  Canonical
+  details JSON is included verbatim.  Details payloads exceeding 64 KB are
+  rejected.
+
+All new events use ``v3``.  ``verify_event`` dispatches on the stored
+prefix and fails-closed on unknown versions.  v1 and v2 events remain
+verifiable for backward compatibility.
 
 CONSTITUTION Priority 0: Security
 Task: P2-T2.4 — Vault Observability
@@ -72,6 +83,7 @@ Task: T36.1 — Centralize Configuration Into Pydantic Settings Model
 Task: T48.4 — Immutable Audit Trail Anchoring (Rule 8 wiring)
 Task: T53.2 — Audit HMAC: Include Details Field in Signature
 Task: T55.3 — Audit Chain Continuity Across Restarts
+Task: ADV-P53-01 — HMAC pipe-delimiter injection fix (length-prefixed v3 format)
 """
 
 from __future__ import annotations
@@ -92,7 +104,7 @@ _AUDIT_LOGGER_NAME = "synth_engine.security.audit"
 _GENESIS_HASH = "0" * 64
 
 # Maximum byte length of canonical details JSON (64 KB).
-# Enforced in _sign_v2 to prevent OOM via unbounded detail payloads.
+# Enforced in _sign_v2 and _sign_v3 to prevent OOM via unbounded detail payloads.
 _DETAILS_MAX_BYTES = 64 * 1024  # 64 KB
 
 # ---------------------------------------------------------------------------
@@ -130,8 +142,10 @@ class AuditEvent(BaseModel):
         prev_hash: SHA-256 hex of the previous event's JSON, or the
             genesis sentinel ``"0" * 64`` for the first event.
         signature: Versioned HMAC-SHA256 signature.  Format is
-            ``v1:<hex>`` (legacy, details not signed) or ``v2:<hex>``
-            (current, details included in signed payload).
+            ``v1:<hex>`` (legacy, details not signed),
+            ``v2:<hex>`` (superseded, details included, pipe-delimiter
+            vulnerable), or ``v3:<hex>`` (current, length-prefixed,
+            collision-resistant).
     """
 
     timestamp: str
@@ -359,6 +373,10 @@ class AuditLogger:
         regardless of insertion order.  ``allow_nan=False`` rejects
         ``float('nan')`` and ``float('inf')``.
 
+        Supported for backward-compatible verification of existing log entries.
+        New events use :meth:`_sign_v3` to eliminate the pipe-delimiter
+        injection vulnerability (ADV-P53-01).
+
         Args:
             timestamp: ISO-8601 UTC timestamp.
             event_type: Short uppercase event identifier.
@@ -391,6 +409,77 @@ class AuditLogger:
         hex_digest = hmac.new(self._audit_key, message.encode("utf-8"), hashlib.sha256).hexdigest()
         return f"v2:{hex_digest}"
 
+    def _sign_v3(
+        self,
+        timestamp: str,
+        event_type: str,
+        actor: str,
+        resource: str,
+        action: str,
+        prev_hash: str,
+        details: dict[str, str],
+    ) -> str:
+        """Compute v3 HMAC-SHA256 using length-prefixed fields.
+
+        Eliminates the pipe-delimiter injection vulnerability present in v1
+        and v2 formats (ADV-P53-01).  In those formats, a literal ``|``
+        inside any field shifts the field boundary and can produce collisions:
+        ``actor="foo|bar", resource="baz"`` and ``actor="foo",
+        resource="bar|baz"`` produce identical byte payloads.
+
+        The v3 format encodes each field as a 4-byte big-endian unsigned
+        integer (the field's UTF-8 byte length) followed by the field's
+        UTF-8 bytes.  Because the length is encoded before the content, field
+        boundaries are unambiguous regardless of field content.
+
+        The ``b"v3"`` version literal is prepended to the assembled bytes
+        (not merely used as a stored prefix), so stripping the version and
+        relabeling the signature as v2 or v1 is detectable.
+
+        Field encoding order: timestamp, event_type, actor, resource, action,
+        prev_hash, details_json.  Canonical details JSON is produced with
+        ``sort_keys=True``, compact separators, and ``allow_nan=False``.
+
+        Args:
+            timestamp: ISO-8601 UTC timestamp.
+            event_type: Short uppercase event identifier.
+            actor: Principal identity.
+            resource: Affected resource.
+            action: Action verb.
+            prev_hash: SHA-256 hex of the previous event's JSON.
+            details: Arbitrary string key-value metadata.
+
+        Returns:
+            Versioned signature string ``v3:<hex>``.
+
+        Raises:
+            ValueError: If the canonical details JSON exceeds 64 KB, or if
+                ``details`` contains non-JSON-serializable values
+                (e.g. ``float('nan')``).
+        """
+        details_json = json.dumps(details, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        details_bytes = details_json.encode("utf-8")
+        if len(details_bytes) > _DETAILS_MAX_BYTES:
+            raise ValueError(
+                f"Audit event details exceed the maximum allowed size of "
+                f"{_DETAILS_MAX_BYTES} bytes "
+                f"(got {len(details_bytes)} bytes). "
+                "Reduce the number of keys or value lengths in details."
+            )
+
+        # Build the length-prefixed message.  b"v3" is the version sentinel —
+        # it is part of the HMAC input, not just the stored prefix, preventing
+        # version-stripping downgrade attacks.
+        parts: list[bytes] = [b"v3"]
+        for field in (timestamp, event_type, actor, resource, action, prev_hash, details_json):
+            encoded = field.encode("utf-8")
+            parts.append(len(encoded).to_bytes(4, "big"))
+            parts.append(encoded)
+        message = b"".join(parts)
+
+        hex_digest = hmac.new(self._audit_key, message, hashlib.sha256).hexdigest()
+        return f"v3:{hex_digest}"
+
     def log_event(
         self,
         *,
@@ -403,7 +492,8 @@ class AuditLogger:
         """Create, sign, chain, and emit an audit event.
 
         Builds the event against the current chain head (``_prev_hash``),
-        signs it using the v2 format (which includes ``details`` in the HMAC),
+        signs it using the v3 length-prefixed format (which eliminates
+        pipe-delimiter injection and includes ``details`` in the HMAC),
         advances the chain, and logs the JSON representation to
         ``synth_engine.security.audit`` at INFO level.
 
@@ -430,11 +520,11 @@ class AuditLogger:
             The constructed and signed :class:`AuditEvent`.
 
         """
-        # ValueError from _sign_v2 (oversized/non-serializable details) propagates
-        # cleanly through the lock acquisition since _sign_v2 is called inside the lock.
+        # ValueError from _sign_v3 (oversized/non-serializable details) propagates
+        # cleanly through the lock acquisition since _sign_v3 is called inside the lock.
         with self._lock:
             timestamp = datetime.now(UTC).isoformat()
-            signature = self._sign_v2(
+            signature = self._sign_v3(
                 timestamp, event_type, actor, resource, action, self._prev_hash, details
             )
 
@@ -479,11 +569,14 @@ class AuditLogger:
 
         Dispatches on the version prefix stored in ``event.signature``:
 
+        - ``v3:`` — Recomputes the v3 length-prefixed signature and compares
+          using ``hmac.compare_digest``.  This is the current format.
+        - ``v2:`` — Recomputes the v2 signature (details included in HMAC)
+          and compares using ``hmac.compare_digest``.  Supported for
+          backward-compatible verification of existing log entries.
         - ``v1:`` — Recomputes the legacy signature (details not included)
           and compares using ``hmac.compare_digest``.  Emits a WARNING to
-          prompt migration to v2 format before Phase 60.
-        - ``v2:`` — Recomputes the v2 signature (details included in HMAC)
-          and compares using ``hmac.compare_digest``.
+          prompt migration.  Supported for backward-compatible verification.
         - Any other prefix — Returns ``False`` immediately (fail-closed).
 
         Args:
@@ -494,6 +587,21 @@ class AuditLogger:
             ``False`` otherwise (including unknown version prefixes).
         """
         sig = event.signature
+
+        if sig.startswith("v3:"):
+            try:
+                expected = self._sign_v3(
+                    event.timestamp,
+                    event.event_type,
+                    event.actor,
+                    event.resource,
+                    event.action,
+                    event.prev_hash,
+                    event.details,
+                )
+            except ValueError:
+                return False
+            return hmac.compare_digest(expected, sig)
 
         if sig.startswith("v2:"):
             try:
@@ -522,7 +630,7 @@ class AuditLogger:
             is_valid = hmac.compare_digest(expected_v1, sig)
             if is_valid:
                 self._log.warning(
-                    "Audit event uses deprecated v1 signature format. Migrate to v2 by Phase 60."
+                    "Audit event uses deprecated v1 signature format. Migrate to v3 by Phase 60."
                 )
             return is_valid
 
