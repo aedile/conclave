@@ -337,3 +337,83 @@ class TestHueyWorkerContract:
             "main.py must not contain # noqa: E402 imports (old inline wiring block). "
             "All side-effect imports must be in bootstrapper/wiring.py (T56.2)."
         )
+
+
+class TestWebhookDeliveryExceptionHandling:
+    """P58: Webhook delivery exception handling must distinguish expected vs unexpected errors.
+
+    The broad `except Exception` in _build_webhook_delivery_fn should be split:
+    - Known DB/network exceptions: logged with _logger.exception()
+    - Programming errors: logged at CRITICAL with type(exc).__name__
+
+    This preserves the "never crash the job" contract while making programming
+    errors visible at CRITICAL level.
+
+    Task: P58 — Split wiring.py webhook delivery exception handling
+    """
+
+    def test_sqlalchemy_error_logged_at_exception_level(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SQLAlchemyError during webhook delivery must be logged via _logger.exception.
+
+        The delivery function must not propagate the exception — it must catch it,
+        log it, and return silently to preserve the "never crash the job" contract.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from sqlalchemy.exc import SQLAlchemyError
+
+        monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")  # pragma: allowlist secret
+        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+
+        from synth_engine.bootstrapper.wiring import _build_webhook_delivery_fn
+
+        deliver_fn = _build_webhook_delivery_fn()
+
+        with patch("synth_engine.bootstrapper.wiring.get_engine") as mock_engine:
+            mock_engine.side_effect = SQLAlchemyError("DB connection failed")
+            with patch("synth_engine.bootstrapper.wiring._logger") as mock_logger:
+                # Must not raise
+                deliver_fn(job_id=99, status="COMPLETE")
+
+                # Must log at exception (not just warning)
+                assert mock_logger.exception.called or mock_logger.critical.called, (
+                    "SQLAlchemyError must be logged via exception() or critical()"
+                )
+
+    def test_unexpected_programming_error_logged_at_critical(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A programming error (unexpected Exception) must be logged at CRITICAL level.
+
+        This makes programming errors visible while still preserving the
+        "never crash the job" delivery contract.
+
+        Task: P58 — Split wiring.py webhook delivery exception handling
+        """
+        from unittest.mock import patch
+
+        monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/db")  # pragma: allowlist secret
+        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+
+        from synth_engine.bootstrapper.wiring import _build_webhook_delivery_fn
+
+        deliver_fn = _build_webhook_delivery_fn()
+
+        # Inject a totally unexpected programming error (not a DB/network error)
+        class _ProgrammingBug(RuntimeError):
+            pass
+
+        with patch("synth_engine.bootstrapper.wiring.get_engine") as mock_engine:
+            mock_engine.side_effect = _ProgrammingBug("unexpected internal error")
+            with patch("synth_engine.bootstrapper.wiring._logger") as mock_logger:
+                # Must not raise
+                deliver_fn(job_id=99, status="COMPLETE")
+
+                # Programming errors must be logged at CRITICAL
+                assert mock_logger.critical.called, (
+                    "Unexpected (non-DB/network) exceptions must be logged at CRITICAL level"
+                )
