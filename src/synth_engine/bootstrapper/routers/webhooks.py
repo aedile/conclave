@@ -28,6 +28,7 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F2 (safe URL logging), F4 (import shared/ssrf), F11 (dead code)
 Task: T55.4 — SSRF registration fail-closed on DNS failure
+Task: T59.3 — OpenAPI Documentation Enrichment
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from sqlmodel import Session, select
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors.formatter import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.webhooks import (
     WebhookRegistration,
     WebhookRegistrationListResponse,
@@ -101,7 +103,16 @@ def _count_active_registrations(session: Session, owner_id: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/", status_code=201, response_model=WebhookRegistrationResponse)
+@router.post(
+    "/",
+    summary="Register a webhook",
+    description=(
+        "Register a callback URL to receive job lifecycle events. Payloads are HMAC-signed."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    status_code=201,
+    response_model=WebhookRegistrationResponse,
+)
 def register_webhook(
     body: WebhookRegistrationRequest,
     session: Annotated[Session, Depends(get_db_session)],
@@ -201,7 +212,13 @@ def register_webhook(
     return WebhookRegistrationResponse.from_orm_model(reg)
 
 
-@router.get("/", response_model=WebhookRegistrationListResponse)
+@router.get(
+    "/",
+    summary="List webhooks",
+    description="Return all registered webhook endpoints for the authenticated operator.",
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=WebhookRegistrationListResponse,
+)
 def list_webhooks(
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
@@ -229,7 +246,13 @@ def list_webhooks(
     )
 
 
-@router.delete("/{webhook_id}", status_code=204)
+@router.delete(
+    "/{webhook_id}",
+    summary="Delete a webhook",
+    description="Remove a registered webhook endpoint.",
+    responses=COMMON_ERROR_RESPONSES,
+    status_code=204,
+)
 def deactivate_webhook(
     webhook_id: str,
     session: Annotated[Session, Depends(get_db_session)],

@@ -11,6 +11,7 @@ Each concern is delegated to a focused submodule:
 - :mod:`.lifecycle` — Lifespan hooks and ops route registration.
 - :mod:`.router_registry` — Domain router and exception handler wiring.
 - :mod:`.wiring` — Explicit IoC registration functions (Rule 8).
+- :mod:`.openapi_metadata` — Tags metadata and error response schemas (T59.3).
 
 Docker-secrets cluster
 ----------------------
@@ -62,6 +63,7 @@ from synth_engine.bootstrapper.lifecycle import (
     _register_routes,
 )
 from synth_engine.bootstrapper.middleware import setup_middleware
+from synth_engine.bootstrapper.openapi_metadata import TAGS_METADATA
 from synth_engine.bootstrapper.router_registry import (
     _include_routers,
     _register_exception_handlers,
@@ -150,6 +152,11 @@ def create_app() -> FastAPI:
     3. SealGateMiddleware — 423 Locked while vault is sealed.
     4. LicenseGateMiddleware — 402 Payment Required if unlicensed.
 
+    OpenAPI enrichment (T59.3):
+    Tags metadata is injected via ``openapi_tags`` for grouped documentation
+    in the /docs UI.  Route-level ``summary`` and ``responses`` with RFC 7807
+    schemas are defined in each router module.
+
     Returns:
         A configured FastAPI instance ready to serve requests.
     """
@@ -157,11 +164,31 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Conclave Engine",
-        description="Air-Gapped Synthetic Data Generation Engine",
+        description=(
+            "**Air-Gapped Synthetic Data Generation Engine** — v1.0\n\n"
+            "Transforms production databases into privacy-safe synthetic replicas "
+            "inside your security perimeter, on your hardware, with zero network "
+            "calls out.\n\n"
+            "All business-logic endpoints are versioned under `/api/v1/`. "
+            "Infrastructure endpoints (health, unseal, auth, license) remain at root.\n\n"
+            "**Authentication**: All business endpoints require a JWT Bearer token. "
+            "Obtain one via `POST /auth/token`.\n\n"
+            "**Error format**: All error responses use "
+            "[RFC 7807 Problem Details](https://www.rfc-editor.org/rfc/rfc7807)."
+        ),
         version=synth_engine.__version__,
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=_lifespan,
+        openapi_tags=TAGS_METADATA,
+        contact={
+            "name": "Conclave Engine Operations",
+            "url": "https://github.com/example/conclave-engine",
+        },
+        license_info={
+            "name": "AGPL-3.0-or-later",
+            "url": "https://www.gnu.org/licenses/agpl-3.0.html",
+        },
     )
 
     FastAPIInstrumentor.instrument_app(app)

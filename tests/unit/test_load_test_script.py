@@ -28,7 +28,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -41,7 +41,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 #: Placeholder DSN — fictional, never echoed to stdout
-_FICTIONAL_DSN = "postgresql://synthetic:synthetic@localhost:5432/synth_db"  # pragma: allowlist secret
+_FICTIONAL_DSN = "postgresql://synth:synth@localhost:5432/synth_db"  # pragma: allowlist secret
 
 
 def _import_load_test_module() -> Any:
@@ -153,7 +153,7 @@ class TestLoadTestArgValidationAttack:
         Arrange: _parse_args with an obviously invalid epsilon but a real DSN.
         Assert: captured stdout+stderr does not contain the DSN string.
         """
-        dsn = "postgresql://secret_user:secret_pass@db.internal:5432/prod"  # pragma: allowlist secret
+        dsn = "postgresql://secret_user:secret_pass@db.internal/prod"  # pragma: allowlist secret
         with pytest.raises(SystemExit):
             mod._parse_args(["--db-url", dsn, "--epsilon", "99.9"])
 
@@ -297,7 +297,6 @@ class TestLoadTestPerTableResult:
         Arrange: PerTableResult with a clean synthetic DataFrame.
         Assert: result.converged == True.
         """
-        import numpy as np
 
         df = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         result = mod.PerTableResult(
@@ -420,15 +419,11 @@ class TestLoadTestScriptStructure:
 
     def test_peak_rss_monitor_class_exists(self, mod: Any) -> None:
         """PeakRSSMonitor class must exist in load_test module."""
-        assert hasattr(mod, "PeakRSSMonitor"), (
-            "load_test module must define PeakRSSMonitor class"
-        )
+        assert hasattr(mod, "PeakRSSMonitor"), "load_test module must define PeakRSSMonitor class"
 
     def test_per_table_result_class_exists(self, mod: Any) -> None:
         """PerTableResult dataclass must exist in load_test module."""
-        assert hasattr(mod, "PerTableResult"), (
-            "load_test module must define PerTableResult class"
-        )
+        assert hasattr(mod, "PerTableResult"), "load_test module must define PerTableResult class"
 
     def test_parse_args_function_exists(self, mod: Any) -> None:
         """_parse_args function must exist and be callable."""
@@ -453,9 +448,7 @@ class TestPeakRSSMonitor:
         assert isinstance(rss, int), f"peak_rss_bytes() must return int, got {type(rss)}"
         assert rss >= 0, f"peak_rss_bytes() must be non-negative, got {rss}"
 
-    def test_peak_rss_returns_positive_value_after_allocation(
-        self, mod: Any
-    ) -> None:
+    def test_peak_rss_returns_positive_value_after_allocation(self, mod: Any) -> None:
         """PeakRSSMonitor.peak_rss_bytes() must return > 0 for a running process.
 
         The current process has allocated memory (test suite itself), so
@@ -467,5 +460,5 @@ class TestPeakRSSMonitor:
         monitor = mod.PeakRSSMonitor()
         rss = monitor.peak_rss_bytes()
         assert rss > 0, (
-            f"PeakRSSMonitor.peak_rss_bytes() returned 0 — resource.getrusage may not be working"
+            "PeakRSSMonitor.peak_rss_bytes() returned 0 — resource.getrusage may not be working"
         )

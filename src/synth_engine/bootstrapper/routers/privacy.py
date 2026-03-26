@@ -59,6 +59,10 @@ from sqlmodel import Session, select
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import (
+    COMMON_ERROR_RESPONSES,
+    CONFLICT_ERROR_RESPONSES,
+)
 from synth_engine.bootstrapper.schemas.privacy import BudgetRefreshRequest, BudgetResponse
 from synth_engine.modules.privacy.accountant import reset_budget
 from synth_engine.modules.privacy.ledger import PrivacyLedger
@@ -183,7 +187,13 @@ def _run_reset_budget(
     return asyncio.run(_async_reset())
 
 
-@router.get("/budget", response_model=BudgetResponse)
+@router.get(
+    "/budget",
+    summary="Get privacy budget",
+    description="Return current epsilon/delta budget allocation and consumption.",
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=BudgetResponse,
+)
 def get_budget(
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
@@ -215,7 +225,13 @@ def get_budget(
     return _ledger_to_budget_response(ledger)
 
 
-@router.post("/budget/refresh", response_model=BudgetResponse)
+@router.post(
+    "/budget/refresh",
+    summary="Refresh privacy budget",
+    description="Reset the spent epsilon counter. Emits a WORM-audited event.",
+    responses=CONFLICT_ERROR_RESPONSES,
+    response_model=BudgetResponse,
+)
 def refresh_budget(
     body: BudgetRefreshRequest,
     session: Annotated[Session, Depends(get_db_session)],

@@ -115,11 +115,7 @@ def test_old_unversioned_business_routes_not_registered(
     Arrange: versioned app.
     Assert: no APIRoute path starts with an unversioned business prefix.
     """
-    registered_paths = [
-        route.path
-        for route in versioned_app.routes
-        if isinstance(route, APIRoute)
-    ]
+    registered_paths = [route.path for route in versioned_app.routes if isinstance(route, APIRoute)]
 
     violations: list[str] = []
     for path in registered_paths:
@@ -144,11 +140,7 @@ def test_versioned_routes_registered_correctly(
     Arrange: versioned app.
     Assert: at least the known core business paths exist under /api/v1/.
     """
-    registered_paths = {
-        route.path
-        for route in versioned_app.routes
-        if isinstance(route, APIRoute)
-    }
+    registered_paths = {route.path for route in versioned_app.routes if isinstance(route, APIRoute)}
 
     required_v1_paths = [
         "/api/v1/jobs",

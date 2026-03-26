@@ -36,6 +36,7 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T47.1 — Scope-based auth for security endpoints
 Task: T47.3 — Scope-based auth for settings write endpoints
+Task: T59.3 — OpenAPI Documentation Enrichment
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ from pydantic import BaseModel, Field
 
 from synth_engine.bootstrapper.dependencies.auth import create_token, verify_operator_credentials
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 
 _logger = logging.getLogger(__name__)
 
@@ -101,7 +103,16 @@ class TokenResponse(BaseModel):
     token_type: str = Field(default=_TOKEN_SCHEME, description="Token scheme — always 'bearer'.")
 
 
-@router.post("/token", response_model=TokenResponse)
+@router.post(
+    "/token",
+    summary="Obtain authentication token",
+    description=(
+        "Exchange operator credentials for a JWT Bearer token. "
+        "Token is valid for the configured expiry period."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=TokenResponse,
+)
 async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
     """Issue a JWT Bearer token in exchange for valid operator credentials.
 

@@ -52,6 +52,7 @@ from sqlmodel import Session
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.connections import Connection
 from synth_engine.modules.synthesizer.lifecycle.erasure import DeletionManifest, ErasureService
 from synth_engine.shared.security.vault import VaultState
@@ -145,7 +146,16 @@ class ErasureResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.delete("/erasure", response_model=ErasureResponse)
+@router.delete(
+    "/erasure",
+    summary="Execute GDPR erasure",
+    description=(
+        "Delete all synthesis jobs and artifacts for a data subject. "
+        "Emits a WORM-audited compliance event."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=ErasureResponse,
+)
 def erasure(
     body: ErasureRequest,
     session: Annotated[Session, Depends(get_db_session)],

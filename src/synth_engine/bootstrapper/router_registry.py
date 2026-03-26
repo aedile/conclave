@@ -124,10 +124,10 @@ def _include_routers(app: FastAPI) -> None:
     # These paths are in COMMON_INFRA_EXEMPT_PATHS, SEAL_EXEMPT_PATHS, or
     # AUTH_EXEMPT_PATHS.  Moving them to /api/v1/ would break all middleware
     # exempt-path matching.
-    app.include_router(auth_router)      # /auth/token — AUTH_EXEMPT_PATHS
+    app.include_router(auth_router)  # /auth/token — AUTH_EXEMPT_PATHS
     app.include_router(security_router)  # /security/shred — SEAL_EXEMPT_PATHS
     app.include_router(licensing_router)  # /license/challenge, /license/activate — COMMON_INFRA
-    app.include_router(health_router)    # /health, /ready, /health/vault — COMMON_INFRA
+    app.include_router(health_router)  # /health, /ready, /health/vault — COMMON_INFRA
 
 
 def _register_exception_handlers(app: FastAPI) -> None:

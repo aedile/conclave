@@ -46,6 +46,7 @@ CONSTITUTION Priority 0: Security
 Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
 Task: T47.1 — Scope-based auth for security endpoints
 Task: P50 review fix — restore /security/shred vault-layer bypass (layered model)
+Task: T59.3 — OpenAPI Documentation Enrichment
 """
 
 from __future__ import annotations
@@ -59,6 +60,7 @@ from pydantic import BaseModel
 
 from synth_engine.bootstrapper.dependencies.auth import require_scope
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.shared.security.ale import get_fernet
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.security.rotation import rotate_ale_keys_task
@@ -93,7 +95,16 @@ class RotateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/shred", tags=["security"])
+@router.post(
+    "/shred",
+    summary="Emergency cryptographic shred",
+    description=(
+        "Destroy all encryption keys and artifacts. "
+        "IRREVERSIBLE. Reachable even when vault is sealed."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    tags=["security"],
+)
 async def shred_vault(
     current_operator: Annotated[str, Depends(require_scope("security:admin"))],
 ) -> JSONResponse:
@@ -161,7 +172,13 @@ async def shred_vault(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/keys/rotate", tags=["security"])
+@router.post(
+    "/keys/rotate",
+    summary="Rotate encryption keys",
+    description="Rotate the vault Key Encryption Key. Requires an unsealed vault.",
+    responses=COMMON_ERROR_RESPONSES,
+    tags=["security"],
+)
 async def rotate_keys(
     body: RotateRequest,
     current_operator: Annotated[str, Depends(require_scope("security:admin"))],

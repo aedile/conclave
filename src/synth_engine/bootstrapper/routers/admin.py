@@ -47,6 +47,7 @@ from sqlmodel import Session
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 from synth_engine.shared.security.audit import get_audit_logger
 
@@ -87,7 +88,15 @@ class LegalHoldResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.patch("/jobs/{job_id}/legal-hold", response_model=LegalHoldResponse)
+@router.patch(
+    "/jobs/{job_id}/legal-hold",
+    summary="Set legal hold on a job",
+    description=(
+        "Apply or remove a legal hold flag on a synthesis job to prevent data retention cleanup."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=LegalHoldResponse,
+)
 def set_legal_hold(
     job_id: int,
     body: LegalHoldRequest,
