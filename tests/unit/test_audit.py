@@ -198,12 +198,12 @@ def test_audit_event_is_json_serializable(logger_instance: AuditLogger) -> None:
         f"prev_hash must be lowercase hex; got {parsed['prev_hash']!r}"
     )
 
-    # signature: versioned HMAC-SHA256 string — format is 'v2:<64-hex>' for new events
+    # signature: versioned HMAC-SHA256 string — format is 'v3:<64-hex>' for new events
     assert isinstance(parsed["signature"], str), "signature must be a string"
-    assert parsed["signature"].startswith("v2:"), (
-        f"signature must start with 'v2:' version prefix; got {parsed['signature'][:10]!r}"
+    assert parsed["signature"].startswith("v3:"), (
+        f"signature must start with 'v3:' version prefix; got {parsed['signature'][:10]!r}"
     )
-    sig_hex_part = parsed["signature"][len("v2:") :]
+    sig_hex_part = parsed["signature"][len("v3:") :]
     assert len(sig_hex_part) == 64, (
         f"signature hex portion must be 64 chars; got {len(sig_hex_part)}"
     )
@@ -521,11 +521,11 @@ def test_concurrent_log_events_maintain_chain_order() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_new_event_uses_v2_signature_prefix(logger_instance: AuditLogger) -> None:  # noqa: F821
-    """New events produced by log_event() must carry a 'v2:' signature prefix.
+def test_new_event_uses_v3_signature_prefix(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """New events produced by log_event() must carry a 'v3:' signature prefix.
 
-    The prefix is the version discriminator for the HMAC format that includes
-    the details field in the signed payload.
+    The prefix is the version discriminator for the length-prefixed HMAC format
+    that eliminates pipe-delimiter injection (ADV-P53-01).
     """
     event = logger_instance.log_event(
         event_type="PAYMENT",
@@ -535,8 +535,8 @@ def test_new_event_uses_v2_signature_prefix(logger_instance: AuditLogger) -> Non
         details={"amount": "100"},
     )
 
-    assert event.signature.startswith("v2:"), (
-        f"New events must use v2: prefix; got {event.signature[:10]!r}"
+    assert event.signature.startswith("v3:"), (
+        f"New events must use v3: prefix; got {event.signature[:10]!r}"
     )
 
 
@@ -590,10 +590,10 @@ def test_legacy_v1_event_verifies_correctly(logger_instance: AuditLogger) -> Non
     )
 
 
-def test_v2_event_with_empty_details_verifies(logger_instance: AuditLogger) -> None:  # noqa: F821
-    """A v2 event with details={} (empty dict) verifies correctly.
+def test_v3_event_with_empty_details_verifies(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """A v3 event with details={} (empty dict) verifies correctly.
 
-    Empty dict is a valid v2 payload — it is distinct from None/missing
+    Empty dict is a valid v3 payload — it is distinct from None/missing
     (which would use v1 format).
     """
     event = logger_instance.log_event(
@@ -604,9 +604,9 @@ def test_v2_event_with_empty_details_verifies(logger_instance: AuditLogger) -> N
         details={},
     )
 
-    assert event.signature.startswith("v2:"), "Event with details={} must use v2: prefix"
+    assert event.signature.startswith("v3:"), "Event with details={} must use v3: prefix"
     assert logger_instance.verify_event(event) is True, (
-        "v2 event with empty details must verify as True"
+        "v3 event with empty details must verify as True"
     )
 
 
@@ -625,8 +625,8 @@ def test_v2_signature_round_trip(logger_instance: AuditLogger) -> None:  # noqa:
     assert logger_instance.verify_event(event) is True
 
 
-def test_v2_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> None:  # noqa: F821
-    """The hex portion of a v2 signature (after the 'v2:' prefix) is 64 chars.
+def test_v3_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> None:  # noqa: F821
+    """The hex portion of a v3 signature (after the 'v3:' prefix) is 64 chars.
 
     The HMAC-SHA256 digest is always 32 bytes / 64 hex characters.
     """
@@ -640,8 +640,8 @@ def test_v2_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> N
         details={"x": "y"},
     )
 
-    assert event.signature.startswith("v2:")
-    hex_part = event.signature[len("v2:") :]
+    assert event.signature.startswith("v3:")
+    hex_part = event.signature[len("v3:") :]
     assert len(hex_part) == 64, f"Hex portion must be 64 chars; got {len(hex_part)}"
     assert re.fullmatch(r"[0-9a-f]{64}", hex_part), (
         f"Hex portion must be lowercase hex; got {hex_part!r}"

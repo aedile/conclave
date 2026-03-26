@@ -98,7 +98,7 @@ def test_version_downgrade_attack_fails(attack_logger: object) -> None:
 
     logger: AuditLogger = attack_logger  # type: ignore[assignment]
 
-    # Log a v2 event with meaningful details
+    # Log a v3 event with meaningful details
     event = logger.log_event(
         event_type="TRANSFER",
         actor="finance",
@@ -107,13 +107,13 @@ def test_version_downgrade_attack_fails(attack_logger: object) -> None:
         details={"amount": "500", "ref": "TX-001"},
     )
 
-    # The legitimate signature is v2: (includes details).
-    # Attacker tries to strip the details and replace the v2: prefix with v1:
+    # The legitimate signature is v3: (length-prefixed, includes details).
+    # Attacker tries to strip the details and replace the v3: prefix with v1:
     # to make it look like the legacy format, bypassing detail tampering.
-    assert event.signature.startswith("v2:"), "New events must use v2: signature prefix"
+    assert event.signature.startswith("v3:"), "New events must use v3: signature prefix"
 
     # Construct a fake v1: signature by taking just the hex portion
-    fake_v1_sig = "v1:" + event.signature[len("v2:") :]
+    fake_v1_sig = "v1:" + event.signature[len("v3:") :]
 
     tampered = AuditEvent(
         timestamp=event.timestamp,
@@ -132,7 +132,7 @@ def test_version_downgrade_attack_fails(attack_logger: object) -> None:
 
 
 def test_unknown_version_prefix_fails_closed(attack_logger: object) -> None:
-    """An unknown version prefix (e.g. 'v3:') must cause verify_event to return False.
+    """An unknown version prefix (e.g. 'v99:') must cause verify_event to return False.
 
     verify_event must fail-closed on unknown versions — it must not fall
     through to any default verification path.
@@ -149,8 +149,8 @@ def test_unknown_version_prefix_fails_closed(attack_logger: object) -> None:
         details={"status": "ok"},
     )
 
-    # Replace the version prefix with an unknown one
-    fake_v3_sig = "v3:" + event.signature[len("v2:") :]
+    # Replace the version prefix with an unknown one (v99: does not exist)
+    fake_unknown_sig = "v99:" + event.signature[len("v3:") :]
 
     unknown_version_event = AuditEvent(
         timestamp=event.timestamp,
@@ -160,7 +160,7 @@ def test_unknown_version_prefix_fails_closed(attack_logger: object) -> None:
         action=event.action,
         details=event.details,
         prev_hash=event.prev_hash,
-        signature=fake_v3_sig,
+        signature=fake_unknown_sig,
     )
 
     assert logger.verify_event(unknown_version_event) is False, (
@@ -245,7 +245,7 @@ def test_none_details_and_empty_dict_produce_different_signatures(
     logger_a = AuditLogger(attack_key_bytes)
     logger_b = AuditLogger(attack_key_bytes)
 
-    # Log an event via the public API with empty details (v2)
+    # Log an event via the public API with empty details (v3)
     event_empty = logger_a.log_event(
         event_type="COMPARE",
         actor="test",
@@ -256,12 +256,12 @@ def test_none_details_and_empty_dict_produce_different_signatures(
 
     # Simulate a legacy v1 signature by calling _sign_v1 directly
     # (which must exist after implementation) or by verifying the prefix differs
-    # The signature for empty details (v2:) must differ from v1: format
-    assert event_empty.signature.startswith("v2:"), "Empty dict details must produce v2: signature"
+    # The signature for empty details (v3:) must differ from v1: format
+    assert event_empty.signature.startswith("v3:"), "Empty dict details must produce v3: signature"
 
-    # Construct a fake v1: prefixed signature using the hex portion of the real v2 sig.
+    # Construct a fake v1: prefixed signature using the hex portion of the real v3 sig.
     # Verifying it must fail because the version prefix is included in the HMAC input.
-    hex_part = event_empty.signature[len("v2:") :]
+    hex_part = event_empty.signature[len("v3:") :]
     from synth_engine.shared.security.audit import AuditEvent
 
     fake_v1_event = AuditEvent(
@@ -275,31 +275,31 @@ def test_none_details_and_empty_dict_produce_different_signatures(
         signature="v1:" + hex_part,
     )
     assert logger_b.verify_event(fake_v1_event) is False, (
-        "A v1: signature over empty details must NOT verify as a v2 event"
+        "A v1: signature over empty details must NOT verify as a v3 event"
     )
 
 
-def test_verify_event_returns_false_when_details_cause_sign_v2_to_raise(
+def test_verify_event_returns_false_when_details_cause_sign_v3_to_raise(
     attack_logger: object,
 ) -> None:
     """The except ValueError: return False path in verify_event() must be exercised.
 
-    When a stored v2 event has been corrupted such that its details dict
-    would cause _sign_v2() to raise ValueError during re-signing (e.g.,
+    When a stored v3 event has been corrupted such that its details dict
+    would cause _sign_v3() to raise ValueError during re-signing (e.g.,
     because the details JSON exceeds 64 KB after corruption), verify_event()
     must return False rather than propagating the exception.
 
-    This test creates a valid v2 event, then constructs a corrupt copy with
+    This test creates a valid v3 event, then constructs a corrupt copy with
     an oversized details payload (exceeding the 64 KB guard) while keeping
-    the original v2: signature.  verify_event() will attempt _sign_v2() on
+    the original v3: signature.  verify_event() will attempt _sign_v3() on
     the corrupt details, hit the size guard ValueError, catch it, and return
-    False — covering the except branch at audit.py lines 328-329.
+    False — covering the except branch in verify_event.
     """
     from synth_engine.shared.security.audit import AuditLogger
 
     logger: AuditLogger = attack_logger  # type: ignore[assignment]
 
-    # 1. Create a valid v2 event with small, legitimate details.
+    # 1. Create a valid v3 event with small, legitimate details.
     event = logger.log_event(
         event_type="CORRUPTION_TEST",
         actor="system",
@@ -307,22 +307,22 @@ def test_verify_event_returns_false_when_details_cause_sign_v2_to_raise(
         action="read",
         details={"record_id": "abc123"},
     )
-    assert event.signature.startswith("v2:"), "Precondition: event must carry a v2: signature"
+    assert event.signature.startswith("v3:"), "Precondition: event must carry a v3: signature"
 
     # 2. Construct a details dict whose canonical JSON exceeds 64 KB.
     #    Each entry contributes ~20 bytes; 4000 entries ≈ 80 KB of JSON.
-    #    This will trigger the size guard inside _sign_v2() during verification.
+    #    This will trigger the size guard inside _sign_v3() during verification.
     oversized_details: dict[str, str] = {f"key_{i:04d}": "x" * 10 for i in range(4000)}
 
-    # 3. Build a corrupt copy: retain the original v2: signature but swap in
+    # 3. Build a corrupt copy: retain the original v3: signature but swap in
     #    the oversized details.  model_copy(update=...) is the Pydantic v2 way
     #    to produce a new model instance with selective field overrides.
     corrupt_event = event.model_copy(update={"details": oversized_details})
 
-    # 4. verify_event() must catch the ValueError from _sign_v2() and return
+    # 4. verify_event() must catch the ValueError from _sign_v3() and return
     #    False — not raise, not crash.
     result = logger.verify_event(corrupt_event)
     assert result is False, (
-        "verify_event must return False (not raise) when _sign_v2 raises ValueError "
+        "verify_event must return False (not raise) when _sign_v3 raises ValueError "
         "due to oversized details after corruption"
     )
