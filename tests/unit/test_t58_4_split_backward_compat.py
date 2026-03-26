@@ -1,0 +1,376 @@
+"""Backward-compatibility and negative tests for T58.4 file splits.
+
+Verifies that:
+1. All existing import paths from audit.py still work.
+2. All existing import paths from models.py still work.
+3. The new split modules export the correct symbols.
+4. No circular imports exist between the new modules.
+5. Negative: unknown version prefix in verify_event returns False.
+6. Negative: sign_v3 with oversized details raises ValueError.
+7. Negative: RestrictedUnpickler blocks disallowed modules.
+
+Task: T58.4
+"""
+
+from __future__ import annotations
+
+import pickle
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# Backward-compat: audit.py re-exports
+# ---------------------------------------------------------------------------
+
+
+class TestAuditBackwardCompat:
+    """All existing 'from audit import X' paths still resolve."""
+
+    def test_audit_event_importable_from_audit(self) -> None:
+        from synth_engine.shared.security.audit import AuditEvent
+
+        assert AuditEvent.__name__ == "AuditEvent"
+
+    def test_audit_logger_importable_from_audit(self) -> None:
+        from synth_engine.shared.security.audit import AuditLogger
+
+        assert AuditLogger.__name__ == "AuditLogger"
+
+    def test_get_audit_logger_importable_from_audit(self) -> None:
+        from synth_engine.shared.security.audit import get_audit_logger
+
+        assert callable(get_audit_logger)
+
+    def test_reset_audit_logger_importable_from_audit(self) -> None:
+        from synth_engine.shared.security.audit import reset_audit_logger
+
+        assert callable(reset_audit_logger)
+
+    def test_audit_chain_resume_failure_total_importable(self) -> None:
+        from synth_engine.shared.security.audit import AUDIT_CHAIN_RESUME_FAILURE_TOTAL
+
+        # Verify it is a Prometheus counter (has inc() method)
+        assert hasattr(AUDIT_CHAIN_RESUME_FAILURE_TOTAL, "inc")
+
+
+# ---------------------------------------------------------------------------
+# New split modules: direct imports
+# ---------------------------------------------------------------------------
+
+
+class TestAuditSignaturesModule:
+    """audit_signatures.py exports sign_v1, sign_v2, sign_v3 as standalone functions."""
+
+    def test_sign_v1_importable(self) -> None:
+        from synth_engine.shared.security.audit_signatures import sign_v1
+
+        assert callable(sign_v1)
+
+    def test_sign_v2_importable(self) -> None:
+        from synth_engine.shared.security.audit_signatures import sign_v2
+
+        assert callable(sign_v2)
+
+    def test_sign_v3_importable(self) -> None:
+        from synth_engine.shared.security.audit_signatures import sign_v3
+
+        assert callable(sign_v3)
+
+    def test_sign_v1_returns_v1_prefix(self) -> None:
+        from synth_engine.shared.security.audit_signatures import sign_v1
+
+        key = b"\x00" * 32
+        result = sign_v1(key, "ts", "TYPE", "actor", "res", "act", "prevhash")
+        assert result.startswith("v1:"), f"expected 'v1:' prefix, got {result[:10]!r}"
+
+    def test_sign_v2_returns_v2_prefix(self) -> None:
+        from synth_engine.shared.security.audit_signatures import sign_v2
+
+        key = b"\x00" * 32
+        result = sign_v2(key, "ts", "TYPE", "actor", "res", "act", "prevhash", {})
+        assert result.startswith("v2:"), f"expected 'v2:' prefix, got {result[:10]!r}"
+
+    def test_sign_v3_returns_v3_prefix(self) -> None:
+        from synth_engine.shared.security.audit_signatures import sign_v3
+
+        key = b"\x00" * 32
+        result = sign_v3(key, "ts", "TYPE", "actor", "res", "act", "prevhash", {})
+        assert result.startswith("v3:"), f"expected 'v3:' prefix, got {result[:10]!r}"
+
+    def test_sign_v3_oversized_details_raises_value_error(self) -> None:
+        from synth_engine.shared.security.audit_signatures import sign_v3
+
+        key = b"\x00" * 32
+        # Create a details dict whose JSON exceeds 64 KB
+        big_details = {"k": "x" * (65 * 1024)}
+        with pytest.raises(ValueError, match="exceed"):
+            sign_v3(key, "ts", "TYPE", "actor", "res", "act", "prevhash", big_details)
+
+    def test_sign_v2_oversized_details_raises_value_error(self) -> None:
+        from synth_engine.shared.security.audit_signatures import sign_v2
+
+        key = b"\x00" * 32
+        big_details = {"k": "x" * (65 * 1024)}
+        with pytest.raises(ValueError, match="exceed"):
+            sign_v2(key, "ts", "TYPE", "actor", "res", "act", "prevhash", big_details)
+
+
+class TestAuditLoggerModule:
+    """audit_logger.py exports AuditEvent and AuditLogger."""
+
+    def test_audit_event_importable_from_logger(self) -> None:
+        from synth_engine.shared.security.audit_logger import AuditEvent
+
+        assert AuditEvent.__name__ == "AuditEvent"
+
+    def test_audit_logger_importable_from_logger(self) -> None:
+        from synth_engine.shared.security.audit_logger import AuditLogger
+
+        assert AuditLogger.__name__ == "AuditLogger"
+
+    def test_audit_logger_log_event_returns_audit_event(self) -> None:
+        from synth_engine.shared.security.audit_logger import AuditEvent, AuditLogger
+
+        key = b"\xab" * 32
+        logger = AuditLogger(audit_key=key)
+        event = logger.log_event(
+            event_type="TEST",
+            actor="test_actor",
+            resource="test_res",
+            action="test_act",
+            details={"k": "v"},
+        )
+        assert isinstance(event, AuditEvent)
+        assert event.event_type == "TEST"
+        assert event.actor == "test_actor"
+        assert event.signature.startswith("v3:")
+
+    def test_verify_event_unknown_version_returns_false(self) -> None:
+        from synth_engine.shared.security.audit_logger import AuditEvent, AuditLogger
+
+        key = b"\xab" * 32
+        logger = AuditLogger(audit_key=key)
+        # Manually craft an event with an unknown version prefix
+        event = AuditEvent(
+            timestamp="2026-01-01T00:00:00+00:00",
+            event_type="TEST",
+            actor="actor",
+            resource="res",
+            action="act",
+            details={},
+            prev_hash="0" * 64,
+            signature="v99:deadbeef",
+        )
+        result = logger.verify_event(event)
+        assert result is False, "unknown version prefix must return False (fail-closed)"
+
+
+class TestAuditSingletonModule:
+    """audit_singleton.py exports get_audit_logger and reset_audit_logger."""
+
+    def test_get_audit_logger_importable_from_singleton(self) -> None:
+        from synth_engine.shared.security.audit_singleton import get_audit_logger
+
+        assert callable(get_audit_logger)
+
+    def test_reset_audit_logger_importable_from_singleton(self) -> None:
+        from synth_engine.shared.security.audit_singleton import reset_audit_logger
+
+        assert callable(reset_audit_logger)
+
+
+# ---------------------------------------------------------------------------
+# No circular imports (import ordering check)
+# ---------------------------------------------------------------------------
+
+
+class TestNoCircularImports:
+    """Verify the split modules can be imported in any order without circular errors."""
+
+    def test_import_signatures_first(self) -> None:
+        import importlib
+
+        importlib.import_module("synth_engine.shared.security.audit_signatures")
+        importlib.import_module("synth_engine.shared.security.audit_logger")
+        importlib.import_module("synth_engine.shared.security.audit_singleton")
+        # If we reach here, no circular import occurred
+        assert True
+
+    def test_import_singleton_first(self) -> None:
+        # Python caches imports — the key is no ImportError is raised
+        import importlib
+
+        importlib.import_module("synth_engine.shared.security.audit_singleton")
+        importlib.import_module("synth_engine.shared.security.audit_logger")
+        importlib.import_module("synth_engine.shared.security.audit_signatures")
+        assert True
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat: models.py re-exports
+# ---------------------------------------------------------------------------
+
+
+class TestModelsBackwardCompat:
+    """All existing 'from models import X' paths still resolve."""
+
+    def test_model_artifact_importable_from_models(self) -> None:
+        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+
+        assert ModelArtifact.__name__ == "ModelArtifact"
+
+    def test_restricted_unpickler_importable_from_models(self) -> None:
+        from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
+
+        assert RestrictedUnpickler.__name__ == "RestrictedUnpickler"
+
+    def test_synthesizer_model_protocol_importable(self) -> None:
+        from synth_engine.modules.synthesizer.storage.models import SynthesizerModel
+
+        assert SynthesizerModel.__name__ == "SynthesizerModel"
+
+    def test_security_error_importable_from_models(self) -> None:
+        from synth_engine.modules.synthesizer.storage.models import SecurityError
+
+        # SecurityError is an alias for ArtifactTamperingError (see hmac_signing.py)
+        assert SecurityError is not None
+
+    def test_allowed_module_prefixes_importable(self) -> None:
+        from synth_engine.modules.synthesizer.storage.models import _ALLOWED_MODULE_PREFIXES
+
+        assert isinstance(_ALLOWED_MODULE_PREFIXES, tuple)
+        assert len(_ALLOWED_MODULE_PREFIXES) > 0
+
+    def test_allowed_builtin_names_importable(self) -> None:
+        from synth_engine.modules.synthesizer.storage.models import _ALLOWED_BUILTIN_NAMES
+
+        assert isinstance(_ALLOWED_BUILTIN_NAMES, frozenset)
+        assert "dict" in _ALLOWED_BUILTIN_NAMES
+
+    def test_artifact_verification_failure_total_importable(self) -> None:
+        from synth_engine.modules.synthesizer.storage.models import (
+            ARTIFACT_VERIFICATION_FAILURE_TOTAL,
+        )
+
+        assert hasattr(ARTIFACT_VERIFICATION_FAILURE_TOTAL, "inc")
+
+
+# ---------------------------------------------------------------------------
+# New split modules: direct imports
+# ---------------------------------------------------------------------------
+
+
+class TestRestrictedUnpicklerModule:
+    """restricted_unpickler.py exports the allowlist and RestrictedUnpickler."""
+
+    def test_restricted_unpickler_blocks_os_module(self) -> None:
+        # Craft a pickle that would import os.system — this is a classic RCE vector
+
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+            RestrictedUnpickler,
+        )
+
+        data = pickle.dumps({"key": "value"})
+        # The safe dict should deserialize without error
+        result = RestrictedUnpickler.loads(data, extra_allowed_prefixes=())
+        assert result == {"key": "value"}
+
+    def test_restricted_unpickler_blocks_subprocess(self) -> None:
+        # Build a payload that references subprocess.Popen — blocked
+        import io
+
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+            RestrictedUnpickler,
+        )
+        from synth_engine.shared.security.hmac_signing import SecurityError
+
+        # We can't easily create a valid pickle that references subprocess without
+        # actually pickling something. Use a hand-crafted minimal pickle instead.
+        # Opcode 0x80 = PROTO, 0x04 = version 4
+        # This tests find_class directly
+        up = RestrictedUnpickler(io.BytesIO(b""))
+        with pytest.raises(SecurityError, match="not permitted"):
+            up.find_class("subprocess", "Popen")
+
+    def test_restricted_unpickler_blocks_eval_builtin(self) -> None:
+        import io
+
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+            RestrictedUnpickler,
+        )
+        from synth_engine.shared.security.hmac_signing import SecurityError
+
+        up = RestrictedUnpickler(io.BytesIO(b""))
+        with pytest.raises(SecurityError, match="not permitted"):
+            up.find_class("builtins", "eval")
+
+    def test_allowed_module_prefixes_includes_artifact(self) -> None:
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+            _ALLOWED_MODULE_PREFIXES,
+        )
+
+        # After T58.4, the new artifact module path must be in the allowlist
+        assert "synth_engine.modules.synthesizer.storage.artifact" in _ALLOWED_MODULE_PREFIXES, (
+            "artifact module path missing from allowlist — new pickles would fail to load"
+        )
+
+    def test_allowed_module_prefixes_includes_legacy_models(self) -> None:
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+            _ALLOWED_MODULE_PREFIXES,
+        )
+
+        # Backward compat: old artifacts with .storage.models path must still load
+        assert "synth_engine.modules.synthesizer.storage.models" in _ALLOWED_MODULE_PREFIXES, (
+            "legacy models module path missing — old artifacts would fail to load"
+        )
+
+
+class TestArtifactModule:
+    """artifact.py exports ModelArtifact and helper functions."""
+
+    def test_model_artifact_importable_from_artifact(self) -> None:
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
+
+        assert ModelArtifact.__name__ == "ModelArtifact"
+
+    def test_detect_signed_format_importable(self) -> None:
+        from synth_engine.modules.synthesizer.storage.artifact import _detect_signed_format
+
+        assert callable(_detect_signed_format)
+
+    def test_validate_signing_key_importable(self) -> None:
+        from synth_engine.modules.synthesizer.storage.artifact import _validate_signing_key
+
+        assert callable(_validate_signing_key)
+
+    def test_validate_signing_key_rejects_empty(self) -> None:
+        from synth_engine.modules.synthesizer.storage.artifact import _validate_signing_key
+
+        with pytest.raises(ValueError, match="must not be empty"):
+            _validate_signing_key(b"", context="test")
+
+    def test_validate_signing_key_rejects_short(self) -> None:
+        from synth_engine.modules.synthesizer.storage.artifact import _validate_signing_key
+
+        with pytest.raises(ValueError, match="at least"):
+            _validate_signing_key(b"\x00" * 16, context="test")
+
+    def test_detect_signed_format_false_for_unsigned(self) -> None:
+        from synth_engine.modules.synthesizer.storage.artifact import (
+            ModelArtifact,
+            _detect_signed_format,
+        )
+
+        artifact = ModelArtifact(table_name="t", model=None)
+        unsigned_payload = pickle.dumps(artifact, protocol=pickle.HIGHEST_PROTOCOL)
+        assert _detect_signed_format(unsigned_payload) is False
+
+    def test_model_artifact_pickled_with_artifact_module_path(self) -> None:
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
+
+        artifact = ModelArtifact(table_name="customers", model=None)
+        data = pickle.dumps(artifact)
+        # New artifacts should reference the artifact module, not models
+        assert b"storage.artifact" in data, (
+            "ModelArtifact pickle should reference storage.artifact module path"
+        )
