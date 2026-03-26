@@ -31,6 +31,7 @@ from sqlmodel import Session, select
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator, require_scope
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.settings import (
     Setting,
     SettingListResponse,
@@ -41,7 +42,13 @@ from synth_engine.bootstrapper.schemas.settings import (
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
-@router.get("", response_model=SettingListResponse)
+@router.get(
+    "",
+    summary="List settings",
+    description="Return all application settings. All authenticated operators can read settings.",
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=SettingListResponse,
+)
 def list_settings(
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
@@ -63,7 +70,13 @@ def list_settings(
     )
 
 
-@router.put("/{key}", response_model=SettingResponse)
+@router.put(
+    "/{key}",
+    summary="Upsert a setting",
+    description="Create or update an application setting. Requires the settings:write scope.",
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=SettingResponse,
+)
 def upsert_setting(
     key: str,
     body: SettingUpsertRequest,
@@ -129,7 +142,13 @@ def get_setting(
     return SettingResponse.model_validate(setting)
 
 
-@router.delete("/{key}", status_code=204)
+@router.delete(
+    "/{key}",
+    summary="Delete a setting",
+    description="Delete an application setting. Requires the settings:write scope.",
+    responses=COMMON_ERROR_RESPONSES,
+    status_code=204,
+)
 def delete_setting(
     key: str,
     session: Annotated[Session, Depends(get_db_session)],

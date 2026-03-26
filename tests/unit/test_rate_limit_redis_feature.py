@@ -72,11 +72,11 @@ def _build_redis_app(
     async def _auth_route() -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
-    @app.get("/jobs")
+    @app.get("/api/v1/jobs")
     async def _jobs_route() -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
-    @app.get("/jobs/{job_id}/download")
+    @app.get("/api/v1/jobs/{job_id}/download")
     async def _download_route(job_id: str) -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
@@ -251,7 +251,7 @@ async def test_redis_key_includes_operator_sub_for_authenticated_endpoint() -> N
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.get("/jobs", headers={"Authorization": f"Bearer {token}"})
+        await client.get("/api/v1/jobs", headers={"Authorization": f"Bearer {token}"})
 
     key_arg = mock_pipeline.incr.call_args[0][0]
     assert "op-test-unique" in key_arg, f"Redis key must contain operator sub; key={key_arg!r}"

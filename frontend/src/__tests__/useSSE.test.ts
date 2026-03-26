@@ -36,7 +36,7 @@ describe("useSSE hook", () => {
     renderHook(() => useSSE(42));
 
     expect(MockEventSource.instances).toHaveLength(1);
-    expect(getLastInstance().url).toBe("/jobs/42/stream");
+    expect(getLastInstance().url).toBe("/api/v1/jobs/42/stream");
   });
 
   it("returns initial null state before any events arrive", () => {
@@ -140,7 +140,7 @@ describe("useSSE hook", () => {
 
     expect(firstEs.close).toHaveBeenCalledOnce();
     expect(MockEventSource.instances).toHaveLength(2);
-    expect(getLastInstance().url).toBe("/jobs/2/stream");
+    expect(getLastInstance().url).toBe("/api/v1/jobs/2/stream");
   });
 
   it("handles malformed progress payload (invalid JSON)", () => {

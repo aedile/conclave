@@ -131,7 +131,7 @@ def _make_test_app(
     app = FastAPI()
     exempt = frozenset({"/health", "/unseal"})
 
-    @app.post("/jobs")
+    @app.post("/api/v1/jobs")
     async def create_job() -> dict[str, str]:
         return {"status": "created"}
 
@@ -170,7 +170,7 @@ async def test_first_request_with_new_key_returns_200(
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.post(
-            "/jobs",
+            "/api/v1/jobs",
             headers={"Idempotency-Key": "job-key-001", "Authorization": f"Bearer {token}"},
         )
 
@@ -190,11 +190,11 @@ async def test_duplicate_key_returns_409(redis_client: redis_lib.Redis[Any]) -> 
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp1 = await ac.post(
-            "/jobs",
+            "/api/v1/jobs",
             headers={"Idempotency-Key": "dup-key", "Authorization": f"Bearer {token}"},
         )
         resp2 = await ac.post(
-            "/jobs",
+            "/api/v1/jobs",
             headers={"Idempotency-Key": "dup-key", "Authorization": f"Bearer {token}"},
         )
 
@@ -217,7 +217,7 @@ async def test_key_expires_after_ttl(redis_client: redis_lib.Redis[Any]) -> None
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp1 = await ac.post(
-            "/jobs",
+            "/api/v1/jobs",
             headers={"Idempotency-Key": "ttl-key", "Authorization": f"Bearer {token}"},
         )
         assert resp1.status_code == 200
@@ -226,7 +226,7 @@ async def test_key_expires_after_ttl(redis_client: redis_lib.Redis[Any]) -> None
         time.sleep(1.1)
 
         resp2 = await ac.post(
-            "/jobs",
+            "/api/v1/jobs",
             headers={"Idempotency-Key": "ttl-key", "Authorization": f"Bearer {token}"},
         )
         assert resp2.status_code == 200
@@ -268,11 +268,11 @@ async def test_per_operator_key_scoping_prevents_collision(
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp_a = await ac.post(
-            "/jobs",
+            "/api/v1/jobs",
             headers={"Idempotency-Key": "shared-key", "Authorization": f"Bearer {token_a}"},
         )
         resp_b = await ac.post(
-            "/jobs",
+            "/api/v1/jobs",
             headers={"Idempotency-Key": "shared-key", "Authorization": f"Bearer {token_b}"},
         )
 

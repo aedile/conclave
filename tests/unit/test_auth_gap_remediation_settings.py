@@ -199,7 +199,7 @@ class TestSettingsUnauthenticatedReturns401:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/settings")
+                response = await client.get("/api/v1/settings")
 
         assert response.status_code == 401
 
@@ -215,7 +215,7 @@ class TestSettingsUnauthenticatedReturns401:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/settings/some_key")
+                response = await client.get("/api/v1/settings/some_key")
 
         assert response.status_code == 401
 
@@ -231,7 +231,7 @@ class TestSettingsUnauthenticatedReturns401:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.put("/settings/some_key", json={"value": "v"})
+                response = await client.put("/api/v1/settings/some_key", json={"value": "v"})
 
         assert response.status_code == 401
 
@@ -247,7 +247,7 @@ class TestSettingsUnauthenticatedReturns401:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.delete("/settings/some_key")
+                response = await client.delete("/api/v1/settings/some_key")
 
         assert response.status_code == 401
 
@@ -274,7 +274,7 @@ class TestSettingsExpiredTokenReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/settings", headers={"Authorization": f"Bearer {token}"}
+                    "/api/v1/settings", headers={"Authorization": f"Bearer {token}"}
                 )
 
         assert response.status_code == 401
@@ -293,7 +293,7 @@ class TestSettingsExpiredTokenReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.put(
-                    "/settings/some_key",
+                    "/api/v1/settings/some_key",
                     json={"value": "v"},
                     headers={"Authorization": f"Bearer {token}"},
                 )
@@ -323,7 +323,7 @@ class TestSettingsEmptySubReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/settings", headers={"Authorization": f"Bearer {token}"}
+                    "/api/v1/settings", headers={"Authorization": f"Bearer {token}"}
                 )
 
         assert response.status_code == 401
@@ -351,7 +351,7 @@ class TestSettingsWrongKeyReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/settings", headers={"Authorization": f"Bearer {token}"}
+                    "/api/v1/settings", headers={"Authorization": f"Bearer {token}"}
                 )
 
         assert response.status_code == 401
@@ -379,7 +379,7 @@ class TestSettingsAuthenticatedSucceeds:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/settings", headers={"Authorization": f"Bearer {token}"}
+                    "/api/v1/settings", headers={"Authorization": f"Bearer {token}"}
                 )
 
         assert response.status_code == 200
@@ -398,7 +398,7 @@ class TestSettingsAuthenticatedSucceeds:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.put(
-                    "/settings/test_key",
+                    "/api/v1/settings/test_key",
                     json={"value": "test_value"},
                     headers={"Authorization": f"Bearer {token}"},
                 )
@@ -420,12 +420,12 @@ class TestSettingsAuthenticatedSucceeds:
             ) as client:
                 # First create the setting
                 await client.put(
-                    "/settings/existing_key",
+                    "/api/v1/settings/existing_key",
                     json={"value": "some_value"},
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 response = await client.get(
-                    "/settings/existing_key",
+                    "/api/v1/settings/existing_key",
                     headers={"Authorization": f"Bearer {token}"},
                 )
 
@@ -445,12 +445,12 @@ class TestSettingsAuthenticatedSucceeds:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 await client.put(
-                    "/settings/key_to_delete",
+                    "/api/v1/settings/key_to_delete",
                     json={"value": "v"},
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 response = await client.delete(
-                    "/settings/key_to_delete",
+                    "/api/v1/settings/key_to_delete",
                     headers={"Authorization": f"Bearer {token}"},
                 )
 

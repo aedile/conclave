@@ -82,7 +82,7 @@ class TestJobsListEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/jobs")
+                response = await client.get("/api/v1/jobs")
 
         assert response.status_code == 200
 
@@ -104,7 +104,7 @@ class TestJobsListEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/jobs")
+                response = await client.get("/api/v1/jobs")
 
         body = response.json()
         assert "items" in body
@@ -161,7 +161,7 @@ class TestJobsListEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/jobs?after=2&limit=10")
+                response = await client.get("/api/v1/jobs?after=2&limit=10")
 
         body = response.json()
         items = body["items"]
@@ -220,7 +220,7 @@ class TestJobsListEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/jobs?limit=2")
+                response = await client.get("/api/v1/jobs?limit=2")
 
         body = response.json()
         assert len(body["items"]) <= 2
@@ -243,7 +243,7 @@ class TestJobsListEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/jobs")
+                response = await client.get("/api/v1/jobs")
 
         body = response.json()
         assert len(body["items"]) > 0
@@ -285,7 +285,7 @@ class TestJobGetEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}")
+                response = await client.get(f"/api/v1/jobs/{job_id}")
 
         assert response.status_code == 200
 
@@ -307,7 +307,7 @@ class TestJobGetEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/jobs/99999")
+                response = await client.get("/api/v1/jobs/99999")
 
         assert response.status_code == 404
         body = response.json()
@@ -341,7 +341,7 @@ class TestJobGetEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}")
+                response = await client.get(f"/api/v1/jobs/{job_id}")
 
         body = response.json()
         assert "status" in body
@@ -375,7 +375,7 @@ class TestJobGetEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}")
+                response = await client.get(f"/api/v1/jobs/{job_id}")
 
         body = response.json()
         assert "enable_dp" in body
@@ -410,7 +410,7 @@ class TestJobGetEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}")
+                response = await client.get(f"/api/v1/jobs/{job_id}")
 
         body = response.json()
         assert body["enable_dp"] is True
@@ -441,7 +441,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -471,7 +471,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -504,7 +504,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -539,7 +539,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -576,7 +576,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -607,7 +607,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -638,7 +638,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -669,7 +669,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -700,7 +700,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -731,7 +731,7 @@ class TestJobCreateEndpoint:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/jobs",
+                    "/api/v1/jobs",
                     json={
                         "table_name": "orders",
                         "parquet_path": "/tmp/orders.parquet",
@@ -775,7 +775,7 @@ class TestJobStartEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/jobs/{job_id}/start")
+                response = await client.post(f"/api/v1/jobs/{job_id}/start")
 
         assert response.status_code == 202
 
@@ -811,7 +811,7 @@ class TestJobStartEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                await client.post(f"/jobs/{job_id}/start")
+                await client.post(f"/api/v1/jobs/{job_id}/start")
 
         # T25.2: The dispatch site now passes trace_carrier as a keyword arg.
         # In this test context no OTEL span is active, so the carrier is empty.
@@ -841,7 +841,7 @@ class TestJobStartEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.post("/jobs/99999/start")
+                response = await client.post("/api/v1/jobs/99999/start")
 
         assert response.status_code == 404
 
@@ -867,7 +867,7 @@ class TestJobSSEEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/jobs/99999/stream")
+                response = await client.get("/api/v1/jobs/99999/stream")
 
         assert response.status_code == 404
 
@@ -926,7 +926,7 @@ class TestJobSSEEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/stream")
+                response = await client.get(f"/api/v1/jobs/{job_id}/stream")
 
         assert response.status_code == 200
         content = response.text
@@ -987,7 +987,7 @@ class TestJobSSEEndpoint:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/stream")
+                response = await client.get(f"/api/v1/jobs/{job_id}/stream")
 
         assert response.status_code == 200
         content = response.text

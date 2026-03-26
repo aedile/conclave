@@ -182,7 +182,7 @@ async def test_job_creation_returns_201_and_persists_to_db(
         async with AsyncClient(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
-            response = await client.post("/jobs", json=_VALID_JOB_PAYLOAD)
+            response = await client.post("/api/v1/jobs", json=_VALID_JOB_PAYLOAD)
 
     assert response.status_code == 201, f"Expected 201, got {response.status_code}: {response.text}"
 
@@ -235,7 +235,7 @@ async def test_job_listing_returns_correct_shape_and_pagination_cursor(
         async with AsyncClient(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
-            response_page1 = await client.get("/jobs", params={"limit": 2})
+            response_page1 = await client.get("/api/v1/jobs", params={"limit": 2})
 
     assert response_page1.status_code == 200, (
         f"Expected 200, got {response_page1.status_code}: {response_page1.text}"
@@ -262,7 +262,7 @@ async def test_job_listing_returns_correct_shape_and_pagination_cursor(
         async with AsyncClient(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
-            response_page2 = await client.get("/jobs", params={"limit": 2, "after": cursor})
+            response_page2 = await client.get("/api/v1/jobs", params={"limit": 2, "after": cursor})
 
     assert response_page2.status_code == 200
     page2_body = response_page2.json()
@@ -309,8 +309,8 @@ async def test_get_job_by_id_returns_response_matching_db_record(
         async with AsyncClient(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
-            response = await client.get(f"/jobs/{job_id}")
-            response_404 = await client.get("/jobs/99999")
+            response = await client.get(f"/api/v1/jobs/{job_id}")
+            response_404 = await client.get("/api/v1/jobs/99999")
 
     assert response.status_code == 200, (
         f"Expected 200 for existing job, got {response.status_code}: {response.text}"
@@ -357,8 +357,8 @@ async def test_sealed_vault_blocks_data_endpoints_with_423(
         async with AsyncClient(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
-            response_list = await client.get("/jobs")
-            response_create = await client.post("/jobs", json=_VALID_JOB_PAYLOAD)
+            response_list = await client.get("/api/v1/jobs")
+            response_create = await client.post("/api/v1/jobs", json=_VALID_JOB_PAYLOAD)
             response_health = await client.get("/health")
 
     assert response_list.status_code == 423, (
@@ -396,9 +396,9 @@ async def test_invalid_request_returns_rfc7807_problem_detail_format(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
             # Missing all required fields
-            response_empty = await client.post("/jobs", json={})
+            response_empty = await client.post("/api/v1/jobs", json={})
             # Path parameter type mismatch
-            response_invalid_id = await client.get("/jobs/not-an-integer")
+            response_invalid_id = await client.get("/api/v1/jobs/not-an-integer")
 
     assert response_empty.status_code == 422, (
         f"Empty body must return 422, got {response_empty.status_code}: {response_empty.text}"
@@ -438,7 +438,7 @@ async def test_oversized_request_body_returns_413(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
             response = await client.post(
-                "/jobs",
+                "/api/v1/jobs",
                 content=oversized_body,
                 headers={"Content-Type": "application/json"},
             )
@@ -477,13 +477,13 @@ async def test_csp_header_present_in_responses(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
             response_200 = await client.get("/health")
-            response_404 = await client.get("/jobs/99999")
+            response_404 = await client.get("/api/v1/jobs/99999")
 
     with patch(_VAULT_PATCH, return_value=True), patch(_LICENSE_PATCH, return_value=True):
         async with AsyncClient(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
-            response_423 = await client.get("/jobs")
+            response_423 = await client.get("/api/v1/jobs")
 
     assert _CSP_HEADER in response_200.headers, (
         f"CSP header missing from 200 response. Headers: {dict(response_200.headers)}"
@@ -521,8 +521,8 @@ async def test_seal_gate_middleware_blocks_non_exempt_paths(
             transport=ASGITransport(app=test_app), base_url="http://test"
         ) as client:
             health_resp = await client.get("/health")
-            jobs_resp = await client.get("/jobs")
-            job_id_resp = await client.get("/jobs/1")
+            jobs_resp = await client.get("/api/v1/jobs")
+            job_id_resp = await client.get("/api/v1/jobs/1")
 
     assert health_resp.status_code == 200, (
         f"/health must be exempt from seal gate, got {health_resp.status_code}"

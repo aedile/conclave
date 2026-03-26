@@ -254,7 +254,7 @@ def test_get_connection_returns_404_for_other_operators_connection(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get(
-            f"/connections/{conn_b_id}",
+            f"/api/v1/connections/{conn_b_id}",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -285,7 +285,7 @@ def test_get_connection_returns_200_for_own_connection(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get(
-            f"/connections/{conn_a_id}",
+            f"/api/v1/connections/{conn_a_id}",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -321,7 +321,7 @@ def test_delete_connection_returns_404_for_other_operators_connection(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.delete(
-            f"/connections/{conn_b_id}",
+            f"/api/v1/connections/{conn_b_id}",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -357,7 +357,7 @@ def test_list_connections_only_returns_own_connections(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get(
-            "/connections",
+            "/api/v1/connections",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -429,7 +429,7 @@ def test_create_job_sets_owner_id_from_jwt_sub(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.post(
-            "/jobs",
+            "/api/v1/jobs",
             json={
                 "table_name": "customers",
                 "parquet_path": "/tmp/customers.parquet",
@@ -504,7 +504,7 @@ def test_create_connection_sets_owner_id_from_jwt_sub(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.post(
-            "/connections",
+            "/api/v1/connections",
             json={
                 "name": "new-conn",
                 "host": "localhost",

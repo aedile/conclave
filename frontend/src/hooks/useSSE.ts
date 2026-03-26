@@ -1,7 +1,7 @@
 /**
  * useSSE — custom hook for consuming Server-Sent Events from the job stream.
  *
- * Wraps the browser EventSource API to subscribe to `/jobs/{jobId}/stream`.
+ * Wraps the browser EventSource API to subscribe to `/api/v1/jobs/{jobId}/stream`.
  * Parses `progress`, `complete`, and `error` event types from the backend.
  * Closes the EventSource on unmount to prevent memory and connection leaks.
  *
@@ -71,7 +71,7 @@ const INITIAL_STATE: SSEState = {
 /**
  * Subscribe to the SSE stream for a synthesis job.
  *
- * Opens an `EventSource` connection to `/jobs/{jobId}/stream` and
+ * Opens an `EventSource` connection to `/api/v1/jobs/{jobId}/stream` and
  * listens for `progress`, `complete`, and `error` events. The connection
  * is automatically closed when the component unmounts or when `jobId`
  * changes to a different value.
@@ -94,7 +94,7 @@ export function useSSE(jobId: number | null): SSEState {
       return;
     }
 
-    const es = new EventSource(`/jobs/${jobId}/stream`);
+    const es = new EventSource(`/api/v1/jobs/${jobId}/stream`);
 
     const handleProgress = (event: MessageEvent<string>): void => {
       let payload: ProgressPayload;

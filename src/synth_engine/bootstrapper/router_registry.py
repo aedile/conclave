@@ -6,10 +6,33 @@ would shadow that package and break all ``from synth_engine.bootstrapper.routers
 imports.
 
 Contains:
-- ``_include_routers()`` — wires the eleven domain routers into the application.
+- ``_include_routers()`` — wires domain routers into the application under
+  the ``/api/v1/`` versioned prefix (business routes) or at root (infra routes).
 - ``_register_exception_handlers()`` — registers domain exception handlers with
   operator-friendly RFC 7807 messages via :data:`OPERATOR_ERROR_MAP`, and the
   RFC 7807 catch-all via :mod:`synth_engine.bootstrapper.errors`.
+
+API versioning (T59.1)
+----------------------
+All business-logic routes are registered under ``/api/v1/`` via a parent
+``APIRouter(prefix="/api/v1")``.  This prefix is applied at registration time,
+not inside each router file, so individual routers keep their existing prefixes
+(e.g. ``/jobs``) and the combined path becomes ``/api/v1/jobs``.
+
+Infrastructure routes stay at root to keep middleware exempt-path matching
+simple and backward-compatible:
+
+- ``auth_router`` (``/auth/token``) — pre-auth bootstrapping; in AUTH_EXEMPT_PATHS.
+- ``security_router`` (``/security/shred``, ``/security/keys/rotate``) —
+  ``/security/shred`` is in SEAL_EXEMPT_PATHS; must remain at root.
+- ``licensing_router`` (``/license/challenge``, ``/license/activate``) —
+  in COMMON_INFRA_EXEMPT_PATHS; must remain at root.
+- ``health_router`` (``/health``, ``/ready``, ``/health/vault``) —
+  in COMMON_INFRA_EXEMPT_PATHS; must remain at root.
+
+**Security invariant**: No ``/api/v1/`` path may appear in any exempt-paths
+set (COMMON_INFRA_EXEMPT_PATHS, SEAL_EXEMPT_PATHS, AUTH_EXEMPT_PATHS).
+This is enforced by ``tests/integration/test_api_versioning_attack.py``.
 
 Task: P29-T29.3 — Error Message Audience Differentiation
     Added handlers for BudgetExhaustionError, OOMGuardrailError, VaultSealedError
@@ -29,11 +52,14 @@ Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: T48.3 — Readiness Probe & External Dependency Health Checks
     Registered health_router for GET /ready.
     Registered webhooks_router for POST/GET/DELETE /webhooks.
+Task: T59.1 — API Versioning
+    All business-logic routes moved to /api/v1/ prefix via parent APIRouter.
+    Infrastructure routes (auth, security, licensing, health) remain at root.
 """
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from synth_engine.shared.exceptions import (
@@ -51,6 +77,10 @@ from synth_engine.shared.exceptions import (
 
 def _include_routers(app: FastAPI) -> None:
     """Include all APIRouter submodules into the application.
+
+    Business-logic routers are registered under a parent ``/api/v1`` versioned
+    router.  Infrastructure routers (auth, security, licensing, health) are
+    registered at root so that exempt-path matching in middleware is unaffected.
 
     Imported here (not at module top-level) so that create_app() controls
     registration order relative to exception handlers and middleware.
@@ -71,18 +101,33 @@ def _include_routers(app: FastAPI) -> None:
     from synth_engine.bootstrapper.routers.settings import router as settings_router
     from synth_engine.bootstrapper.routers.webhooks import router as webhooks_router
 
-    app.include_router(auth_router)
-    app.include_router(admin_router)
-    app.include_router(compliance_router)
-    app.include_router(jobs_router)
-    app.include_router(jobs_streaming_router)
-    app.include_router(connections_router)
-    app.include_router(settings_router)
-    app.include_router(licensing_router)
-    app.include_router(security_router)
-    app.include_router(privacy_router)
-    app.include_router(webhooks_router)
-    app.include_router(health_router)
+    # ------------------------------------------------------------------
+    # Business-logic routes — versioned under /api/v1/
+    # ------------------------------------------------------------------
+    # The parent router applies the /api/v1 prefix to all included routers.
+    # Each child router keeps its own prefix (e.g. /jobs) so the final path
+    # is /api/v1/jobs, /api/v1/connections, etc.
+    api_v1 = APIRouter(prefix="/api/v1")
+    api_v1.include_router(jobs_router)
+    api_v1.include_router(jobs_streaming_router)
+    api_v1.include_router(connections_router)
+    api_v1.include_router(settings_router)
+    api_v1.include_router(webhooks_router)
+    api_v1.include_router(privacy_router)
+    api_v1.include_router(admin_router)
+    api_v1.include_router(compliance_router)
+    app.include_router(api_v1)
+
+    # ------------------------------------------------------------------
+    # Infrastructure routes — remain at root (no /api/v1/ prefix)
+    # ------------------------------------------------------------------
+    # These paths are in COMMON_INFRA_EXEMPT_PATHS, SEAL_EXEMPT_PATHS, or
+    # AUTH_EXEMPT_PATHS.  Moving them to /api/v1/ would break all middleware
+    # exempt-path matching.
+    app.include_router(auth_router)  # /auth/token — AUTH_EXEMPT_PATHS
+    app.include_router(security_router)  # /security/shred — SEAL_EXEMPT_PATHS
+    app.include_router(licensing_router)  # /license/challenge, /license/activate — COMMON_INFRA
+    app.include_router(health_router)  # /health, /ready, /health/vault — COMMON_INFRA
 
 
 def _register_exception_handlers(app: FastAPI) -> None:

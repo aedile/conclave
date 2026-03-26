@@ -245,7 +245,7 @@ async def test_integration_get_job_idor_returns_404(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                f"/jobs/{seed_ids['job_b_id']}",
+                f"/api/v1/jobs/{seed_ids['job_b_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -276,7 +276,7 @@ async def test_integration_get_job_own_resource_returns_200(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                f"/jobs/{seed_ids['job_a_id']}",
+                f"/api/v1/jobs/{seed_ids['job_a_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -311,7 +311,7 @@ async def test_integration_start_job_idor_returns_404(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
-                f"/jobs/{seed_ids['job_b_id']}/start",
+                f"/api/v1/jobs/{seed_ids['job_b_id']}/start",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -388,7 +388,7 @@ async def test_integration_shred_job_idor_returns_404(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
-                f"/jobs/{job_b_id}/shred",
+                f"/api/v1/jobs/{job_b_id}/shred",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -421,7 +421,7 @@ async def test_integration_stream_job_idor_returns_404(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                f"/jobs/{seed_ids['job_b_id']}/stream",
+                f"/api/v1/jobs/{seed_ids['job_b_id']}/stream",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -498,7 +498,7 @@ async def test_integration_download_job_idor_returns_404(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                f"/jobs/{job_b_id}/download",
+                f"/api/v1/jobs/{job_b_id}/download",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -531,7 +531,7 @@ async def test_integration_get_connection_idor_returns_404(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                f"/connections/{seed_ids['conn_b_id']}",
+                f"/api/v1/connections/{seed_ids['conn_b_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -560,7 +560,7 @@ async def test_integration_get_connection_own_resource_returns_200(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
-                f"/connections/{seed_ids['conn_a_id']}",
+                f"/api/v1/connections/{seed_ids['conn_a_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -595,7 +595,7 @@ async def test_integration_delete_connection_idor_returns_404(
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.delete(
-                f"/connections/{seed_ids['conn_b_id']}",
+                f"/api/v1/connections/{seed_ids['conn_b_id']}",
                 headers={"Authorization": f"Bearer {token_a}"},
             )
 
@@ -626,7 +626,7 @@ async def test_integration_unauthenticated_get_job_returns_401(
         patch(_LICENSE_PATCH, return_value=True),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get(f"/jobs/{seed_ids['job_a_id']}")
+            response = await client.get(f"/api/v1/jobs/{seed_ids['job_a_id']}")
 
     assert response.status_code == 401
 
@@ -650,6 +650,6 @@ async def test_integration_unauthenticated_get_connection_returns_401(
         patch(_LICENSE_PATCH, return_value=True),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.get(f"/connections/{seed_ids['conn_a_id']}")
+            response = await client.get(f"/api/v1/connections/{seed_ids['conn_a_id']}")
 
     assert response.status_code == 401

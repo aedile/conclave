@@ -203,7 +203,7 @@ def test_get_job_returns_404_for_job_owned_by_other_operator(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get(
-            f"/jobs/{job_b_id}",
+            f"/api/v1/jobs/{job_b_id}",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -246,7 +246,7 @@ def test_get_job_returns_200_for_own_job(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get(
-            f"/jobs/{job_a_id}",
+            f"/api/v1/jobs/{job_a_id}",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -297,7 +297,7 @@ def test_get_job_returns_404_not_403_for_idor_attempt(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get(
-            f"/jobs/{job_b_id}",
+            f"/api/v1/jobs/{job_b_id}",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -352,7 +352,7 @@ def test_idor_sequential_id_enumeration_returns_404(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get(
-            f"/jobs/{non_owned_id}",
+            f"/api/v1/jobs/{non_owned_id}",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -401,7 +401,7 @@ def test_get_job_returns_401_without_token(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         # No Authorization header
-        response = client.get(f"/jobs/{job_a_id}")
+        response = client.get(f"/api/v1/jobs/{job_a_id}")
 
     assert response.status_code == 401
 
@@ -435,7 +435,7 @@ def test_list_jobs_only_returns_own_jobs(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.get(
-            "/jobs",
+            "/api/v1/jobs",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -489,7 +489,7 @@ def test_start_job_returns_404_for_other_operators_job(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.post(
-            f"/jobs/{job_b_id}/start",
+            f"/api/v1/jobs/{job_b_id}/start",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 
@@ -572,7 +572,7 @@ def test_shred_job_returns_404_for_other_operators_job(
     ):
         client = TestClient(app, raise_server_exceptions=False)
         response = client.post(
-            f"/jobs/{job_b_id}/shred",
+            f"/api/v1/jobs/{job_b_id}/shred",
             headers={"Authorization": f"Bearer {token_a}"},
         )
 

@@ -13,4 +13,11 @@ Architecture:
 CONSTITUTION Priority 0: No PII or secrets are handled or stored in this package.
 """
 
-__version__ = "1.0.0rc1"
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
+try:
+    __version__: str = _pkg_version("conclave-engine")
+except PackageNotFoundError:
+    # Fallback for editable installs that have not been built/installed
+    __version__ = "1.0.0"

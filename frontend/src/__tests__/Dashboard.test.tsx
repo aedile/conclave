@@ -374,7 +374,7 @@ describe("Dashboard — starting a job and SSE streaming", () => {
     await user.click(screen.getByRole("button", { name: /start/i }));
 
     await waitFor(() => {
-      expect(MockEventSource.instances.some((es) => es.url === "/jobs/1/stream")).toBe(
+      expect(MockEventSource.instances.some((es) => es.url === "/api/v1/jobs/1/stream")).toBe(
         true,
       );
     });
@@ -401,12 +401,12 @@ describe("Dashboard — starting a job and SSE streaming", () => {
     await user.click(screen.getByRole("button", { name: /start/i }));
 
     await waitFor(() => {
-      expect(MockEventSource.instances.some((es) => es.url === "/jobs/1/stream")).toBe(
+      expect(MockEventSource.instances.some((es) => es.url === "/api/v1/jobs/1/stream")).toBe(
         true,
       );
     });
 
-    const es = MockEventSource.instances.find((e) => e.url === "/jobs/1/stream")!;
+    const es = MockEventSource.instances.find((e) => e.url === "/api/v1/jobs/1/stream")!;
 
     act(() => {
       es.simulateEvent("progress", {
@@ -447,7 +447,7 @@ describe("Dashboard — starting a job and SSE streaming", () => {
       expect(localStorage.getItem("conclave_active_job_id")).toBe("1");
     });
 
-    const es = MockEventSource.instances.find((e) => e.url === "/jobs/1/stream")!;
+    const es = MockEventSource.instances.find((e) => e.url === "/api/v1/jobs/1/stream")!;
 
     act(() => {
       es.simulateEvent("complete", {
@@ -487,7 +487,7 @@ describe("Dashboard — starting a job and SSE streaming", () => {
       expect(localStorage.getItem("conclave_active_job_id")).toBe("1");
     });
 
-    const es = MockEventSource.instances.find((e) => e.url === "/jobs/1/stream")!;
+    const es = MockEventSource.instances.find((e) => e.url === "/api/v1/jobs/1/stream")!;
 
     act(() => {
       es.simulateEvent("error", { detail: "OOM error" });
@@ -517,7 +517,7 @@ describe("Dashboard — localStorage rehydration on mount", () => {
 
     await waitFor(() => {
       expect(
-        MockEventSource.instances.some((es) => es.url === "/jobs/2/stream"),
+        MockEventSource.instances.some((es) => es.url === "/api/v1/jobs/2/stream"),
       ).toBe(true);
     });
   });
@@ -539,7 +539,7 @@ describe("Dashboard — localStorage rehydration on mount", () => {
 
     await waitFor(() => {
       expect(
-        MockEventSource.instances.some((es) => es.url === "/jobs/1/stream"),
+        MockEventSource.instances.some((es) => es.url === "/api/v1/jobs/1/stream"),
       ).toBe(true);
     });
   });
@@ -561,7 +561,7 @@ describe("Dashboard — localStorage rehydration on mount", () => {
 
     // No SSE stream should be opened for a terminal job
     expect(
-      MockEventSource.instances.some((es) => es.url === "/jobs/3/stream"),
+      MockEventSource.instances.some((es) => es.url === "/api/v1/jobs/3/stream"),
     ).toBe(false);
   });
 
@@ -812,7 +812,7 @@ describe("Dashboard — accessibility", () => {
     await user.click(screen.getByRole("button", { name: /start/i }));
 
     const es = await waitFor(() => {
-      const found = MockEventSource.instances.find((e) => e.url === "/jobs/1/stream");
+      const found = MockEventSource.instances.find((e) => e.url === "/api/v1/jobs/1/stream");
       expect(found).toBeDefined();
       return found!;
     });
@@ -867,7 +867,7 @@ describe("Dashboard — aria-live regions", () => {
     await user.click(screen.getByRole("button", { name: /start/i }));
 
     const es = await waitFor(() => {
-      const found = MockEventSource.instances.find((e) => e.url === "/jobs/1/stream");
+      const found = MockEventSource.instances.find((e) => e.url === "/api/v1/jobs/1/stream");
       expect(found).toBeDefined();
       return found!;
     });

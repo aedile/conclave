@@ -42,6 +42,10 @@ from sqlmodel import Session, col, select
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import (
+    COMMON_ERROR_RESPONSES,
+    CONFLICT_ERROR_RESPONSES,
+)
 from synth_engine.bootstrapper.schemas.jobs import (
     JobCreateRequest,
     JobListResponse,
@@ -70,7 +74,16 @@ _SHRED_ELIGIBLE_STATUS: str = "COMPLETE"
 _SHREDDED_STATUS: str = "SHREDDED"
 
 
-@router.get("", response_model=JobListResponse)
+@router.get(
+    "",
+    response_model=JobListResponse,
+    summary="List synthesis jobs",
+    description=(
+        "Return all synthesis jobs owned by the authenticated operator "
+        "with cursor-based pagination."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+)
 def list_jobs(
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
@@ -113,7 +126,14 @@ def list_jobs(
     )
 
 
-@router.post("", response_model=JobResponse, status_code=201)
+@router.post(
+    "",
+    response_model=JobResponse,
+    status_code=201,
+    summary="Create a synthesis job",
+    description="Create a new synthesis job in QUEUED status. Call POST /{id}/start to enqueue.",
+    responses=COMMON_ERROR_RESPONSES,
+)
 def create_job(
     body: JobCreateRequest,
     session: Annotated[Session, Depends(get_db_session)],
@@ -150,7 +170,16 @@ def create_job(
     return JobResponse.model_validate(job)
 
 
-@router.get("/{job_id}", response_model=JobResponse)
+@router.get(
+    "/{job_id}",
+    response_model=JobResponse,
+    summary="Get a synthesis job",
+    description=(
+        "Return a single synthesis job by ID. "
+        "Returns 404 if not found or owned by another operator."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+)
 def get_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
@@ -183,7 +212,15 @@ def get_job(
     return JobResponse.model_validate(job)
 
 
-@router.post("/{job_id}/start", status_code=202)
+@router.post(
+    "/{job_id}/start",
+    summary="Start a synthesis job",
+    description=(
+        "Enqueue the synthesis job for processing. Transitions the job from QUEUED to RUNNING."
+    ),
+    responses=CONFLICT_ERROR_RESPONSES,
+    status_code=202,
+)
 def start_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
@@ -231,7 +268,15 @@ def start_job(
     )
 
 
-@router.post("/{job_id}/shred", status_code=200)
+@router.post(
+    "/{job_id}/shred",
+    summary="Shred job artifacts",
+    description=(
+        "Permanently delete the synthetic Parquet artifact using NIST 800-88 compliant erasure."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    status_code=200,
+)
 def shred_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],

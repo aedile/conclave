@@ -95,7 +95,7 @@ class TestDownloadEndpointSuccess:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
 
@@ -150,7 +150,7 @@ class TestDownloadEndpointSuccess:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.headers["content-type"] == "application/octet-stream"
 
@@ -205,7 +205,7 @@ class TestDownloadEndpointSuccess:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
         content_disposition = response.headers.get("content-disposition", "")
@@ -264,7 +264,7 @@ class TestDownloadEndpointSuccess:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
         assert response.content == expected_bytes
@@ -327,7 +327,7 @@ class TestDownloadEndpointSuccess:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
         assert len(response.content) == len(expected_bytes)

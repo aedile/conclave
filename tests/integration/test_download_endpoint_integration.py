@@ -119,7 +119,7 @@ class TestDownloadAfterSynthesis:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
         assert response.content == expected_bytes
@@ -164,7 +164,7 @@ class TestDownloadAfterSynthesis:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
         cd = response.headers.get("content-disposition", "")
@@ -216,7 +216,7 @@ class TestDownloadAfterSynthesis:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 200
         assert response.content == parquet_bytes
@@ -270,7 +270,7 @@ class TestDownloadAfterSynthesis:
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
-                    response = await client.get(f"/jobs/{job_id}/download")
+                    response = await client.get(f"/api/v1/jobs/{job_id}/download")
             finally:
                 get_settings.cache_clear()  # prevent cache poisoning for subsequent tests
 
@@ -313,6 +313,6 @@ class TestDownloadAfterSynthesis:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/jobs/{job_id}/download")
+                response = await client.get(f"/api/v1/jobs/{job_id}/download")
 
         assert response.status_code == 404

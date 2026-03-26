@@ -374,7 +374,7 @@ async def test_license_gate_middleware_returns_402_for_unlicensed_request(
 
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/connections")
+        response = await client.get("/api/v1/connections")
 
     # Vault is unsealed → SealGateMiddleware passes; LicenseGateMiddleware fires → 402
     assert response.status_code == 402
@@ -741,7 +741,7 @@ async def test_license_gate_blocks_protected_route_when_unlicensed() -> None:
 
     app = create_app()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/connections")
+        response = await client.get("/api/v1/connections")
 
     # Vault is sealed → 423 takes priority over license gate (sealed first, licensed second)
     assert response.status_code == 423

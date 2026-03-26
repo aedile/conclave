@@ -195,7 +195,7 @@ class TestPrivacyUnauthenticatedReturns401:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/privacy/budget")
+                response = await client.get("/api/v1/privacy/budget")
 
         assert response.status_code == 401
 
@@ -212,7 +212,7 @@ class TestPrivacyUnauthenticatedReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Monthly budget refresh by admin"},
                 )
 
@@ -241,7 +241,7 @@ class TestPrivacyExpiredTokenReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/privacy/budget",
+                    "/api/v1/privacy/budget",
                     headers={"Authorization": f"Bearer {token}"},
                 )
 
@@ -261,7 +261,7 @@ class TestPrivacyExpiredTokenReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Monthly budget refresh by admin"},
                     headers={"Authorization": f"Bearer {token}"},
                 )
@@ -289,7 +289,7 @@ class TestPrivacyEmptySubReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/privacy/budget",
+                    "/api/v1/privacy/budget",
                     headers={"Authorization": f"Bearer {token}"},
                 )
 
@@ -309,7 +309,7 @@ class TestPrivacyEmptySubReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/privacy/budget/refresh",
+                    "/api/v1/privacy/budget/refresh",
                     json={"justification": "Monthly budget refresh by admin"},
                     headers={"Authorization": f"Bearer {token}"},
                 )
@@ -337,7 +337,7 @@ class TestPrivacyWrongKeyReturns401:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/privacy/budget",
+                    "/api/v1/privacy/budget",
                     headers={"Authorization": f"Bearer {token}"},
                 )
 
@@ -366,7 +366,7 @@ class TestPrivacyAuthenticatedSucceeds:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get(
-                    "/privacy/budget",
+                    "/api/v1/privacy/budget",
                     headers={"Authorization": f"Bearer {token}"},
                 )
 

@@ -16,9 +16,9 @@
  *
  * Mocking strategy:
  *   - /health → 200 (vault unsealed, allows /dashboard access)
- *   - /jobs → paginated job list with one TRAINING job
- *   - /jobs/2 → single TRAINING job (for rehydration)
- *   - /jobs/2/stream → SSE stream simulated via route.fulfill with streaming
+ *   - /api/v1/jobs → paginated job list with one TRAINING job
+ *   - /api/v1/jobs/2 → single TRAINING job (for rehydration)
+ *   - /api/v1/jobs/2/stream → SSE stream simulated via route.fulfill with streaming
  */
 
 import AxeBuilder from "@axe-core/playwright";
@@ -59,7 +59,7 @@ test.describe("Dashboard screen", () => {
     );
 
     // Job list → one TRAINING job
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -68,7 +68,7 @@ test.describe("Dashboard screen", () => {
     );
 
     // Single job lookup (for rehydration)
-    await page.route("/jobs/2", (route) =>
+    await page.route("/api/v1/jobs/2", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -77,7 +77,7 @@ test.describe("Dashboard screen", () => {
     );
 
     // SSE stream — emit one progress event then complete
-    await page.route("/jobs/2/stream", (route) => {
+    await page.route("/api/v1/jobs/2/stream", (route) => {
       const progressPayload = sseProgressEvent({
         status: "TRAINING",
         current_epoch: 5,

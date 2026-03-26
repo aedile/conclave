@@ -25,6 +25,7 @@ from sqlmodel import Session, select
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.connections import (
     Connection,
     ConnectionCreateRequest,
@@ -38,7 +39,13 @@ router = APIRouter(prefix="/connections", tags=["connections"])
 _DEFAULT_PAGE_SIZE: int = 20
 
 
-@router.get("", response_model=ConnectionListResponse)
+@router.get(
+    "",
+    response_model=ConnectionListResponse,
+    summary="List database connections",
+    description="Return all stored database connections owned by the authenticated operator.",
+    responses=COMMON_ERROR_RESPONSES,
+)
 def list_connections(
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
@@ -52,10 +59,11 @@ def list_connections(
         current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
-        :class:`ConnectionListResponse` with all connections owned by the operator.
+        :class:`ConnectionListResponse` with up to 100 connections owned by the
+        operator (hard limit prevents unbounded DB reads, P59 Red-team F4).
     """
     connections = session.exec(
-        select(Connection).where(Connection.owner_id == current_operator)
+        select(Connection).where(Connection.owner_id == current_operator).limit(100)
     ).all()
     return ConnectionListResponse(
         items=[ConnectionResponse.model_validate(c) for c in connections],
@@ -63,7 +71,17 @@ def list_connections(
     )
 
 
-@router.post("", response_model=ConnectionResponse, status_code=201)
+@router.post(
+    "",
+    response_model=ConnectionResponse,
+    status_code=201,
+    summary="Create a database connection",
+    description=(
+        "Store a new database connection configuration. "
+        "Credentials are encrypted at rest using AES-256-GCM."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+)
 def create_connection(
     body: ConnectionCreateRequest,
     session: Annotated[Session, Depends(get_db_session)],
@@ -95,7 +113,16 @@ def create_connection(
     return ConnectionResponse.model_validate(conn)
 
 
-@router.get("/{connection_id}", response_model=ConnectionResponse)
+@router.get(
+    "/{connection_id}",
+    summary="Get a database connection",
+    description=(
+        "Return a single database connection by ID. "
+        "Returns 404 if not found or owned by another operator."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=ConnectionResponse,
+)
 def get_connection(
     connection_id: str,
     session: Annotated[Session, Depends(get_db_session)],
@@ -128,7 +155,13 @@ def get_connection(
     return ConnectionResponse.model_validate(conn)
 
 
-@router.delete("/{connection_id}", status_code=204)
+@router.delete(
+    "/{connection_id}",
+    summary="Delete a database connection",
+    description="Permanently delete a database connection configuration.",
+    responses=COMMON_ERROR_RESPONSES,
+    status_code=204,
+)
 def delete_connection(
     connection_id: str,
     session: Annotated[Session, Depends(get_db_session)],

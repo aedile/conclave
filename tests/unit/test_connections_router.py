@@ -93,7 +93,7 @@ class TestConnectionsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/connections")
+                response = await client.get("/api/v1/connections")
 
         assert response.status_code == 200
         assert "items" in response.json()
@@ -117,7 +117,7 @@ class TestConnectionsCRUD:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/connections",
+                    "/api/v1/connections",
                     json={
                         "name": "prod-db",
                         "host": "postgres",
@@ -148,7 +148,7 @@ class TestConnectionsCRUD:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/connections",
+                    "/api/v1/connections",
                     json={
                         "name": "test-conn",
                         "host": "db-host",
@@ -181,7 +181,7 @@ class TestConnectionsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get(f"/connections/{uuid.uuid4()}")
+                response = await client.get(f"/api/v1/connections/{uuid.uuid4()}")
 
         assert response.status_code == 404
         body = response.json()
@@ -206,7 +206,7 @@ class TestConnectionsCRUD:
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
                 create_resp = await client.post(
-                    "/connections",
+                    "/api/v1/connections",
                     json={
                         "name": "to-delete",
                         "host": "host",
@@ -216,7 +216,7 @@ class TestConnectionsCRUD:
                     },
                 )
                 conn_id = create_resp.json()["id"]
-                response = await client.delete(f"/connections/{conn_id}")
+                response = await client.delete(f"/api/v1/connections/{conn_id}")
 
         assert response.status_code == 204
 
@@ -243,7 +243,7 @@ class TestConnectionsCRUD:
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.delete(f"/connections/{nonexistent_id}")
+                response = await client.delete(f"/api/v1/connections/{nonexistent_id}")
 
         assert response.status_code == 404
         body = response.json()

@@ -159,11 +159,11 @@ def _build_isolated_app(
     async def _auth_route() -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
-    @app.get("/jobs")
+    @app.get("/api/v1/jobs")
     async def _jobs_route() -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
-    @app.get("/jobs/{job_id}/download")
+    @app.get("/api/v1/jobs/{job_id}/download")
     async def _download_route(job_id: str) -> JSONResponse:
         return JSONResponse(content={"ok": True})
 
@@ -339,10 +339,10 @@ async def test_different_operators_have_independent_limits() -> None:
         headers_b = {"Authorization": f"Bearer {token_b}"}
 
         # Exhaust operator A
-        await client.get("/jobs", headers=headers_a)
-        response_a2 = await client.get("/jobs", headers=headers_a)
+        await client.get("/api/v1/jobs", headers=headers_a)
+        response_a2 = await client.get("/api/v1/jobs", headers=headers_a)
         # Operator B should still be allowed
-        response_b1 = await client.get("/jobs", headers=headers_b)
+        response_b1 = await client.get("/api/v1/jobs", headers=headers_b)
 
     assert response_a2.status_code == 429, "Operator A must be rate limited after exceeding"
     assert response_b1.status_code == 200, "Operator B must NOT be affected by operator A's limit"
@@ -592,8 +592,8 @@ async def test_download_exceeds_limit_returns_429() -> None:
 
     app = _build_isolated_app(download_limit=1)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = await client.get("/jobs/abc123/download", headers=headers)
-        second = await client.get("/jobs/abc123/download", headers=headers)
+        first = await client.get("/api/v1/jobs/abc123/download", headers=headers)
+        second = await client.get("/api/v1/jobs/abc123/download", headers=headers)
 
     assert first.status_code == 200, f"First download request must succeed; got {first.status_code}"
     assert second.status_code == 429, (
