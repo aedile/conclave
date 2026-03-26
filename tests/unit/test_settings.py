@@ -582,3 +582,73 @@ def test_secret_fields_are_secret_str_type(monkeypatch: pytest.MonkeyPatch) -> N
     assert isinstance(s.jwt_secret_key, SecretStr), (
         f"jwt_secret_key must be SecretStr, got {type(s.jwt_secret_key)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix 4 (P58): Warn on unrecognized CONCLAVE_ env vars
+# ---------------------------------------------------------------------------
+
+
+def test_unrecognized_conclave_env_var_logs_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ConclaveSettings must log WARNING for unrecognized CONCLAVE_ env vars.
+
+    An env var like CONCLAVE_UNKNOWN_SETTING that starts with CONCLAVE_ but
+    doesn't map to any known field should trigger a WARNING — not a failure.
+    This is the safe transitional approach: fail-open with warning.
+
+    Task: P58 — Warn on unrecognized CONCLAVE_ env vars in settings validator
+    """
+    import logging
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("CONCLAVE_UNKNOWN_SETTING", "some_value")
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    with caplog.at_level(logging.WARNING, logger="synth_engine.shared.settings"):
+        ConclaveSettings()
+
+    warning_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    matching = [m for m in warning_messages if "CONCLAVE_UNKNOWN_SETTING" in m]
+    assert len(matching) >= 1, (
+        f"Expected a WARNING mentioning CONCLAVE_UNKNOWN_SETTING; "
+        f"got warnings: {warning_messages}"
+    )
+
+
+def test_recognized_conclave_env_var_does_not_log_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Known CONCLAVE_ env vars (CONCLAVE_ENV, CONCLAVE_SSL_REQUIRED, etc.) must NOT warn.
+
+    Task: P58 — Warn on unrecognized CONCLAVE_ env vars in settings validator
+    """
+    import logging
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    with caplog.at_level(logging.WARNING, logger="synth_engine.shared.settings"):
+        ConclaveSettings()
+
+    warning_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    # Filter to only unrecognized-CONCLAVE warnings (not the ENV= deprecation warning)
+    unrecognized_warnings = [
+        m for m in warning_messages if "unrecognized" in m.lower() or "CONCLAVE_" in m
+    ]
+    # Must not warn about known fields
+    conclave_ssl_warnings = [m for m in unrecognized_warnings if "CONCLAVE_SSL_REQUIRED" in m]
+    assert not conclave_ssl_warnings, (
+        f"Known CONCLAVE_SSL_REQUIRED must not trigger unrecognized-field warning; "
+        f"got: {conclave_ssl_warnings}"
+    )
