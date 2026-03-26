@@ -170,8 +170,8 @@ Drain (delete) rows when their target task is completed.
 | ~~ADV-P53-04~~ | ~~PM P53 CI~~ | ~~—~~ | ~~ADVISORY~~ | ~~mutation-test CI job removed from CI entirely — runs as local PM gate instead (ADR-0054 amendment). RESOLVED in P53.~~ |
 | ADV-P54-01 | QA P54 | — | ADVISORY | E2E_VALIDATION_RESULTS.md is a template — validation script not yet executed against Pagila (requires local PostgreSQL). Run `make validate-pipeline` when infrastructure is available. |
 | ~~ADV-P55-01~~ | ~~Red-Team P55~~ | P55 drain | ~~ADVISORY~~ | ~~Worker PID replaced with opaque UUID in `/health/vault` — RESOLVED in P55 advisory drain.~~ |
-| ADV-P55-02 | Red-Team P55 | — | ADVISORY | RestrictedUnpickler allowlist includes broad `joblib` prefix — `joblib.externals.loky` has process-spawning code. Tighten to specific submodules at next SDV version upgrade. |
-| ADV-P55-03 | DevOps P55 | — | ADVISORY | Per-worker audit chain: each Uvicorn worker has an independent hash chain. Concurrent appends to shared anchor file are not atomic. Document per-worker chain semantics; if cross-worker continuity required, use distributed store. |
+| ~~ADV-P55-02~~ | ~~Red-Team P55~~ | chore/review-refinements drain | ~~ADVISORY~~ | ~~Broad `joblib` prefix replaced with `joblib.numpy_pickle` + `joblib._store_backends` — RESOLVED in chore/review-refinements-and-advisory-drain.~~ |
+| ~~ADV-P55-03~~ | ~~DevOps P55~~ | chore/review-refinements drain | ~~ADVISORY~~ | ~~OPERATOR_MANUAL.md §7.3 added: per-worker chain semantics, single-chain compliance guidance, --workers 1 recommendation — RESOLVED in chore/review-refinements-and-advisory-drain.~~ |
 | ~~ADV-P55-04~~ | ~~DevOps P55~~ | P55 drain | ~~ADVISORY~~ | ~~Prometheus counters added: `ssrf_registration_rejection_total`, `artifact_verification_failure_total`, `audit_chain_resume_failure_total` — RESOLVED in P55 advisory drain.~~ |
 | ~~ADV-P55-05~~ | ~~Red-Team P55~~ | P55 drain | ~~ADVISORY~~ | ~~`.limit(100)` added to list queries in settings and webhooks routers — RESOLVED in P55 advisory drain.~~ |
 
