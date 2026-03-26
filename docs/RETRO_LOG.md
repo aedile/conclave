@@ -3,6 +3,26 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-26] Phase 57 — Review Summary
+
+**Reviewers**: QA, DevOps, Architecture, Red-team
+
+**Verdicts**: Arch — FINDING (1 critical + 1 doc); Red-team — FINDING (1) + 2 ADVISORY; DevOps — FINDING (2); QA — FINDING (3)
+
+**FINDINGs fixed in review commit** (`74b64bf`):
+1. `ErasureResponse` now surfaces `audit_logged` field from `DeletionManifest` (Arch + Red-team)
+2. T57.6 conflict-warning guard logic fixed — fires whenever env/conclave_env differ (QA)
+3. `env` field docstring corrected — removed false "copy to conclave_env" claim (QA)
+4. Credential-leak test strengthened — uses real embedded credentials in DATABASE_URL (QA)
+5. Stale ENV references updated across .env.example, config_validation.py, OPERATOR_MANUAL.md, ci.yml (DevOps + Arch)
+6. Conflict-guard comparison made case-insensitive (Red-team advisory)
+
+**ADVISORIEs** (logged, not blocking):
+- `auth.py:274-278` passes `str(exc)` into 401 response body — no allowlist guard against future sensitive messages (DevOps structural concern)
+- Rate limiter in-memory fallback multiplies by worker count under Redis failure (Red-team, pre-existing)
+
+---
+
 ### [2026-03-25] Phase 56 — Review Summary
 
 **Reviewers**: QA, DevOps, Architecture, Red-team

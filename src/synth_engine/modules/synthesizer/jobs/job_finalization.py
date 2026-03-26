@@ -75,6 +75,8 @@ def _write_parquet_with_signing(
 
     Raises:
         OSError: If the Parquet write or sidecar write fails.
+        RuntimeError: If the HMAC digest size does not match the expected
+            ``HMAC_DIGEST_SIZE`` constant (T57.2: replaces bare assert).
 
     Note:
         If a signing key is present but contains invalid hex characters or has
@@ -82,7 +84,7 @@ def _write_parquet_with_signing(
         internally and signing is skipped with an ERROR log.  The Parquet file
         is already written at that point and the job continues normally.
 
-    """  # noqa: DOC502
+    """  # noqa: DOC503
     # F5 fix: log basename only — full paths may expose internal filesystem layout.
     parquet_name = Path(parquet_path).name
 
@@ -144,7 +146,11 @@ def _write_parquet_with_signing(
 
     parquet_bytes = Path(parquet_path).read_bytes()
     digest = compute_hmac(signing_key, parquet_bytes)
-    assert len(digest) == HMAC_DIGEST_SIZE  # nosec B101 — internal guard
+    # T57.2: RuntimeError replaces assert (asserts stripped by python -O)
+    if len(digest) != HMAC_DIGEST_SIZE:
+        raise RuntimeError(
+            f"HMAC digest size mismatch: expected {HMAC_DIGEST_SIZE}, got {len(digest)}"
+        )
 
     sig_path = parquet_path + ".sig"
     Path(sig_path).write_bytes(digest)

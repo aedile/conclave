@@ -84,6 +84,7 @@ Task: T48.4 — Immutable Audit Trail Anchoring (Rule 8 wiring)
 Task: T53.2 — Audit HMAC: Include Details Field in Signature
 Task: T55.3 — Audit Chain Continuity Across Restarts
 Task: ADV-P53-01 — HMAC pipe-delimiter injection fix (length-prefixed v3 format)
+Task: T57.5 — Narrow Exception Handling in Audit Logger Singleton
 """
 
 from __future__ import annotations
@@ -106,6 +107,9 @@ _GENESIS_HASH = "0" * 64
 # Maximum byte length of canonical details JSON (64 KB).
 # Enforced in _sign_v2 and _sign_v3 to prevent OOM via unbounded detail payloads.
 _DETAILS_MAX_BYTES = 64 * 1024  # 64 KB
+
+# Module-level logger for get_audit_logger() diagnostic messages.
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # ADV-P55-04 — Prometheus counter for audit chain resume failures.
@@ -695,7 +699,20 @@ def get_audit_logger() -> AuditLogger:
             anchor_file_path: str | None
             try:
                 anchor_file_path = get_settings().anchor_file_path
-            except Exception:  # broad catch: missing/invalid settings must not crash
+            except (AttributeError, KeyError, TypeError) as exc:
+                # T57.5: Narrow to expected exception types only.
+                # AttributeError: settings attribute missing (misconfiguration).
+                # KeyError: settings lookup failure (unusual but possible).
+                # TypeError: unexpected type in settings access.
+                # Unexpected exceptions (RuntimeError, ValueError, etc.) propagate
+                # so programming errors surface rather than being silently swallowed.
+                _logger.warning(
+                    "Failed to read anchor_file_path from settings (%s: %s). "
+                    "Audit logger will start from genesis (no anchor resume). "
+                    "Audit chain continuity may be broken.",
+                    type(exc).__name__,
+                    exc,
+                )
                 anchor_file_path = None
             _audit_logger_instance = AuditLogger(
                 audit_key=audit_key,

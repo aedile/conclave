@@ -34,6 +34,7 @@ Boundary constraints (import-linter enforced)
 CONSTITUTION Priority 0: Security — PII-safe audit, cascade deletion
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
+Task: T57.7 — Erasure Error Handling Hardening (audit_logged field)
 """
 
 from __future__ import annotations
@@ -86,6 +87,11 @@ class DeletionManifest:
         retained_audit_trail: Always ``True`` — required for compliance proof.
         retained_synthesized_output_justification: Human-readable GDPR basis.
         retained_audit_trail_justification: Human-readable GDPR basis.
+        audit_logged: ``True`` when the audit log entry was written
+            successfully; ``False`` if audit logging failed after the DB
+            deletion was already committed.  Callers MUST check this field
+            to detect partial erasure (deletion succeeded but audit chain
+            may be broken).  T57.7 — GDPR erasure audit chain integrity.
     """
 
     subject_id: str
@@ -95,6 +101,7 @@ class DeletionManifest:
     retained_audit_trail: bool
     retained_synthesized_output_justification: str
     retained_audit_trail_justification: str
+    audit_logged: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +208,7 @@ class ErasureService:
 
         # Audit the erasure.  Never include the subject_id value in details —
         # it may be PII (e.g. a hashed email).  Record only deletion counts.
+        audit_logged: bool = True
         try:
             get_audit_logger().log_event(
                 event_type="GDPR_ERASURE",
@@ -215,11 +223,13 @@ class ErasureService:
                 },
             )
         except Exception:
-            # Audit failure must never abort a completed deletion.
-            # The DB write committed; failing here would leave the operator
-            # with no feedback about the erasure's success.
+            # T57.7: Audit failure must never abort a completed deletion.
+            # Set audit_logged=False so callers can detect partial erasure
+            # (DB deletion committed but audit chain integrity may be broken).
+            audit_logged = False
             _logger.exception(
-                "Audit logging failed for GDPR erasure (actor=%s); DB deletion already committed.",
+                "Audit logging failed for GDPR erasure (actor=%s); DB deletion already committed. "
+                "DeletionManifest.audit_logged will be False — caller must handle this.",
                 actor,
             )
 
@@ -231,4 +241,5 @@ class ErasureService:
             retained_audit_trail=True,
             retained_synthesized_output_justification=_SYNTH_OUTPUT_JUSTIFICATION,
             retained_audit_trail_justification=_AUDIT_TRAIL_JUSTIFICATION,
+            audit_logged=audit_logged,
         )

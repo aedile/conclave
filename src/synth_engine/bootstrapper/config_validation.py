@@ -8,8 +8,7 @@ Required in all deployment modes:
   - ``DATABASE_URL``  — async-compatible PostgreSQL DSN (e.g. ``postgresql+asyncpg://...``).
   - ``AUDIT_KEY``     — hex-encoded HMAC key for the audit logger.
 
-Required additionally in production mode (``ENV=production`` or
-``CONCLAVE_ENV=production``):
+Required additionally in production mode (``CONCLAVE_ENV=production`` — ``ENV=`` is deprecated):
   - ``ARTIFACT_SIGNING_KEY`` — hex-encoded HMAC key for ModelArtifact pickle signing.
   - ``MASKING_SALT``         — secret salt for deterministic HMAC masking.  Without
     this, production masking falls back to a hardcoded development salt, making
@@ -72,6 +71,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
 from synth_engine.shared.settings import get_settings
@@ -313,7 +314,7 @@ def validate_config() -> None:
     """Validate required environment variables at application startup.
 
     Checks that all required environment variables are set and non-empty.
-    In production mode (``ENV=production`` or ``CONCLAVE_ENV=production``),
+    In production mode (``CONCLAVE_ENV=production`` — ``ENV=`` is deprecated),
     also validates that ``ARTIFACT_SIGNING_KEY``, ``MASKING_SALT``,
     ``JWT_SECRET_KEY``, and ``OPERATOR_CREDENTIALS_HASH`` are present and
     correctly formed.
@@ -365,7 +366,14 @@ def validate_config() -> None:
         from synth_engine.bootstrapper.config_validation import validate_config
         validate_config()
     """
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except ValidationError as exc:
+        raise SystemExit(
+            f"Startup configuration error: the following required environment "
+            f"variable(s) are not set or are misconfigured: {exc}. "
+            f"Set them before starting the Conclave Engine."
+        ) from exc
     required = list(_ALWAYS_REQUIRED)
     if _is_production():
         required.extend(_PRODUCTION_REQUIRED)

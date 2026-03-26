@@ -200,7 +200,10 @@ async def spend_budget(
         session.add(transaction)
         # session.begin() context manager commits automatically on successful exit.
 
-    _logger.info(
+    # T57.4: Epsilon values logged at DEBUG, not INFO.
+    # Epsilon budget state is sensitive operational data; INFO would surface
+    # it in default log configurations and SIEM integrations.
+    _logger.debug(
         "Epsilon allocated: ledger_id=%d, job_id=%d, amount=%s, total_spent=%s, remaining=%s",
         ledger_id,
         job_id,
@@ -283,7 +286,8 @@ async def reset_budget(
 
         # session.begin() context manager commits automatically on successful exit.
 
-    _logger.info(
+    # T57.4: Epsilon values logged at DEBUG, not INFO (privacy budget state).
+    _logger.debug(
         "Budget reset: ledger_id=%d, allocated=%s, spent reset to 0",
         ledger_id,
         ledger.total_allocated_epsilon,

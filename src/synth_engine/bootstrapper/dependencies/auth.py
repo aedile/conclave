@@ -25,12 +25,16 @@ Security posture
 Unconfigured mode
 -----------------
 When ``jwt_secret_key`` is empty (the default), the middleware operates in
-**pass-through mode**: all requests are allowed without token verification,
-and a WARNING is logged on every non-exempt request.  This allows the
-application to start and be accessed before JWT credentials are configured,
-but production deployments MUST set ``JWT_SECRET_KEY`` to a non-empty
-value to enforce authentication.  ``require_scope()`` also bypasses the
-scope check in pass-through mode for the same reason.
+**pass-through mode** in non-production environments: all requests are allowed
+without token verification, and a WARNING is logged on every non-exempt
+request.  This allows development and testing before JWT credentials are
+configured.
+
+**SECURITY (T57.1)**: In production mode (``conclave_env == "production"``),
+pass-through is unconditionally disabled.  A production deployment with an
+empty JWT secret key is a misconfiguration that MUST be rejected — returning
+HTTP 401 — not silently allowed.  ``require_scope()`` and
+``AuthenticationGateMiddleware`` apply the same production hard-fail logic.
 
 Middleware ordering
 -------------------
@@ -55,6 +59,7 @@ Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 Task: T47.1 — Scope-based auth for security endpoints
 Task: T47.3 — Scope-based auth for settings write endpoints
+Task: T57.1 — JWT Authentication Hard-Fail in Production
 """
 
 from __future__ import annotations
@@ -206,29 +211,44 @@ def get_current_operator(request: Request) -> str:
     which operator is making the request.  It extracts the ``Authorization``
     header, verifies the bearer token, and returns the ``sub`` claim string.
 
-    When ``jwt_secret_key`` is empty (unconfigured/pass-through mode),
-    a sentinel value of ``""`` is returned — this matches the default
-    ``owner_id`` for resources created before T39.2, maintaining backward
-    compatibility for single-operator deployments where JWT is not yet
-    configured.
+    **Pass-through mode (non-production only)**: When ``jwt_secret_key`` is
+    empty and the deployment is NOT in production mode, a sentinel value of
+    ``""`` is returned.  This maintains backward compatibility for
+    development and test environments where JWT is not yet configured.
+
+    **Production hard-fail (T57.1)**: When ``jwt_secret_key`` is empty AND
+    the deployment is in production mode (``settings.is_production()``),
+    HTTP 401 is raised unconditionally.  An empty JWT secret in production
+    is a misconfiguration — pass-through is never permitted in production.
+    The 401 detail message does not reveal configuration state.
 
     Args:
         request: The incoming HTTP request (injected by FastAPI).
 
     Returns:
         The ``sub`` claim from the verified JWT token, or ``""`` when
-        operating in unconfigured/pass-through mode.
+        operating in unconfigured/pass-through mode (non-production only).
 
     Raises:
         HTTPException: 401 Unauthorized if the Authorization header is
             absent, malformed, or contains an invalid/expired token, or
-            if the ``sub`` claim is present but empty.
+            if the ``sub`` claim is present but empty.  Also raised in
+            production mode when ``jwt_secret_key`` is empty.
     """
     settings = get_settings()
+    jwt_secret = settings.jwt_secret_key.get_secret_value()
 
-    # Pass-through mode: when JWT is not configured, return sentinel "".
-    # This matches the default owner_id for pre-T39.2 resources.
-    if not settings.jwt_secret_key.get_secret_value():
+    if not jwt_secret:
+        if settings.is_production():
+            # T57.1: Production hard-fail — empty JWT secret is a misconfiguration.
+            # Do NOT reveal that the key is unconfigured (info disclosure).
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required. Provide a valid Bearer token.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        # Non-production pass-through: return sentinel "".
+        # This matches the default owner_id for pre-T39.2 resources.
         return ""
 
     auth_header: str | None = request.headers.get("Authorization")
@@ -285,9 +305,12 @@ def require_scope(scope: str) -> Callable[..., str]:
        be ``True`` for substring checks but is an illegitimate claim shape).
     2. Contains the required scope string via exact list membership.
 
-    Pass-through mode: when ``jwt_secret_key`` is empty, the scope check
-    is bypassed entirely — consistent with ``get_current_operator`` and the
-    ``AuthenticationGateMiddleware`` pass-through behavior.
+    **Pass-through mode (non-production only)**: when ``jwt_secret_key`` is
+    empty and not in production mode, the scope check is bypassed entirely —
+    consistent with ``get_current_operator`` pass-through behavior.
+
+    **Production hard-fail (T57.1)**: In production mode with an empty JWT
+    secret, the scope check raises HTTP 401 before examining any claims.
 
     FastAPI injection: the returned ``_check_scope`` function declares
     ``request: Request`` without ``Depends()`` — FastAPI recognises
@@ -326,13 +349,22 @@ def require_scope(scope: str) -> Callable[..., str]:
             The operator sub claim on success.
 
         Raises:
-            HTTPException: 403 Forbidden if the scope claim is absent,
-                not a list, or does not contain the required scope.
+            HTTPException: 401 if JWT is unconfigured in production mode.
+                403 Forbidden if the scope claim is absent, not a list,
+                or does not contain the required scope.
         """
         settings = get_settings()
+        jwt_secret = settings.jwt_secret_key.get_secret_value()
 
-        # Pass-through mode: no JWT configured → skip scope check.
-        if not settings.jwt_secret_key.get_secret_value():
+        if not jwt_secret:
+            if settings.is_production():
+                # T57.1: Production hard-fail — consistent with get_current_operator.
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authentication required. Provide a valid Bearer token.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            # Non-production pass-through: no JWT configured → skip scope check.
             return operator
 
         # Extract and re-verify the token to read scope claims.
@@ -417,9 +449,15 @@ class AuthenticationGateMiddleware(BaseHTTPMiddleware):
     expired, or absent tokens receive a **401 Unauthorized** RFC 7807
     response.
 
-    When ``jwt_secret_key`` is empty (unconfigured), the middleware operates
-    in pass-through mode: all requests are allowed with a WARNING log.
-    Production deployments MUST set ``JWT_SECRET_KEY`` to a non-empty value.
+    **Pass-through mode (non-production only)**: When ``jwt_secret_key`` is
+    empty and the deployment is NOT in production mode, requests are allowed
+    through with a WARNING log.  This permits development and testing before
+    JWT is configured.
+
+    **Production hard-fail (T57.1)**: In production mode with an empty JWT
+    secret, ALL non-exempt requests receive a 401 response.  A production
+    deployment with no JWT secret is a misconfiguration that must be
+    rejected, not silently allowed.
 
     The middleware slots INNERMOST in the middleware stack — after
     :class:`~synth_engine.bootstrapper.dependencies.vault.SealGateMiddleware`
@@ -430,32 +468,40 @@ class AuthenticationGateMiddleware(BaseHTTPMiddleware):
     - Algorithm is pinned via settings; ``alg: none`` is unconditionally rejected.
     - Token validation uses constant-time comparison (delegated to PyJWT).
     - Failure detail messages do not leak key material or internal state.
-    - When jwt_secret_key is empty, pass-through mode is used with a WARNING.
+    - Pass-through mode only in non-production; production always enforces auth.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Gate every non-exempt request behind JWT token verification.
 
-        When ``jwt_secret_key`` is empty, all requests pass through with a
-        warning (unconfigured mode).  This allows startup and access before
-        credentials are set up, but is NOT suitable for production.
+        In non-production with empty ``jwt_secret_key``, requests pass through
+        with a warning (unconfigured mode).  In production with an empty
+        ``jwt_secret_key``, all non-exempt requests receive 401 (T57.1).
 
         Args:
             request: Incoming HTTP request.
             call_next: ASGI callable for the next middleware or route handler.
 
         Returns:
-            A 401 JSONResponse (RFC 7807) if the token is absent or invalid,
-            otherwise the normal downstream response.
+            A 401 JSONResponse (RFC 7807) if the token is absent, invalid,
+            or if the deployment is production with no JWT secret configured.
+            Otherwise returns the normal downstream response.
         """
         if request.url.path in AUTH_EXEMPT_PATHS:
             return await call_next(request)
 
-        # Pass-through mode: when no JWT secret is configured, skip authentication.
-        # This allows development and testing without JWT credentials configured.
-        # SECURITY: Production deployments MUST set JWT_SECRET_KEY.
         settings = get_settings()
-        if not settings.jwt_secret_key.get_secret_value():
+        jwt_secret = settings.jwt_secret_key.get_secret_value()
+
+        if not jwt_secret:
+            if settings.is_production():
+                # T57.1: Production hard-fail — empty JWT secret is a misconfiguration.
+                # Do not reveal configuration state in the response detail.
+                return _build_401_response(
+                    "Authentication required. "
+                    "Provide a valid Bearer token in the Authorization header."
+                )
+            # Non-production pass-through: skip authentication with a warning.
             _logger.warning(
                 "JWT authentication not configured (JWT_SECRET_KEY is empty). "
                 "Request to %s is allowed in unconfigured mode. "

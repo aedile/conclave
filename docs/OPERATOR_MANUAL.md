@@ -522,7 +522,7 @@ server {
 
 ### 8.9 HTTPS Enforcement (T42.2)
 
-In production (`CONCLAVE_ENV=production` or `ENV=production`), all plain HTTP requests are rejected with **421 Misdirected Request** before rate limiting, auth, or business logic runs. A redirect would transmit headers in cleartext before firing — a classic SSL-stripping vector; 421 terminates immediately.
+In production (`CONCLAVE_ENV=production` — `ENV=production` is deprecated), all plain HTTP requests are rejected with **421 Misdirected Request** before rate limiting, auth, or business logic runs. A redirect would transmit headers in cleartext before firing — a classic SSL-stripping vector; 421 terminates immediately.
 
 `HTTPSEnforcementMiddleware` checks `X-Forwarded-Proto` first (proxy deployments), then falls back to the raw ASGI scheme.
 

@@ -60,14 +60,19 @@ Task: T48.4 — Audit Trail Anchoring (anchor_backend, anchor_file_path,
               anchor_every_n_events, anchor_every_seconds)
 Task: T50.3 — Default to Production Mode (secure-by-default)
 Task: fix/review-critical-issues — Use SecretStr for secret fields
+Task: T57.3 — Production-Mode Validation for Required Settings
+Task: T57.6 — Unify Environment Configuration
 """
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_logger = logging.getLogger(__name__)
 
 
 class ConclaveSettings(BaseSettings):
@@ -251,14 +256,15 @@ class ConclaveSettings(BaseSettings):
             "Deployment environment name (e.g. 'production'). "
             "Defaults to 'production' — secure-by-default (T50.3). "
             "Set to 'development' to enable development mode explicitly. "
-            "Checked alongside ENV by is_production()."
+            "Single source of truth for deployment mode (T57.6). "
+            "Takes precedence over the legacy ENV field when both are set."
         ),
     )
     env: str = Field(
         default="",
         description=(
-            "Legacy deployment environment variable. "
-            "Checked alongside CONCLAVE_ENV by is_production()."
+            "Deprecated. Use CONCLAVE_ENV instead. When set, a deprecation warning is logged. "
+            "The effective mode is always determined by conclave_env (default: production)."
         ),
     )
 
@@ -575,23 +581,89 @@ class ConclaveSettings(BaseSettings):
     )
 
     # -----------------------------------------------------------------------
+    # Validators
+    # -----------------------------------------------------------------------
+
+    @model_validator(mode="after")
+    def _validate_production_required_fields(self) -> ConclaveSettings:
+        """Reject empty required fields in production and handle ENV= alias (T57.3, T57.6).
+
+        Two concerns are handled here:
+
+        **T57.6 — ENV= alias resolution**: If the legacy ``ENV=`` variable is set,
+        a deprecation WARNING is emitted.  When both ``ENV`` and ``CONCLAVE_ENV``
+        are set and conflict, ``conclave_env`` takes precedence.
+
+        **T57.3 — Production required field validation**: In production mode,
+        ``database_url`` and ``audit_key`` must not be empty or whitespace-only.
+        Empty defaults are only acceptable in development/test environments.
+
+        The ``database_url`` value is **never** included in error messages —
+        it may contain credentials (user:password@host).
+
+        Returns:
+            The validated ``ConclaveSettings`` instance (self).
+
+        Raises:
+            ValueError: When production mode is active and ``database_url`` or
+                ``audit_key`` is empty or whitespace-only.
+        """
+        # T57.6: Emit WARNING whenever legacy ENV= is set.
+        if self.env:
+            _logger.warning(
+                "ENV= environment variable is deprecated; migrate to CONCLAVE_ENV= instead. "
+                "Current value: ENV=%r",
+                self.env,
+            )
+            if self.env.lower() != self.conclave_env.lower():
+                # Both are explicitly set and conflict — conclave_env wins.
+                _logger.warning(
+                    "ENV=%r and CONCLAVE_ENV=%r conflict; CONCLAVE_ENV takes precedence (T57.6).",
+                    self.env,
+                    self.conclave_env,
+                )
+
+        # T57.3: Production-mode required field validation (construction-time).
+        # Collect ALL field errors before raising so the operator receives
+        # a complete list in a single error message (mirrors validate_config behaviour).
+        if self.conclave_env.lower() == "production":
+            field_errors: list[str] = []
+            if not self.database_url or not self.database_url.strip():
+                field_errors.append(
+                    "database_url must not be empty in production mode (CONCLAVE_ENV=production). "
+                    "Set DATABASE_URL to a valid PostgreSQL DSN."
+                )
+            # audit_key is SecretStr — MUST call .get_secret_value() before checking.
+            # A bare `if not self.audit_key` check is ALWAYS False because
+            # the SecretStr object is always truthy regardless of the wrapped value.
+            audit_key_value = self.audit_key.get_secret_value()
+            if not audit_key_value or not audit_key_value.strip():
+                field_errors.append(
+                    "audit_key must not be empty in production mode (CONCLAVE_ENV=production). "
+                    "Set AUDIT_KEY to a valid hex-encoded 32-byte HMAC key."
+                )
+            if field_errors:
+                raise ValueError(" ".join(field_errors))
+
+        return self
+
+    # -----------------------------------------------------------------------
     # Methods
     # -----------------------------------------------------------------------
 
     def is_production(self) -> bool:
         """Return ``True`` if the current deployment mode is production.
 
-        Production mode is indicated by either of:
-          - ``ENV=production``
-          - ``CONCLAVE_ENV=production``
-
-        Both env var names are checked for maximum compatibility with
-        deployment tooling that may use either convention.
+        Production mode is determined by ``conclave_env`` (single source of
+        truth after T57.6 unification).  The legacy ``env`` alias is handled
+        in ``_validate_production_required_fields``; ``is_production()`` reads
+        only ``conclave_env``.
 
         Returns:
-            ``True`` when the deployment mode is production, ``False`` otherwise.
+            ``True`` when ``conclave_env == "production"`` (case-insensitive),
+            ``False`` otherwise.
         """
-        return self.env.lower() == "production" or self.conclave_env.lower() == "production"
+        return self.conclave_env.lower() == "production"
 
 
 @lru_cache(maxsize=1)

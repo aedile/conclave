@@ -131,8 +131,17 @@ class OpacusCompatibleDiscriminator(nn.Module):
             Tensor of shape ``(batch_size // pac, 1)`` — the discriminator score
             for each packed group of samples.
 
+        Raises:
+            RuntimeError: If ``batch_size`` is not divisible by ``self.pac``
+                (T57.2: replaces bare assert that is stripped by ``python -O``).
+
         """
-        assert input_.size()[0] % self.pac == 0
+        # T57.2: RuntimeError replaces assert (asserts stripped by python -O)
+        batch_size = input_.size()[0]
+        if batch_size % self.pac != 0:
+            raise RuntimeError(
+                f"Input batch size ({batch_size}) must be divisible by pac ({self.pac})"
+            )
         return self.seq(input_.view(-1, self.pacdim))
 
     def calc_gradient_penalty(
