@@ -5,6 +5,8 @@ Tests verify that the restricted unpickler:
    subprocess.Popen, arbitrary __reduce__).
 2. ACCEPTS legitimate ModelArtifact pickles.
 3. Preserves HMAC verification before unpickling (existing behavior).
+4. REJECTS dangerous builtins (eval, exec, getattr, __import__) via the
+   tightened _ALLOWED_BUILTIN_NAMES allowlist (ADV-P55-02 / refinement).
 
 CONSTITUTION Priority 0: Security — pickle deserialization is a critical attack surface
 CONSTITUTION Priority 3: TDD — attack tests committed before feature tests
@@ -97,6 +99,30 @@ def _craft_arbitrary_class_pickle(module: str, classname: str) -> bytes:
     return payload
 
 
+def _craft_builtin_pickle(name: str) -> bytes:
+    """Craft a pickle payload that references a named builtin.
+
+    Used to test that dangerous builtins (eval, exec, etc.) are rejected
+    even though safe builtins (dict, list) are accepted.
+
+    Args:
+        name: Name of the builtin to reference (e.g. "eval", "exec").
+
+    Returns:
+        Raw pickle bytes.
+    """
+    payload = (
+        b"\x80\x02"  # PROTO 2
+        + b"c"
+        + b"builtins\n"
+        + name.encode()
+        + b"\n"  # GLOBAL builtins.<name>
+        + b"q\x00"  # BINPUT 0
+        + b"."  # STOP
+    )
+    return payload
+
+
 def _make_signed_payload(signing_key: bytes, pickle_payload: bytes) -> bytes:
     """Prepend an HMAC-SHA256 signature to a pickle payload.
 
@@ -180,6 +206,65 @@ def test_restricted_unpickler_rejects_importlib() -> None:
 
     payload = _craft_arbitrary_class_pickle("importlib", "import_module")
     with pytest.raises(SecurityError, match="not permitted"):
+        RestrictedUnpickler.loads(payload)
+
+
+def test_restricted_unpickler_rejects_builtin_eval() -> None:
+    """builtins.eval MUST be rejected by the tightened builtin allowlist.
+
+    The broad ``"builtins"`` prefix previously allowed all builtins including
+    eval, exec, and __import__.  The tightened allowlist only permits safe
+    container and value types.  A crafted pickle referencing ``builtins.eval``
+    must raise SecurityError with a message naming the blocked builtin.
+    """
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
+
+    payload = _craft_builtin_pickle("eval")
+    with pytest.raises(SecurityError, match="eval"):
+        RestrictedUnpickler.loads(payload)
+
+
+def test_restricted_unpickler_rejects_builtin_exec() -> None:
+    """builtins.exec MUST be rejected by the tightened builtin allowlist.
+
+    exec is an execution primitive — a crafted payload using ``builtins.exec``
+    could run arbitrary code.  The restricted unpickler must block it.
+    """
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
+
+    payload = _craft_builtin_pickle("exec")
+    with pytest.raises(SecurityError, match="exec"):
+        RestrictedUnpickler.loads(payload)
+
+
+def test_restricted_unpickler_rejects_builtin_compile() -> None:
+    """builtins.compile MUST be rejected by the tightened builtin allowlist.
+
+    compile creates code objects from strings, enabling arbitrary code
+    execution.  It must not be permitted in a ModelArtifact pickle payload.
+
+    Note: builtins.getattr IS allowed because pickle's BUILD opcode uses it
+    internally for object reconstruction (__setstate__). Blocking getattr
+    breaks real CTGAN model deserialization. HMAC verification is the primary
+    defense; the allowlist is defense-in-depth.
+    """
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
+
+    payload = _craft_builtin_pickle("compile")
+    with pytest.raises(SecurityError, match="compile"):
+        RestrictedUnpickler.loads(payload)
+
+
+def test_restricted_unpickler_rejects_builtin_import() -> None:
+    """builtins.__import__ MUST be rejected by the tightened builtin allowlist.
+
+    __import__ is the dynamic import hook — allowing it in pickle payloads would
+    let an attacker import arbitrary modules at deserialization time.
+    """
+    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
+
+    payload = _craft_builtin_pickle("__import__")
+    with pytest.raises(SecurityError, match="__import__"):
         RestrictedUnpickler.loads(payload)
 
 
@@ -298,18 +383,68 @@ def test_hmac_still_verified_before_unpickling(tmp_path: object) -> None:
 
 
 def test_restricted_unpickler_accepts_builtin_types() -> None:
-    """Basic builtins (dict, list, str, int) MUST be accepted by RestrictedUnpickler.
+    """Specific safe builtins (dict, list, str, int) MUST be accepted by RestrictedUnpickler.
 
-    The allowlist includes all standard Python builtins needed for the
-    dataclass fields in ModelArtifact.
+    The allowlist includes safe container and value types from _ALLOWED_BUILTIN_NAMES
+    needed for dataclass fields in ModelArtifact.
     """
     from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
-    # A simple dict containing common types
-    data = {"key": "value", "count": 42, "items": [1, 2, 3], "flag": True}
+    # A simple dict containing common allowed types
+    data: dict[str, object] = {"key": "value", "count": 42, "items": [1, 2, 3], "flag": True}
     payload = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
     loaded = RestrictedUnpickler.loads(payload)
 
     assert loaded == data
     assert loaded["key"] == "value"
     assert loaded["count"] == 42
+
+
+def test_synthesizer_model_protocol_satisfied_by_compatible_object() -> None:
+    """An object implementing sample(num_rows) satisfies the SynthesizerModel Protocol.
+
+    ModelArtifact.model accepts any SynthesizerModel-compatible object.
+    A stub class with the correct signature must be accepted by mypy
+    and usable in ModelArtifact without runtime error.
+    """
+    import pandas as pd
+
+    from synth_engine.modules.synthesizer.storage.models import SynthesizerModel
+
+    class _StubSynthesizer:
+        """Minimal stub satisfying the SynthesizerModel Protocol."""
+
+        def sample(self, num_rows: int) -> pd.DataFrame:
+            return pd.DataFrame({"col": range(num_rows)})
+
+    stub: SynthesizerModel = _StubSynthesizer()
+    df = stub.sample(5)
+    assert len(df) == 5
+    assert list(df.columns) == ["col"]
+
+
+def test_model_artifact_accepts_synthesizer_model_protocol_instance() -> None:
+    """ModelArtifact.model field accepts a SynthesizerModel-compatible object.
+
+    Verify that a ModelArtifact can be constructed and round-tripped with a
+    protocol-satisfying model object stored in the model field.
+    """
+    import pandas as pd
+
+    class _StubSynthesizer:
+        def sample(self, num_rows: int) -> pd.DataFrame:
+            return pd.DataFrame({"x": range(num_rows)})
+
+    stub = _StubSynthesizer()
+    artifact = ModelArtifact(
+        table_name="orders",
+        model=stub,
+        column_names=["x"],
+        column_dtypes={"x": "int64"},
+        column_nullables={"x": False},
+    )
+    assert artifact.table_name == "orders"
+    assert artifact.model is stub
+    # Verify the Protocol contract — model.sample works
+    result = artifact.model.sample(3)
+    assert len(result) == 3

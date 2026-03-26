@@ -472,6 +472,12 @@ class SynthesisEngine:
             raise ValueError(
                 f"n_rows must be a positive integer; got {n_rows}. Use at least 1 row."
             )
+        if artifact.model is None:
+            raise ValueError(
+                f"artifact.model is None for table '{artifact.table_name}'. "
+                "The model must be set before calling generate(). "
+                "Ensure training completed successfully before generating rows."
+            )
 
         _logger.info(
             "Generating %d synthetic rows for table '%s'.",

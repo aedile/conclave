@@ -50,12 +50,14 @@ ADR: ADR-0055 (Restricted Unpickler for ModelArtifact deserialization)
 
 from __future__ import annotations
 
+import builtins
 import io
 import logging
 import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) + RestrictedUnpickler (T55.2) ensure only safe artifacts are deserialized
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
+import pandas as pd
 from prometheus_client import Counter
 
 from synth_engine.shared.exceptions import ArtifactTamperingError
@@ -67,7 +69,7 @@ from synth_engine.shared.security.hmac_signing import (
 )
 
 # SecurityError is re-exported here for backward compat; canonical: synth_engine.shared.security
-__all__ = ["ModelArtifact", "RestrictedUnpickler", "SecurityError"]
+__all__ = ["ModelArtifact", "RestrictedUnpickler", "SecurityError", "SynthesizerModel"]
 
 _logger = logging.getLogger(__name__)
 
@@ -97,9 +99,102 @@ _MAX_ARTIFACT_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024
 #: for HMAC-SHA256 and are rejected at the API boundary.
 _MIN_SIGNING_KEY_BYTES: int = 32
 
+
+# ---------------------------------------------------------------------------
+# SynthesizerModel Protocol
+# ---------------------------------------------------------------------------
+
+
+class SynthesizerModel(Protocol):
+    """Protocol for synthesizer models compatible with :class:`ModelArtifact`.
+
+    Any object stored in :attr:`ModelArtifact.model` must implement this
+    protocol — i.e., it must expose a ``sample(num_rows)`` method returning
+    a :class:`pandas.DataFrame`.
+
+    CTGANSynthesizer (from SDV) satisfies this protocol.  Test stubs or
+    alternative synthesizers (e.g. a TVAE wrapper) must also implement
+    ``sample`` to be stored in a ``ModelArtifact``.
+
+    Note:
+        The ``model`` field is populated via pickle deserialization (where
+        the return type of ``RestrictedUnpickler.loads`` is ``Any``).  At
+        load time, the deserialized object is cast to ``SynthesizerModel``
+        by callers that need to invoke ``sample`` — the Protocol is for
+        type documentation and ``mypy`` enforcement, not runtime enforcement.
+        ``None`` is accepted at construction time (before training completes).
+    """
+
+    def sample(self, num_rows: int) -> pd.DataFrame:
+        """Generate ``num_rows`` rows of synthetic data.
+
+        Args:
+            num_rows: Number of rows to synthesize.
+
+        Returns:
+            A :class:`pandas.DataFrame` with the same column schema as the
+            training data.
+        """
+        ...
+
+
 # ---------------------------------------------------------------------------
 # Allowlist for RestrictedUnpickler
 # ---------------------------------------------------------------------------
+
+#: Explicit set of safe built-in names permitted during deserialization.
+#:
+#: Replaces the broad ``"builtins"`` prefix (which would allow ``eval``,
+#: ``exec``, ``__import__``, ``compile``, etc.).  Only container/value types
+#: actually needed to reconstruct ModelArtifact dataclass fields are included.
+#:
+#: Rationale: ``eval``, ``exec``, ``compile``, ``__import__``, ``compile``,
+#: ``setattr``, ``delattr``, and ``globals`` are execution/reflection
+#: primitives that have no place in a pickle artifact payload.  Blocking them
+#: here is a defense-in-depth measure — a crafted payload cannot exploit these
+#: even if an attacker signs it with a stolen HMAC key.
+_ALLOWED_BUILTIN_NAMES: frozenset[str] = frozenset(
+    {
+        "dict",
+        "list",
+        "set",
+        "tuple",
+        "frozenset",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "bytes",
+        "bytearray",
+        "complex",
+        "slice",
+        "range",
+        "type",
+        "object",
+        "True",
+        "False",
+        "None",
+        "enumerate",
+        "zip",
+        "map",
+        "filter",
+        # getattr and setattr are used by pickle's BUILD opcode for object
+        # reconstruction (e.g., __setstate__). Blocking them breaks real CTGAN
+        # model deserialization. They are safe here because HMAC verification
+        # occurs before unpickling — only self-produced payloads reach this point.
+        "getattr",
+        "setattr",
+        "isinstance",
+        "issubclass",
+        "len",
+        "sorted",
+        "reversed",
+        "property",
+        "staticmethod",
+        "classmethod",
+        "super",
+    }
+)
 
 #: Module prefixes permitted during deserialization.
 #:
@@ -109,8 +204,9 @@ _MIN_SIGNING_KEY_BYTES: int = 32
 #:
 #: Rationale (ADR-0055):
 #: - ``synth_engine.modules.synthesizer.storage.models`` — the ModelArtifact class itself.
-#: - ``builtins`` — Python built-in types (list, dict, str, int, float, etc.)
-#:   needed for dataclass field reconstruction.
+#: - ``builtins`` — NOT listed here; handled separately by ``_ALLOWED_BUILTIN_NAMES``
+#:   to prevent allowing dangerous builtins such as ``eval``, ``exec``, and
+#:   ``__import__``.  See :meth:`RestrictedUnpickler.find_class`.
 #: - ``_codecs`` — used by pickle internally for bytes/bytearray reconstruction.
 #: - ``collections`` — OrderedDict used in some sklearn/SDV internals.
 #: - ``datetime`` — datetime objects may appear in SDV model metadata.
@@ -121,13 +217,19 @@ _MIN_SIGNING_KEY_BYTES: int = 32
 #: - ``copulas`` — SDV dependency for statistical distributions.
 #: - ``opacus`` — DP wrapper around the PyTorch training loop.
 #: - ``sklearn`` — scikit-learn transformers used by rdt/DataTransformer.
+#: - ``joblib.numpy_pickle`` — joblib's NumPy array persistence layer, used
+#:   by sklearn internals during model serialization.
+#: - ``joblib._store_backends`` — joblib's memory-store backend internals,
+#:   used by sklearn's Pipeline and MemoryMixin.
+#:   Note: the broad ``"joblib"`` prefix (which would allow
+#:   ``joblib.externals.loky``, a process-spawning sub-library) has been
+#:   replaced with these two specific submodules (ADV-P55-02 drain).
 #:
 #: Modules NOT in this list (e.g. ``os``, ``subprocess``, ``importlib``,
 #: ``pathlib``, ``socket``, arbitrary third-party packages) will raise
 #: :exc:`SecurityError` immediately when encountered during deserialization.
 _ALLOWED_MODULE_PREFIXES: tuple[str, ...] = (
     "synth_engine.modules.synthesizer.storage.models",
-    "builtins",
     "_codecs",
     "collections",
     "datetime",
@@ -141,7 +243,8 @@ _ALLOWED_MODULE_PREFIXES: tuple[str, ...] = (
     "opacus",
     "sklearn",
     "scipy",
-    "joblib",
+    "joblib.numpy_pickle",
+    "joblib._store_backends",
     # faker is used internally by SDV/RDT for PII anonymization during training.
     # It is stored inside trained CTGAN artifacts and must be deserializable.
     "faker",
@@ -156,6 +259,11 @@ class RestrictedUnpickler(pickle.Unpickler):
     Overrides :meth:`find_class` to reject any ``(module, name)`` pair not
     in :data:`_ALLOWED_MODULE_PREFIXES` (plus any ``extra_allowed_prefixes``
     provided at construction time).
+
+    For ``module == "builtins"``, a separate :data:`_ALLOWED_BUILTIN_NAMES`
+    frozenset is consulted instead of the broad prefix check — this blocks
+    dangerous execution builtins (``eval``, ``exec``, ``__import__``,
+    ``compile``) while allowing safe container and value types.
 
     This prevents deserialization of arbitrary classes — the primary vector
     for pickle-based remote code execution attacks.
@@ -195,16 +303,42 @@ class RestrictedUnpickler(pickle.Unpickler):
     def find_class(self, module: str, name: str) -> Any:
         """Intercept class lookups and enforce the module allowlist.
 
+        For ``module == "builtins"``, the specific name is checked against
+        :data:`_ALLOWED_BUILTIN_NAMES` — a curated set of safe container and
+        value types.  Dangerous execution/reflection builtins (``eval``,
+        ``exec``, ``__import__``, ``compile``, ``compile``, etc.) are NOT in
+        the allowlist and raise :exc:`SecurityError`.
+
+        For all other modules, the module path is checked against
+        :data:`_ALLOWED_MODULE_PREFIXES` (and any ``extra_allowed_prefixes``
+        passed at construction).
+
         Args:
             module: The module path from the pickle stream.
             name: The class or function name from the pickle stream.
 
         Returns:
-            The class object if ``module`` matches an allowed prefix.
+            The class object if ``module`` matches an allowed prefix and, for
+            ``builtins``, if ``name`` is in :data:`_ALLOWED_BUILTIN_NAMES`.
 
         Raises:
-            SecurityError: If ``module`` does not match any allowed prefix.
+            SecurityError: If ``module`` does not match any allowed prefix,
+                or if ``module == "builtins"`` and ``name`` is not in
+                :data:`_ALLOWED_BUILTIN_NAMES`.
         """
+        # Special-case builtins: use the explicit name allowlist, not a
+        # broad prefix match.  This blocks eval, exec, __import__, getattr,
+        # compile, globals, and other execution primitives that have no place
+        # in a ModelArtifact pickle payload.
+        if module == "builtins":
+            if name in _ALLOWED_BUILTIN_NAMES:
+                return getattr(builtins, name)
+            raise SecurityError(
+                f"Builtin '{name}' is not permitted during ModelArtifact "
+                f"deserialization. Only safe container and value types are "
+                f"allowed. See _ALLOWED_BUILTIN_NAMES for the full list."
+            )
+
         # Check if the module starts with any allowed prefix.
         # Note: we check the full module name AND each allowed prefix to
         # prevent attacks like "numpy_malicious" matching "numpy" prefix.
@@ -334,7 +468,11 @@ class ModelArtifact:
     Attributes:
         table_name: Name of the source table this model was trained on.
         model: The trained CTGANSynthesizer instance (or any duck-typed
-            synthesizer with a ``sample(num_rows)`` method).
+            synthesizer satisfying the :class:`SynthesizerModel` Protocol,
+            i.e., exposing a ``sample(num_rows)`` method).  ``None`` is
+            accepted at construction time; callers must set this field before
+            invoking :meth:`save` or passing the artifact to
+            :meth:`SynthesisEngine.generate`.
         column_names: Ordered list of column names from the training DataFrame.
         column_dtypes: Mapping of column name to its pandas dtype string
             (e.g. ``{"id": "int64", "name": "object"}``).
@@ -357,7 +495,8 @@ class ModelArtifact:
     """
 
     table_name: str
-    model: Any  # CTGANSynthesizer or compatible duck-typed model
+    model: SynthesizerModel | None  # CTGANSynthesizer or compatible duck-typed model
+    # (None is accepted at construction time, before training completes)
     column_names: list[str] = field(default_factory=list)
     column_dtypes: dict[str, str] = field(default_factory=dict)
     column_nullables: dict[str, bool] = field(default_factory=dict)

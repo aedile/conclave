@@ -18,6 +18,7 @@ from __future__ import annotations
 import pickle
 import tempfile
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -466,7 +467,9 @@ class TestSynthesisEngineGenerate:
         engine = SynthesisEngine()
         artifact = self._make_artifact()
         engine.generate(artifact=artifact, n_rows=50)
-        artifact.model.sample.assert_called_once_with(num_rows=50)
+        # artifact.model is MagicMock in this test; cast for assertion access
+        mock_model = cast(MagicMock, artifact.model)
+        mock_model.sample.assert_called_once_with(num_rows=50)
 
     def test_generate_returns_correct_row_count(self) -> None:
         """generate() must return a DataFrame with n_rows rows."""
@@ -503,6 +506,26 @@ class TestSynthesisEngineGenerate:
         artifact = self._make_artifact()
         with pytest.raises(ValueError, match="n_rows"):
             engine.generate(artifact=artifact, n_rows=-5)
+
+    def test_generate_model_none_raises_value_error(self) -> None:
+        """generate() with artifact.model=None MUST raise ValueError.
+
+        model is typed as SynthesizerModel | None; None is valid at
+        construction time but generate() requires a trained model.  Callers
+        must not pass an artifact whose model has not been set.
+        """
+        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
+
+        engine = SynthesisEngine()
+        artifact = ModelArtifact(
+            table_name="empty",
+            model=None,
+            column_names=["id"],
+            column_dtypes={"id": "int64"},
+            column_nullables={"id": False},
+        )
+        with pytest.raises(ValueError, match="model is None"):
+            engine.generate(artifact=artifact, n_rows=5)
 
 
 class TestModelArtifactPickleFormat:
@@ -920,7 +943,8 @@ class TestGrafanaDashboardPanels:
             / "dashboards"
             / "synth_engine.json"
         )
-        return json.loads(dashboard_path.read_text())  # type: ignore[return-value]
+        result: dict[str, object] = json.loads(dashboard_path.read_text())
+        return result
 
     def test_dashboard_has_synthesis_ms_per_row_panel(self) -> None:
         """Dashboard must contain a panel for synthesis_ms_per_row."""
