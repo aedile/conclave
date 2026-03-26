@@ -224,11 +224,14 @@ class TestBuildWebhookDeliveryFnBehavior:
         mock_get_engine.assert_not_called()
 
     def test_db_exception_logs_exception_and_does_not_propagate(self) -> None:
-        """Closure must catch DB errors, log with _logger.exception, and not re-raise.
+        """Closure must catch SQLAlchemy errors, log via exception(), and not re-raise.
 
-        This verifies the ``except Exception`` block inside ``_deliver``.
+        SQLAlchemyError is an expected DB/network error; it is caught by the
+        first except clause and logged at exception level (P58 split).
         The job lifecycle must not be disrupted by webhook delivery failures.
         """
+        from sqlalchemy.exc import SQLAlchemyError
+
         from synth_engine.bootstrapper.wiring import _build_webhook_delivery_fn
 
         mock_settings = MagicMock()
@@ -244,7 +247,7 @@ class TestBuildWebhookDeliveryFnBehavior:
             ),
             patch(
                 "synth_engine.bootstrapper.wiring.get_engine",
-                side_effect=RuntimeError("DB connection refused"),
+                side_effect=SQLAlchemyError("DB connection refused"),
             ),
             patch("synth_engine.bootstrapper.wiring._logger") as mock_logger,
         ):
