@@ -174,9 +174,6 @@ class AuditLogger:
 
         Returns:
             Versioned signature string ``v2:<hex>``.
-
-        Raises:
-            ValueError: If the canonical details JSON exceeds 64 KB.
         """
         return sign_v2(
             self._audit_key, timestamp, event_type, actor, resource, action, prev_hash, details
@@ -205,9 +202,6 @@ class AuditLogger:
 
         Returns:
             Versioned signature string ``v3:<hex>``.
-
-        Raises:
-            ValueError: If the canonical details JSON exceeds 64 KB.
         """
         return sign_v3(
             self._audit_key, timestamp, event_type, actor, resource, action, prev_hash, details
