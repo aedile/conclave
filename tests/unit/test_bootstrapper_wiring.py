@@ -33,33 +33,93 @@ class TestWiringModuleStructure:
         """synth_engine.bootstrapper.wiring must be importable without error."""
         import synth_engine.bootstrapper.wiring as wiring  # noqa: F401 — importability check
 
-    def test_wire_all_is_callable(self) -> None:
-        """wire_all must be a callable with the expected name."""
+    def test_wire_all_registers_all_ioc_callbacks(self) -> None:
+        """wire_all() must register all three IoC callbacks in the synthesizer modules.
+
+        Behavioral assertion: after calling wire_all(), verify that the IoC
+        globals in job_orchestration are non-None and callable.  This tests
+        the actual wiring effect, not just that wire_all is callable.
+        """
+        from synth_engine.bootstrapper.factories import build_dp_wrapper
         from synth_engine.bootstrapper.wiring import wire_all
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
-        assert callable(wire_all)
-        assert wire_all.__name__ == "wire_all"
+        wire_all()
 
-    def test_wire_dp_wrapper_factory_is_callable(self) -> None:
-        """wire_dp_wrapper_factory must be a callable with the expected name."""
+        assert orch._dp_wrapper_factory is build_dp_wrapper, (
+            "wire_all() must register build_dp_wrapper as the DP wrapper factory"
+        )
+        assert orch._spend_budget_fn is not None, (
+            "wire_all() must register a non-None spend_budget callable"
+        )
+        assert callable(orch._spend_budget_fn), (
+            "wire_all() must register a callable spend_budget_fn"
+        )
+        assert orch._webhook_delivery_fn is not None, (
+            "wire_all() must register a non-None webhook delivery callable"
+        )
+        assert callable(orch._webhook_delivery_fn), (
+            "wire_all() must register a callable webhook_delivery_fn"
+        )
+
+    def test_wire_dp_wrapper_factory_registers_factory(self) -> None:
+        """wire_dp_wrapper_factory() must register build_dp_wrapper as the IoC factory.
+
+        Behavioral assertion: call wire_dp_wrapper_factory() and verify that
+        the dp_wrapper_factory global is set to the build_dp_wrapper function.
+        """
+        from synth_engine.bootstrapper.factories import build_dp_wrapper
         from synth_engine.bootstrapper.wiring import wire_dp_wrapper_factory
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
-        assert callable(wire_dp_wrapper_factory)
-        assert wire_dp_wrapper_factory.__name__ == "wire_dp_wrapper_factory"
+        wire_dp_wrapper_factory()
 
-    def test_wire_spend_budget_fn_is_callable(self) -> None:
-        """wire_spend_budget_fn must be a callable with the expected name."""
+        assert orch._dp_wrapper_factory is build_dp_wrapper, (
+            f"wire_dp_wrapper_factory() must register build_dp_wrapper, "
+            f"got {orch._dp_wrapper_factory!r}"
+        )
+
+    def test_wire_spend_budget_fn_registers_callable(self) -> None:
+        """wire_spend_budget_fn() must register a non-None callable as spend_budget_fn.
+
+        Behavioral assertion: call wire_spend_budget_fn() and verify the
+        registered _spend_budget_fn is a non-None callable.
+        """
         from synth_engine.bootstrapper.wiring import wire_spend_budget_fn
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
-        assert callable(wire_spend_budget_fn)
-        assert wire_spend_budget_fn.__name__ == "wire_spend_budget_fn"
+        wire_spend_budget_fn()
 
-    def test_wire_webhook_delivery_fn_is_callable(self) -> None:
-        """wire_webhook_delivery_fn must be a callable with the expected name."""
+        assert orch._spend_budget_fn is not None, (
+            "wire_spend_budget_fn() must register a non-None callable"
+        )
+        assert callable(orch._spend_budget_fn), (
+            f"wire_spend_budget_fn() must register a callable, got {type(orch._spend_budget_fn)!r}"
+        )
+
+    def test_wire_webhook_delivery_fn_registers_callable(self) -> None:
+        """wire_webhook_delivery_fn() must register a non-None callable as delivery fn.
+
+        Behavioral assertion: call wire_webhook_delivery_fn() and verify the
+        registered _webhook_delivery_fn is a non-None callable.
+        """
         from synth_engine.bootstrapper.wiring import wire_webhook_delivery_fn
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
 
-        assert callable(wire_webhook_delivery_fn)
-        assert wire_webhook_delivery_fn.__name__ == "wire_webhook_delivery_fn"
+        orch._reset_webhook_delivery_fn()
+        assert orch._webhook_delivery_fn is None, (
+            "Pre-condition: _webhook_delivery_fn should be None after reset"
+        )
+
+        wire_webhook_delivery_fn()
+
+        assert orch._webhook_delivery_fn is not None, (
+            "wire_webhook_delivery_fn() must register a non-None callable"
+        )
+        assert callable(orch._webhook_delivery_fn), (
+            f"wire_webhook_delivery_fn() must register a callable, "
+            f"got {type(orch._webhook_delivery_fn)!r}"
+        )
 
     def test_build_webhook_delivery_fn_is_defined_in_wiring(self) -> None:
         """_build_webhook_delivery_fn must be defined in wiring.py, not main.py."""
