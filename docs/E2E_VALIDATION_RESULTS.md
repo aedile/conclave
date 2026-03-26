@@ -257,3 +257,25 @@ demonstrates the post-processing step is functioning correctly.
 | **Overall** | **PASS** |
 
 Wall-clock time: **6.08 seconds** on Apple M4 / 24 GB RAM / CPU-only.
+
+---
+
+## How to Run
+
+```bash
+# 1. Provision Pagila (requires PostgreSQL running locally)
+bash scripts/provision_pagila.sh
+
+# 2. Run the full pipeline validation
+DATABASE_URL="postgresql://$(whoami)@localhost:5432/pagila" \
+  FORCE_CPU=true \
+  poetry run python scripts/validate_full_pipeline.py \
+    --subset-size 200 \
+    --epochs 10 \
+    --epsilon 100.0 \
+    --output-dir output/
+```
+
+> **Note on epsilon**: The epsilon value of 100.0 was chosen for validation speed,
+> not as a production-grade privacy guarantee. For production use, target
+> epsilon ≤ 3.0 per the privacy-quality threshold documented in `dp_engine.py`.
