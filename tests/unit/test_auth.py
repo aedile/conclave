@@ -898,3 +898,226 @@ async def test_post_auth_token_returns_401_for_invalid_credentials(
     assert response.status_code == 401
     body = response.json()
     assert "access_token" not in body
+
+
+# ---------------------------------------------------------------------------
+# T58.2: Eliminate JWT double-decode — request.state.jwt_claims cache
+# ---------------------------------------------------------------------------
+
+
+class TestJWTClaimsCache:
+    """T58.2: get_current_operator must cache claims on request.state.jwt_claims.
+
+    After T58.2:
+    - get_current_operator stores decoded claims on request.state.jwt_claims
+    - require_scope._check_scope reads from request.state.jwt_claims
+    - verify_token is called exactly once per request (not twice)
+    - Pass-through mode (empty JWT secret, non-production) stores {} as claims
+    - If jwt_claims is absent when _check_scope runs, raise 401
+    """
+
+    def test_get_current_operator_stores_claims_on_request_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """get_current_operator must store decoded claims in request.state.jwt_claims.
+
+        After successful token verification, the claims dict must be stored on
+        request.state so that require_scope can read it without re-decoding.
+        """
+        from unittest.mock import MagicMock
+
+        monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+        from synth_engine.bootstrapper.dependencies.auth import create_token, get_current_operator
+
+        token = create_token(sub="operator-42", scope=["read", "write"])
+
+        mock_request = MagicMock()
+        mock_request.headers.get = MagicMock(return_value=f"Bearer {token}")
+        mock_request.state = MagicMock()
+
+        result = get_current_operator(mock_request)
+
+        assert result == "operator-42", (
+            f"get_current_operator must return sub claim, got {result!r}"
+        )
+        # Claims must be stored on request.state.jwt_claims
+        assert mock_request.state.jwt_claims is not None, (
+            "get_current_operator must set request.state.jwt_claims"
+        )
+        stored_claims = mock_request.state.jwt_claims
+        assert stored_claims["sub"] == "operator-42", (
+            f"Stored claims must contain sub='operator-42', got {stored_claims!r}"
+        )
+        assert stored_claims["scope"] == ["read", "write"], (
+            f"Stored claims must contain scope=['read', 'write'], got {stored_claims!r}"
+        )
+
+    def test_get_current_operator_pass_through_stores_empty_claims(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """In pass-through mode (empty JWT secret, non-production), jwt_claims must be {}.
+
+        This prevents AttributeError in require_scope when it reads
+        request.state.jwt_claims after a pass-through get_current_operator call.
+        """
+        from unittest.mock import MagicMock
+
+        monkeypatch.setenv("JWT_SECRET_KEY", "")
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+
+        mock_request = MagicMock()
+        mock_request.state = MagicMock()
+
+        result = get_current_operator(mock_request)
+
+        assert result == "", f"Pass-through mode must return empty string sub, got {result!r}"
+        assert mock_request.state.jwt_claims == {}, (
+            f"Pass-through mode must store empty dict as jwt_claims, "
+            f"got {mock_request.state.jwt_claims!r}"
+        )
+
+    def test_require_scope_reads_claims_from_request_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """require_scope._check_scope must read jwt_claims from request.state, not re-parse header.
+
+        Arrange: pre-populate request.state.jwt_claims with claims containing the
+        required scope.  Assert that verify_token is NOT called by _check_scope.
+        """
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+        from synth_engine.bootstrapper.dependencies.auth import require_scope
+
+        mock_request = MagicMock()
+        mock_request.state = MagicMock()
+        mock_request.state.jwt_claims = {"sub": "op-99", "scope": ["read:data"]}
+
+        check_scope = require_scope("read:data")
+
+        with patch("synth_engine.bootstrapper.dependencies.auth.verify_token") as mock_verify:
+            result = check_scope(request=mock_request, operator="op-99")
+
+        # verify_token must NOT be called — claims already in request.state
+        mock_verify.assert_not_called()
+        assert result == "op-99", f"require_scope must return operator sub, got {result!r}"
+
+    def test_require_scope_raises_403_when_scope_not_in_claims(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """require_scope._check_scope raises 403 when required scope is absent.
+
+        The scope is absent from the cached claims on request.state.
+        """
+        from unittest.mock import MagicMock
+
+        from fastapi import HTTPException
+
+        monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+        from synth_engine.bootstrapper.dependencies.auth import require_scope
+
+        mock_request = MagicMock()
+        mock_request.state = MagicMock()
+        mock_request.state.jwt_claims = {"sub": "op-99", "scope": ["read:data"]}
+
+        check_scope = require_scope("security:admin")
+
+        with pytest.raises(HTTPException) as exc_info:
+            check_scope(request=mock_request, operator="op-99")
+
+        assert exc_info.value.status_code == 403, (
+            f"Missing scope must raise 403, got {exc_info.value.status_code}"
+        )
+
+    def test_require_scope_raises_401_when_jwt_claims_absent_from_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """require_scope._check_scope raises 401 when request.state.jwt_claims is absent.
+
+        This guards against middleware reordering where get_current_operator did
+        not run before require_scope.  An absent jwt_claims attribute must not
+        cause AttributeError — instead it must raise 401 "Authentication required".
+        """
+        from unittest.mock import MagicMock
+
+        from fastapi import HTTPException
+        from starlette.datastructures import State
+
+        monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+        from synth_engine.bootstrapper.dependencies.auth import require_scope
+
+        mock_request = MagicMock()
+        # Provide a real State object so hasattr returns False for jwt_claims
+        mock_request.state = State()
+
+        check_scope = require_scope("read:data")
+
+        with pytest.raises(HTTPException) as exc_info:
+            check_scope(request=mock_request, operator="op-99")
+
+        assert exc_info.value.status_code == 401, (
+            f"Absent jwt_claims must raise 401, got {exc_info.value.status_code}"
+        )
+        detail_lower = exc_info.value.detail.lower()
+        assert "authentication" in detail_lower or "required" in detail_lower, (
+            f"401 detail must reference authentication, got {exc_info.value.detail!r}"
+        )
+
+    def test_verify_token_called_once_per_request_with_require_scope(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """verify_token must be called exactly once per request when require_scope is used.
+
+        With T58.2, get_current_operator decodes once and caches.
+        require_scope reads from the cache.  Total verify_token calls == 1.
+        """
+        from unittest.mock import MagicMock, patch
+
+        monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+
+        from synth_engine.bootstrapper.dependencies.auth import (
+            create_token,
+            get_current_operator,
+            require_scope,
+        )
+
+        token = create_token(sub="operator-7", scope=["read:data"])
+
+        mock_request = MagicMock()
+        mock_request.headers.get = MagicMock(return_value=f"Bearer {token}")
+        mock_request.state = MagicMock()
+
+        with patch(
+            "synth_engine.bootstrapper.dependencies.auth.verify_token",
+            wraps=__import__(
+                "synth_engine.bootstrapper.dependencies.auth",
+                fromlist=["verify_token"],
+            ).verify_token,
+        ) as mock_verify:
+            # Step 1: get_current_operator decodes the token
+            operator = get_current_operator(mock_request)
+            first_call_count = mock_verify.call_count
+
+            # Step 2: require_scope reads from cache (must NOT call verify_token again)
+            check_scope = require_scope("read:data")
+            check_scope(request=mock_request, operator=operator)
+            second_call_count = mock_verify.call_count
+
+        assert first_call_count == 1, (
+            f"get_current_operator must call verify_token exactly once, called {first_call_count}"
+        )
+        assert second_call_count == 1, (
+            f"verify_token must be called exactly once total (not re-called by require_scope), "
+            f"called {second_call_count} times"
+        )
