@@ -54,8 +54,9 @@ import io
 import logging
 import pickle  # nosec B403 — pickle is used intentionally for self-produced ModelArtifact serialisation; HMAC-SHA256 signing (ADV-040) + RestrictedUnpickler (T55.2) ensure only safe artifacts are deserialized
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
+import pandas as pd
 from prometheus_client import Counter
 
 from synth_engine.shared.exceptions import ArtifactTamperingError
@@ -67,7 +68,7 @@ from synth_engine.shared.security.hmac_signing import (
 )
 
 # SecurityError is re-exported here for backward compat; canonical: synth_engine.shared.security
-__all__ = ["ModelArtifact", "RestrictedUnpickler", "SecurityError"]
+__all__ = ["ModelArtifact", "RestrictedUnpickler", "SecurityError", "SynthesizerModel"]
 
 _logger = logging.getLogger(__name__)
 
@@ -96,6 +97,45 @@ _MAX_ARTIFACT_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024
 #: Keys shorter than 32 bytes provide insufficient security strength
 #: for HMAC-SHA256 and are rejected at the API boundary.
 _MIN_SIGNING_KEY_BYTES: int = 32
+
+
+# ---------------------------------------------------------------------------
+# SynthesizerModel Protocol
+# ---------------------------------------------------------------------------
+
+
+class SynthesizerModel(Protocol):
+    """Protocol for synthesizer models compatible with :class:`ModelArtifact`.
+
+    Any object stored in :attr:`ModelArtifact.model` must implement this
+    protocol — i.e., it must expose a ``sample(num_rows)`` method returning
+    a :class:`pandas.DataFrame`.
+
+    CTGANSynthesizer (from SDV) satisfies this protocol.  Test stubs or
+    alternative synthesizers (e.g. a TVAE wrapper) must also implement
+    ``sample`` to be stored in a ``ModelArtifact``.
+
+    Note:
+        The ``model`` field is populated via pickle deserialization (where
+        the return type of ``RestrictedUnpickler.loads`` is ``Any``).  At
+        load time, the deserialized object is cast to ``SynthesizerModel``
+        by callers that need to invoke ``sample`` — the Protocol is for
+        type documentation and ``mypy`` enforcement, not runtime enforcement.
+        ``None`` is accepted at construction time (before training completes).
+    """
+
+    def sample(self, num_rows: int) -> pd.DataFrame:
+        """Generate ``num_rows`` rows of synthetic data.
+
+        Args:
+            num_rows: Number of rows to synthesize.
+
+        Returns:
+            A :class:`pandas.DataFrame` with the same column schema as the
+            training data.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Allowlist for RestrictedUnpickler
@@ -334,7 +374,11 @@ class ModelArtifact:
     Attributes:
         table_name: Name of the source table this model was trained on.
         model: The trained CTGANSynthesizer instance (or any duck-typed
-            synthesizer with a ``sample(num_rows)`` method).
+            synthesizer satisfying the :class:`SynthesizerModel` Protocol,
+            i.e., exposing a ``sample(num_rows)`` method).  ``None`` is
+            accepted at construction time; callers must set this field before
+            invoking :meth:`save` or passing the artifact to
+            :meth:`SynthesisEngine.generate`.
         column_names: Ordered list of column names from the training DataFrame.
         column_dtypes: Mapping of column name to its pandas dtype string
             (e.g. ``{"id": "int64", "name": "object"}``).
@@ -357,7 +401,8 @@ class ModelArtifact:
     """
 
     table_name: str
-    model: Any  # CTGANSynthesizer or compatible duck-typed model
+    model: SynthesizerModel | None  # CTGANSynthesizer or compatible duck-typed model
+    # (None is accepted at construction time, before training completes)
     column_names: list[str] = field(default_factory=list)
     column_dtypes: dict[str, str] = field(default_factory=dict)
     column_nullables: dict[str, bool] = field(default_factory=dict)

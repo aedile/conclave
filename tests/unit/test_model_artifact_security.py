@@ -306,10 +306,60 @@ def test_restricted_unpickler_accepts_builtin_types() -> None:
     from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
 
     # A simple dict containing common types
-    data = {"key": "value", "count": 42, "items": [1, 2, 3], "flag": True}
+    data: dict[str, object] = {"key": "value", "count": 42, "items": [1, 2, 3], "flag": True}
     payload = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
     loaded = RestrictedUnpickler.loads(payload)
 
     assert loaded == data
     assert loaded["key"] == "value"
     assert loaded["count"] == 42
+
+
+def test_synthesizer_model_protocol_satisfied_by_compatible_object() -> None:
+    """An object implementing sample(num_rows) satisfies the SynthesizerModel Protocol.
+
+    ModelArtifact.model accepts any SynthesizerModel-compatible object.
+    A stub class with the correct signature must be accepted by mypy
+    and usable in ModelArtifact without runtime error.
+    """
+    import pandas as pd
+
+    from synth_engine.modules.synthesizer.storage.models import SynthesizerModel
+
+    class _StubSynthesizer:
+        """Minimal stub satisfying the SynthesizerModel Protocol."""
+
+        def sample(self, num_rows: int) -> pd.DataFrame:
+            return pd.DataFrame({"col": range(num_rows)})
+
+    stub: SynthesizerModel = _StubSynthesizer()
+    df = stub.sample(5)
+    assert len(df) == 5
+    assert list(df.columns) == ["col"]
+
+
+def test_model_artifact_accepts_synthesizer_model_protocol_instance() -> None:
+    """ModelArtifact.model field accepts a SynthesizerModel-compatible object.
+
+    Verify that a ModelArtifact can be constructed and round-tripped with a
+    protocol-satisfying model object stored in the model field.
+    """
+    import pandas as pd
+
+    class _StubSynthesizer:
+        def sample(self, num_rows: int) -> pd.DataFrame:
+            return pd.DataFrame({"x": range(num_rows)})
+
+    stub = _StubSynthesizer()
+    artifact = ModelArtifact(
+        table_name="orders",
+        model=stub,
+        column_names=["x"],
+        column_dtypes={"x": "int64"},
+        column_nullables={"x": False},
+    )
+    assert artifact.table_name == "orders"
+    assert artifact.model is stub
+    # Verify the Protocol contract — model.sample works
+    result = artifact.model.sample(3)
+    assert len(result) == 3
