@@ -30,7 +30,6 @@ import os
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -103,12 +102,8 @@ def test_v3_pipe_in_actor_produces_different_sig_than_pipe_in_resource(
         details={},
     )
 
-    assert event_a.signature.startswith("v3:"), (
-        "New events must use v3: signature prefix"
-    )
-    assert event_b.signature.startswith("v3:"), (
-        "New events must use v3: signature prefix"
-    )
+    assert event_a.signature.startswith("v3:"), "New events must use v3: signature prefix"
+    assert event_b.signature.startswith("v3:"), "New events must use v3: signature prefix"
     assert event_a.signature != event_b.signature, (
         "ADV-P53-01: pipe-in-actor vs pipe-in-resource must produce DIFFERENT v3 signatures. "
         "If they are equal, length-prefixed encoding is not working correctly."
@@ -170,7 +165,7 @@ def test_v3_version_literal_included_in_hmac(v3_key: bytes) -> None:
     )
 
     assert event.signature.startswith("v3:"), "New events must use v3: prefix"
-    stored_hex = event.signature[len("v3:"):]
+    stored_hex = event.signature[len("v3:") :]
 
     # Recompute what the HMAC would be if we OMITTED the b"v3" version bytes
     # (simulating an attacker who strips the version from the payload).
@@ -312,7 +307,7 @@ def test_v3_downgrade_to_v2_attack_fails(v3_key: bytes) -> None:
 
     assert event.signature.startswith("v3:")
     # Replace v3: prefix with v2:, keep the same hex digest
-    fake_v2_sig = "v2:" + event.signature[len("v3:"):]
+    fake_v2_sig = "v2:" + event.signature[len("v3:") :]
 
     downgraded = AuditEvent(
         timestamp=event.timestamp,
