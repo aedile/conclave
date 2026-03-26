@@ -596,12 +596,15 @@ class ConclaveSettings(BaseSettings):
         )
         for env_var, value in os.environ.items():
             if env_var.startswith("CONCLAVE_") and env_var not in known_conclave_env_vars:
+                # Redact the value — a typo like CONCLAVE_AUDIT_KEY
+                # would otherwise emit raw key material to logs.
+                _redacted = "***" if value else "(empty)"
                 _logger.warning(
-                    "Unrecognized CONCLAVE_ environment variable: %s=%r — "
+                    "Unrecognized CONCLAVE_ environment variable: %s=%s — "
                     "this variable is not a known ConclaveSettings field and will be ignored. "
                     "Check for typos. Known CONCLAVE_ vars: %s",
                     env_var,
-                    value,
+                    _redacted,
                     sorted(known_conclave_env_vars),
                 )
         return self
