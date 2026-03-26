@@ -202,7 +202,13 @@ _ALLOWED_BUILTIN_NAMES: frozenset[str] = frozenset(
 #: - ``copulas`` — SDV dependency for statistical distributions.
 #: - ``opacus`` — DP wrapper around the PyTorch training loop.
 #: - ``sklearn`` — scikit-learn transformers used by rdt/DataTransformer.
-#: - ``joblib`` — joblib internals used by sklearn transformers (Pipeline, etc.).
+#: - ``joblib.numpy_pickle`` — joblib's NumPy array persistence layer, used
+#:   by sklearn internals during model serialization.
+#: - ``joblib._store_backends`` — joblib's memory-store backend internals,
+#:   used by sklearn's Pipeline and MemoryMixin.
+#:   Note: the broad ``"joblib"`` prefix (which would allow
+#:   ``joblib.externals.loky``, a process-spawning sub-library) has been
+#:   replaced with these two specific submodules (ADV-P55-02 drain).
 #:
 #: Modules NOT in this list (e.g. ``os``, ``subprocess``, ``importlib``,
 #: ``pathlib``, ``socket``, arbitrary third-party packages) will raise
@@ -222,7 +228,8 @@ _ALLOWED_MODULE_PREFIXES: tuple[str, ...] = (
     "opacus",
     "sklearn",
     "scipy",
-    "joblib",
+    "joblib.numpy_pickle",
+    "joblib._store_backends",
     # faker is used internally by SDV/RDT for PII anonymization during training.
     # It is stored inside trained CTGAN artifacts and must be deserializable.
     "faker",
