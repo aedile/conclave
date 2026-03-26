@@ -620,7 +620,15 @@ class AuditLogger:
                 )
             except ValueError:
                 return False
-            return hmac.compare_digest(expected, sig)
+            is_valid_v2 = hmac.compare_digest(expected, sig)
+            if not is_valid_v2:
+                self._log.warning(
+                    "Audit HMAC verification failed (v2): event_type=%s timestamp=%s actor=%s",
+                    event.event_type,
+                    event.timestamp,
+                    event.actor,
+                )
+            return is_valid_v2
 
         if sig.startswith("v1:"):
             expected_v1 = self._sign_v1(
@@ -635,6 +643,13 @@ class AuditLogger:
             if is_valid:
                 self._log.warning(
                     "Audit event uses deprecated v1 signature format. Migrate to v3 by Phase 60."
+                )
+            else:
+                self._log.warning(
+                    "Audit HMAC verification failed (v1): event_type=%s timestamp=%s actor=%s",
+                    event.event_type,
+                    event.timestamp,
+                    event.actor,
                 )
             return is_valid
 
