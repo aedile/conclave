@@ -217,7 +217,8 @@ def build_key_map_from_settings() -> dict[bytes, bytes] | None:
             key_map[key_id_bytes] = key_bytes
 
     # Also include legacy key for backward compatibility during rotation window
-    legacy_hex = settings.artifact_signing_key
+    _legacy_secret = settings.artifact_signing_key
+    legacy_hex = _legacy_secret.get_secret_value() if _legacy_secret is not None else None
     if legacy_hex and legacy_hex.strip():
         try:
             legacy_key = bytes.fromhex(legacy_hex.strip())

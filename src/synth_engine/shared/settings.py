@@ -13,6 +13,15 @@ application boot.  Including it here would force operators to provide the salt
 before the application starts, which violates the vault's deferred security
 model.
 
+Secret fields
+-------------
+``audit_key``, ``jwt_secret_key``, ``artifact_signing_key``, and
+``masking_salt`` are declared as ``pydantic.SecretStr`` (or
+``pydantic.SecretStr | None`` where the field is optional).  This prevents
+raw key material from appearing in ``repr(settings)``, ``model_dump()``,
+and Pydantic validation error messages.  To read the underlying value, call
+``.get_secret_value()`` on the field.
+
 Usage
 -----
 Consume settings via the :func:`get_settings` singleton::
@@ -50,13 +59,14 @@ Task: T47.7 — Add Parquet Memory Bounds (parquet_max_file_bytes, parquet_max_r
 Task: T48.4 — Audit Trail Anchoring (anchor_backend, anchor_file_path,
               anchor_every_n_events, anchor_every_seconds)
 Task: T50.3 — Default to Production Mode (secure-by-default)
+Task: fix/review-critical-issues — Use SecretStr for secret fields
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -71,11 +81,16 @@ class ConclaveSettings(BaseSettings):
     Vault-deferred values (``VAULT_SEAL_SALT``) are intentionally excluded.
     See module docstring for rationale.
 
+    Secret fields (``audit_key``, ``jwt_secret_key``, ``artifact_signing_key``,
+    ``masking_salt``) are typed as ``pydantic.SecretStr`` so that raw key
+    material is never exposed via ``repr()``, ``model_dump()``, or Pydantic
+    validation errors.  Access the underlying value with ``.get_secret_value()``.
+
     Attributes:
         database_url: Async-compatible PostgreSQL DSN or SQLite URL.
             Required in all deployment modes.
         audit_key: Hex-encoded 32-byte HMAC key for audit event signing.
-            Required in all deployment modes.
+            Required in all deployment modes.  SecretStr — never exposed in repr.
         artifact_signing_key: Hex-encoded HMAC key for ModelArtifact pickle signing.
             Required in production mode only.
         artifact_signing_key: Hex-encoded HMAC key for Parquet artifact
@@ -92,7 +107,7 @@ class ConclaveSettings(BaseSettings):
             New artifacts are signed with this key; old artifacts signed
             with any key in the map remain verifiable.
         masking_salt: Secret salt for deterministic HMAC masking.
-            Required in production mode only.
+            Required in production mode only.  SecretStr — never exposed in repr.
         conclave_env: Deployment environment name (e.g. ``"production"``).
             Checked by :meth:`is_production`.
         env: Legacy deployment environment name — also checked by
@@ -125,6 +140,7 @@ class ConclaveSettings(BaseSettings):
         jwt_secret_key: HMAC secret key for JWT signing and verification.
             Required when ``jwt_algorithm`` is ``"HS256"`` or ``"HS384"`` or
             ``"HS512"``.  Empty string in development/test only.
+            SecretStr — never exposed in repr.
         rate_limit_unseal_per_minute: Maximum requests to ``/unseal`` per IP
             per minute.  Brute-force protection for the vault unseal endpoint.
             Defaults to ``5``.
@@ -169,12 +185,13 @@ class ConclaveSettings(BaseSettings):
             "config_validation.validate_config()."
         ),
     )
-    audit_key: str = Field(
-        default="",
+    audit_key: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "Hex-encoded 32-byte HMAC key for audit event signing. "
             "Required at runtime — startup validation enforced by "
-            "config_validation.validate_config()."
+            "config_validation.validate_config(). "
+            "SecretStr — raw value never exposed in repr or model_dump()."
         ),
     )
 
@@ -182,13 +199,14 @@ class ConclaveSettings(BaseSettings):
     # Optional secrets (required only in production mode)
     # -----------------------------------------------------------------------
 
-    artifact_signing_key: str | None = Field(
+    artifact_signing_key: SecretStr | None = Field(
         default=None,
         description=(
             "Hex-encoded HMAC key for Parquet artifact signing. "
             "Legacy single-key mode — deprecated in favour of "
             "ARTIFACT_SIGNING_KEYS.  Required in production mode only "
-            "when ARTIFACT_SIGNING_KEYS is absent."
+            "when ARTIFACT_SIGNING_KEYS is absent. "
+            "SecretStr — raw value never exposed in repr or model_dump()."
         ),
     )
     artifact_signing_keys: dict[str, str] = Field(
@@ -208,9 +226,12 @@ class ConclaveSettings(BaseSettings):
             "Old artifacts signed with any key in the map remain verifiable."
         ),
     )
-    masking_salt: str | None = Field(
+    masking_salt: SecretStr | None = Field(
         default=None,
-        description=("Secret salt for deterministic HMAC masking. Required in production mode."),
+        description=(
+            "Secret salt for deterministic HMAC masking. Required in production mode. "
+            "SecretStr — raw value never exposed in repr or model_dump()."
+        ),
     )
     license_public_key: str | None = Field(
         default=None,
@@ -331,13 +352,14 @@ class ConclaveSettings(BaseSettings):
             "Empty string disables token issuance — no operator configured."
         ),
     )
-    jwt_secret_key: str = Field(
-        default="",
+    jwt_secret_key: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "HMAC secret key for JWT signing and verification. "
             "Required when jwt_algorithm is HS256/HS384/HS512. "
             "Must be a cryptographically random string of at least 32 characters. "
-            "Empty string only acceptable in development/test environments."
+            "Empty string only acceptable in development/test environments. "
+            "SecretStr — raw value never exposed in repr or model_dump()."
         ),
     )
 

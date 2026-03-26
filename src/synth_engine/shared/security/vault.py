@@ -20,6 +20,9 @@ Security properties
   the timing oracle that would otherwise let an attacker distinguish an
   empty passphrase (μs) from a wrong passphrase (~100 ms).  Both paths
   now incur the full PBKDF2 cost before any error is raised (T38.2).
+- A class-level ``threading.Lock`` serialises concurrent ``unseal()``,
+  ``seal()``, and ``get_kek()`` calls so that multi-worker uvicorn
+  deployments cannot race on the ``_is_sealed`` / ``_kek`` state.
 
 :exc:`VaultSealedError` is defined in :mod:`synth_engine.shared.exceptions`
 and re-exported here for backward compatibility.
@@ -34,6 +37,7 @@ Task: P2-T2.4 — Vault Observability
 Task: P26-T26.2 — Exception Hierarchy (VaultSealedError moved to shared)
 Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 Task: T38.2 — Eliminate vault unseal timing side-channel
+Task: fix/review-critical-issues — Add threading.Lock to VaultState
 """
 
 from __future__ import annotations
@@ -41,6 +45,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import threading
+from typing import ClassVar
 
 from synth_engine.shared.exceptions import (
     VaultAlreadyUnsealedError,
@@ -87,11 +93,17 @@ class VaultState:
     All state is maintained at the *class* level so that the seal gate
     is enforced across every request without any dependency injection.
 
+    A class-level ``threading.Lock`` serialises all mutating operations
+    (``unseal``, ``seal``, ``get_kek``) to prevent races in multi-worker
+    uvicorn deployments.  The pattern mirrors :class:`AuditLogger`.
+
     Class Attributes:
+        _lock: Serialises concurrent unseal/seal/get_kek calls.
         _is_sealed: True while the vault has not been unsealed.
         _kek: Mutable byte buffer holding the derived KEK, or None.
     """
 
+    _lock: ClassVar[threading.Lock] = threading.Lock()
     _is_sealed: bool = True
     _kek: bytearray | None = None
 
@@ -113,6 +125,12 @@ class VaultState:
         distinguish an empty passphrase from a wrong passphrase by measuring
         response time — both paths incur the full PBKDF2 cost.
 
+        Thread-safety note: The ``_is_sealed`` check and the KEK assignment
+        are performed atomically under ``_lock``, preventing a race where two
+        concurrent callers both pass the sealed check and overwrite each
+        other's derived KEK.  The expensive PBKDF2 derivation runs outside
+        the lock to avoid holding it for ~100 ms.
+
         Args:
             passphrase: Operator-provided unseal passphrase.
 
@@ -124,11 +142,8 @@ class VaultState:
             VaultEmptyPassphraseError: If *passphrase* is empty (checked
                 after PBKDF2 to prevent timing oracle).
         """
-        if not cls._is_sealed:
-            raise VaultAlreadyUnsealedError(
-                "Vault is already unsealed. Call seal() before unsealing again."
-            )
-
+        # Read and validate the salt before acquiring the lock — no shared
+        # state is accessed here, so no race is possible.
         raw_salt = os.environ.get("VAULT_SEAL_SALT")
         if not raw_salt:
             raise VaultConfigError(
@@ -146,14 +161,25 @@ class VaultState:
 
         # Always derive the KEK — even for empty passphrases — to prevent a
         # timing oracle distinguishing empty vs wrong passphrase (T38.2).
+        # PBKDF2 runs OUTSIDE the lock: it is pure computation with no shared
+        # state access and takes ~100 ms.  Holding the lock during derivation
+        # would serialize all unseal callers unnecessarily.
         kek_bytes = derive_kek(passphrase, salt)
 
         # Empty-passphrase check AFTER the expensive PBKDF2 call.
         if not passphrase:
             raise VaultEmptyPassphraseError("Passphrase must not be empty.")
 
-        cls._kek = bytearray(kek_bytes)
-        cls._is_sealed = False
+        # Acquire the lock only for the short critical section that reads and
+        # writes shared class state.  This prevents two concurrent callers
+        # from both passing the _is_sealed check and overwriting each other.
+        with cls._lock:
+            if not cls._is_sealed:
+                raise VaultAlreadyUnsealedError(
+                    "Vault is already unsealed. Call seal() before unsealing again."
+                )
+            cls._kek = bytearray(kek_bytes)
+            cls._is_sealed = False
 
     @classmethod
     def seal(cls) -> None:
@@ -161,13 +187,17 @@ class VaultState:
 
         Uses a ``memoryview`` write to zero each byte of the ``bytearray``
         so that the key material is overwritten before being garbage-collected.
+
+        Thread-safety: the mutation of ``_kek`` and ``_is_sealed`` is
+        performed under ``_lock``.
         """
-        if cls._kek is not None:
-            mv = memoryview(cls._kek)
-            for i in range(len(mv)):
-                mv[i] = 0
-            cls._kek = None
-        cls._is_sealed = True
+        with cls._lock:
+            if cls._kek is not None:
+                mv = memoryview(cls._kek)
+                for i in range(len(mv)):
+                    mv[i] = 0
+                cls._kek = None
+            cls._is_sealed = True
 
     @classmethod
     def is_sealed(cls) -> bool:
@@ -185,15 +215,19 @@ class VaultState:
         Returns a ``bytes`` *copy* so callers cannot mutate the internal
         ``bytearray`` accidentally.
 
+        Thread-safety: the read of ``_is_sealed`` and ``_kek`` is
+        performed under ``_lock`` for consistency.
+
         Returns:
             32-byte KEK.
 
         Raises:
             VaultSealedError: If the vault has not been unsealed.
         """
-        if cls._is_sealed or cls._kek is None:
-            raise VaultSealedError()
-        return bytes(cls._kek)
+        with cls._lock:
+            if cls._is_sealed or cls._kek is None:
+                raise VaultSealedError()
+            return bytes(cls._kek)
 
     @classmethod
     def reset(cls) -> None:

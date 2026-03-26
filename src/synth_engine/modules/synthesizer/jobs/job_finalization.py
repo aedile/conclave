@@ -111,7 +111,10 @@ def _write_parquet_with_signing(
     # ------------------------------------------------------------------
     # Priority 2: Legacy single-key mode
     # ------------------------------------------------------------------
-    signing_key_hex = settings.artifact_signing_key
+    _signing_key_secret = settings.artifact_signing_key
+    signing_key_hex = (
+        _signing_key_secret.get_secret_value() if _signing_key_secret is not None else None
+    )
     if not signing_key_hex:
         _logger.warning(
             "ARTIFACT_SIGNING_KEY is not set; Parquet artifact written unsigned: %s",

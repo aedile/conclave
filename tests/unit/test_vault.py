@@ -5,12 +5,14 @@ RED Phase — all tests must fail before implementation exists.
 CONSTITUTION Priority 3: TDD
 Task: P2-T2.4 — Vault Observability
 Task: T36.4 — Edge-case: very long passphrase (>1 MB)
+Task: fix/review-critical-issues — thread-safety test for VaultState
 """
 
 from __future__ import annotations
 
 import base64
 import os
+import threading
 from collections.abc import Generator
 
 import pytest
@@ -344,3 +346,68 @@ def test_vault_empty_passphrase_still_raises_vault_empty_passphrase_error(
 
     with pytest.raises(VaultEmptyPassphraseError, match="[Pp]assphrase"):
         VaultState.unseal("")  # nosec B105 # pragma: allowlist secret
+
+
+# ---------------------------------------------------------------------------
+# Thread safety: concurrent unseal attempts (fix/review-critical-issues)
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_unseal_only_one_succeeds(vault_salt_env: str) -> None:
+    """Only one concurrent unseal call wins; the rest raise VaultAlreadyUnsealedError.
+
+    Arrange: Start N threads that each attempt to unseal the vault
+    simultaneously.
+    Act: Collect successes and VaultAlreadyUnsealedError exceptions.
+    Assert: Exactly one thread succeeded, the rest raised the idempotency error.
+    This proves the _lock prevents the race where two callers both pass the
+    _is_sealed check and overwrite each other's KEK.
+    """
+    from synth_engine.shared.security.vault import VaultAlreadyUnsealedError, VaultState
+
+    n_threads = 10
+    successes: list[int] = []
+    already_unsealed_errors: list[int] = []
+    other_errors: list[BaseException] = []
+    lock = threading.Lock()
+
+    def attempt_unseal() -> None:
+        try:
+            VaultState.unseal("concurrent-passphrase")  # nosec B105 # pragma: allowlist secret
+            with lock:
+                successes.append(1)
+        except VaultAlreadyUnsealedError:
+            with lock:
+                already_unsealed_errors.append(1)
+        except Exception as exc:  # broad catch intentional
+            with lock:
+                other_errors.append(exc)
+
+    threads = [threading.Thread(target=attempt_unseal) for _ in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not other_errors, f"Unexpected errors: {other_errors}"
+    assert len(successes) == 1, (
+        f"Expected exactly 1 successful unseal, got {len(successes)}. "
+        f"This indicates a race condition in VaultState."
+    )
+    assert len(already_unsealed_errors) == n_threads - 1, (
+        f"Expected {n_threads - 1} VaultAlreadyUnsealedError, got {len(already_unsealed_errors)}."
+    )
+    # Confirm vault is now unsealed with a valid KEK
+    kek = VaultState.get_kek()
+    assert isinstance(kek, bytes)
+    assert len(kek) == 32
+
+
+def test_vault_state_has_class_level_lock() -> None:
+    """VaultState must expose a class-level _lock attribute of type threading.Lock."""
+    from synth_engine.shared.security.vault import VaultState
+
+    assert hasattr(VaultState, "_lock"), "VaultState must have a _lock class attribute"
+    assert isinstance(VaultState._lock, type(threading.Lock())), (  # type: ignore[attr-defined]
+        "_lock must be a threading.Lock instance"
+    )
