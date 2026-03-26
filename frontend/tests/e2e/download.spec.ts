@@ -75,7 +75,7 @@ async function mockBaseRoutes(
     }),
   );
 
-  await page.route("/jobs?limit=20", (route) =>
+  await page.route("/api/v1/jobs?limit=20", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -121,7 +121,7 @@ test.describe("Download button — COMPLETE job card (P23-T23.3)", () => {
     await mockBaseRoutes(page, [completeJob]);
 
     // Mock the download endpoint — return a minimal octet-stream blob
-    await page.route("/jobs/7/download", (route) =>
+    await page.route("/api/v1/jobs/7/download", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/octet-stream",
@@ -137,13 +137,13 @@ test.describe("Download button — COMPLETE job card (P23-T23.3)", () => {
 
     // Intercept the download request to verify it was made
     const [downloadRequest] = await Promise.all([
-      page.waitForRequest((req) => req.url().includes("/jobs/7/download")),
+      page.waitForRequest((req) => req.url().includes("/api/v1/jobs/7/download")),
       page
         .getByRole("button", { name: /download synthetic data for reports/i })
         .click(),
     ]);
 
-    expect(downloadRequest.url()).toContain("/jobs/7/download");
+    expect(downloadRequest.url()).toContain("/api/v1/jobs/7/download");
     expect(downloadRequest.method()).toBe("GET");
   });
 
@@ -153,7 +153,7 @@ test.describe("Download button — COMPLETE job card (P23-T23.3)", () => {
     await mockBaseRoutes(page, [completeJob]);
 
     // Mock the download endpoint to fail with RFC 7807 error
-    await page.route("/jobs/7/download", (route) =>
+    await page.route("/api/v1/jobs/7/download", (route) =>
       route.fulfill({
         status: 500,
         contentType: "application/problem+json",
@@ -224,7 +224,7 @@ test.describe("Download button — COMPLETE job card (P23-T23.3)", () => {
     await mockBaseRoutes(page, [completeJob]);
 
     // Mock download endpoint so keyboard activation succeeds
-    await page.route("/jobs/7/download", (route) =>
+    await page.route("/api/v1/jobs/7/download", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/octet-stream",
@@ -248,10 +248,10 @@ test.describe("Download button — COMPLETE job card (P23-T23.3)", () => {
 
     // Intercept the download request triggered by keyboard Enter
     const [downloadRequest] = await Promise.all([
-      page.waitForRequest((req) => req.url().includes("/jobs/7/download")),
+      page.waitForRequest((req) => req.url().includes("/api/v1/jobs/7/download")),
       page.keyboard.press("Enter"),
     ]);
 
-    expect(downloadRequest.url()).toContain("/jobs/7/download");
+    expect(downloadRequest.url()).toContain("/api/v1/jobs/7/download");
   });
 });

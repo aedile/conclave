@@ -208,24 +208,24 @@ describe("getJobs", () => {
     mockFetch.mockReset();
   });
 
-  it("fetches /jobs?limit=20 when no cursor provided", async () => {
+  it("fetches /api/v1/jobs?limit=20 when no cursor provided", async () => {
     mockFetch.mockResolvedValue(
       mockResponse(200, { items: [], next_cursor: null }),
     );
 
     await getJobs();
 
-    expect(mockFetch).toHaveBeenCalledWith("/jobs?limit=20");
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/jobs?limit=20");
   });
 
-  it("fetches /jobs?after=42&limit=20 when cursor provided", async () => {
+  it("fetches /api/v1/jobs?after=42&limit=20 when cursor provided", async () => {
     mockFetch.mockResolvedValue(
       mockResponse(200, { items: [], next_cursor: null }),
     );
 
     await getJobs(42);
 
-    expect(mockFetch).toHaveBeenCalledWith("/jobs?after=42&limit=20");
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/jobs?after=42&limit=20");
   });
 
   it("returns { ok: true, data } on HTTP 200", async () => {
@@ -274,12 +274,12 @@ describe("getJob", () => {
     mockFetch.mockReset();
   });
 
-  it("fetches /jobs/{id}", async () => {
+  it("fetches /api/v1/jobs/{id}", async () => {
     mockFetch.mockResolvedValue(mockResponse(200, { id: 7 }));
 
     await getJob(7);
 
-    expect(mockFetch).toHaveBeenCalledWith("/jobs/7");
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/jobs/7");
   });
 
   it("returns { ok: true, data } on HTTP 200", async () => {
@@ -322,7 +322,7 @@ describe("createJob", () => {
     mockFetch.mockReset();
   });
 
-  it("POSTs to /jobs with JSON body", async () => {
+  it("POSTs to /api/v1/jobs with JSON body", async () => {
     const params = {
       table_name: "orders",
       parquet_path: "/data/orders.parquet",
@@ -333,7 +333,7 @@ describe("createJob", () => {
 
     await createJob(params);
 
-    expect(mockFetch).toHaveBeenCalledWith("/jobs", {
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -396,14 +396,14 @@ describe("startJob", () => {
     mockFetch.mockReset();
   });
 
-  it("POSTs to /jobs/{id}/start", async () => {
+  it("POSTs to /api/v1/jobs/{id}/start", async () => {
     mockFetch.mockResolvedValue(
       mockResponse(202, { status: "accepted", job_id: 5 }),
     );
 
     await startJob(5);
 
-    expect(mockFetch).toHaveBeenCalledWith("/jobs/5/start", { method: "POST" });
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/jobs/5/start", { method: "POST" });
   });
 
   it("returns { ok: true, data } on HTTP 202", async () => {
@@ -448,7 +448,7 @@ describe("downloadJob", () => {
     mockFetch.mockReset();
   });
 
-  it("GETs /jobs/{id}/download", async () => {
+  it("GETs /api/v1/jobs/{id}/download", async () => {
     const blob = new Blob(["data"], { type: "application/octet-stream" });
     mockFetch.mockResolvedValue(
       mockBlobResponse(200, blob, {
@@ -458,7 +458,7 @@ describe("downloadJob", () => {
 
     await downloadJob(3);
 
-    expect(mockFetch).toHaveBeenCalledWith("/jobs/3/download");
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/jobs/3/download");
   });
 
   it("returns { ok: true, blob, filename } on HTTP 200 with Content-Disposition header", async () => {

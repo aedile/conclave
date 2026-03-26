@@ -17,19 +17,25 @@ encrypted at rest using the ALE (Application-Level Encryption)
 and is not sensitive.  Decryption is transparent through the SQLAlchemy
 ORM; the API layer always works with plaintext strings.
 
+Input validation (P59 Red-team F1): ``name``, ``host``, ``database``, and
+``schema_name`` are bounded to 255 characters via Pydantic ``Field``
+constraints to prevent oversized-input DoS and DB truncation attacks.
+
 Task: P5-T5.1 — Task Orchestration API Core
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 Task: T39.4 — Encrypt Connection Metadata with ALE
-CONSTITUTION Priority 0: Security — sensitive fields encrypted at rest
+Task: P59 — Production Readiness v1.0 — input validation hardening
+CONSTITUTION Priority 0: Security — sensitive fields encrypted at rest; bounded inputs
 """
 
 from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Column
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field as SqlField
+from sqlmodel import SQLModel
 
 from synth_engine.shared.security.ale import EncryptedString
 
@@ -80,35 +86,38 @@ class Connection(SQLModel, table=True):
 
     __tablename__ = "connection"
 
-    id: str = Field(default_factory=_uuid_str, primary_key=True)
-    name: str = Field(..., index=True)
-    host: str = Field(sa_column=Column(EncryptedString(), nullable=False))
+    id: str = SqlField(default_factory=_uuid_str, primary_key=True)
+    name: str = SqlField(..., index=True)
+    host: str = SqlField(sa_column=Column(EncryptedString(), nullable=False))
     port: int
-    database: str = Field(sa_column=Column(EncryptedString(), nullable=False))
-    schema_name: str = Field(
+    database: str = SqlField(sa_column=Column(EncryptedString(), nullable=False))
+    schema_name: str = SqlField(
         default="public",
         sa_column=Column(EncryptedString(), nullable=False),
     )
     #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
-    owner_id: str = Field(default="", index=True)
+    owner_id: str = SqlField(default="", index=True)
 
 
 class ConnectionCreateRequest(BaseModel):
-    """Request body for POST /connections.
+    """Request body for POST /api/v1/connections.
+
+    All string fields are bounded to 255 characters to prevent oversized-
+    input DoS attacks and unintentional DB truncation (P59 Red-team F1).
 
     Attributes:
-        name: Human-readable display name.
-        host: Database hostname or IP.
+        name: Human-readable display name (max 255 chars).
+        host: Database hostname or IP (max 255 chars).
         port: Database port.
-        database: Database name.
-        schema_name: Schema to use (default: public).
+        database: Database name (max 255 chars).
+        schema_name: Schema to use, default "public" (max 255 chars).
     """
 
-    name: str
-    host: str
+    name: str = Field(..., max_length=255)
+    host: str = Field(..., max_length=255)
     port: int
-    database: str
-    schema_name: str = "public"
+    database: str = Field(..., max_length=255)
+    schema_name: str = Field(default="public", max_length=255)
 
 
 class ConnectionResponse(BaseModel):
@@ -138,7 +147,7 @@ class ConnectionResponse(BaseModel):
 
 
 class ConnectionListResponse(BaseModel):
-    """Paginated list response for GET /connections.
+    """Paginated list response for GET /api/v1/connections.
 
     Attributes:
         items: List of connection objects.

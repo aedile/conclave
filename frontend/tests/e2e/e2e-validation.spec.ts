@@ -141,7 +141,7 @@ async function mockUnsealedHealth(page: PageType): Promise<void> {
 
 /** Register an empty job list. */
 async function mockEmptyJobList(page: PageType): Promise<void> {
-  await page.route("/jobs?limit=20", (route) =>
+  await page.route("/api/v1/jobs?limit=20", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -339,7 +339,7 @@ test.describe("P28 E2E Validation — Screenshot Evidence", () => {
   test("06 — dashboard with a QUEUED job", async ({ page }) => {
     await mockUnsealedHealth(page);
 
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -370,7 +370,7 @@ test.describe("P28 E2E Validation — Screenshot Evidence", () => {
   }) => {
     await mockUnsealedHealth(page);
 
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -378,7 +378,7 @@ test.describe("P28 E2E Validation — Screenshot Evidence", () => {
       }),
     );
 
-    await page.route("/jobs/1", (route) =>
+    await page.route("/api/v1/jobs/1", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -386,7 +386,7 @@ test.describe("P28 E2E Validation — Screenshot Evidence", () => {
       }),
     );
 
-    await page.route("/jobs/1/stream", (route) =>
+    await page.route("/api/v1/jobs/1/stream", (route) =>
       route.fulfill({
         status: 200,
         contentType: "text/event-stream",
@@ -424,7 +424,7 @@ test.describe("P28 E2E Validation — Screenshot Evidence", () => {
   test("08 — dashboard with a COMPLETE job", async ({ page }) => {
     await mockUnsealedHealth(page);
 
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -455,7 +455,7 @@ test.describe("P28 E2E Validation — Screenshot Evidence", () => {
   }) => {
     await mockUnsealedHealth(page);
 
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -464,7 +464,7 @@ test.describe("P28 E2E Validation — Screenshot Evidence", () => {
     );
 
     // Intercept the download request to prevent actual file download
-    await page.route("/jobs/1/download", (route) =>
+    await page.route("/api/v1/jobs/1/download", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/octet-stream",

@@ -59,10 +59,11 @@ def list_connections(
         current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
-        :class:`ConnectionListResponse` with all connections owned by the operator.
+        :class:`ConnectionListResponse` with up to 100 connections owned by the
+        operator (hard limit prevents unbounded DB reads, P59 Red-team F4).
     """
     connections = session.exec(
-        select(Connection).where(Connection.owner_id == current_operator)
+        select(Connection).where(Connection.owner_id == current_operator).limit(100)
     ).all()
     return ConnectionListResponse(
         items=[ConnectionResponse.model_validate(c) for c in connections],

@@ -7,6 +7,9 @@
  *
  * CONSTITUTION: No external API calls. All requests target the same origin
  * (proxied via Vite to http://localhost:8000 in development).
+ *
+ * API versioning (T59.1): All business-logic endpoints are under /api/v1/.
+ * Infrastructure endpoints (/unseal, /health) remain at root.
  */
 
 /** Structured error returned by the /unseal endpoint on ValueError. */
@@ -141,7 +144,7 @@ export interface JobResponse {
   checkpoint_every_n: number;
 }
 
-/** Paginated job list response from GET /jobs. */
+/** Paginated job list response from GET /api/v1/jobs. */
 export interface JobListResponse {
   items: JobResponse[];
   next_cursor: number | null;
@@ -155,7 +158,7 @@ export interface CreateJobParams {
   checkpoint_every_n: number;
 }
 
-/** Accepted response from POST /jobs/{id}/start. */
+/** Accepted response from POST /api/v1/jobs/{id}/start. */
 export interface StartJobResponse {
   status: "accepted";
   job_id: number;
@@ -165,28 +168,28 @@ export interface StartJobResponse {
 // Discriminated union result types for job endpoints
 // ---------------------------------------------------------------------------
 
-/** Result type for GET /jobs. */
+/** Result type for GET /api/v1/jobs. */
 export type GetJobsResult =
   | { ok: true; data: JobListResponse }
   | { ok: false; error: ProblemDetail };
 
-/** Result type for GET /jobs/{id}. */
+/** Result type for GET /api/v1/jobs/{id}. */
 export type GetJobResult =
   | { ok: true; data: JobResponse }
   | { ok: false; error: ProblemDetail };
 
-/** Result type for POST /jobs. */
+/** Result type for POST /api/v1/jobs. */
 export type CreateJobResult =
   | { ok: true; data: JobResponse }
   | { ok: false; error: ProblemDetail };
 
-/** Result type for POST /jobs/{id}/start. */
+/** Result type for POST /api/v1/jobs/{id}/start. */
 export type StartJobResult =
   | { ok: true; data: StartJobResponse }
   | { ok: false; error: ProblemDetail };
 
 /**
- * Result type for GET /jobs/{id}/download.
+ * Result type for GET /api/v1/jobs/{id}/download.
  *
  * On success, carries the raw Blob and the filename parsed from the
  * Content-Disposition header (or "download.parquet" as a fallback).
@@ -264,17 +267,20 @@ function extractFilename(header: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Job API functions
+// Job API functions — all paths under /api/v1/ (T59.1 versioning)
 // ---------------------------------------------------------------------------
 
 /**
- * GET /jobs — retrieve a paginated list of synthesis jobs.
+ * GET /api/v1/jobs — retrieve a paginated list of synthesis jobs.
  *
  * @param after - Optional cursor for forward pagination.
  * @returns Discriminated union of paginated job list or RFC 7807 error.
  */
 export async function getJobs(after?: number): Promise<GetJobsResult> {
-  const url = after !== undefined ? `/jobs?after=${after}&limit=20` : "/jobs?limit=20";
+  const url =
+    after !== undefined
+      ? `/api/v1/jobs?after=${after}&limit=20`
+      : "/api/v1/jobs?limit=20";
   let response: Response;
 
   try {
@@ -300,7 +306,7 @@ export async function getJobs(after?: number): Promise<GetJobsResult> {
 }
 
 /**
- * GET /jobs/{jobId} — retrieve a single synthesis job.
+ * GET /api/v1/jobs/{jobId} — retrieve a single synthesis job.
  *
  * @param jobId - The numeric ID of the job.
  * @returns Discriminated union of job data or RFC 7807 error.
@@ -309,7 +315,7 @@ export async function getJob(jobId: number): Promise<GetJobResult> {
   let response: Response;
 
   try {
-    response = await fetch(`/jobs/${jobId}`);
+    response = await fetch(`/api/v1/jobs/${jobId}`);
   } catch {
     return {
       ok: false,
@@ -331,7 +337,7 @@ export async function getJob(jobId: number): Promise<GetJobResult> {
 }
 
 /**
- * POST /jobs — create a new synthesis job.
+ * POST /api/v1/jobs — create a new synthesis job.
  *
  * @param params - Job creation parameters.
  * @returns Discriminated union of created job or RFC 7807 error.
@@ -340,7 +346,7 @@ export async function createJob(params: CreateJobParams): Promise<CreateJobResul
   let response: Response;
 
   try {
-    response = await fetch("/jobs", {
+    response = await fetch("/api/v1/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -366,7 +372,7 @@ export async function createJob(params: CreateJobParams): Promise<CreateJobResul
 }
 
 /**
- * POST /jobs/{jobId}/start — transition a QUEUED job to TRAINING.
+ * POST /api/v1/jobs/{jobId}/start — transition a QUEUED job to TRAINING.
  *
  * @param jobId - The numeric ID of the job to start.
  * @returns Discriminated union of accepted response or RFC 7807 error.
@@ -375,7 +381,7 @@ export async function startJob(jobId: number): Promise<StartJobResult> {
   let response: Response;
 
   try {
-    response = await fetch(`/jobs/${jobId}/start`, { method: "POST" });
+    response = await fetch(`/api/v1/jobs/${jobId}/start`, { method: "POST" });
   } catch {
     return {
       ok: false,
@@ -397,7 +403,7 @@ export async function startJob(jobId: number): Promise<StartJobResult> {
 }
 
 /**
- * GET /jobs/{jobId}/download — download the synthesised artefact for a
+ * GET /api/v1/jobs/{jobId}/download — download the synthesised artefact for a
  * COMPLETE job.
  *
  * The backend returns `application/octet-stream` with a
@@ -427,7 +433,7 @@ export async function downloadJob(jobId: number): Promise<DownloadJobResult> {
   let response: Response;
 
   try {
-    response = await fetch(`/jobs/${jobId}/download`);
+    response = await fetch(`/api/v1/jobs/${jobId}/download`);
   } catch {
     return { ok: false, error: networkErrorPD };
   }

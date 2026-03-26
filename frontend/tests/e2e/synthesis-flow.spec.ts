@@ -12,11 +12,11 @@
  * Mocking strategy:
  *   - All API responses are mocked via Playwright's page.route() interception.
  *   - /health → 200 (vault unsealed, grants /dashboard access)
- *   - /jobs?limit=20 → job list appropriate for each test scenario
- *   - POST /jobs → 201 with the newly created job
- *   - POST /jobs/{id}/start → 202 accepted
- *   - GET /jobs/{id} → job lookup for rehydration
- *   - GET /jobs/{id}/stream → SSE stream body (static fulfillment)
+ *   - /api/v1/jobs?limit=20 → job list appropriate for each test scenario
+ *   - POST /api/v1/jobs → 201 with the newly created job
+ *   - POST /api/v1/jobs/{id}/start → 202 accepted
+ *   - GET /api/v1/jobs/{id} → job lookup for rehydration
+ *   - GET /api/v1/jobs/{id}/stream → SSE stream body (static fulfillment)
  *
  * The backend is NOT running in CI. All API calls are intercepted before
  * reaching the network.
@@ -133,7 +133,7 @@ test.describe("Synthesis flow — full E2E", () => {
     page,
   }) => {
     await mockHealthRoute(page);
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -159,7 +159,7 @@ test.describe("Synthesis flow — full E2E", () => {
 
     // Counter tracks calls so the second call returns the new job
     let jobsCallCount = 0;
-    await page.route("/jobs?limit=20", (route) => {
+    await page.route("/api/v1/jobs?limit=20", (route) => {
       jobsCallCount += 1;
       if (jobsCallCount === 1) {
         route.fulfill({
@@ -177,7 +177,7 @@ test.describe("Synthesis flow — full E2E", () => {
     });
 
     // POST /jobs → 201 Created
-    await page.route("/jobs", (route) => {
+    await page.route("/api/v1/jobs", (route) => {
       if (route.request().method() === "POST") {
         route.fulfill({
           status: 201,
@@ -198,7 +198,7 @@ test.describe("Synthesis flow — full E2E", () => {
 
     // Submit and wait for the API call
     const [postResponse] = await Promise.all([
-      page.waitForResponse((resp) => resp.url().includes("/jobs") && resp.request().method() === "POST"),
+      page.waitForResponse((resp) => resp.url().includes("/api/v1/jobs") && resp.request().method() === "POST"),
       page.getByRole("button", { name: /create job/i }).click(),
     ]);
 
@@ -215,7 +215,7 @@ test.describe("Synthesis flow — full E2E", () => {
 
     // The job list shows a TRAINING job so the progress bar persists in the
     // list fallback even after the SSE connection closes (ADV-059 SSE note).
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -224,7 +224,7 @@ test.describe("Synthesis flow — full E2E", () => {
     );
 
     // Mock GET /jobs/42 for rehydration — returns TRAINING so SSE opens
-    await page.route("/jobs/42", (route) =>
+    await page.route("/api/v1/jobs/42", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -233,7 +233,7 @@ test.describe("Synthesis flow — full E2E", () => {
     );
 
     // GET /jobs/42/stream → SSE: one progress event
-    await page.route("/jobs/42/stream", (route) => {
+    await page.route("/api/v1/jobs/42/stream", (route) => {
       const body = sseEvent("progress", {
         status: "TRAINING",
         current_epoch: 2,
@@ -267,7 +267,7 @@ test.describe("Synthesis flow — full E2E", () => {
     await mockHealthRoute(page);
 
     // Use TRAINING job in list so the progress bar and aria-live region render
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -275,7 +275,7 @@ test.describe("Synthesis flow — full E2E", () => {
       }),
     );
 
-    await page.route("/jobs/42", (route) =>
+    await page.route("/api/v1/jobs/42", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -283,7 +283,7 @@ test.describe("Synthesis flow — full E2E", () => {
       }),
     );
 
-    await page.route("/jobs/42/stream", (route) => {
+    await page.route("/api/v1/jobs/42/stream", (route) => {
       const body = sseEvent("progress", {
         status: "TRAINING",
         current_epoch: 3,
@@ -329,7 +329,7 @@ test.describe("Synthesis flow — full E2E", () => {
   }) => {
     await mockHealthRoute(page);
 
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -338,7 +338,7 @@ test.describe("Synthesis flow — full E2E", () => {
     );
 
     // POST /jobs/42/start → 202 Accepted
-    await page.route("/jobs/42/start", (route) =>
+    await page.route("/api/v1/jobs/42/start", (route) =>
       route.fulfill({
         status: 202,
         contentType: "application/json",
@@ -348,7 +348,7 @@ test.describe("Synthesis flow — full E2E", () => {
 
     // Stream emits a complete event — useSSE calls es.close() explicitly on
     // complete, so the connection is closed cleanly before the onerror fires.
-    await page.route("/jobs/42/stream", (route) => {
+    await page.route("/api/v1/jobs/42/stream", (route) => {
       const body = sseEvent("complete", {
         status: "COMPLETE",
         current_epoch: 5,
@@ -373,7 +373,7 @@ test.describe("Synthesis flow — full E2E", () => {
     const [startResponse] = await Promise.all([
       page.waitForResponse(
         (resp) =>
-          resp.url().includes("/jobs/42/start") &&
+          resp.url().includes("/api/v1/jobs/42/start") &&
           resp.request().method() === "POST",
       ),
       page.getByRole("button", { name: /^start$/i }).click(),
@@ -397,7 +397,7 @@ test.describe("Synthesis flow — full E2E", () => {
     await mockHealthRoute(page);
 
     // TRAINING job in the list — progress bar always visible regardless of SSE
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -405,7 +405,7 @@ test.describe("Synthesis flow — full E2E", () => {
       }),
     );
 
-    await page.route("/jobs/42", (route) =>
+    await page.route("/api/v1/jobs/42", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -413,7 +413,7 @@ test.describe("Synthesis flow — full E2E", () => {
       }),
     );
 
-    await page.route("/jobs/42/stream", (route) => {
+    await page.route("/api/v1/jobs/42/stream", (route) => {
       const body = sseEvent("progress", {
         status: "TRAINING",
         current_epoch: 2,
@@ -452,7 +452,7 @@ test.describe("Synthesis flow — full E2E", () => {
     await mockHealthRoute(page);
 
     // Show a COMPLETE job in the list — no active SSE stream needed
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -476,7 +476,7 @@ test.describe("Synthesis flow — full E2E", () => {
     await mockHealthRoute(page);
 
     // TRAINING job in the list so progress bar persists as fallback
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -484,7 +484,7 @@ test.describe("Synthesis flow — full E2E", () => {
       }),
     );
 
-    await page.route("/jobs/42", (route) =>
+    await page.route("/api/v1/jobs/42", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -492,7 +492,7 @@ test.describe("Synthesis flow — full E2E", () => {
       }),
     );
 
-    await page.route("/jobs/42/stream", (route) => {
+    await page.route("/api/v1/jobs/42/stream", (route) => {
       const body = sseEvent("progress", {
         status: "TRAINING",
         current_epoch: 3,
@@ -523,7 +523,7 @@ test.describe("Synthesis flow — full E2E", () => {
   test("no external network requests during synthesis flow", async ({ page }) => {
     await mockHealthRoute(page);
 
-    await page.route("/jobs?limit=20", (route) =>
+    await page.route("/api/v1/jobs?limit=20", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

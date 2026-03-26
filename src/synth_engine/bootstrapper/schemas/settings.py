@@ -4,13 +4,18 @@ Settings represent key-value application configuration persisted to the
 database.  They live in the bootstrapper (API layer) since they are API
 resources, not module domain objects.
 
+Input validation (P59 Red-team F2): ``SettingUpsertRequest.value`` is bounded
+to 10000 characters to prevent oversized-input DoS attacks.
+
 Task: P5-T5.1 — Task Orchestration API Core
+Task: P59 — Production Readiness v1.0 — input validation hardening
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel
-from sqlmodel import Field, SQLModel
+from pydantic import BaseModel, Field
+from sqlmodel import Field as SqlField
+from sqlmodel import SQLModel
 
 
 class Setting(SQLModel, table=True):
@@ -29,18 +34,21 @@ class Setting(SQLModel, table=True):
 
     __tablename__ = "setting"
 
-    key: str = Field(primary_key=True)
+    key: str = SqlField(primary_key=True)
     value: str
 
 
 class SettingUpsertRequest(BaseModel):
-    """Request body for PUT /settings/{key}.
+    """Request body for PUT /api/v1/settings/{key}.
+
+    The ``value`` field is bounded to 10000 characters to prevent
+    oversized-input DoS attacks (P59 Red-team F2).
 
     Attributes:
-        value: New string value to store for the key.
+        value: New string value to store for the key (max 10000 chars).
     """
 
-    value: str
+    value: str = Field(..., max_length=10000)
 
 
 class SettingResponse(BaseModel):
@@ -58,7 +66,7 @@ class SettingResponse(BaseModel):
 
 
 class SettingListResponse(BaseModel):
-    """List response for GET /settings.
+    """List response for GET /api/v1/settings.
 
     Attributes:
         items: List of setting objects.

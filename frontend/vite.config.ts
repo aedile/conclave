@@ -6,14 +6,15 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
   server: {
     proxy: {
-      // Proxy /api/* to the FastAPI backend during development.
+      // Proxy /api/v1/* to the FastAPI backend during development.
+      // The rewrite is intentionally ABSENT — /api/v1/jobs must reach the
+      // backend as /api/v1/jobs (T59.1: versioned paths pass through as-is).
       // In production, a reverse proxy (nginx) handles this routing.
       "/api": {
         target: "http://localhost:8000",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
-      // Direct unseal/health/license calls to the backend
+      // Direct unseal/health/license calls to the backend (infrastructure paths)
       "/unseal": { target: "http://localhost:8000", changeOrigin: true },
       "/health": { target: "http://localhost:8000", changeOrigin: true },
       "/license": { target: "http://localhost:8000", changeOrigin: true },

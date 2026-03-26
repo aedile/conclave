@@ -56,7 +56,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from synth_engine.bootstrapper.dependencies.auth import require_scope
 from synth_engine.bootstrapper.errors import problem_detail
@@ -80,14 +80,15 @@ class RotateRequest(BaseModel):
     """Request body for the key rotation endpoint.
 
     Attributes:
-        new_passphrase: New operator passphrase.  The rotation task derives a
-            fresh Fernet key independently; this passphrase is used to document
-            operator intent and MAY be used in future implementations to unseal
-            with a new passphrase.  Currently the rotation generates a fresh
-            random Fernet key and re-encrypts all columns.
+        new_passphrase: New operator passphrase (1-1024 chars).  The rotation
+            task derives a fresh Fernet key independently; this passphrase is
+            used to document operator intent and MAY be used in future
+            implementations to unseal with a new passphrase.  Currently the
+            rotation generates a fresh random Fernet key and re-encrypts all
+            columns.  Bounded to prevent oversized-input DoS (P59 Red-team F3).
     """
 
-    new_passphrase: str
+    new_passphrase: str = Field(..., min_length=1, max_length=1024)
 
 
 # ---------------------------------------------------------------------------
