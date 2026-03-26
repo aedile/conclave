@@ -148,14 +148,14 @@ class TestOpacusCompatibleDiscriminatorForward:
         )
 
     def test_forward_asserts_batch_divisible_by_pac(self) -> None:
-        """forward() raises AssertionError if batch_size % pac != 0."""
+        """forward() raises RuntimeError if batch_size % pac != 0 (T57.2: assert replaced)."""
         import torch
 
         cls = _make_real_module()
         discriminator = cls(input_dim=8, discriminator_dim=(64,), pac=10)
         x = torch.randn(15, 8)  # 15 is not divisible by 10
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(RuntimeError, match="must be divisible by pac"):
             discriminator(x)
 
 

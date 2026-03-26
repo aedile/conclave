@@ -30,7 +30,6 @@ Task: T47.3 — Scope-based auth for settings write endpoints
 from __future__ import annotations
 
 import time
-from collections.abc import Generator
 from typing import Any
 
 import jwt as pyjwt
@@ -97,20 +96,6 @@ def _auth_header(token: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None]:
-    """Clear get_settings lru_cache before and after every test.
-
-    Yields:
-        None — setup/teardown only.
-    """
-    from synth_engine.shared.settings import get_settings
-
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 @pytest.fixture
