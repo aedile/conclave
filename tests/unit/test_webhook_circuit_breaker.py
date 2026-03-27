@@ -239,6 +239,75 @@ class TestCircuitBreakerTripping:
         assert cb.is_open(url) is True
         assert result.status == "FAILED"
 
+    def test_hanging_endpoint_trips_circuit_breaker(self) -> None:
+        """Hanging endpoint (ReadTimeout) must trip the circuit after threshold calls.
+
+        Simulates a slow/unresponsive endpoint by raising httpx.ReadTimeout.
+        After 3 consecutive timeouts, the circuit breaker must be open and
+        the 4th delivery attempt must return SKIPPED. The Prometheus counter
+        must also be incremented exactly once on trip.
+        """
+        import httpx
+
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            WebhookCircuitBreaker,
+            deliver_webhook,
+        )
+
+        url = "https://slow.example.com/hook"
+        cb = WebhookCircuitBreaker(threshold=3, cooldown_seconds=300)
+        reg = _make_registration(url=url)
+
+        request = httpx.Request("POST", url)
+
+        with (
+            patch(
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery._get_circuit_breaker",
+                return_value=cb,
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url",
+            ),
+            patch(
+                "httpx.post",
+                side_effect=httpx.ReadTimeout("timed out", request=request),
+            ),
+            patch(
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery._circuit_breaker_trips_total"
+            ) as mock_counter,
+        ):
+            mock_labels = MagicMock()
+            mock_counter.labels = MagicMock(return_value=mock_labels)
+
+            # Three calls — each raises ReadTimeout, each counts as a failure
+            for _ in range(3):
+                deliver_webhook(
+                    registration=reg,
+                    job_id=42,
+                    event_type="job.completed",
+                    payload={"job_id": 42},
+                )
+
+            # Circuit must now be open
+            assert cb.is_open(url) is True, (
+                "Circuit breaker must be open after 3 ReadTimeout failures"
+            )
+
+            # 4th call — circuit is open, must return SKIPPED
+            result = deliver_webhook(
+                registration=reg,
+                job_id=42,
+                event_type="job.completed",
+                payload={"job_id": 42},
+            )
+
+        assert result.status == "SKIPPED", (
+            f"Expected SKIPPED after circuit tripped, got {result.status!r}"
+        )
+        # Prometheus counter must have incremented exactly once (on the trip event)
+        mock_counter.labels.assert_called_once_with(reason="consecutive_failures")
+        mock_labels.inc.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # T62.2 — Prometheus counter

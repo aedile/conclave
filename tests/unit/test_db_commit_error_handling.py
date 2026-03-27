@@ -294,7 +294,7 @@ class TestConnectionsCommitErrors:
         body = response.json()
         assert body["status"] == 409
         assert body["title"] == "Conflict"
-        assert "type" in body
+        assert body["type"] == "about:blank"
 
     @pytest.mark.asyncio
     async def test_create_connection_sqlalchemy_error_returns_500_rfc7807(self) -> None:
@@ -636,11 +636,12 @@ class TestShredCommitFailure:
             ) as client:
                 response = await client.post("/api/v1/jobs/999/shred")
 
-        # If commit fails, must NOT return 200 SHREDDED
-        assert response.status_code != 200
+        # If commit fails, must NOT return 200 SHREDDED — must return 500 Internal Server Error
+        assert response.status_code == 500
         body = response.json()
-        # Must not claim SHREDDED when commit failed
-        assert body.get("status") != "SHREDDED"
+        assert body["type"] == "about:blank"
+        assert body["title"] == "Internal Server Error"
+        assert body["status"] == 500
 
     @pytest.mark.asyncio
     async def test_shred_commit_failure_calls_rollback(self) -> None:
