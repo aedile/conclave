@@ -38,10 +38,8 @@ import logging
 
 from fastapi import FastAPI
 
-from synth_engine.bootstrapper.dependencies.auth import (
-    AUTH_EXEMPT_PATHS,
-    AuthenticationGateMiddleware,
-)
+from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
+from synth_engine.bootstrapper.dependencies.auth_middleware import AuthenticationGateMiddleware
 from synth_engine.bootstrapper.dependencies.csp import CSPMiddleware
 from synth_engine.bootstrapper.dependencies.https_enforcement import HTTPSEnforcementMiddleware
 from synth_engine.bootstrapper.dependencies.licensing import LicenseGateMiddleware

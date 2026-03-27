@@ -20,6 +20,7 @@ CONSTITUTION Priority 0: Security — no info leakage, exempt from auth/seal gat
 Task: T48.3 — Readiness Probe & External Dependency Health Checks
 Task: P48 review F5 — Reuse shared async engine in /ready probe
 Task: T55.1 — Vault State Health Endpoint & Multi-Worker Coordination
+Task: T60.2 — Move /health liveness probe here from lifecycle.py
 """
 
 from __future__ import annotations
@@ -180,6 +181,20 @@ async def _run_check_with_timeout(
     except Exception:
         _logger.warning("Readiness check failed: %s", name, exc_info=False)
         raise
+
+
+@router.get("/health", tags=["ops"])
+async def health_check() -> JSONResponse:
+    """Liveness probe for container orchestrators and load balancers.
+
+    Always returns HTTP 200.  A non-200 response means the process is
+    not functioning and should be restarted by the container runtime.
+    For readiness (dependency checks), use GET /ready.
+
+    Returns:
+        JSON body {"status": "ok"} with HTTP 200.
+    """
+    return JSONResponse(content={"status": "ok"})
 
 
 @router.get("/ready", tags=["ops"])

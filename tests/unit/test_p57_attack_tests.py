@@ -267,9 +267,9 @@ def test_build_ephemeral_storage_client_raises_runtime_error_not_assertion_error
     from synth_engine.bootstrapper.main import build_ephemeral_storage_client
 
     with (
-        patch("synth_engine.bootstrapper.main.MinioStorageBackend", None),
+        patch("synth_engine.bootstrapper.factories.MinioStorageBackend", None),
         patch(
-            "synth_engine.bootstrapper.main._read_secret",
+            "synth_engine.bootstrapper.docker_secrets._read_secret",
             side_effect=lambda name: "dummy",
         ),
     ):
@@ -293,9 +293,9 @@ def test_build_ephemeral_storage_client_does_not_raise_assertion_error(
     from synth_engine.bootstrapper.main import build_ephemeral_storage_client
 
     with (
-        patch("synth_engine.bootstrapper.main.MinioStorageBackend", None),
+        patch("synth_engine.bootstrapper.factories.MinioStorageBackend", None),
         patch(
-            "synth_engine.bootstrapper.main._read_secret",
+            "synth_engine.bootstrapper.docker_secrets._read_secret",
             side_effect=lambda name: "dummy",
         ),
     ):

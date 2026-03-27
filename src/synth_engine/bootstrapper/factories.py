@@ -1,16 +1,29 @@
 """DI factory functions for synthesis-layer application dependencies.
 
 Houses the lazy factory functions that construct :class:`SynthesisEngine`,
-:class:`DPTrainingWrapper`, and the sync ``spend_budget`` wrapper instances.
-These factories are called at synthesis-job start time, never at application
-startup, so missing GPU or database infrastructure does not prevent the
-health check from responding.
+:class:`DPTrainingWrapper`, :class:`EphemeralStorageClient`, and the sync
+``spend_budget`` wrapper instances.  These factories are called at
+synthesis-job start time, never at application startup, so missing GPU or
+database infrastructure does not prevent the health check from responding.
 
-The Docker-secrets cluster (``_read_secret``, ``_SECRETS_DIR``,
-``_MINIO_ENDPOINT``, ``_EPHEMERAL_BUCKET``, ``MinioStorageBackend``,
-``build_ephemeral_storage_client``) lives in ``main.py`` so that existing
-test patches against ``synth_engine.bootstrapper.main.*`` continue to work
-without modification (AC3 of the bootstrapper-decomposition task).
+Task: T60.3 — Move build_ephemeral_storage_client from main.py to factories.py
+    ``build_ephemeral_storage_client`` previously lived in ``main.py`` because
+    it relies on Docker-secrets helpers also defined there.  Those helpers now
+    live in :mod:`docker_secrets`, so there is no obstacle to moving the factory
+    here where all other factories live.
+
+    Backward compatibility: ``main.py`` re-exports
+    ``build_ephemeral_storage_client`` from this module so that existing test
+    patches against ``synth_engine.bootstrapper.main.build_ephemeral_storage_client``
+    continue to resolve correctly (AC2 of T60.3).
+
+Task: T60.4 — Extract domain transaction logic to modules/privacy/sync_budget.py
+    ``_sync_wrapper`` in ``build_spend_budget_fn()`` previously contained the
+    full pessimistic-locking transaction inline.  That logic now lives in
+    :func:`~synth_engine.modules.privacy.sync_budget.sync_spend_budget`, and
+    ``_sync_wrapper`` simply delegates to it.  The bootstrapper remains
+    responsible for wiring (engine construction, settings, URL promotion) but
+    no longer owns domain accounting code.
 
 P28-F4 — Sync spend_budget path
 ---------------------------------
@@ -42,16 +55,23 @@ connections between invocations provides no benefit and wastes server resources.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from synth_engine.shared.protocols import SpendBudgetProtocol
 
 if TYPE_CHECKING:
     from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
+    from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
     from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
 _logger = logging.getLogger(__name__)
+
+# Deferred import so environments without the synthesizer group don't fail.
+# Bound at module scope for patch("synth_engine.bootstrapper.factories.MinioStorageBackend").
+try:
+    from synth_engine.modules.synthesizer.storage.storage import MinioStorageBackend
+except ImportError:  # pragma: no cover — synthesizer group not installed
+    MinioStorageBackend = None  # type: ignore[assignment,misc]  # conditional import fallback
 
 
 def build_synthesis_engine(epochs: int = 300) -> SynthesisEngine:
@@ -125,6 +145,58 @@ def build_dp_wrapper(
     return _DPTrainingWrapper(max_grad_norm=max_grad_norm, noise_multiplier=noise_multiplier)
 
 
+def build_ephemeral_storage_client() -> EphemeralStorageClient:
+    """Build an EphemeralStorageClient backed by MinioStorageBackend.
+
+    Reads MinIO credentials from Docker secrets at synthesis-job start time,
+    not at application startup, so a missing MinIO service does not break
+    the /health endpoint.
+
+    Returns:
+        A configured :class:`EphemeralStorageClient` ready to upload/download
+        Parquet files.
+
+    Raises:
+        RuntimeError: If ``MinioStorageBackend`` is unavailable because the
+            synthesizer dependency group is not installed.  Install it with
+            ``pip install 'synth-engine[synthesizer]'`` or
+            ``poetry install --extras synthesizer``.
+    """
+    from synth_engine.bootstrapper.docker_secrets import (
+        EPHEMERAL_BUCKET as _EPHEMERAL_BUCKET,
+    )
+    from synth_engine.bootstrapper.docker_secrets import (
+        MINIO_ENDPOINT as _MINIO_ENDPOINT,
+    )
+    from synth_engine.bootstrapper.docker_secrets import (
+        _read_secret,
+    )
+    from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
+
+    access_key = _read_secret("minio_ephemeral_access_key")
+    secret_key = _read_secret("minio_ephemeral_secret_key")
+
+    # T57.2: Replace assert with RuntimeError — asserts are stripped by python -O
+    # and raise unhelpful AssertionError.  RuntimeError carries install instructions.
+    if MinioStorageBackend is None:
+        raise RuntimeError(
+            "MinioStorageBackend unavailable — install the synthesizer dependency group: "
+            "pip install 'synth-engine[synthesizer]' or poetry install --extras synthesizer"
+        )
+
+    backend = MinioStorageBackend(
+        endpoint_url=_MINIO_ENDPOINT,
+        access_key=access_key,
+        secret_key=secret_key,
+    )
+    _logger.info(
+        "EphemeralStorageClient initialised (bucket=%s, endpoint=%s).",
+        _EPHEMERAL_BUCKET,
+        _MINIO_ENDPOINT,
+    )
+    return EphemeralStorageClient(bucket=_EPHEMERAL_BUCKET, backend=backend)
+
+
 def _promote_to_sync_url(database_url: str) -> str:
     """Convert an async database URL to its synchronous driver equivalent.
 
@@ -174,18 +246,10 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
     workers are single-call-per-job — pooling idle connections between
     invocations wastes DB server resources.
 
-    The returned callable implements the same pessimistic-locking protocol
-    as the async ``spend_budget()``:
-
-    1. ``SELECT ... FOR UPDATE`` on the ``PrivacyLedger`` row.
-    2. Budget exhaustion check — raises ``BudgetExhaustionError`` if exceeded.
-    3. Deduct epsilon and write a ``PrivacyTransaction`` audit row.
-    4. Commit (or rollback on error).
-
-    Import note:
-        All privacy-module and SQLAlchemy imports are deferred inside this
-        function so environments without a live database do not fail at
-        import time.
+    The returned callable delegates all budget accounting to
+    :func:`~synth_engine.modules.privacy.sync_budget.sync_spend_budget`
+    (T60.4).  The bootstrapper retains responsibility for engine construction
+    and URL promotion; the domain logic lives in ``modules/privacy/``.
 
     URL promotion note:
         ``DATABASE_URL`` may contain an async driver prefix
@@ -195,7 +259,7 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
 
     Returns:
         A sync callable ``(*, amount, job_id, ledger_id, note=None) -> None``
-        that deducts epsilon from the global ``PrivacyLedger`` atomically.
+        that deducts epsilon from the privacy ledger atomically.
         The returned callable satisfies ``SpendBudgetProtocol``.
 
     Example::
@@ -239,73 +303,21 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         ledger_id: int,
         note: str | None = None,
     ) -> None:
-        """Sync wrapper: calls spend_budget logic via a synchronous DB session.
+        """Delegate budget deduction to sync_spend_budget (T60.4).
 
-        Uses the factory-scoped synchronous SQLAlchemy engine (psycopg2 for
-        PostgreSQL, stdlib sqlite3 for SQLite) to avoid ``MissingGreenlet``
-        errors when called from a Huey worker thread (P28-F4, ADR-0035).
+        Passes the factory-scoped synchronous engine to
+        :func:`~synth_engine.modules.privacy.sync_budget.sync_spend_budget`,
+        which owns all pessimistic-locking and transaction logic.
 
         Args:
             amount: Epsilon to deduct.  Must be positive.
             job_id: Synthesis job identifier written to the audit trail.
-            ledger_id: Primary key of the PrivacyLedger row to debit.
+            ledger_id: Privacy ledger row primary key to debit.
             note: Optional human-readable annotation for the transaction.
-
-        Raises:
-            BudgetExhaustionError: If the privacy budget is exhausted.
-            ValueError: If ``amount`` is not positive.
         """
-        from sqlalchemy import select
-        from sqlalchemy.orm import Session
+        from synth_engine.modules.privacy.sync_budget import sync_spend_budget
 
-        from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
-        from synth_engine.shared.exceptions import BudgetExhaustionError
-
-        decimal_amount: Decimal = amount if isinstance(amount, Decimal) else Decimal(str(amount))
-        if decimal_amount <= 0:
-            raise ValueError(f"amount must be positive, got {amount!r}")
-
-        with Session(engine) as session:
-            with session.begin():
-                # Pessimistic lock — same protocol as the async spend_budget().
-                stmt = (
-                    select(PrivacyLedger)
-                    .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
-                    .with_for_update()
-                )
-                result = session.execute(stmt)
-                ledger = result.scalar_one()
-
-                if ledger.total_spent_epsilon + decimal_amount > ledger.total_allocated_epsilon:
-                    _logger.warning(
-                        "Budget exhausted: ledger_id=%d, requested=%s, spent=%s, allocated=%s",
-                        ledger_id,
-                        decimal_amount,
-                        ledger.total_spent_epsilon,
-                        ledger.total_allocated_epsilon,
-                    )
-                    raise BudgetExhaustionError(
-                        requested_epsilon=decimal_amount,
-                        total_spent=ledger.total_spent_epsilon,
-                        total_allocated=ledger.total_allocated_epsilon,
-                    )
-
-                ledger.total_spent_epsilon += decimal_amount
-                transaction = PrivacyTransaction(
-                    ledger_id=ledger_id,
-                    job_id=job_id,
-                    epsilon_spent=decimal_amount,
-                    note=note,
-                )
-                session.add(transaction)
-                # session.begin() context manager commits on clean exit.
-
-        _logger.info(
-            "Epsilon allocated (sync): ledger_id=%d, job_id=%d, amount=%s",
-            ledger_id,
-            job_id,
-            decimal_amount,
-        )
+        sync_spend_budget(engine, amount=amount, job_id=job_id, ledger_id=ledger_id, note=note)
 
     _logger.info("spend_budget sync wrapper built (P28-F4: uses sync engine, no asyncio.run).")
     return _sync_wrapper
