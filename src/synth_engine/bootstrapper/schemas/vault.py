@@ -18,7 +18,7 @@ Task: T60.5 — Move UnsealRequest from lifecycle.py to schemas/vault.py
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UnsealRequest(BaseModel):
@@ -28,4 +28,9 @@ class UnsealRequest(BaseModel):
         passphrase: Operator-provided passphrase used to derive the KEK.
     """
 
-    passphrase: str
+    passphrase: str = Field(
+        ...,
+        min_length=1,
+        max_length=1024,
+        description="Operator-provided passphrase. Max 1024 chars to bound PBKDF2 cost.",
+    )
