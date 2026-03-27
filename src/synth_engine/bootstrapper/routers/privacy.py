@@ -187,6 +187,20 @@ def _run_reset_budget(
     return asyncio.run(_async_reset())
 
 
+# ---------------------------------------------------------------------------
+# Route handlers
+# ---------------------------------------------------------------------------
+#
+# Transaction handling note (T62.1 context):
+# These route handlers do NOT use explicit session.commit() wrapping around
+# the handler bodies.  Budget mutation is delegated to reset_budget() via an
+# asyncio.run() bridge (see _run_reset_budget above), which runs in its own
+# async session and transaction.  The DI-provided sync Session is used only
+# for read operations (SELECT PrivacyLedger).  EpsilonAccountant and
+# reset_budget() manage their own transaction boundaries; adding a redundant
+# outer commit here would create a double-commit risk with the async session.
+
+
 @router.get(
     "/budget",
     summary="Get privacy budget",

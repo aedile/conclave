@@ -18,7 +18,7 @@ Attack/negative tests:
 Feature/positive tests:
 12. HMAC-SHA256 signature format: "sha256=<hex_digest>"
 13. Payload canonicalization: json.dumps sorted keys + compact separators
-14. Retry with exponential backoff: delays are 1s, 4s
+14. Retry no-sleep: time budget used instead of time.sleep() (T62.2)
 15. Successful delivery: status=SUCCESS, attempt_number=1 in log
 16. Delivery ID (UUID) included in log entry
 17. Delivery engine does NOT import from bootstrapper (boundary constraint)
@@ -33,6 +33,7 @@ Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F1, F8, F9, F12
 Task: P45 QA re-review — ssrf.py edge-case coverage (lines 97, 102-109, 116-117)
 Task: T55.4 — updated DNS gaierror test to use strict=False (delivery path semantics)
+Task: T62.2 — Circuit Breaker: no time.sleep(), time budget used instead
 """
 
 from __future__ import annotations
@@ -69,6 +70,25 @@ def clear_settings_cache() -> Generator[None]:
         get_settings.cache_clear()
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def reset_circuit_breaker() -> Generator[None]:
+    """Reset the module-level circuit breaker singleton between tests.
+
+    T62.2: The circuit breaker singleton accumulates per-URL failure state.
+    Without this fixture, a test that trips the circuit for
+    ``https://example.com/hook`` will cause subsequent tests using the same
+    URL to get SKIPPED instead of making HTTP calls.
+
+    Yields:
+        None — setup and teardown only.
+    """
+    import synth_engine.modules.synthesizer.jobs.webhook_delivery as _mod
+
+    _mod._MODULE_CIRCUIT_BREAKER = None
+    yield
+    _mod._MODULE_CIRCUIT_BREAKER = None
 
 
 # ===========================================================================
@@ -290,6 +310,11 @@ class TestRetryExhaustion:
     def test_three_failures_mark_delivery_failed(self) -> None:
         """After 3 HTTP failures, delivery log entry must have status=FAILED.
 
+        T62.2: The circuit breaker trips after threshold consecutive failures.
+        With the default threshold of 3, all 3 attempts are made and then the
+        circuit trips, causing the function to return FAILED immediately after
+        the third failure without further retries.
+
         Args: none.
         """
         from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
@@ -305,7 +330,6 @@ class TestRetryExhaustion:
         with (
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
-            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.time.sleep"),
         ):
             mock_httpx.post.side_effect = Exception("Connection refused")
             result = deliver_webhook(
@@ -318,8 +342,12 @@ class TestRetryExhaustion:
         assert result.status == "FAILED"
         assert mock_httpx.post.call_count == 3
 
-    def test_exponential_backoff_delays(self) -> None:
-        """Retry delays must be 1s, 4s (exponential backoff, no sleep after final attempt).
+    def test_no_sleep_between_retries(self) -> None:
+        """T62.2: deliver_webhook must NOT call time.sleep() between retry attempts.
+
+        The old implementation used exponential backoff via time.sleep() (1s, 4s).
+        T62.2 replaced this with a time budget check using time.monotonic() to
+        prevent Huey worker starvation.  time.sleep() must never be called.
 
         Args: none.
         """
@@ -351,9 +379,11 @@ class TestRetryExhaustion:
                 payload={"job_id": "1", "status": "COMPLETE"},
             )
 
-        # Backoff between retries: after attempt 1 → 1s, after attempt 2 → 4s
-        # (no sleep after final attempt 3)
-        assert sleep_calls == [1.0, 4.0]
+        # T62.2: no sleep between retries — time budget used instead
+        assert sleep_calls == [], (
+            f"deliver_webhook called time.sleep() {len(sleep_calls)} time(s): {sleep_calls}. "
+            "T62.2 requires no sleep between retries to prevent Huey worker starvation."
+        )
 
 
 # ===========================================================================
@@ -626,3 +656,152 @@ class TestIoCCallback:
             assert called_with == [(7, "FAILED")]
         finally:
             _reset_webhook_delivery_fn()
+
+
+# ===========================================================================
+# URL SANITIZATION AND ERROR MESSAGE SAFETY (P62 review fixes)
+# ===========================================================================
+
+
+class TestSanitizeUrlForLog:
+    """P62 DevOps FINDING — callback URLs must be sanitized before logging."""
+
+    def test_strips_query_string(self) -> None:
+        """_sanitize_url_for_log must remove query parameters from the URL.
+
+        Operators may embed auth tokens in query params (e.g. ?token=abc123).
+        The sanitized URL must retain scheme, host, and path only.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        result = _sanitize_url_for_log("https://example.com/hook?token=abc123&other=val")
+        assert result == "https://example.com/hook"
+        assert "token" not in result
+        assert "abc123" not in result
+
+    def test_strips_fragment(self) -> None:
+        """_sanitize_url_for_log must remove URL fragments.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        result = _sanitize_url_for_log("https://example.com/hook#section")
+        assert result == "https://example.com/hook"
+        assert "#" not in result
+
+    def test_strips_both_query_and_fragment(self) -> None:
+        """_sanitize_url_for_log must strip both query and fragment simultaneously.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        result = _sanitize_url_for_log("https://example.com/hook?token=secret#anchor")
+        assert result == "https://example.com/hook"
+
+    def test_plain_url_unchanged(self) -> None:
+        """URLs without query/fragment must be returned unchanged.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        result = _sanitize_url_for_log("https://example.com/hook")
+        assert result == "https://example.com/hook"
+
+    def test_unparseable_url_returns_placeholder(self) -> None:
+        """An unparseable URL must return a safe placeholder, not raise.
+
+        The helper is called inside log statements and MUST never raise.
+
+        Args: none.
+        """
+        from unittest.mock import patch
+
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.webhook_delivery.urlparse",
+            side_effect=Exception("parse error"),
+        ):
+            result = _sanitize_url_for_log("not-a-url")
+        assert result == "<unparseable-url>"
+
+
+class TestSafeErrorMsg:
+    """P62 DevOps FINDING — str(exc) must not appear in DeliveryResult.error_message."""
+
+    def test_safe_error_msg_returns_type_name(self) -> None:
+        """_safe_error_msg must include the exception type name.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import _safe_error_msg
+
+        exc = ConnectionError("hostname:8080: Connection refused")
+        result = _safe_error_msg(exc)
+        assert "ConnectionError" in result
+
+    def test_safe_error_msg_excludes_raw_str(self) -> None:
+        """_safe_error_msg must NOT include the raw exception message.
+
+        Raw exception strings can contain hostnames and ports.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import _safe_error_msg
+
+        sensitive_host = "internal-host-9af3.corp.example.com"
+        exc = ConnectionError(f"{sensitive_host}: Connection refused")
+        result = _safe_error_msg(exc)
+        assert sensitive_host not in result
+
+    def test_delivery_error_message_uses_safe_msg(self) -> None:
+        """DeliveryResult.error_message must not contain raw str(exc) after failure.
+
+        Verifies end-to-end that the error_message stored in DeliveryResult
+        does not expose raw exception content.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
+
+        reg = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock()
+        reg.active = True
+        reg.callback_url = "https://example.com/hook"
+        reg.signing_key = "a" * 32
+        reg.id = "reg-safe-err"
+
+        sensitive = "internal-db-host-abc123.corp.example.com"
+
+        from unittest.mock import patch
+
+        with (
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
+        ):
+            mock_httpx.post.side_effect = ConnectionError(f"{sensitive}: timed out")
+            result = deliver_webhook(
+                registration=reg,
+                job_id=5,
+                event_type="job.completed",
+                payload={"job_id": "5", "status": "COMPLETE"},
+            )
+
+        assert result.status == "FAILED"
+        assert result.error_message is not None
+        assert sensitive not in result.error_message
+        assert "ConnectionError" in result.error_message

@@ -418,6 +418,24 @@ class ConclaveSettings(BaseSettings):
             "Defaults to 10 seconds."
         ),
     )
+    webhook_circuit_breaker_threshold: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Number of consecutive delivery failures before the webhook circuit "
+            "breaker trips for a given callback URL. Defaults to 3."
+        ),
+    )
+    webhook_circuit_breaker_cooldown_seconds: int = Field(
+        default=300,
+        ge=1,
+        description=(
+            "Cooldown duration in seconds after the webhook circuit breaker trips. "
+            "During this period, deliveries to the affected URL are skipped. "
+            "After cooldown, one probe delivery is attempted; if it succeeds the "
+            "circuit resets. Defaults to 300 seconds (5 minutes)."
+        ),
+    )
 
     # -----------------------------------------------------------------------
     # mTLS Inter-Container Communication (T46.2)

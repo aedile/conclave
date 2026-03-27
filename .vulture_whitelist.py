@@ -344,3 +344,12 @@ _warn_unrecognized_conclave_env_vars  # Pydantic model_validator — called at c
 _sign_v1  # unused method — AuditLogger backward-compat wrapper (audit_logger.py); called from test_audit.py
 _sign_v2  # unused method — AuditLogger backward-compat wrapper (audit_logger.py); called from test_audit.py
 _sign_v3  # unused method — AuditLogger backward-compat wrapper (audit_logger.py); called from test_audit.py
+
+# ---------------------------------------------------------------------------
+# Category T — T62.2 WebhookCircuitBreaker test helper
+# _set_trip_time is a test helper method on WebhookCircuitBreaker that allows
+# tests to backdate the trip time to simulate cooldown expiry. It is called
+# from tests/unit/test_webhook_circuit_breaker.py but not from production code.
+# ---------------------------------------------------------------------------
+
+_set_trip_time  # unused method — WebhookCircuitBreaker test helper for simulating cooldown expiry

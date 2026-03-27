@@ -28,6 +28,7 @@ Task: P22-T22.1 — Job Schema DP Parameters
 Task: P23-T23.4 — Cryptographic Erasure Endpoint
 Task: P26-T26.1 — Split Oversized Files (Refactor Only)
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
+Task: T62.1 — Wrap Database Commits in Exception Handlers
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, select
 
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
@@ -138,7 +140,7 @@ def create_job(
     body: JobCreateRequest,
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
-) -> JobResponse:
+) -> JobResponse | JSONResponse:
     """Create a new synthesis job in QUEUED status.
 
     The job is persisted to the database but NOT yet enqueued.  Call
@@ -151,7 +153,8 @@ def create_job(
         current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
-        The newly created :class:`JobResponse`.
+        The newly created :class:`JobResponse`, RFC 7807 409 on constraint
+        violation, or RFC 7807 500 on other database errors.
     """
     job = SynthesisJob(
         table_name=body.table_name,
@@ -165,8 +168,37 @@ def create_job(
         owner_id=current_operator,
     )
     session.add(job)
-    session.commit()
-    session.refresh(job)
+    try:
+        session.commit()
+        session.refresh(job)
+    except IntegrityError:
+        session.rollback()
+        _logger.warning(
+            "create_job: IntegrityError for operator=%s", current_operator, exc_info=True
+        )
+        return JSONResponse(
+            status_code=409,
+            content={
+                "type": "about:blank",
+                "title": "Conflict",
+                "status": 409,
+                "detail": "A resource with these properties already exists.",
+            },
+        )
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "create_job: SQLAlchemyError for operator=%s", current_operator, exc_info=True
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
     return JobResponse.model_validate(job)
 
 
@@ -292,6 +324,10 @@ def shred_job(
     are eligible.  Jobs in any other status, owned by a different operator,
     or already-``SHREDDED`` jobs return 404 Problem Detail response.
 
+    CRITICAL (T62.1): The 200 SHREDDED response is only returned AFTER the
+    ``session.commit()`` succeeds.  If the commit fails, the operator receives
+    500 instead of a false confirmation.
+
     Args:
         job_id: The integer primary key of the job to shred.
         session: Database session (injected by FastAPI DI).
@@ -300,7 +336,8 @@ def shred_job(
     Returns:
         ``{"status": "SHREDDED", "job_id": <id>}`` with HTTP 200 on success,
         RFC 7807 404 if the job does not exist, is not eligible, or ownership
-        mismatch, or RFC 7807 500 if an ``OSError`` prevents artifact deletion.
+        mismatch, RFC 7807 500 if an ``OSError`` prevents artifact deletion,
+        or RFC 7807 500 if the database commit fails.
     """
     job = session.get(SynthesisJob, job_id)
 
@@ -356,7 +393,28 @@ def shred_job(
 
     job.status = _SHREDDED_STATUS
     session.add(job)
-    session.commit()
+
+    # T62.1 CRITICAL FIX: commit BEFORE returning 200 SHREDDED.
+    # The old code returned 200 before the commit — if commit failed, the operator
+    # received a confirmed shred that was never recorded in the database.
+    try:
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "shred_job: SQLAlchemyError persisting SHREDDED status for job_id=%d",
+            job_id,
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
 
     _logger.info("Job %d: artifacts shredded, status set to SHREDDED.", job_id)
     return JSONResponse(

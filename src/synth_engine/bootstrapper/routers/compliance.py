@@ -144,6 +144,13 @@ class ErasureResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
+#
+# Transaction handling note (T62.1 context):
+# This router does NOT use explicit session.commit() wrapping around the
+# route handler body.  The DB writes for erasure are delegated entirely to
+# ErasureService, which controls its own transaction boundaries.  The DI-
+# provided Session is passed into ErasureService and committed there.
+# Adding a redundant outer commit here would create a double-commit risk.
 
 
 @router.delete(

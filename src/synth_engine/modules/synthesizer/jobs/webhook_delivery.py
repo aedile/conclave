@@ -3,7 +3,8 @@
 Responsible for:
 - SSRF-safe HTTP delivery of webhook payloads to registered callbacks.
 - HMAC-SHA256 payload signing.
-- Exponential backoff retry (1s, 4s — 3 attempts max).
+- Non-blocking retry with 15-second total time budget (T62.2).
+- Circuit breaker: trips after N consecutive failures per URL (T62.2).
 - Returning a :class:`DeliveryResult` describing the outcome.
 
 This module purposely contains NO FastAPI, SQLModel, or bootstrapper imports.
@@ -22,6 +23,30 @@ SSRF protection model
 
 Private IP ranges blocked: see ``shared/ssrf.BLOCKED_NETWORKS``.
 
+Circuit breaker (T62.2)
+-----------------------
+A per-URL circuit breaker prevents continued delivery attempts to a failing
+endpoint.  After ``webhook_circuit_breaker_threshold`` consecutive failures
+to the same URL, the circuit trips and deliveries are skipped for
+``webhook_circuit_breaker_cooldown_seconds``.
+
+State: in-memory only.  State is NOT shared across workers or persisted.
+This is intentional for the single-worker deployment model.  In a
+multi-worker deployment, circuit state would need to be stored in Redis.
+This constraint is documented in this module's docstring.
+
+After the cooldown expires, one probe delivery is attempted.  If it
+succeeds the circuit resets; if it fails the circuit re-trips.
+
+Total time budget: 15 seconds per delivery chain.  The retry loop checks
+``time.monotonic()`` before each attempt.  ``time.sleep()`` is removed
+from the retry loop — backoff is enforced by the budget check only.
+This prevents Huey worker starvation on retries to slow endpoints.
+
+Prometheus counter: ``webhook_circuit_breaker_trips_total``
+Labels: ``{reason: "consecutive_failures"}``.
+No ``registration_id`` label (unbounded cardinality).
+
 Boundary constraints (import-linter enforced):
     - Must NOT import from bootstrapper/.
     - Must NOT import from modules/ingestion/, masking/, privacy/, profiler/.
@@ -31,6 +56,7 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F4, F5, F6, F11
 Task: T55.4 — SSRF registration fail-closed on DNS failure
+Task: T62.2 — Circuit Breaker for Webhook Delivery
 """
 
 from __future__ import annotations
@@ -39,12 +65,15 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
+from prometheus_client import Counter
 
 from synth_engine.shared.protocols import WebhookRegistrationProtocol
 from synth_engine.shared.ssrf import validate_callback_url
@@ -52,13 +81,53 @@ from synth_engine.shared.ssrf import validate_callback_url
 _logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Retry constants
+# Retry / time-budget constants
 # ---------------------------------------------------------------------------
 
 _MAX_ATTEMPTS: int = 3
-#: Backoff delays between attempts.  Index i = delay after attempt i+1.
-#: Only _MAX_ATTEMPTS - 1 values are needed (no sleep after the final attempt).
-_BACKOFF_DELAYS: list[float] = [1.0, 4.0]
+
+#: Total time budget for all delivery attempts (including retries) in seconds.
+#: If the budget is exhausted before all attempts are made, remaining
+#: attempts are aborted without sleep.  This prevents Huey worker starvation.
+_DEFAULT_TIME_BUDGET_SECONDS: float = 15.0
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics
+# ---------------------------------------------------------------------------
+
+#: Counter incremented when the circuit breaker trips for a URL.
+#: Labels: {reason} — only "consecutive_failures" is used.
+#: No registration_id label: unbounded cardinality would overwhelm Prometheus.
+_circuit_breaker_trips_total: Counter = Counter(
+    "webhook_circuit_breaker_trips_total",
+    "Number of times the webhook delivery circuit breaker has tripped.",
+    ["reason"],
+)
+
+# ---------------------------------------------------------------------------
+# URL sanitization helper
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_url_for_log(url: str) -> str:
+    """Strip query string and fragment from a URL before writing it to logs.
+
+    Operators may register callback URLs that contain authentication tokens
+    in query parameters (e.g. ``?token=abc123``).  Logging the raw URL would
+    expose those credentials in operator-accessible log streams.  This helper
+    returns only the scheme + authority + path components.
+
+    Args:
+        url: Raw callback URL string.
+
+    Returns:
+        URL with ``query`` and ``fragment`` components removed.
+        Falls back to the original string if ``urlparse`` raises.
+    """
+    try:
+        return urlparse(url)._replace(query="", fragment="").geturl()
+    except Exception:  # broad catch intentional: log helper must never raise
+        return "<unparseable-url>"
 
 
 # ---------------------------------------------------------------------------
@@ -86,8 +155,157 @@ class DeliveryResult:
 
 
 # ---------------------------------------------------------------------------
-# SSRF delivery-time helper
+# Circuit breaker
 # ---------------------------------------------------------------------------
+
+
+class WebhookCircuitBreaker:
+    """Per-URL circuit breaker for webhook delivery.
+
+    Tracks consecutive failures per callback URL.  After ``threshold``
+    consecutive failures the circuit "trips" (opens) for ``cooldown_seconds``.
+    During cooldown, deliveries to that URL are skipped.
+
+    After cooldown, one probe is allowed.  If it succeeds, the circuit closes
+    (resets).  If it fails, the circuit re-trips.
+
+    Thread safety: uses a reentrant lock so multiple Huey task threads can
+    share a single circuit breaker instance safely.
+
+    State: in-memory only.  Not shared across workers; not persisted.
+    In multi-worker deployments, use Redis-backed state instead.
+
+    Attributes:
+        threshold: Consecutive failures before tripping.
+        cooldown_seconds: Seconds to wait after tripping before allowing probe.
+    """
+
+    def __init__(self, threshold: int = 3, cooldown_seconds: int = 300) -> None:
+        """Initialise the circuit breaker with the given thresholds.
+
+        Args:
+            threshold: Number of consecutive failures before the circuit trips.
+            cooldown_seconds: Duration of the cooldown period after tripping.
+        """
+        self.threshold = threshold
+        self.cooldown_seconds = cooldown_seconds
+        self._lock = threading.RLock()
+        # _failure_counts: {url -> consecutive_failure_count}
+        self._failure_counts: dict[str, int] = {}
+        # _trip_times: {url -> monotonic time when circuit was tripped}
+        self._trip_times: dict[str, float] = {}
+
+    def is_open(self, url: str) -> bool:
+        """Return True if the circuit is open (tripped) for the given URL.
+
+        After the cooldown period expires, the circuit is considered half-open
+        (probe allowed) and this returns False.
+
+        Args:
+            url: Callback URL to check.
+
+        Returns:
+            True if deliveries to ``url`` should be skipped (circuit open).
+        """
+        with self._lock:
+            trip_time = self._trip_times.get(url)
+            if trip_time is None:
+                return False
+            # Check if cooldown has expired
+            elapsed = time.monotonic() - trip_time
+            if elapsed >= self.cooldown_seconds:
+                # Cooldown expired — allow probe attempt (half-open state)
+                return False
+            return True
+
+    def record_failure(self, url: str) -> None:
+        """Record a delivery failure for the given URL.
+
+        If consecutive failures reach ``threshold``, the circuit trips.
+
+        Args:
+            url: Callback URL that failed.
+        """
+        with self._lock:
+            self._failure_counts[url] = self._failure_counts.get(url, 0) + 1
+            if self._failure_counts[url] >= self.threshold:
+                if url not in self._trip_times:
+                    # Circuit just tripped — record trip time and emit counter
+                    self._trip_times[url] = time.monotonic()
+                    _circuit_breaker_trips_total.labels(reason="consecutive_failures").inc()
+                    _logger.warning(
+                        "Webhook circuit breaker TRIPPED for url=%s "
+                        "after %d consecutive failures. "
+                        "Cooldown: %ds.",
+                        _sanitize_url_for_log(url),
+                        self._failure_counts[url],
+                        self.cooldown_seconds,
+                    )
+                else:
+                    # Already tripped — reset timer (re-trip after probe failure)
+                    self._trip_times[url] = time.monotonic()
+                    _circuit_breaker_trips_total.labels(reason="consecutive_failures").inc()
+                    _logger.warning(
+                        "Webhook circuit breaker RE-TRIPPED for url=%s after probe failure.",
+                        _sanitize_url_for_log(url),
+                    )
+
+    def record_success(self, url: str) -> None:
+        """Record a successful delivery for the given URL.
+
+        Resets the consecutive failure counter and clears any trip state.
+
+        Args:
+            url: Callback URL that succeeded.
+        """
+        with self._lock:
+            self._failure_counts.pop(url, None)
+            self._trip_times.pop(url, None)
+
+    def _set_trip_time(self, url: str, monotonic_time: float) -> None:
+        """Override the trip time for a URL (test helper).
+
+        Allows tests to simulate cooldown expiry by backdating the trip time.
+
+        Args:
+            url: Callback URL.
+            monotonic_time: The ``time.monotonic()`` value to set as trip time.
+        """
+        with self._lock:
+            if url in self._trip_times:
+                self._trip_times[url] = monotonic_time
+
+
+# ---------------------------------------------------------------------------
+# Module-level circuit breaker singleton
+# ---------------------------------------------------------------------------
+
+#: Module-level singleton.  Single Huey worker per deployment — in-memory
+#: state is sufficient.  See module docstring for multi-worker constraint.
+_MODULE_CIRCUIT_BREAKER: WebhookCircuitBreaker | None = None
+_CB_LOCK = threading.Lock()
+
+
+def _get_circuit_breaker() -> WebhookCircuitBreaker:
+    """Return the module-level :class:`WebhookCircuitBreaker` singleton.
+
+    Lazily initialised on first call using settings for threshold and cooldown.
+    Thread-safe via a module-level lock.
+
+    Returns:
+        The singleton circuit breaker instance.
+    """
+    global _MODULE_CIRCUIT_BREAKER
+    with _CB_LOCK:
+        if _MODULE_CIRCUIT_BREAKER is None:
+            from synth_engine.shared.settings import get_settings  # late import
+
+            s = get_settings()
+            _MODULE_CIRCUIT_BREAKER = WebhookCircuitBreaker(
+                threshold=s.webhook_circuit_breaker_threshold,
+                cooldown_seconds=s.webhook_circuit_breaker_cooldown_seconds,
+            )
+        return _MODULE_CIRCUIT_BREAKER
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +348,28 @@ def _compute_hmac_signature(payload: dict[str, Any], signing_key: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Safe error message helper
+# ---------------------------------------------------------------------------
+
+
+def _safe_error_msg(exc: BaseException) -> str:
+    """Return a sanitized error description that omits hostnames and paths.
+
+    Raw ``str(exc)`` for network exceptions (e.g. ``httpx.ConnectError``,
+    ``ssl.SSLError``) can expose internal hostnames, TLS handshake details,
+    or file-system paths.  This helper returns only the exception *type*
+    name plus a generic message, preventing operator-visible log scraping.
+
+    Args:
+        exc: The exception to describe.
+
+    Returns:
+        A sanitized string of the form ``"<ExceptionTypeName>: delivery failed"``.
+    """
+    return f"{type(exc).__name__}: delivery failed"
+
+
+# ---------------------------------------------------------------------------
 # Core delivery function
 # ---------------------------------------------------------------------------
 
@@ -141,16 +381,21 @@ def deliver_webhook(
     event_type: str,
     payload: dict[str, Any],
     timeout_seconds: int = 10,
+    time_budget_seconds: float = _DEFAULT_TIME_BUDGET_SECONDS,
 ) -> DeliveryResult:
     """Deliver a webhook payload to the registered callback URL.
 
-    Implements at-least-once delivery with 3 attempts and exponential
-    backoff (1s, 4s between attempts).  Delivery is skipped for inactive
-    registrations.
+    Implements at-least-once delivery with up to 3 attempts within a 15-second
+    total time budget.  Delivery is skipped for inactive registrations and for
+    URLs whose circuit breaker is open.
 
-    SSRF protection: ``_ssrf_validate_delivery()`` is called before each
-    HTTP attempt (DNS-rebinding guard, strict=False / fail-open so transient
-    DNS failures do not abort delivery).
+    No ``time.sleep()`` between retries: the retry loop checks the remaining
+    time budget before each attempt.  If the budget is exhausted, the loop
+    exits without sleeping, preventing Huey worker starvation.
+
+    SSRF protection: ``validate_callback_url()`` is called before each
+    HTTP attempt (DNS-rebinding guard, ``strict=False`` / fail-open so
+    transient DNS failures do not abort delivery).
 
     The HTTP request uses ``follow_redirects=False`` to prevent SSRF via
     open redirects.
@@ -162,6 +407,9 @@ def deliver_webhook(
         event_type: Event type string (e.g. ``"job.completed"``).
         payload: Dict payload to deliver as JSON.
         timeout_seconds: HTTP timeout per attempt in seconds.
+        time_budget_seconds: Total wall-clock budget for all attempts.
+            Defaults to 15 seconds.  After the budget is exhausted no further
+            attempts are made (no sleep, no block).
 
     Returns:
         :class:`DeliveryResult` describing the outcome.
@@ -173,6 +421,25 @@ def deliver_webhook(
             job_id,
         )
         return DeliveryResult(status="SKIPPED", attempt_number=0)
+
+    # Circuit breaker check — skip delivery if circuit is open for this URL.
+    cb = _get_circuit_breaker()
+    if cb.is_open(registration.callback_url):
+        _logger.warning(
+            "Webhook circuit breaker is OPEN for url=%s — skipping delivery "
+            "for registration=%s job=%d.",
+            _sanitize_url_for_log(registration.callback_url),
+            registration.id,
+            job_id,
+        )
+        return DeliveryResult(
+            status="SKIPPED",
+            attempt_number=0,
+            error_message=(
+                f"Circuit breaker open for {_sanitize_url_for_log(registration.callback_url)}. "
+                f"Delivery skipped during cooldown period."
+            ),
+        )
 
     delivery_id = str(uuid.uuid4())
     signature = _compute_hmac_signature(payload, registration.signing_key)
@@ -187,13 +454,27 @@ def deliver_webhook(
 
     last_error: str | None = None
     last_status_code: int | None = None
+    budget_start = time.monotonic()
 
     for attempt in range(1, _MAX_ATTEMPTS + 1):
+        # Time budget check: abort if budget is exhausted before this attempt.
+        elapsed = time.monotonic() - budget_start
+        if elapsed >= time_budget_seconds:
+            _logger.warning(
+                "Webhook delivery time budget exhausted (%.1fs of %.1fs used) "
+                "for registration=%s job=%d after %d attempt(s).",
+                elapsed,
+                time_budget_seconds,
+                registration.id,
+                job_id,
+                attempt - 1,
+            )
+            break
+
         # DNS-rebinding protection: re-validate before each attempt.
-        # strict=False: DNS failures are fail-open at delivery time.
+        # strict=False: DNS failures are fail-open at delivery time (T55.4).
         try:
             validate_callback_url(registration.callback_url, strict=False)
-            # strict=False: DNS failures are fail-open at delivery time (T55.4)
         except ValueError as ssrf_exc:
             _logger.error(
                 "SSRF validation failed for registration %s (attempt %d): %s",
@@ -201,11 +482,25 @@ def deliver_webhook(
                 attempt,
                 ssrf_exc,
             )
+            cb.record_failure(registration.callback_url)
             return DeliveryResult(
                 status="FAILED",
                 attempt_number=attempt,
                 delivery_id=delivery_id,
                 error_message=str(ssrf_exc),
+            )
+
+        # Circuit check again mid-loop: if a previous attempt just tripped the circuit, abort.
+        if cb.is_open(registration.callback_url):
+            _logger.warning(
+                "Circuit breaker tripped mid-loop for registration=%s — aborting.",
+                registration.id,
+            )
+            return DeliveryResult(
+                status="FAILED",
+                attempt_number=attempt - 1,
+                delivery_id=delivery_id,
+                error_message="Circuit breaker tripped during delivery.",
             )
 
         try:
@@ -225,6 +520,7 @@ def deliver_webhook(
                 attempt,
                 response.status_code,
             )
+            cb.record_success(registration.callback_url)
             return DeliveryResult(
                 status="SUCCESS",
                 attempt_number=attempt,
@@ -232,17 +528,33 @@ def deliver_webhook(
                 response_code=last_status_code,
             )
         except Exception as exc:
-            last_error = str(exc)
+            last_error = _safe_error_msg(exc)
             _logger.warning(
                 "Webhook delivery attempt %d failed for registration %s job %d: %s",
                 attempt,
                 registration.id,
                 job_id,
-                exc,
+                type(exc).__name__,
             )
-            # Backoff before next retry (not after final attempt)
-            if attempt < _MAX_ATTEMPTS:
-                time.sleep(_BACKOFF_DELAYS[attempt - 1])
+            cb.record_failure(registration.callback_url)
+
+            # Check if circuit just tripped — abort remaining attempts immediately.
+            if cb.is_open(registration.callback_url):
+                _logger.warning(
+                    "Circuit breaker tripped after attempt %d for registration=%s — aborting.",
+                    attempt,
+                    registration.id,
+                )
+                return DeliveryResult(
+                    status="FAILED",
+                    attempt_number=attempt,
+                    delivery_id=delivery_id,
+                    response_code=last_status_code,
+                    error_message=last_error,
+                )
+
+            # No time.sleep() — check budget before next attempt instead.
+            # This prevents Huey worker starvation on retries.
 
     return DeliveryResult(
         status="FAILED",
