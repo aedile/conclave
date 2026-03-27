@@ -322,7 +322,7 @@ class TestSynthesisTaskSuccessPath:
         status is already COMPLETE.  We use side_effect to snapshot the status
         at each session.add() call time instead.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
         job = _make_synthesis_job(id=1, status="QUEUED", total_epochs=3, checkpoint_every_n=5)
@@ -357,7 +357,7 @@ class TestSynthesisTaskSuccessPath:
 
     def test_task_transitions_training_to_complete(self) -> None:
         """Task must set status=COMPLETE on successful training completion."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
         job = _make_synthesis_job(id=1, status="QUEUED", total_epochs=3, checkpoint_every_n=5)
@@ -382,7 +382,7 @@ class TestSynthesisTaskSuccessPath:
 
     def test_task_sets_artifact_path_on_complete(self) -> None:
         """Task must set artifact_path on job record after successful completion."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
         job = _make_synthesis_job(id=1, status="QUEUED", total_epochs=3, checkpoint_every_n=5)
@@ -407,7 +407,7 @@ class TestSynthesisTaskSuccessPath:
 
     def test_task_calls_session_commit_on_status_transitions(self) -> None:
         """Task must commit the session after each status change."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = self._make_mock_session()
         job = _make_synthesis_job(id=1, status="QUEUED", total_epochs=3, checkpoint_every_n=5)
@@ -448,7 +448,7 @@ class TestSynthesisTaskCheckpointing:
         But since engine.train() is called once (not per-epoch), we verify
         that checkpoint saves happen (artifact.save called at least once).
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=4, status="QUEUED", total_epochs=10, checkpoint_every_n=5)
@@ -473,7 +473,7 @@ class TestSynthesisTaskCheckpointing:
 
     def test_current_epoch_updated_during_training(self) -> None:
         """job.current_epoch must be updated to reflect training progress."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=4, status="QUEUED", total_epochs=10, checkpoint_every_n=5)
@@ -503,7 +503,7 @@ class TestSynthesisTaskCheckpointing:
         artifact.save() must not be called for intermediate checkpointing.
         On completion, the final artifact is saved — so exactly 1 save().
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         # total_epochs=5 < checkpoint_every_n=10 → no intermediate checkpoints

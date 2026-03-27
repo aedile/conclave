@@ -75,7 +75,7 @@ def _run_impl(
         Tuple of (job, mock_session, mock_engine).
     """
     import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
-    from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+    from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
     job = _make_synthesis_job(
         id=job_id,

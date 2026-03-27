@@ -91,7 +91,7 @@ class TestCaplogOOMGuardrailError:
         - A log record at ERROR level was emitted from the tasks logger.
         - The record message contains 'OOM guardrail rejected job' and the job ID.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
         from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
@@ -159,7 +159,7 @@ class TestCaplogRuntimeErrorDuringTraining:
         - A log record at ERROR level was emitted from the tasks logger.
         - The record message contains 'RuntimeError during training' and the job ID.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=8, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
@@ -231,7 +231,7 @@ class TestCaplogParquetMetadataFallback:
         passing a path that does not exist — no patching of pyarrow is required.
         This is simpler and more reliable than sys.modules manipulation.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import (
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import (
             _OOM_FALLBACK_COLUMNS,
             _OOM_FALLBACK_ROWS,
             _get_parquet_dimensions,

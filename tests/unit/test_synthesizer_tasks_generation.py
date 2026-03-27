@@ -74,7 +74,7 @@ class TestGeneratingStatusTransition:
         the GENERATING transition happens after TRAINING completes and
         before COMPLETE is set.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -118,7 +118,7 @@ class TestGeneratingStatusTransition:
 
     def test_generating_precedes_complete(self) -> None:
         """GENERATING must appear before COMPLETE in the status transition sequence."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -166,7 +166,7 @@ class TestGeneratingStatusTransition:
 
     def test_training_precedes_generating(self) -> None:
         """TRAINING must appear before GENERATING in the status sequence."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -214,7 +214,7 @@ class TestGeneratingStatusTransition:
 
     def test_status_sequence_is_training_generating_complete(self) -> None:
         """Full status sequence must be TRAINING → GENERATING → COMPLETE (AC5)."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -282,7 +282,7 @@ class TestGenerationStep:
         AC1: After training completes, run_synthesis_job() calls artifact.model.sample(n_rows).
         The implementation routes through engine.generate(artifact, n_rows=job.num_rows).
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -326,7 +326,7 @@ class TestGenerationStep:
 
     def test_output_path_set_on_job_after_generation(self) -> None:
         """job.output_path must point to a Parquet file path after generation completes (AC4)."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -366,7 +366,7 @@ class TestGenerationStep:
 
     def test_parquet_file_written_to_checkpoint_dir(self) -> None:
         """Generated Parquet must be physically written to the checkpoint directory (AC2)."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -410,7 +410,7 @@ class TestGenerationStep:
 
         Option B: artifact_path = pickle, output_path = Parquet (AC4).
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -450,7 +450,7 @@ class TestGenerationStep:
 
     def test_job_reaches_complete_after_generation(self) -> None:
         """Job must reach COMPLETE status after generation succeeds (AC5)."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -488,7 +488,7 @@ class TestGenerationStep:
     @pytest.mark.parametrize("num_rows", [1, 10, 100])
     def test_engine_generate_called_with_correct_num_rows_parametrized(self, num_rows: int) -> None:
         """engine.generate() must be called with the exact num_rows value from the job."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(

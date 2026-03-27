@@ -30,7 +30,7 @@ class TestSynthesisTaskOOMRejection:
 
     def test_oom_guardrail_rejection_sets_failed_status(self) -> None:
         """When OOM guardrail rejects, task must set status=FAILED."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
         from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
@@ -53,7 +53,7 @@ class TestSynthesisTaskOOMRejection:
 
     def test_oom_guardrail_rejection_sets_error_msg(self) -> None:
         """When OOM guardrail rejects, task must record the guardrail error message."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
         from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
@@ -78,7 +78,7 @@ class TestSynthesisTaskOOMRejection:
 
     def test_oom_guardrail_rejection_never_calls_train(self) -> None:
         """When OOM guardrail rejects, engine.train() must never be called."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
         from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
@@ -101,7 +101,7 @@ class TestSynthesisTaskOOMRejection:
 
     def test_oom_guardrail_rejection_commits_failed_status(self) -> None:
         """OOM rejection must commit the FAILED status to the database."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
         from synth_engine.modules.synthesizer.training.guardrails import OOMGuardrailError
 
         mock_session = MagicMock()
@@ -138,7 +138,7 @@ class TestSynthesisTaskRuntimeFailure:
 
     def test_runtime_error_sets_failed_status(self) -> None:
         """RuntimeError during training must set status=FAILED."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
@@ -160,7 +160,7 @@ class TestSynthesisTaskRuntimeFailure:
 
     def test_runtime_error_sets_error_msg(self) -> None:
         """RuntimeError during training must record the error message."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
@@ -192,7 +192,7 @@ class TestSynthesisTaskRuntimeFailure:
         (the first checkpoint boundary).  When train() raises on the second
         call, the first checkpoint must already be in storage.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         # total_epochs=6, checkpoint_every_n=3 → checkpoints at epoch 3 and 6
@@ -223,7 +223,7 @@ class TestSynthesisTaskRuntimeFailure:
 
     def test_failed_job_commits_to_db(self) -> None:
         """RuntimeError path must commit FAILED status to the database."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(id=3, status="QUEUED", total_epochs=5, checkpoint_every_n=3)
@@ -250,7 +250,7 @@ class TestSynthesisTaskRuntimeFailure:
         last_ckpt_path as None.  The step-6 guard must catch this and set
         status=FAILED with an error_msg containing 'No artifact produced'.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=99,
@@ -288,7 +288,7 @@ class TestSynthesisJobNotFound:
 
     def test_task_raises_if_job_not_found(self) -> None:
         """_run_synthesis_job_impl must raise ValueError when job ID is not in DB."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         mock_session.get.return_value = None  # Job not found
@@ -317,7 +317,7 @@ class TestParquetHMACSigning:
 
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -364,7 +364,7 @@ class TestParquetHMACSigning:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
         from synth_engine.shared.security.hmac_signing import HMAC_DIGEST_SIZE
 
         mock_session = MagicMock()
@@ -426,7 +426,7 @@ class TestWriteParquetWithSigningEdgeCases:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -480,7 +480,7 @@ class TestWriteParquetWithSigningEdgeCases:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -541,7 +541,7 @@ class TestAuditLoggerFailureAfterBudgetDeduction:
         The error message must include the reconciliation notice.
         """
         import synth_engine.modules.synthesizer.jobs.job_orchestration as orch_mod
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         job = _make_synthesis_job(
             id=85,
@@ -620,7 +620,7 @@ class TestStep9OSErrorTransitionsFailed:
         """OSError during _write_parquet_with_signing must transition job to FAILED."""
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -661,7 +661,7 @@ class TestStep9OSErrorTransitionsFailed:
         """OSError in step 9 must commit FAILED status to the database."""
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -704,7 +704,7 @@ class TestStep9OSErrorTransitionsFailed:
         """
         import pandas as pd
 
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -753,7 +753,7 @@ class TestGenerationRuntimeErrorSanitized:
 
     def test_generation_runtime_error_sets_failed(self) -> None:
         """RuntimeError during generation must set job to FAILED."""
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(
@@ -792,7 +792,7 @@ class TestGenerationRuntimeErrorSanitized:
         Finding F4 (DevOps): job.error_msg is written verbatim from the exception.
         After fix, error_msg must be a static sanitized string.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_session = MagicMock()
         job = _make_synthesis_job(

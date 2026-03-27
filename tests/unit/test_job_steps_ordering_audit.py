@@ -125,7 +125,7 @@ class TestStepOrdering:
 
         Enforces that step ordering gates prevent unnecessary work on failure.
         """
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         mock_engine = MagicMock()
         mock_engine.train.side_effect = RuntimeError("training failure")
