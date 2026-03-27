@@ -328,6 +328,7 @@ markers = [
     "slow: marks tests as slow-running (for local filtering, not automatically excluded in CI)",
     "sunset_phase_38: Tests scheduled for removal evaluation at Phase 38 (scaffolding-removal guards that pass permanently)",
     "cpu_only: Tests requiring deterministic CPU execution (not safe on GPU due to non-determinism)",
+    "infrastructure: Tests that validate infrastructure, scaffolding, documentation, or tooling rather than production business logic",
 ]
 filterwarnings = [
     # Baseline: all warnings are errors — future regressions fail the build.
