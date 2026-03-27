@@ -303,12 +303,14 @@ async def test_rate_limit_fail_open_true_logs_warning_in_production(
 
     monkeypatch.setenv("CONCLAVE_RATE_LIMIT_FAIL_OPEN", "true")
     monkeypatch.setenv("CONCLAVE_ENV", "production")
-    monkeypatch.setenv(  # pragma: allowlist secret
-        "DATABASE_URL", "postgresql+asyncpg://user:pass@host/db"
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@host/db",  # pragma: allowlist secret
     )
     monkeypatch.setenv("AUDIT_KEY", "a" * 64)  # pragma: allowlist secret
-    monkeypatch.setenv(  # pragma: allowlist secret
-        "JWT_SECRET_KEY", "test-secret-that-is-long-enough-32chars"
+    monkeypatch.setenv(
+        "JWT_SECRET_KEY",
+        "test-secret-that-is-long-enough-32chars",  # pragma: allowlist secret
     )
     monkeypatch.setenv(
         "OPERATOR_CREDENTIALS_HASH",
