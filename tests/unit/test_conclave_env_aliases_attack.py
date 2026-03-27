@@ -105,9 +105,7 @@ def test_old_audit_key_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
 
     s = ConclaveSettings()
-    assert s.audit_key.get_secret_value() == "bb" * 32, (
-        "Old AUDIT_KEY must still be accepted"
-    )
+    assert s.audit_key.get_secret_value() == "bb" * 32, "Old AUDIT_KEY must still be accepted"
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +310,5 @@ def test_known_aliases_do_not_trigger_unrecognized_warning(
         and ("unrecognized" in m.lower() or "Unrecognized" in m)
     ]
     assert not alias_warnings, (
-        f"Known aliases must not trigger unrecognized-variable warning; "
-        f"got: {alias_warnings}"
+        f"Known aliases must not trigger unrecognized-variable warning; got: {alias_warnings}"
     )

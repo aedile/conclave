@@ -73,7 +73,7 @@ import logging
 import os
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _logger = logging.getLogger(__name__)
@@ -121,19 +121,25 @@ class ConclaveSettings(BaseSettings):
 
     database_url: str = Field(
         default="",
+        validation_alias=AliasChoices("CONCLAVE_DATABASE_URL", "DATABASE_URL"),
         description=(
             "Async-compatible PostgreSQL DSN or SQLite URL. "
             "Required at runtime — startup validation enforced by "
-            "config_validation.validate_config()."
+            "config_validation.validate_config(). "
+            "Accepts env vars: CONCLAVE_DATABASE_URL (preferred, T63.2) or "
+            "DATABASE_URL (legacy, still supported)."
         ),
     )
     audit_key: SecretStr = Field(
         default=SecretStr(""),
+        validation_alias=AliasChoices("CONCLAVE_AUDIT_KEY", "AUDIT_KEY"),
         description=(
             "Hex-encoded 32-byte HMAC key for audit event signing. "
             "Required at runtime — startup validation enforced by "
             "config_validation.validate_config(). "
-            "SecretStr — raw value never exposed in repr or model_dump()."
+            "SecretStr — raw value never exposed in repr or model_dump(). "
+            "Accepts env vars: CONCLAVE_AUDIT_KEY (preferred, T63.2) or "
+            "AUDIT_KEY (legacy, still supported)."
         ),
     )
 
@@ -170,9 +176,12 @@ class ConclaveSettings(BaseSettings):
     )
     masking_salt: SecretStr | None = Field(
         default=None,
+        validation_alias=AliasChoices("CONCLAVE_MASKING_SALT", "MASKING_SALT"),
         description=(
             "Secret salt for deterministic HMAC masking. Required in production mode. "
-            "SecretStr — raw value never exposed in repr or model_dump()."
+            "SecretStr — raw value never exposed in repr or model_dump(). "
+            "Accepts env vars: CONCLAVE_MASKING_SALT (preferred, T63.2) or "
+            "MASKING_SALT (legacy, still supported)."
         ),
     )
     license_public_key: str | None = Field(
@@ -297,12 +306,15 @@ class ConclaveSettings(BaseSettings):
     )
     jwt_secret_key: SecretStr = Field(
         default=SecretStr(""),
+        validation_alias=AliasChoices("CONCLAVE_JWT_SECRET_KEY", "JWT_SECRET_KEY"),
         description=(
             "HMAC secret key for JWT signing and verification. "
             "Required when jwt_algorithm is HS256/HS384/HS512. "
             "Must be a cryptographically random string of at least 32 characters. "
             "Empty string only acceptable in development/test environments. "
-            "SecretStr — raw value never exposed in repr or model_dump()."
+            "SecretStr — raw value never exposed in repr or model_dump(). "
+            "Accepts env vars: CONCLAVE_JWT_SECRET_KEY (preferred, T63.2) or "
+            "JWT_SECRET_KEY (legacy, still supported)."
         ),
     )
 
@@ -735,10 +747,25 @@ class ConclaveSettings(BaseSettings):
         Returns:
             The validated ``ConclaveSettings`` instance (self).
         """
-        known_conclave_env_vars: frozenset[str] = frozenset(
+        # Collect known CONCLAVE_ env var names from two sources:
+        # 1. Field names starting with "conclave_" (e.g. CONCLAVE_ENV, CONCLAVE_SSL_REQUIRED).
+        # 2. AliasChoices entries starting with "CONCLAVE_" from any field's
+        #    validation_alias (e.g. CONCLAVE_DATABASE_URL, CONCLAVE_AUDIT_KEY).
+        #    This ensures the warning is NOT emitted for known T63.2 aliases.
+        known_from_field_names: set[str] = {
             field_name.upper()
             for field_name in self.__class__.model_fields
             if field_name.startswith("conclave_")
+        }
+        known_from_aliases: set[str] = {
+            alias.upper()
+            for field_info in self.__class__.model_fields.values()
+            if isinstance(field_info.validation_alias, AliasChoices)
+            for alias in field_info.validation_alias.choices
+            if isinstance(alias, str) and alias.upper().startswith("CONCLAVE_")
+        }
+        known_conclave_env_vars: frozenset[str] = frozenset(
+            known_from_field_names | known_from_aliases
         )
         for env_var, value in os.environ.items():
             if env_var.startswith("CONCLAVE_") and env_var not in known_conclave_env_vars:
