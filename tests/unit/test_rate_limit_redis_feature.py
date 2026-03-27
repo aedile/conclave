@@ -367,7 +367,7 @@ async def test_429_response_rfc7807_format_with_redis_backend() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Feature: _redis_hit method contract
+# Feature: _redis_hit function contract
 # ---------------------------------------------------------------------------
 
 
@@ -378,20 +378,11 @@ def test_redis_hit_returns_count_and_allowed_tuple() -> None:
         count: The value from Redis INCR.
         allowed: True when count <= limit, False when count > limit.
     """
-    from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
+    from synth_engine.bootstrapper.dependencies.rate_limit_backend import _redis_hit
 
     mock_redis, mock_pipeline = _make_mock_redis(count=3)
 
-    middleware = RateLimitGateMiddleware(
-        app=MagicMock(),
-        redis_client=mock_redis,
-        unseal_limit=5,
-        auth_limit=10,
-        general_limit=60,
-        download_limit=10,
-    )
-
-    count, allowed = middleware._redis_hit("5/minute", "ip:1.2.3.4")
+    count, allowed = _redis_hit(mock_redis, "5/minute", "ip:1.2.3.4")
     assert count == 3
     assert allowed is True
 
@@ -403,19 +394,10 @@ def test_redis_hit_returns_not_allowed_when_count_exceeds_limit() -> None:
     Act: call _redis_hit.
     Assert: allowed=False.
     """
-    from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
+    from synth_engine.bootstrapper.dependencies.rate_limit_backend import _redis_hit
 
     mock_redis, mock_pipeline = _make_mock_redis(count=6)
 
-    middleware = RateLimitGateMiddleware(
-        app=MagicMock(),
-        redis_client=mock_redis,
-        unseal_limit=5,
-        auth_limit=10,
-        general_limit=60,
-        download_limit=10,
-    )
-
-    count, allowed = middleware._redis_hit("5/minute", "ip:1.2.3.4")
+    count, allowed = _redis_hit(mock_redis, "5/minute", "ip:1.2.3.4")
     assert count == 6
     assert allowed is False

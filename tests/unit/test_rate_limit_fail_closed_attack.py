@@ -145,14 +145,14 @@ async def test_requests_rejected_429_after_grace_period_expires(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # First request — this triggers the first_failure_time to be recorded
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
             return_value=fake_now - grace_period_seconds - 1.0,
         ):
             await client.post("/unseal", headers={"X-Forwarded-For": "10.2.2.2"})
 
         # Second request — now past grace period
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
             return_value=fake_now,
         ):
             r2 = await client.post("/unseal", headers={"X-Forwarded-For": "10.2.2.2"})
@@ -187,7 +187,7 @@ async def test_grace_period_uses_in_memory_counter_within_5_seconds(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         headers = {"X-Forwarded-For": "10.3.3.3"}
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
             return_value=frozen_time,
         ):
             r1 = await client.post("/unseal", headers=headers)
@@ -223,14 +223,14 @@ async def test_grace_period_not_reset_on_repeated_redis_failure_cycles() -> None
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Request 1 at t=0: records first_failure_time
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
             return_value=base_time,
         ):
             await client.post("/unseal", headers={"X-Forwarded-For": "10.4.4.4"})
 
         # Request 2 at t=6: grace period (5s) has expired → must reject
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
             return_value=base_time + 6.0,
         ):
             r_after_grace = await client.post("/unseal", headers={"X-Forwarded-For": "10.4.4.4"})
@@ -274,7 +274,7 @@ async def test_rate_limit_fail_open_true_restores_in_memory_fallback(
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
             return_value=fake_now,
         ):
             response = await client.post("/unseal", headers={"X-Forwarded-For": "10.5.5.5"})

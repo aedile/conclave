@@ -89,10 +89,11 @@ def test_redis_key_uses_ratelimit_prefix() -> None:
     the 'idempotency:' prefix, and Huey keys which use the 'huey.' prefix.
 
     Arrange: mock Redis client; build middleware.
-    Act: inspect the key written by the Redis INCR call.
+    Act: inspect the key written by the Redis INCR call via _redis_hit.
     Assert: every rate limit key starts with 'ratelimit:'.
     """
     from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
+    from synth_engine.bootstrapper.dependencies.rate_limit_backend import _redis_hit
 
     mock_redis = MagicMock(spec=redis_lib.Redis)
     # Simulate Redis pipeline: pipeline().incr().expire().execute() returning [1, True]
@@ -102,7 +103,7 @@ def test_redis_key_uses_ratelimit_prefix() -> None:
     mock_pipeline.execute.return_value = [1, True]
     mock_redis.pipeline.return_value = mock_pipeline
 
-    middleware = RateLimitGateMiddleware(
+    RateLimitGateMiddleware(
         app=MagicMock(),
         redis_client=mock_redis,
         unseal_limit=5,
@@ -111,8 +112,8 @@ def test_redis_key_uses_ratelimit_prefix() -> None:
         download_limit=10,
     )
 
-    # Trigger a Redis INCR via _redis_hit for an /unseal request
-    middleware._redis_hit("5/minute", "ip:10.0.0.1")
+    # Trigger a Redis INCR via the module-level _redis_hit for an /unseal request
+    _redis_hit(mock_redis, "5/minute", "ip:10.0.0.1")
 
     # Verify the pipeline's incr call used a key starting with 'ratelimit:'
     assert mock_pipeline.incr.called, "Redis pipeline INCR must be called"
@@ -128,6 +129,7 @@ def test_redis_key_does_not_collide_with_idempotency_prefix() -> None:
     Ensures the two middleware namespaces are distinct.
     """
     from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
+    from synth_engine.bootstrapper.dependencies.rate_limit_backend import _redis_hit
 
     mock_redis = MagicMock(spec=redis_lib.Redis)
     mock_pipeline = MagicMock()
@@ -136,7 +138,7 @@ def test_redis_key_does_not_collide_with_idempotency_prefix() -> None:
     mock_pipeline.execute.return_value = [1, True]
     mock_redis.pipeline.return_value = mock_pipeline
 
-    middleware = RateLimitGateMiddleware(
+    RateLimitGateMiddleware(
         app=MagicMock(),
         redis_client=mock_redis,
         unseal_limit=5,
@@ -144,7 +146,7 @@ def test_redis_key_does_not_collide_with_idempotency_prefix() -> None:
         general_limit=60,
         download_limit=10,
     )
-    middleware._redis_hit("5/minute", "op:operator-123")
+    _redis_hit(mock_redis, "5/minute", "op:operator-123")
 
     key_arg = mock_pipeline.incr.call_args[0][0]
     assert not key_arg.startswith("idempotency:"), (
@@ -237,7 +239,7 @@ async def test_graceful_degradation_redis_down_allows_request() -> None:
     frozen_time = time.monotonic()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
             return_value=frozen_time,
         ):
             response = await client.post("/unseal", headers={"X-Forwarded-For": "10.1.1.1"})
@@ -267,7 +269,7 @@ async def test_graceful_degradation_logs_warning_on_redis_error(
 
     app = _build_redis_app(redis_client=mock_redis, unseal_limit=2)
 
-    rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit"
+    rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit_middleware"
     with caplog.at_level(logging.WARNING, logger=rate_limit_logger):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/unseal", headers={"X-Forwarded-For": "10.1.1.2"})
@@ -300,7 +302,7 @@ async def test_graceful_degradation_does_not_log_raw_ip(
     raw_ip = "203.0.113.77"
     app = _build_redis_app(redis_client=mock_redis, unseal_limit=2)
 
-    rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit"
+    rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit_middleware"
     with caplog.at_level(logging.WARNING, logger=rate_limit_logger):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/unseal", headers={"X-Forwarded-For": raw_ip})
@@ -325,7 +327,7 @@ def test_redis_hit_uses_pipeline_for_atomic_incr_expire() -> None:
     Assert: both incr() and expire() are called on the SAME pipeline object,
     confirming they are batched in a single round-trip.
     """
-    from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
+    from synth_engine.bootstrapper.dependencies.rate_limit_backend import _redis_hit
 
     mock_redis = MagicMock(spec=redis_lib.Redis)
     mock_pipeline = MagicMock()
@@ -334,15 +336,7 @@ def test_redis_hit_uses_pipeline_for_atomic_incr_expire() -> None:
     mock_pipeline.execute.return_value = [1, True]
     mock_redis.pipeline.return_value = mock_pipeline
 
-    middleware = RateLimitGateMiddleware(
-        app=MagicMock(),
-        redis_client=mock_redis,
-        unseal_limit=5,
-        auth_limit=10,
-        general_limit=60,
-        download_limit=10,
-    )
-    middleware._redis_hit("5/minute", "ip:10.0.0.2")
+    _redis_hit(mock_redis, "5/minute", "ip:10.0.0.2")
 
     assert mock_pipeline.incr.called, "Pipeline INCR must be called"
     assert mock_pipeline.expire.called, "Pipeline EXPIRE must be called"
@@ -355,7 +349,7 @@ def test_redis_hit_expire_uses_correct_ttl_for_per_minute_limit() -> None:
     This ensures the window resets after exactly one minute and keys
     do not persist indefinitely.
     """
-    from synth_engine.bootstrapper.dependencies.rate_limit import RateLimitGateMiddleware
+    from synth_engine.bootstrapper.dependencies.rate_limit_backend import _redis_hit
 
     mock_redis = MagicMock(spec=redis_lib.Redis)
     mock_pipeline = MagicMock()
@@ -364,15 +358,7 @@ def test_redis_hit_expire_uses_correct_ttl_for_per_minute_limit() -> None:
     mock_pipeline.execute.return_value = [1, True]
     mock_redis.pipeline.return_value = mock_pipeline
 
-    middleware = RateLimitGateMiddleware(
-        app=MagicMock(),
-        redis_client=mock_redis,
-        unseal_limit=5,
-        auth_limit=10,
-        general_limit=60,
-        download_limit=10,
-    )
-    middleware._redis_hit("5/minute", "ip:10.0.0.3")
+    _redis_hit(mock_redis, "5/minute", "ip:10.0.0.3")
 
     # expire(key, seconds) — seconds must be 60 for a per-minute window
     expire_args = mock_pipeline.expire.call_args[0]
@@ -431,7 +417,9 @@ def test_ratelimit_middleware_no_new_redis_import_called_when_client_injected() 
     mock_pipeline.execute.return_value = [1, True]
     mock_redis.pipeline.return_value = mock_pipeline
 
-    get_redis_patch = "synth_engine.bootstrapper.dependencies.rate_limit.get_redis_client"
+    get_redis_patch = (
+        "synth_engine.bootstrapper.dependencies.rate_limit_middleware.get_redis_client"
+    )
     with patch(get_redis_patch) as mock_get_client:
         RateLimitGateMiddleware(
             app=MagicMock(),
