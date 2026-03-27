@@ -33,7 +33,7 @@ to the same URL, the circuit trips and deliveries are skipped for
 State: in-memory only.  State is NOT shared across workers or persisted.
 This is intentional for the single-worker deployment model.  In a
 multi-worker deployment, circuit state would need to be stored in Redis.
-This constraint is documented in ADR-0059.
+This constraint is documented in this module's docstring.
 
 After the cooldown expires, one probe delivery is attempted.  If it
 succeeds the circuit resets; if it fails the circuit re-trips.
@@ -70,6 +70,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from prometheus_client import Counter
@@ -102,6 +103,32 @@ _circuit_breaker_trips_total: Counter = Counter(
     "Number of times the webhook delivery circuit breaker has tripped.",
     ["reason"],
 )
+
+# ---------------------------------------------------------------------------
+# URL sanitization helper
+# ---------------------------------------------------------------------------
+
+
+def _sanitize_url_for_log(url: str) -> str:
+    """Strip query string and fragment from a URL before writing it to logs.
+
+    Operators may register callback URLs that contain authentication tokens
+    in query parameters (e.g. ``?token=abc123``).  Logging the raw URL would
+    expose those credentials in operator-accessible log streams.  This helper
+    returns only the scheme + authority + path components.
+
+    Args:
+        url: Raw callback URL string.
+
+    Returns:
+        URL with ``query`` and ``fragment`` components removed.
+        Falls back to the original string if ``urlparse`` raises.
+    """
+    try:
+        return urlparse(url)._replace(query="", fragment="").geturl()
+    except Exception:  # broad catch intentional: log helper must never raise
+        return "<unparseable-url>"
+
 
 # ---------------------------------------------------------------------------
 # Delivery result value object
@@ -210,7 +237,7 @@ class WebhookCircuitBreaker:
                         "Webhook circuit breaker TRIPPED for url=%s "
                         "after %d consecutive failures. "
                         "Cooldown: %ds.",
-                        url,
+                        _sanitize_url_for_log(url),
                         self._failure_counts[url],
                         self.cooldown_seconds,
                     )
@@ -220,7 +247,7 @@ class WebhookCircuitBreaker:
                     _circuit_breaker_trips_total.labels(reason="consecutive_failures").inc()
                     _logger.warning(
                         "Webhook circuit breaker RE-TRIPPED for url=%s after probe failure.",
-                        url,
+                        _sanitize_url_for_log(url),
                     )
 
     def record_success(self, url: str) -> None:
@@ -321,6 +348,28 @@ def _compute_hmac_signature(payload: dict[str, Any], signing_key: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Safe error message helper
+# ---------------------------------------------------------------------------
+
+
+def _safe_error_msg(exc: BaseException) -> str:
+    """Return a sanitized error description that omits hostnames and paths.
+
+    Raw ``str(exc)`` for network exceptions (e.g. ``httpx.ConnectError``,
+    ``ssl.SSLError``) can expose internal hostnames, TLS handshake details,
+    or file-system paths.  This helper returns only the exception *type*
+    name plus a generic message, preventing operator-visible log scraping.
+
+    Args:
+        exc: The exception to describe.
+
+    Returns:
+        A sanitized string of the form ``"<ExceptionTypeName>: delivery failed"``.
+    """
+    return f"{type(exc).__name__}: delivery failed"
+
+
+# ---------------------------------------------------------------------------
 # Core delivery function
 # ---------------------------------------------------------------------------
 
@@ -379,7 +428,7 @@ def deliver_webhook(
         _logger.warning(
             "Webhook circuit breaker is OPEN for url=%s — skipping delivery "
             "for registration=%s job=%d.",
-            registration.callback_url,
+            _sanitize_url_for_log(registration.callback_url),
             registration.id,
             job_id,
         )
@@ -387,7 +436,7 @@ def deliver_webhook(
             status="SKIPPED",
             attempt_number=0,
             error_message=(
-                f"Circuit breaker open for {registration.callback_url}. "
+                f"Circuit breaker open for {_sanitize_url_for_log(registration.callback_url)}. "
                 f"Delivery skipped during cooldown period."
             ),
         )
@@ -479,13 +528,13 @@ def deliver_webhook(
                 response_code=last_status_code,
             )
         except Exception as exc:
-            last_error = str(exc)
+            last_error = _safe_error_msg(exc)
             _logger.warning(
                 "Webhook delivery attempt %d failed for registration %s job %d: %s",
                 attempt,
                 registration.id,
                 job_id,
-                exc,
+                type(exc).__name__,
             )
             cb.record_failure(registration.callback_url)
 

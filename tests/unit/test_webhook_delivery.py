@@ -656,3 +656,152 @@ class TestIoCCallback:
             assert called_with == [(7, "FAILED")]
         finally:
             _reset_webhook_delivery_fn()
+
+
+# ===========================================================================
+# URL SANITIZATION AND ERROR MESSAGE SAFETY (P62 review fixes)
+# ===========================================================================
+
+
+class TestSanitizeUrlForLog:
+    """P62 DevOps FINDING — callback URLs must be sanitized before logging."""
+
+    def test_strips_query_string(self) -> None:
+        """_sanitize_url_for_log must remove query parameters from the URL.
+
+        Operators may embed auth tokens in query params (e.g. ?token=abc123).
+        The sanitized URL must retain scheme, host, and path only.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        result = _sanitize_url_for_log("https://example.com/hook?token=abc123&other=val")
+        assert result == "https://example.com/hook"
+        assert "token" not in result
+        assert "abc123" not in result
+
+    def test_strips_fragment(self) -> None:
+        """_sanitize_url_for_log must remove URL fragments.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        result = _sanitize_url_for_log("https://example.com/hook#section")
+        assert result == "https://example.com/hook"
+        assert "#" not in result
+
+    def test_strips_both_query_and_fragment(self) -> None:
+        """_sanitize_url_for_log must strip both query and fragment simultaneously.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        result = _sanitize_url_for_log("https://example.com/hook?token=secret#anchor")
+        assert result == "https://example.com/hook"
+
+    def test_plain_url_unchanged(self) -> None:
+        """URLs without query/fragment must be returned unchanged.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        result = _sanitize_url_for_log("https://example.com/hook")
+        assert result == "https://example.com/hook"
+
+    def test_unparseable_url_returns_placeholder(self) -> None:
+        """An unparseable URL must return a safe placeholder, not raise.
+
+        The helper is called inside log statements and MUST never raise.
+
+        Args: none.
+        """
+        from unittest.mock import patch
+
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            _sanitize_url_for_log,
+        )
+
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.webhook_delivery.urlparse",
+            side_effect=Exception("parse error"),
+        ):
+            result = _sanitize_url_for_log("not-a-url")
+        assert result == "<unparseable-url>"
+
+
+class TestSafeErrorMsg:
+    """P62 DevOps FINDING — str(exc) must not appear in DeliveryResult.error_message."""
+
+    def test_safe_error_msg_returns_type_name(self) -> None:
+        """_safe_error_msg must include the exception type name.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import _safe_error_msg
+
+        exc = ConnectionError("hostname:8080: Connection refused")
+        result = _safe_error_msg(exc)
+        assert "ConnectionError" in result
+
+    def test_safe_error_msg_excludes_raw_str(self) -> None:
+        """_safe_error_msg must NOT include the raw exception message.
+
+        Raw exception strings can contain hostnames and ports.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import _safe_error_msg
+
+        sensitive_host = "internal-host-9af3.corp.example.com"
+        exc = ConnectionError(f"{sensitive_host}: Connection refused")
+        result = _safe_error_msg(exc)
+        assert sensitive_host not in result
+
+    def test_delivery_error_message_uses_safe_msg(self) -> None:
+        """DeliveryResult.error_message must not contain raw str(exc) after failure.
+
+        Verifies end-to-end that the error_message stored in DeliveryResult
+        does not expose raw exception content.
+
+        Args: none.
+        """
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
+
+        reg = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock()
+        reg.active = True
+        reg.callback_url = "https://example.com/hook"
+        reg.signing_key = "a" * 32
+        reg.id = "reg-safe-err"
+
+        sensitive = "internal-db-host-abc123.corp.example.com"
+
+        from unittest.mock import patch
+
+        with (
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
+        ):
+            mock_httpx.post.side_effect = ConnectionError(f"{sensitive}: timed out")
+            result = deliver_webhook(
+                registration=reg,
+                job_id=5,
+                event_type="job.completed",
+                payload={"job_id": "5", "status": "COMPLETE"},
+            )
+
+        assert result.status == "FAILED"
+        assert result.error_message is not None
+        assert sensitive not in result.error_message
+        assert "ConnectionError" in result.error_message
