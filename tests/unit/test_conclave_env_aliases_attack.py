@@ -46,8 +46,9 @@ def _set_full_production_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch: pytest monkeypatch fixture for environment manipulation.
     """
     monkeypatch.setenv(
-        "CONCLAVE_DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db"
-    )  # pragma: allowlist secret
+        "CONCLAVE_DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("CONCLAVE_AUDIT_KEY", "aa" * 32)  # pragma: allowlist secret
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "bb" * 32)  # pragma: allowlist secret
     monkeypatch.setenv("CONCLAVE_MASKING_SALT", "cc" * 16)  # pragma: allowlist secret
