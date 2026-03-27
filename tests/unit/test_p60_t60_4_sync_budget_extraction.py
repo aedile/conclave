@@ -145,7 +145,7 @@ class TestSyncSpendBudgetBudgetExhaustion:
 
         # Verify the error contains useful information
         err = exc_info.value
-        assert hasattr(err, "requested_epsilon") or "budget" in str(err).lower() or str(err)
+        assert hasattr(err, "requested_epsilon") or "budget" in str(err).lower()
 
 
 class TestFactoriesDelegation:
