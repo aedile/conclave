@@ -1,9 +1,22 @@
-"""Rate limiting middleware for the Conclave Engine.
+"""Rate limiting configuration, identity resolution, and public API.
 
-Implements application-layer rate limiting as the OUTERMOST middleware in
-the stack.  Running outermost means the rate limit check fires BEFORE vault,
-license, and authentication gates — providing DoS and brute-force protection
-before any expensive downstream processing begins.
+This module is the public face of the rate limiting subsystem.  It provides:
+
+- Tier configuration constants (paths, limits, window duration).
+- Identity resolution helpers (:func:`_extract_client_ip`,
+  :func:`_extract_operator_id`).
+- Tier classification (:func:`_resolve_tier`).
+- A silent re-export of :class:`RateLimitGateMiddleware` for backward
+  compatibility (canonical import:
+  ``synth_engine.bootstrapper.dependencies.rate_limit_middleware``).
+
+The implementation is split across three focused modules (T64.3):
+
+- :mod:`.rate_limit_backend` — Redis counter and in-memory fallback
+  primitives.
+- :mod:`.rate_limit_middleware` — ASGI middleware dispatch (the
+  ``RateLimitGateMiddleware`` class).
+- This module — configuration, identity resolution, and public re-exports.
 
 Rate limit tiers (per T39.3 specification)
 -----------------------------------------
@@ -38,92 +51,17 @@ signature check.  This avoids double-verification overhead and ensures the
 rate-limit key is stable across token refresh cycles.  When no token is
 present (unconfigured JWT mode), the client IP is used as the fallback key.
 
-Technology (T48.1)
-------------------
-Uses Redis ``INCR`` + ``EXPIRE`` via a pipeline for distributed, atomic
-counting.  This ensures rate limits are shared across all workers/pods in a
-multi-process deployment.
-
-The synchronous ``_redis_hit()`` call is dispatched via ``asyncio.to_thread()``
-so the event loop is never blocked on network I/O to Redis.
-
-Redis key format: ``ratelimit:{window_seconds}:{identity_key}``
-The ``ratelimit:`` prefix isolates these keys from:
-- Idempotency middleware (``idempotency:`` prefix)
-- Huey task queue (``huey.`` prefix)
-
-Fail-closed behavior (T63.3)
-----------------------------
-When Redis is unavailable (``redis.RedisError`` from the pipeline):
-
-- **Default (fail-closed)**: requests are served from in-memory counter
-  during a 5-second grace period.  After the grace period, requests are
-  rejected with 429 until Redis recovers.  The grace period clock is
-  non-renewable (does not reset on repeated failures).
-- **Fail-open mode** (``CONCLAVE_RATE_LIMIT_FAIL_OPEN=true``): in-memory
-  fallback always allows requests within in-memory limits.  This is the
-  pre-P63 behavior.  A security WARNING is emitted in production.
-
-A Prometheus counter ``rate_limit_redis_fallback_total{tier=...}`` is
-incremented on each Redis failure.  The ``tier`` label identifies the
-rate limit tier (``unseal``, ``auth``, ``download``, ``general``), NOT
-the raw request path (to prevent cardinality explosion).
-
-Middleware ordering
--------------------
-``RateLimitGateMiddleware`` must be registered LAST in ``setup_middleware()``
-(added last = LIFO outermost) so that it is the first middleware the request
-encounters:
-
-    RateLimitGateMiddleware → RequestBodyLimitMiddleware → CSPMiddleware
-    → SealGateMiddleware → LicenseGateMiddleware → AuthenticationGateMiddleware
-    → route handler
-
-Response format
----------------
-Rate-limited requests receive HTTP 429 Too Many Requests with an RFC 7807
-Problem Details body and a ``Retry-After`` header indicating seconds until
-the current window resets.
-
-Allowed requests receive an ``X-RateLimit-Remaining`` header indicating
-how many requests remain in the current window.
-
-Configuration
--------------
-All four rate limit tiers are configurable via :class:`ConclaveSettings`
-fields (``RATE_LIMIT_UNSEAL_PER_MINUTE``, ``RATE_LIMIT_AUTH_PER_MINUTE``,
-``RATE_LIMIT_GENERAL_PER_MINUTE``, ``RATE_LIMIT_DOWNLOAD_PER_MINUTE``).
-
 CONSTITUTION Priority 0: Security — brute-force and DoS protection
-CONSTITUTION Priority 3: TDD
 Task: T39.3 — Add Rate Limiting Middleware
 Task: T48.1 — Redis-Backed Rate Limiting
 Task: T63.3 — Rate Limiter Fail-Closed on Redis Failure
+Task: T64.3 — Decompose rate_limit.py
 """
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import logging
-import math
-import time
-
 import jwt as pyjwt
-import redis as redis_lib
-from fastapi.responses import JSONResponse
-from limits import RateLimitItem, parse
-from limits.storage import MemoryStorage
-from limits.strategies import FixedWindowRateLimiter
-from prometheus_client import Counter
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import Response
-
-from synth_engine.bootstrapper.dependencies.redis import get_redis_client
-from synth_engine.shared.settings import get_settings
-
-_logger = logging.getLogger(__name__)
 
 #: Paths where the rate limit key is the client IP (pre-authentication endpoints).
 _IP_KEYED_PATHS: frozenset[str] = frozenset({"/unseal", "/auth/token"})
@@ -132,32 +70,22 @@ _IP_KEYED_PATHS: frozenset[str] = frozenset({"/unseal", "/auth/token"})
 #: Uses endswith() to enforce the specific /jobs/{id}/download route contract.
 _DOWNLOAD_PATH_SUFFIX: str = "/download"
 
-#: Redis key prefix that isolates rate limit keys from other middleware keys.
-#: - Idempotency middleware uses 'idempotency:' prefix
-#: - Huey task queue uses 'huey.' prefix
-#: This ensures no collision between middleware namespaces (T48.1 attack mitigation).
-_REDIS_KEY_PREFIX: str = "ratelimit:"
-
-#: Window duration in seconds for the per-minute rate limit.
-_WINDOW_SECONDS: int = 60
-
-#: Grace period in seconds after first Redis failure before fail-closed kicks in.
-#: During this window, the in-memory fallback handles requests (with limits).
-#: After this window expires (and rate_limit_fail_open=False), requests are rejected.
-#: Non-resettable on re-failure — the clock starts when Redis first fails and
-#: only resets when Redis genuinely recovers (CONSTITUTION Priority 0: fail safe).
-_REDIS_GRACE_PERIOD_SECONDS: int = 5
-
-#: Prometheus counter for Redis fallback events.
-#: Label 'tier' identifies which rate limit tier triggered the fallback.
-#: Values: 'unseal', 'auth', 'download', 'general' (NOT raw request path).
-#: This prevents unbounded label cardinality from path parameters.
-RATE_LIMIT_REDIS_FALLBACK_TOTAL: Counter = Counter(
-    "rate_limit_redis_fallback_total",
-    "Total number of rate limit requests that fell back to in-memory counting "
-    "due to Redis unavailability (T63.3).",
-    ["tier"],
+# ---------------------------------------------------------------------------
+# Backward-compat re-export — canonical: rate_limit_middleware.RateLimitGateMiddleware
+# Silent re-export, no deprecation warning (T64.3 spec).
+# ---------------------------------------------------------------------------
+from synth_engine.bootstrapper.dependencies.rate_limit_middleware import (  # noqa: E402
+    RateLimitGateMiddleware,
 )
+
+__all__ = [
+    "_DOWNLOAD_PATH_SUFFIX",
+    "_IP_KEYED_PATHS",
+    "RateLimitGateMiddleware",
+    "_extract_client_ip",
+    "_extract_operator_id",
+    "_resolve_tier",
+]
 
 
 def _extract_client_ip(request: Request) -> str:
@@ -227,379 +155,24 @@ def _extract_operator_id(request: Request) -> str | None:
         return None
 
 
-def _build_429_response(retry_after_seconds: int) -> JSONResponse:
-    """Build an RFC 7807 Problem Details 429 Too Many Requests response.
+def _resolve_tier(request: Request) -> str:
+    """Return the rate limit tier name for the given request path.
 
-    Includes a ``Retry-After`` header per the HTTP specification (RFC 6585)
-    indicating the number of seconds until the rate limit window resets.
+    Tier names are stable labels used for Prometheus metrics.  They do NOT
+    include raw path parameters to prevent unbounded label cardinality
+    (which would OOM the Prometheus registry under adversarial input).
 
     Args:
-        retry_after_seconds: Seconds until the rate limit window resets.
-            Must be a non-negative integer.
+        request: Incoming HTTP request.
 
     Returns:
-        JSONResponse with HTTP 429, RFC 7807 body, and Retry-After header.
+        One of: ``"unseal"``, ``"auth"``, ``"download"``, ``"general"``.
     """
-    return JSONResponse(
-        status_code=429,
-        content={
-            "type": "about:blank",
-            "status": 429,
-            "title": "Too Many Requests",
-            "detail": (f"Rate limit exceeded. Retry after {retry_after_seconds} second(s)."),
-        },
-        headers={"Retry-After": str(retry_after_seconds)},
-    )
-
-
-class RateLimitGateMiddleware(BaseHTTPMiddleware):
-    """ASGI middleware enforcing per-IP and per-operator rate limits.
-
-    Uses Redis ``INCR`` + ``EXPIRE`` via a pipeline for distributed counting
-    across multiple workers/pods.  The synchronous Redis call is dispatched
-    via ``asyncio.to_thread()`` so the event loop is never blocked on I/O.
-
-    Fail-closed behavior (T63.3)
-    ----------------------------
-    When Redis is unavailable and ``rate_limit_fail_open=False`` (default):
-
-    1. **Grace period** (first 5 s after first failure): in-memory counter
-       handles requests.  Limits are still enforced — the grace period is
-       NOT unlimited.  This prevents a Redis blip from immediately triggering
-       a 429 storm.
-    2. **Post-grace-period**: all requests are rejected with 429 until Redis
-       recovers.  This is the "fail-closed" security posture.
-
-    The grace period clock starts at the first Redis failure and only resets
-    when Redis genuinely recovers (next successful pipeline call).  Repeated
-    failure cycles do NOT reset the clock — the grace period is NOT renewable
-    (CONSTITUTION Priority 0: rate limiting must not silently disable itself).
-
-    When ``rate_limit_fail_open=True`` (``ConclaveSettings.rate_limit_fail_open``):
-    the pre-P63 fail-open behavior is restored — in-memory fallback always
-    allows requests through (within in-memory limits), regardless of grace period.
-    Production deployments must not use fail-open; a security WARNING is emitted.
-
-    Must be registered as the OUTERMOST middleware in ``setup_middleware()``
-    (added last in LIFO ordering) to protect against DoS and brute-force
-    attacks before any downstream processing.
-
-    When ``None`` is passed for any tier, the value is read from
-    :func:`~synth_engine.shared.settings.get_settings` at construction
-    time.  Explicit values override settings — this allows tests to inject
-    low limits without environment variable manipulation.
-
-    Args:
-        app: The next ASGI application in the stack.
-        redis_client: Sync Redis client to use for distributed counting.
-            When ``None`` (default), the shared client from
-            :func:`~synth_engine.bootstrapper.dependencies.redis.get_redis_client`
-            is used.  Inject a mock in tests.
-        unseal_limit: Requests per minute allowed on /unseal per IP.
-            Defaults to ``ConclaveSettings.rate_limit_unseal_per_minute``.
-        auth_limit: Requests per minute allowed on /auth/token per IP.
-            Defaults to ``ConclaveSettings.rate_limit_auth_per_minute``.
-        general_limit: Requests per minute allowed per operator on all
-            other endpoints.  Defaults to
-            ``ConclaveSettings.rate_limit_general_per_minute``.
-        download_limit: Requests per minute allowed per operator on
-            download endpoints.  Defaults to
-            ``ConclaveSettings.rate_limit_download_per_minute``.
-
-    Attributes:
-        _redis: Sync Redis client for distributed counting.
-        _fallback_storage: In-memory storage for graceful degradation.
-        _fallback_limiter: Fixed-window rate limiter backed by in-memory storage.
-        _fail_open: When True, restores pre-P63 in-memory fallback (no grace period
-            or fail-closed enforcement). Read from ConclaveSettings at construction.
-        _redis_first_failure_time: Monotonic timestamp of the first Redis failure
-            in the current outage. None when Redis is healthy. Used to compute
-            grace period expiry. Reset to None when Redis recovers.
-        _unseal_limit: Parsed rate limit item for the /unseal endpoint.
-        _auth_limit: Parsed rate limit item for the /auth/token endpoint.
-        _general_limit: Parsed rate limit item for all other endpoints.
-        _download_limit: Parsed rate limit item for download endpoints.
-    """
-
-    def __init__(
-        self,
-        app: object,
-        *,
-        redis_client: redis_lib.Redis | None = None,
-        unseal_limit: int | None = None,
-        auth_limit: int | None = None,
-        general_limit: int | None = None,
-        download_limit: int | None = None,
-    ) -> None:
-        super().__init__(app)  # type: ignore[arg-type]
-        settings = get_settings()
-        _unseal = (
-            unseal_limit if unseal_limit is not None else settings.rate_limit_unseal_per_minute
-        )
-        _auth = auth_limit if auth_limit is not None else settings.rate_limit_auth_per_minute
-        _general = (
-            general_limit if general_limit is not None else settings.rate_limit_general_per_minute
-        )
-        _download = (
-            download_limit
-            if download_limit is not None
-            else settings.rate_limit_download_per_minute
-        )
-
-        # T63.3: Read fail-open setting at construction time.
-        # When True, restores pre-P63 fail-open behavior (in-memory fallback,
-        # no grace period or fail-closed enforcement).
-        self._fail_open: bool = settings.conclave_rate_limit_fail_open
-
-        # T63.3: Grace period tracking — monotonic timestamp of first Redis failure.
-        # None = Redis is healthy. Populated on first RedisError.
-        # Reset to None when Redis recovers (next successful pipeline call).
-        # Per-instance, per-process: not shared across workers or resets.
-        # Non-resettable on re-failure: the clock only resets on genuine Redis recovery.
-        self._redis_first_failure_time: float | None = None
-
-        # Use injected Redis client when provided (enables test injection and
-        # connection pool reuse from bootstrapper/dependencies/redis.py).
-        # Only call get_redis_client() when no client is explicitly provided.
-        if redis_client is not None:
-            self._redis: redis_lib.Redis = redis_client
-        else:
-            self._redis = get_redis_client()
-
-        # Fallback in-memory limiter — used when Redis is unavailable.
-        self._fallback_storage = MemoryStorage()
-        self._fallback_limiter: FixedWindowRateLimiter = FixedWindowRateLimiter(
-            self._fallback_storage
-        )
-
-        self._unseal_limit: RateLimitItem = parse(f"{_unseal}/minute")
-        self._auth_limit: RateLimitItem = parse(f"{_auth}/minute")
-        self._general_limit: RateLimitItem = parse(f"{_general}/minute")
-        self._download_limit: RateLimitItem = parse(f"{_download}/minute")
-
-    def _redis_hit(self, limit_str: str, identity_key: str) -> tuple[int, bool]:
-        """Atomically increment the Redis counter and check the limit.
-
-        Uses a Redis pipeline to issue ``INCR`` and ``EXPIRE`` as a single
-        atomic batch, preventing the scenario where a key exists without a TTL
-        (which would permanently block the identity).
-
-        Redis key format: ``ratelimit:{window_seconds}:{identity_key}``
-
-        Args:
-            limit_str: Rate limit string in ``N/period`` format (e.g.
-                ``"5/minute"``).  Used to derive the limit count and key.
-            identity_key: The identity bucket (e.g. ``"ip:10.0.0.1"`` or
-                ``"op:operator-123"``).
-
-        Returns:
-            A tuple of ``(count, allowed)`` where ``count`` is the current
-            request count in the window and ``allowed`` is ``True`` when
-            ``count <= limit``.  Propagates ``redis.RedisError`` to the
-            caller for graceful degradation handling in :meth:`dispatch`.
-        """
-        # Parse limit count from "N/period" format (e.g. "5/minute" -> limit=5)
-        limit_count = int(limit_str.split("/")[0])
-        redis_key = f"{_REDIS_KEY_PREFIX}{_WINDOW_SECONDS}:{identity_key}"
-
-        with self._redis.pipeline() as pipe:
-            pipe.incr(redis_key)
-            pipe.expire(redis_key, _WINDOW_SECONDS)
-            results = pipe.execute()
-
-        count: int = int(results[0])
-        allowed: bool = count <= limit_count
-        return count, allowed
-
-    def _resolve_tier(self, request: Request) -> str:
-        """Return the rate limit tier name for the given request path.
-
-        Tier names are stable labels used for Prometheus metrics.  They do NOT
-        include raw path parameters to prevent unbounded label cardinality
-        (which would OOM the Prometheus registry under adversarial input).
-
-        Args:
-            request: Incoming HTTP request.
-
-        Returns:
-            One of: ``"unseal"``, ``"auth"``, ``"download"``, ``"general"``.
-        """
-        path = request.url.path
-        if path == "/unseal":
-            return "unseal"
-        if path == "/auth/token":
-            return "auth"
-        if path.endswith(_DOWNLOAD_PATH_SUFFIX):
-            return "download"
-        return "general"
-
-    def _resolve_limit_and_key(self, request: Request) -> tuple[RateLimitItem, str]:
-        """Determine the applicable rate limit tier and identity key.
-
-        Routing logic:
-        - ``/unseal`` → unseal_limit keyed by client IP.
-        - ``/auth/token`` → auth_limit keyed by client IP.
-        - Paths ending with ``/download`` → download_limit keyed by operator
-          sub (or IP fallback).  Uses endswith() to match the specific
-          /jobs/{id}/download route contract.
-        - All other paths → general_limit keyed by operator sub (or IP
-          fallback).
-
-        Args:
-            request: Incoming HTTP request.
-
-        Returns:
-            A tuple of (rate_limit_item, key_string) for the limiter.
-        """
-        path = request.url.path
-
-        if path == "/unseal":
-            return self._unseal_limit, f"ip:{_extract_client_ip(request)}"
-
-        if path == "/auth/token":
-            return self._auth_limit, f"ip:{_extract_client_ip(request)}"
-
-        # For authenticated endpoints, prefer the operator identity so each
-        # operator gets an independent bucket.  Fall back to IP for
-        # unauthenticated/unconfigured requests.
-        operator_id = _extract_operator_id(request)
-        key = f"op:{operator_id}" if operator_id else f"ip:{_extract_client_ip(request)}"
-
-        if path.endswith(_DOWNLOAD_PATH_SUFFIX):
-            return self._download_limit, key
-
-        return self._general_limit, key
-
-    def _compute_retry_after(self, limit: RateLimitItem, key: str) -> int:
-        """Compute the number of seconds until the rate limit window resets.
-
-        Args:
-            limit: The rate limit item whose window to inspect.
-            key: The rate limit bucket key.
-
-        Returns:
-            Non-negative integer seconds until reset.
-        """
-        try:
-            stats = self._fallback_limiter.get_window_stats(limit, key)
-            # Cast reset_time to float: limits library does not ship py.typed,
-            # so stats attributes are typed as Any in the pre-commit mypy env.
-            reset_time: float = float(stats.reset_time)
-            seconds = math.ceil(reset_time - time.time())
-            return max(0, seconds)
-        except Exception as e:
-            # Defensive fallback: MemoryStorage is documented not to raise, but
-            # this guard protects against future storage backend substitutions.
-            # Hash the key before logging to prevent raw client IPs or operator
-            # identifiers from appearing in log files (CONSTITUTION Priority 0).
-            hashed_key = hashlib.sha256(key.encode()).hexdigest()[:12]
-            _logger.warning("rate_limit: window stats unavailable for key=%s: %s", hashed_key, e)
-            return 60
-
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """Gate every request through the appropriate rate limit tier.
-
-        Attempts Redis-backed distributed counting first via
-        ``asyncio.to_thread()`` to avoid blocking the event loop on the
-        synchronous Redis pipeline call.
-
-        On ``redis.RedisError`` (T63.3 fail-closed behavior):
-        - If ``rate_limit_fail_open=True``: fall back to in-memory counter
-          (pre-P63 behavior).  Limits still enforced; not unlimited.
-        - If ``rate_limit_fail_open=False`` (default):
-            - Within 5-second grace period: use in-memory counter.
-            - After grace period: reject with 429 until Redis recovers.
-
-        The grace period clock starts at the first Redis failure and resets
-        only when Redis genuinely recovers.  It does NOT reset on repeated
-        Redis failures (non-renewable grace period).
-
-        A Prometheus counter ``rate_limit_redis_fallback_total`` is incremented
-        on each Redis failure with a ``tier`` label (one of: ``unseal``,
-        ``auth``, ``download``, ``general``).
-
-        Args:
-            request: Incoming HTTP request.
-            call_next: ASGI callable for the next middleware or route handler.
-
-        Returns:
-            A 429 JSONResponse (RFC 7807) if the rate limit is exceeded or
-            if Redis is down past the grace period (fail-closed mode), otherwise
-            the downstream response with rate limit headers added.
-        """
-        limit, key = self._resolve_limit_and_key(request)
-        limit_str = f"{limit.amount}/{limit.multiples or 1}minute"
-        tier = self._resolve_tier(request)
-
-        # Attempt Redis-backed counting first.
-        # asyncio.to_thread() prevents blocking the event loop on the sync
-        # Redis pipeline call (FINDING fix from P48 review).
-        count: int
-        allowed: bool
-        try:
-            count, allowed = await asyncio.to_thread(self._redis_hit, limit_str, key)
-            # Redis succeeded — reset the failure clock (genuine recovery).
-            self._redis_first_failure_time = None
-        except redis_lib.RedisError as e:
-            # T63.3: Redis unavailable — record first failure time if not already set.
-            # Do NOT reset this on repeated failures — the grace period is non-renewable.
-            now = time.monotonic()
-            if self._redis_first_failure_time is None:
-                self._redis_first_failure_time = now
-
-            # Increment Prometheus counter with tier label.
-            # Use stable tier names (NOT raw paths) to prevent cardinality explosion.
-            RATE_LIMIT_REDIS_FALLBACK_TOTAL.labels(tier=tier).inc()
-
-            # Hash the key before logging (CONSTITUTION Priority 0: no PII in logs).
-            hashed_key = hashlib.sha256(key.encode()).hexdigest()[:12]
-            _logger.warning(
-                "rate_limit: redis fallback for key=%s path=%s: %s",
-                hashed_key,
-                request.url.path,
-                e,
-            )
-
-            if self._fail_open:
-                # Pre-P63 behavior: always fall back to in-memory counter.
-                # Limits still enforced; this is NOT unlimited.
-                allowed = self._fallback_limiter.hit(limit, key)
-                count = limit.amount if not allowed else 0
-            else:
-                # T63.3 fail-closed: check grace period.
-                elapsed = now - self._redis_first_failure_time
-                if elapsed <= _REDIS_GRACE_PERIOD_SECONDS:
-                    # Within grace period — use in-memory counter.
-                    allowed = self._fallback_limiter.hit(limit, key)
-                    count = limit.amount if not allowed else 0
-                else:
-                    # Grace period expired — fail closed: reject with 429.
-                    _logger.warning(
-                        "rate_limit: redis grace period expired (%.1fs); "
-                        "rejecting request fail-closed for key=%s path=%s",
-                        elapsed,
-                        hashed_key,
-                        request.url.path,
-                    )
-                    error_response: Response = _build_429_response(_REDIS_GRACE_PERIOD_SECONDS)
-                    error_response.headers["X-RateLimit-Remaining"] = "0"
-                    return error_response
-
-        if not allowed:
-            retry_after = self._compute_retry_after(limit, key)
-            # Hash the key before logging (CONSTITUTION Priority 0: no PII in logs).
-            hashed_key = hashlib.sha256(key.encode()).hexdigest()[:12]
-            _logger.warning(
-                "rate_limit: exceeded for key=%s path=%s retry_after=%ds",
-                hashed_key,
-                request.url.path,
-                retry_after,
-            )
-            error_response = _build_429_response(retry_after)
-            error_response.headers["X-RateLimit-Remaining"] = "0"
-            return error_response
-
-        downstream: Response = await call_next(request)
-        remaining = max(0, limit.amount - count)
-        downstream.headers["X-RateLimit-Remaining"] = str(remaining)
-        return downstream
+    path = request.url.path
+    if path == "/unseal":
+        return "unseal"
+    if path == "/auth/token":
+        return "auth"
+    if path.endswith(_DOWNLOAD_PATH_SUFFIX):
+        return "download"
+    return "general"
