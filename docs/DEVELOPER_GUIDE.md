@@ -23,6 +23,7 @@ This guide reflects the system after Phase 43. All file paths, commands, and mod
 9. [Critical Invariants](#9-critical-invariants)
 10. [Key Files Reference](#10-key-files-reference)
 11. [Conditional Imports](#11-conditional-imports)
+12. [Import Map — Canonical Paths](#12-import-map--canonical-paths)
 
 ---
 
@@ -775,3 +776,143 @@ def test_train_raises_when_sdv_absent() -> None:
 ```
 
 This pattern is used in `tests/unit/synthesizer/test_engine.py`.
+
+---
+
+## 12. Import Map — Canonical Paths
+
+Use these import paths when writing new code or tests. Do not import from
+deprecated shim modules (`storage.models`, `jobs.tasks` re-exports); use
+canonical paths directly. Shims are preserved for backward compatibility until
+Phase 70.
+
+### Application Entry Points
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `create_app` | `synth_engine.bootstrapper.main` | Bootstrapper |
+| `ConclaveSettings` | `synth_engine.shared.settings` | Configuration |
+| `get_settings` | `synth_engine.shared.settings` | Configuration |
+
+### Middleware
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `RateLimitGateMiddleware` | `synth_engine.bootstrapper.dependencies.rate_limit_middleware` | Infrastructure |
+| `AuthenticationGateMiddleware` | `synth_engine.bootstrapper.dependencies.auth_middleware` | Infrastructure |
+| `SealGateMiddleware` | `synth_engine.bootstrapper.dependencies.vault` | Infrastructure |
+| `LicenseGateMiddleware` | `synth_engine.bootstrapper.dependencies.licensing` | Infrastructure |
+| `RequestBodyLimitMiddleware` | `synth_engine.bootstrapper.dependencies.request_limits` | Infrastructure |
+| `CSPMiddleware` | `synth_engine.bootstrapper.dependencies.csp` | Infrastructure |
+| `HTTPSEnforcementMiddleware` | `synth_engine.bootstrapper.dependencies.https_enforcement` | Infrastructure |
+| `IdempotencyMiddleware` | `synth_engine.shared.middleware.idempotency` | Infrastructure |
+| `RFC7807Middleware` | `synth_engine.bootstrapper.errors.middleware` | Infrastructure |
+
+### Factory Functions (bootstrapper)
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `build_synthesis_engine` | `synth_engine.bootstrapper.factories` | Synthesizer |
+| `build_dp_wrapper` | `synth_engine.bootstrapper.factories` | Privacy |
+| `build_ephemeral_storage_client` | `synth_engine.bootstrapper.factories` | Synthesizer |
+| `build_spend_budget_fn` | `synth_engine.bootstrapper.factories` | Privacy |
+
+### Synthesizer
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `SynthesisEngine` | `synth_engine.modules.synthesizer.training.engine` | Synthesizer |
+| `ModelArtifact` | `synth_engine.modules.synthesizer.storage.artifact` | Synthesizer |
+| `RestrictedUnpickler` | `synth_engine.modules.synthesizer.storage.restricted_unpickler` | Synthesizer |
+| `SynthesizerModel` | `synth_engine.modules.synthesizer.storage.restricted_unpickler` | Synthesizer |
+| `EphemeralStorageClient` | `synth_engine.modules.synthesizer.storage.storage` | Synthesizer |
+| `MinioStorageBackend` | `synth_engine.modules.synthesizer.storage.storage` | Synthesizer |
+| `StorageBackend` | `synth_engine.modules.synthesizer.storage.storage` | Synthesizer |
+| `SynthesisJob` | `synth_engine.modules.synthesizer.jobs.job_models` | Synthesizer |
+| `run_synthesis_job` | `synth_engine.modules.synthesizer.jobs.tasks` | Synthesizer |
+| `ErasureService` | `synth_engine.modules.synthesizer.lifecycle.erasure` | Synthesizer |
+| `DeletionManifest` | `synth_engine.modules.synthesizer.lifecycle.erasure` | Synthesizer |
+
+### Privacy
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `DPTrainingWrapper` | `synth_engine.modules.privacy.dp_engine` | Privacy |
+| `PrivacyLedger` | `synth_engine.modules.privacy.ledger` | Privacy |
+
+### Profiler
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `StatisticalProfiler` | `synth_engine.modules.profiler.profiler` | Profiler |
+| `ColumnProfile` | `synth_engine.modules.profiler.models` | Profiler |
+| `TableProfile` | `synth_engine.modules.profiler.models` | Profiler |
+| `ProfileDelta` | `synth_engine.modules.profiler.models` | Profiler |
+
+### Masking
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `MaskingRegistry` | `synth_engine.modules.masking.registry` | Masking |
+
+### Subsetting
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `SubsettingEngine` | `synth_engine.modules.subsetting.core` | Subsetting |
+| `EgressWriter` | `synth_engine.modules.subsetting.egress` | Subsetting |
+| `DagTraversal` | `synth_engine.modules.subsetting.traversal` | Subsetting |
+
+### Ingestion & Mapping
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `SchemaReflector` | `synth_engine.modules.mapping.reflection` | Mapping |
+| `DirectedAcyclicGraph` | `synth_engine.modules.mapping.graph` | Mapping |
+| `PostgresIngestionAdapter` | `synth_engine.modules.ingestion.postgres_adapter` | Ingestion |
+| `SchemaInspector` | `synth_engine.modules.ingestion.postgres_adapter` | Ingestion |
+
+### Shared — Cross-Cutting
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `SchemaTopology` | `synth_engine.shared.schema_topology` | Shared |
+| `ColumnInfo` | `synth_engine.shared.schema_topology` | Shared |
+| `ForeignKeyInfo` | `synth_engine.shared.schema_topology` | Shared |
+| `DPWrapperProtocol` | `synth_engine.shared.protocols` | Shared |
+| `SpendBudgetProtocol` | `synth_engine.shared.protocols` | Shared |
+| `SynthEngineError` | `synth_engine.shared.exceptions` | Shared |
+| `BudgetExhaustionError` | `synth_engine.shared.exceptions` | Shared |
+| `ArtifactTamperingError` | `synth_engine.shared.exceptions` | Shared |
+
+### Shared — Security & Audit
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `AuditLogger` | `synth_engine.shared.security.audit_logger` | Security |
+| `AuditEvent` | `synth_engine.shared.security.audit_logger` | Security |
+| `get_audit_logger` | `synth_engine.shared.security.audit_singleton` | Security |
+| `AnchorManager` | `synth_engine.shared.security.audit_anchor` | Security |
+| `AnchorBackend` | `synth_engine.shared.security.audit_anchor` | Security |
+| `LocalFileAnchorBackend` | `synth_engine.shared.security.audit_anchor` | Security |
+| `VaultState` | `synth_engine.shared.security.vault` | Security |
+| `LicenseState` | `synth_engine.shared.security.licensing` | Security |
+
+### Shared — Database & Settings
+
+| Symbol | Canonical Import | Domain |
+|--------|-----------------|--------|
+| `get_engine` | `synth_engine.shared.db` | Database |
+| `get_async_engine` | `synth_engine.shared.db` | Database |
+| `get_session` | `synth_engine.shared.db` | Database |
+| `get_tracer` | `synth_engine.shared.telemetry` | Observability |
+
+### Rate Limiting (with deduplication note)
+
+| Symbol | Canonical Import | Notes |
+|--------|-----------------|-------|
+| `RateLimitGateMiddleware` | `synth_engine.bootstrapper.dependencies.rate_limit_middleware` | Canonical |
+| `RateLimitGateMiddleware` | `synth_engine.bootstrapper.dependencies.rate_limit` | Backward-compat re-export (shim until Phase 70) |
+| `_extract_client_ip` | `synth_engine.bootstrapper.dependencies.rate_limit` | Config helper |
+| `_extract_operator_id` | `synth_engine.bootstrapper.dependencies.rate_limit` | Config helper |
+| `_redis_hit` | `synth_engine.bootstrapper.dependencies.rate_limit_backend` | Backend primitive |
