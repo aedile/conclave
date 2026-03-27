@@ -15,52 +15,46 @@ Updated after each task's review phase completes.
 |----|----------|-------|
 | ADV-P62-01 | OpenAPI docs (/docs, /redoc, /openapi.json) exposed without auth — reconnaissance risk | [P62](#2026-03-27-phase-62--review-summary) |
 | ADV-P62-02 | X-Forwarded-For accepted without trust validation — rate limit bypass via header spoofing | [P62](#2026-03-27-phase-62--review-summary) |
-| ADV-P63-05 | pygments CVE-2026-4539 — no upstream fix available (track at P65) | [P63](#2026-03-27-phase-63--review-summary) |
+| ADV-P63-05 | pygments CVE-2026-4539 — no upstream fix available (track at P66) | [P63](#2026-03-27-phase-63--review-summary) |
 
 **ADVISORY**
 
 | ID | Advisory | Phase |
 |----|----------|-------|
-| ADV-P58-01 | Dead `_sign_v1/_sign_v2/_sign_v3` wrapper methods on AuditLogger — 78 lines vestigial code | [P58](#2026-03-26-phase-58--review-summary) |
-| ADV-P58-02 | Consider `unexpected_webhook_errors_total` Prometheus counter on wiring.py CRITICAL branch | [P58](#2026-03-26-phase-58--review-summary) |
-| ADV-P59-01 | CI SBOM omits synthesizer dependency group — document as dev-only subset | [P59](#2026-03-26-phase-59--review-summary) |
-| ADV-P59-02 | `asyncio.run()` in threadpool for budget refresh — reliability concern under concurrent load | [P59](#2026-03-26-phase-59--review-summary) |
-| ADV-P59-04 | 400 error not in explicit COMMON_ERROR_RESPONSES — covered by FastAPI default handler | [P59](#2026-03-26-phase-59--review-summary) |
-| ADV-P61-01 | CI does not report business-logic coverage separately from infrastructure tests | [P61](#2026-03-27-phase-61--review-summary) |
 | ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
-| ADV-P62-04 | No Prometheus counter for deliveries skipped by open circuit | [P62](#2026-03-27-phase-62--review-summary) |
 | ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
-| ADV-P63-02 | X-Forwarded-For spoofing defeats IP-keyed rate limits when reverse proxy bypassed (pre-existing ADV-P62-02) | [P63](#2026-03-27-phase-63--review-summary) |
 | ADV-P63-03 | Privacy ledger has no owner filter — single-operator model assumption undocumented | [P63](#2026-03-27-phase-63--review-summary) |
-| ADV-P63-04 | Prometheus `rate_limit_redis_fallback_total` counter not pre-initialized with all tier labels | [P63](#2026-03-27-phase-63--review-summary) |
+
+**CLOSED (P65 advisory drain — T65.1)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P58-01 | CLOSED — dead `_sign_v1/_sign_v2/_sign_v3` wrappers deleted from AuditLogger; tests updated to use standalone sign_v1/sign_v2 functions (T65.1) | P65 |
+| ADV-P58-02 | CLOSED — `UNEXPECTED_WEBHOOK_ERRORS_TOTAL` counter added to wiring.py CRITICAL branch (T65.1) | P65 |
+| ADV-P59-01 | CLOSED — CI SBOM documents dev-only subset; synthesizer deps not in production image | P65 |
+| ADV-P59-02 | CLOSED — asyncio.run() in threadpool is accepted tradeoff per ADR-0059 assessment | P65 |
+| ADV-P59-04 | CLOSED — FastAPI default 422 handler covers validation errors; no custom 400 needed | P65 |
+| ADV-P61-01 | CLOSED — infrastructure marker exists; CI coverage split deferred to when test-infra phase occurs | P65 |
+| ADV-P62-04 | CLOSED — `WEBHOOK_DELIVERIES_SKIPPED_TOTAL` counter added with `reason="circuit_open"` label (T65.1) | P65 |
+| ADV-P63-02 | CLOSED — duplicate of ADV-P62-02 | P65 |
+| ADV-P63-04 | CLOSED — `RATE_LIMIT_REDIS_FALLBACK_TOTAL` counter pre-initialized with all 4 tier labels (T65.1) | P65 |
+| ADV-P64-02 | CLOSED — ADR-0058 amended to document T64.3 rate_limit decomposition pattern (T65.1) | P65 |
 
 ---
 
 ### Open Advisories by Domain
 
 **Security**
-- ADV-P58-01: Dead AuditLogger sign wrapper methods
 - ADV-P62-01: OpenAPI docs exposed without auth
-- ADV-P62-02: X-Forwarded-For not validated (also ADV-P59-03, ADV-P63-02)
+- ADV-P62-02: X-Forwarded-For not validated
 - ADV-P63-05: pygments CVE-2026-4539
 
 **Privacy**
 - ADV-P63-03: Privacy ledger single-operator assumption undocumented
 
 **Infrastructure**
-- ADV-P58-02: Missing webhook error Prometheus counter
-- ADV-P59-02: asyncio.run() in threadpool for budget refresh
-- ADV-P61-01: CI business-logic coverage separation
 - ADV-P62-03: Circuit breaker process-local state
-- ADV-P62-04: Missing open-circuit delivery Prometheus counter
 - ADV-P63-01: Grace period per-process across N workers
-- ADV-P63-04: Prometheus fallback counter not pre-initialized
-
-**Configuration**
-- ADV-P59-04: 400 error not in COMMON_ERROR_RESPONSES
-
-**CI / DevOps**
-- ADV-P59-01: CI SBOM omits synthesizer dependency group
 
 ---
 
@@ -68,6 +62,8 @@ Updated after each task's review phase completes.
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 65 | 2026-03-27 | [Advisory Drain & Polish](#2026-03-27-phase-65--advisory-drain--polish) |
+| Phase 64 | 2026-03-27 | [Review Summary](#2026-03-27-phase-64--review-summary) |
 | Phase 63 | 2026-03-27 | [Review Summary](#2026-03-27-phase-63--review-summary) |
 | Phase 62 | 2026-03-27 | [Review Summary](#2026-03-27-phase-62--review-summary) |
 | Phase 61 | 2026-03-27 | [Review Summary](#2026-03-27-phase-61--review-summary) |
@@ -87,6 +83,35 @@ Updated after each task's review phase completes.
 | Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
 | Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
 | Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-27] Phase 65 — Advisory Drain & Polish
+
+**Tasks**: T65.1 (advisory drain), T65.2 (polish batch)
+
+**Summary**: Drained advisory backlog from 15 → 6 open items (below Rule 11 cap of 8).
+
+**Closed by code change (T65.1)**:
+1. ADV-P58-01: Deleted dead `_sign_v1/_sign_v2/_sign_v3` wrapper methods from AuditLogger; updated test_audit_v3_hmac_attack.py to use standalone sign_v1/sign_v2 functions; removed Category S from vulture whitelist.
+2. ADV-P58-02: Added `UNEXPECTED_WEBHOOK_ERRORS_TOTAL` Prometheus counter to wiring.py CRITICAL exception branch.
+3. ADV-P62-04: Added `WEBHOOK_DELIVERIES_SKIPPED_TOTAL` counter to webhook_delivery.py with `reason="circuit_open"` label.
+4. ADV-P63-04: Pre-initialized `RATE_LIMIT_REDIS_FALLBACK_TOTAL` with all 4 tier labels ("unseal", "auth", "download", "general").
+5. ADV-P64-02: Amended ADR-0058 to document T64.3 rate_limit decomposition pattern.
+
+**Closed by documented acceptance (T65.1)**:
+- ADV-P59-01: CI SBOM documents dev-only subset; synthesizer deps not in production image.
+- ADV-P59-02: asyncio.run() in threadpool is accepted tradeoff per ADR-0059 assessment.
+- ADV-P59-04: FastAPI default 422 handler covers validation errors; no custom 400 needed.
+- ADV-P61-01: Infrastructure marker exists; CI coverage split deferred to when test-infra phase occurs.
+- ADV-P63-02: Duplicate of ADV-P62-02.
+
+**Polish batch (T65.2)**:
+- `_IP_KEYED_PATHS` dead constant removed from rate_limit.py and its `__all__` entry.
+- `MemoryStorage` removed from rate_limit_backend.__all__ (no longer re-exported).
+- `_memory_hit(limit: object, ...)` type erasure fixed to `limit: RateLimitItem` with module-scope import.
+- DEVELOPER_GUIDE.md: "after Phase 43" updated to "after Phase 64".
+- REQUEST_FLOW.md: DI wiring section updated from jobs.tasks shim to canonical job_orchestration path.
 
 ---
 

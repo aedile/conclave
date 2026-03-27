@@ -6,7 +6,7 @@
 
 **Purpose**: (a) How does this software work, and (b) how does the AI orchestration pipeline work — and how do you run it manually without AI?
 
-This guide reflects the system after Phase 43. All file paths, commands, and module references are verified against the actual codebase.
+This guide reflects the system after Phase 64. All file paths, commands, and module references are verified against the actual codebase.
 
 ---
 

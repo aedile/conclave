@@ -19,7 +19,7 @@ Task: T64.3 — Decompose rate_limit.py
 from __future__ import annotations
 
 import redis as redis_lib
-from limits.storage import MemoryStorage
+from limits import RateLimitItem
 from limits.strategies import FixedWindowRateLimiter
 from prometheus_client import Counter
 
@@ -43,11 +43,16 @@ RATE_LIMIT_REDIS_FALLBACK_TOTAL: Counter = Counter(
     ["tier"],
 )
 
+# ADV-P63-04 — Pre-initialize all known tier labels so Prometheus exports zero-
+# valued time series from the first scrape, enabling threshold alerting without
+# waiting for the first fallback event to occur.
+for _tier in ("unseal", "auth", "download", "general"):
+    RATE_LIMIT_REDIS_FALLBACK_TOTAL.labels(tier=_tier)
+
 __all__ = [
     "RATE_LIMIT_REDIS_FALLBACK_TOTAL",
     "_REDIS_KEY_PREFIX",
     "_WINDOW_SECONDS",
-    "MemoryStorage",
     "_memory_hit",
     "_redis_hit",
 ]
@@ -62,7 +67,9 @@ def _redis_hit(
 
     Uses a Redis pipeline to issue ``INCR`` and ``EXPIRE`` as a single
     atomic batch, preventing the scenario where a key exists without a TTL
-    (which would permanently block the identity).
+    (which would permanently block the identity).  Any ``redis.RedisError``
+    from the pipeline propagates to the caller for graceful degradation
+    handling in the middleware dispatch.
 
     Redis key format: ``ratelimit:{_WINDOW_SECONDS}:{identity_key}``
 
@@ -76,12 +83,7 @@ def _redis_hit(
     Returns:
         A tuple of ``(count, allowed)`` where ``count`` is the current
         request count in the window and ``allowed`` is ``True`` when
-        ``count <= limit``.  Propagates ``redis.RedisError`` to the
-        caller for graceful degradation handling in the middleware dispatch.
-
-    Raises:
-        redis.RedisError: Propagated from the Redis pipeline on any Redis
-            connectivity or command failure.
+        ``count <= limit``.
     """
     # Parse limit count from "N/period" format (e.g. "5/minute" -> limit=5)
     limit_count = int(limit_str.split("/")[0])
@@ -99,7 +101,7 @@ def _redis_hit(
 
 def _memory_hit(
     fallback_limiter: FixedWindowRateLimiter,
-    limit: object,
+    limit: RateLimitItem,
     key: str,
 ) -> tuple[int, bool]:
     """Increment the in-memory fallback counter and check the limit.
@@ -112,8 +114,7 @@ def _memory_hit(
     Args:
         fallback_limiter: In-memory fixed-window rate limiter instance.
         limit: The rate limit item (``RateLimitItem``) whose window to
-            increment.  Typed as ``object`` to avoid a hard dependency on
-            the ``limits`` library's type stubs at this layer.
+            increment.
         key: The rate limit bucket key (e.g. ``"ip:10.0.0.1"``).
 
     Returns:
@@ -122,9 +123,6 @@ def _memory_hit(
         counts are not exposed by the limits library) and ``allowed`` is
         ``True`` when the request is within the in-memory limit.
     """
-    from limits import RateLimitItem  # local import to avoid circular dep
-
-    limit_item: RateLimitItem = limit  # type: ignore[assignment]
-    allowed: bool = fallback_limiter.hit(limit_item, key)
-    count: int = limit_item.amount if not allowed else 0
+    allowed: bool = fallback_limiter.hit(limit, key)
+    count: int = limit.amount if not allowed else 0
     return count, allowed

@@ -336,18 +336,28 @@ Status transitions are exclusively owned by `_run_synthesis_job_impl()` in `job_
 
 ## 6. DI Wiring at Startup
 
-In `bootstrapper/main.py` at module scope (Rule 8, ADR-0029):
+In `bootstrapper/wiring.py` (called at module scope from `main.py` via `wire_all()`, Rule 8, ADR-0029):
 
 ```python
-from synth_engine.modules.synthesizer.jobs import tasks as _synthesizer_tasks
+from synth_engine.modules.synthesizer.jobs.job_orchestration import (
+    set_dp_wrapper_factory, set_spend_budget_fn, set_webhook_delivery_fn
+)
 
-_synthesizer_tasks.set_dp_wrapper_factory(build_dp_wrapper)    # DI: ADR-0029
-_synthesizer_tasks.set_spend_budget_fn(build_spend_budget_fn())  # DI: T22.3
+set_dp_wrapper_factory(build_dp_wrapper)        # DI: ADR-0029
+set_spend_budget_fn(build_spend_budget_fn())    # DI: T22.3
+set_webhook_delivery_fn(_build_webhook_delivery_fn())  # DI: T45.3
 ```
 
-Two effects:
+Note: `bootstrapper/wiring.py` also imports `jobs.tasks` as a side effect so that
+`run_synthesis_job` is registered with the shared Huey instance when workers start.
+The setter functions (`set_dp_wrapper_factory`, `set_spend_budget_fn`) live canonically
+in `job_orchestration.py`; `jobs.tasks` re-exports them for backward compatibility only
+(shim removal planned for Phase 70).
+
+Three effects:
 1. **Task registration**: importing `tasks` registers `run_synthesis_job` with the shared Huey instance.
 2. **Factory injection**: `set_dp_wrapper_factory()` and `set_spend_budget_fn()` write module-level globals in `job_orchestration.py`.
+3. **Webhook injection**: `set_webhook_delivery_fn()` writes the webhook delivery callback in `job_orchestration.py`.
 
 `build_dp_wrapper` and `build_spend_budget_fn` are in `bootstrapper/factories.py` — the **only** place where `modules/privacy` and `modules/synthesizer` are connected (import-linter contract enforcement).
 

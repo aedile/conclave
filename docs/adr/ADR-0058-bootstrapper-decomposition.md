@@ -48,6 +48,26 @@ Decompose all four files with zero behavioral changes:
    `bootstrapper/schemas/vault.py`.  Re-export chain: `schemas/vault.py` →
    `lifecycle.py` → `main.py` for backward compatibility.
 
+## Amendment (Phase 64, T64.3)
+
+The same decomposition pattern was applied to `dependencies/rate_limit.py`
+in T64.3, which had grown to 583 LOC with three distinct responsibilities:
+
+| File | Before | After | Notes |
+|------|--------|-------|-------|
+| `dependencies/rate_limit.py` | 583 LOC | ~180 LOC | Config, identity resolution, public re-exports only |
+| `dependencies/rate_limit_backend.py` | (new) | ~115 LOC | Redis counter + in-memory fallback primitives |
+| `dependencies/rate_limit_middleware.py` | (new) | ~290 LOC | ASGI middleware dispatch class |
+
+**Motivation**: `rate_limit.py` contained Redis pipeline logic, in-memory
+FixedWindowRateLimiter fallback, ASGI middleware dispatch, identity resolution,
+and tier configuration — all in a single file.  The decomposition follows the
+same principle as T60: one file per responsibility, backward-compatible
+re-exports from the original module.
+
+**Backward compatibility**: `rate_limit.py` re-exports `RateLimitGateMiddleware`
+unconditionally; existing callers importing from `rate_limit` are unaffected.
+
 ## Consequences
 
 **Positive**:
@@ -55,6 +75,7 @@ Decompose all four files with zero behavioral changes:
 - `lifecycle.py`: 217 → 116 LOC (−47%)
 - `factories.py`: 377 → 323 LOC (−14%), and no longer contains ORM access
 - `sync_budget.py`: new 128 LOC file in the correct module
+- `rate_limit.py`: 583 → ~180 LOC (−69%), with backend and middleware split out
 - Import-linter contracts continue to pass: `modules/privacy` does not import
   from `bootstrapper`
 
@@ -65,3 +86,7 @@ Decompose all four files with zero behavioral changes:
 **Negative**:
 - Deferred imports in `auth_middleware.dispatch()` are slightly unusual; the
   comment documents why (circular import resolution)
+- Deferred imports in `rate_limit_middleware.dispatch()` serve the same purpose
+  (circular import: `rate_limit.py` imports `rate_limit_middleware` at module
+  scope; `rate_limit_middleware.dispatch()` defers its import of `rate_limit`
+  helpers to avoid the cycle)

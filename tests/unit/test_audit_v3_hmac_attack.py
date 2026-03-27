@@ -332,18 +332,20 @@ def test_v1_events_still_verify_with_v3_logger(v3_key: bytes) -> None:
     verifiable.  The v3 upgrade must not break the v1 verification path.
     """
     from synth_engine.shared.security.audit import AuditEvent, AuditLogger
+    from synth_engine.shared.security.audit_signatures import sign_v1
 
     logger = AuditLogger(v3_key)
 
-    # Construct a genuine v1 signature by calling _sign_v1 directly
+    # Construct a genuine v1 signature using the standalone sign_v1 function.
     ts = "2024-01-01T00:00:00+00:00"
-    sig_v1 = logger._sign_v1(  # type: ignore[attr-defined]
-        timestamp=ts,
-        event_type="LEGACY",
-        actor="old_system",
-        resource="db/legacy",
-        action="read",
-        prev_hash="0" * 64,
+    sig_v1 = sign_v1(
+        v3_key,
+        ts,
+        "LEGACY",
+        "old_system",
+        "db/legacy",
+        "read",
+        "0" * 64,
     )
 
     v1_event = AuditEvent(
@@ -369,18 +371,20 @@ def test_v2_events_still_verify_with_v3_logger(v3_key: bytes) -> None:
     verifiable.  The v3 upgrade must not break the v2 verification path.
     """
     from synth_engine.shared.security.audit import AuditEvent, AuditLogger
+    from synth_engine.shared.security.audit_signatures import sign_v2
 
     logger = AuditLogger(v3_key)
 
     ts = "2024-06-15T12:00:00+00:00"
-    sig_v2 = logger._sign_v2(  # type: ignore[attr-defined]
-        timestamp=ts,
-        event_type="DATA_EXPORT",
-        actor="etl_job",
-        resource="warehouse/table",
-        action="export",
-        prev_hash="a" * 64,
-        details={"rows": "5000"},
+    sig_v2 = sign_v2(
+        v3_key,
+        ts,
+        "DATA_EXPORT",
+        "etl_job",
+        "warehouse/table",
+        "export",
+        "a" * 64,
+        {"rows": "5000"},
     )
 
     v2_event = AuditEvent(
