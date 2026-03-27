@@ -49,6 +49,10 @@ Security posture
   extracting the Authorization header, calling verify_token, and returning
   the appropriate 401 response on failure.
 - Failure detail messages do not leak key material or internal state.
+  On ``AuthenticationError``, only the static string "Invalid credentials"
+  is returned; exception detail is logged at DEBUG with ``exc_info=True``
+  so the full traceback is available for operators but never exposed to
+  callers.  (Arch review finding, Phase 63.)
 - Pass-through mode is only permitted in non-production environments.
 
 CONSTITUTION Priority 0: Security
@@ -191,7 +195,14 @@ class AuthenticationGateMiddleware(BaseHTTPMiddleware):
         try:
             verify_token(token)
         except AuthenticationError as exc:
-            _logger.warning("Authentication failed: %s", exc)
-            return _build_401_response(str(exc))
+            # Log at DEBUG with full traceback for operators; do NOT pass exc detail
+            # to the response — that would leak JWT error internals (e.g. algorithm
+            # name, decode error details) to the caller.  Arch review finding, Phase 63.
+            _logger.debug(
+                "Authentication failed: %s",
+                type(exc).__name__,
+                exc_info=True,
+            )
+            return _build_401_response("Invalid credentials")
 
         return await call_next(request)

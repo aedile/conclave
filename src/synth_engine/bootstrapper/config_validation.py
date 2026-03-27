@@ -394,20 +394,14 @@ def validate_config() -> None:
             "set it to a hex-encoded 32-byte HMAC key for audit event signing"
         )
 
-    # T42.1: validate multi-key signing consistency in all deployment modes.
-    # This cross-field check is kept in config_validation (not settings) because
-    # it requires inspecting two related fields together and emitting a specific
-    # error message that names both field names.
-    if settings.artifact_signing_keys:
-        if not settings.artifact_signing_key_active:
-            errors.append(
-                "ARTIFACT_SIGNING_KEY_ACTIVE must be set when ARTIFACT_SIGNING_KEYS is non-empty"
-            )
-        elif settings.artifact_signing_key_active not in settings.artifact_signing_keys:
-            errors.append(
-                f"ARTIFACT_SIGNING_KEY_ACTIVE '{settings.artifact_signing_key_active}' "
-                f"is not present in ARTIFACT_SIGNING_KEYS"
-            )
+    # T42.1: multi-key signing consistency validation has moved to the Pydantic
+    # model_validator ConclaveSettings._validate_multi_key_signing_consistency()
+    # in shared/settings.py.  It runs at settings construction time (above, inside
+    # the try/except block) and raises ValueError on misconfiguration, which is
+    # caught and converted to SystemExit.  The duplicate check that previously
+    # lived here was unreachable because get_settings() always raises before
+    # returning an inconsistent settings object.  Arch review finding, Phase 63
+    # (T63.1 AC3).
 
     # T46.2 / ADV-P46-03: validate mTLS cert files exist and are readable.
     # File-system existence checks cannot be done in Pydantic validators (they would
