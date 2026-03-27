@@ -3,6 +3,27 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-27] Phase 62 — Review Summary
+
+**Reviewers**: QA (pending), DevOps, Architecture, Red-team
+
+**Verdicts**: Arch — FINDING (3, all fixed); DevOps — FINDING (3, all fixed); Red-team — PASS (3 ADVISORIEs)
+
+**FINDINGs fixed** (`e987539`):
+1. Callback URLs logged unsanitized — added `_sanitize_url_for_log()` to 4 log sites (DevOps)
+2. Raw `str(exc)` in DeliveryResult.error_message — replaced with `_safe_error_msg()` (DevOps)
+3. Wrong ADR-0059 reference in webhook_delivery.py — corrected to "this module's docstring" (Arch+DevOps)
+4. Missing .env.example entries for circuit breaker settings — added (Arch+DevOps)
+5. compliance.py/privacy.py exclusion from T62.1 — documented (Arch)
+
+**ADVISORIEs** (logged, not blocking):
+- ADV-P62-01: OpenAPI docs (/docs, /redoc, /openapi.json) exposed in production without auth — reconnaissance risk (Red-team)
+- ADV-P62-02: X-Forwarded-For accepted without trust validation — rate limit bypass via header spoofing (Red-team, pre-existing)
+- ADV-P62-03: Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments (Red-team+Arch)
+- ADV-P62-04: No Prometheus counter for deliveries skipped by open circuit (DevOps)
+
+---
+
 ### [2026-03-27] Phase 61 — Review Summary
 
 **Reviewers**: QA, DevOps, Red-team
