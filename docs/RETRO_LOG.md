@@ -3,6 +3,20 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-27] Phase 60 — Review Summary
+
+**Reviewers**: Red-team, Architecture, DevOps (QA pending — long test suite)
+
+**Verdicts**: Red-team — FINDING (1, fixed); Arch — PASS (1 ADVISORY); DevOps — PASS
+
+**FINDINGs fixed** (`66e1146`):
+1. `UnsealRequest.passphrase` missing `max_length=1024` — PBKDF2 CPU DoS vector (Red-team)
+
+**ADVISORIEs** (logged, not blocking):
+- ADR-0027 re-export table should include `build_ephemeral_storage_client` (Arch)
+
+---
+
 ### [2026-03-26] Phase 58 — Review Summary
 
 **Reviewers**: Red-team, Architecture, DevOps (QA agent crashed — API 500)
