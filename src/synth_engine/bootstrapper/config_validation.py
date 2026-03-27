@@ -75,7 +75,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
-from synth_engine.shared.settings import get_settings
+from synth_engine.shared.settings import ConclaveSettings, get_settings
 
 _ALWAYS_REQUIRED: tuple[str, ...] = (
     "DATABASE_URL",
@@ -108,6 +108,31 @@ def _is_production() -> bool:
         ``True`` when the deployment mode is production, ``False`` otherwise.
     """
     return get_settings().is_production()
+
+
+def _is_field_empty(settings: ConclaveSettings, field_name: str) -> bool:
+    """Return ``True`` when a settings field is absent, ``None``, or empty/whitespace.
+
+    Handles both plain string fields and ``pydantic.SecretStr`` fields correctly.
+    A bare truthiness test on ``SecretStr`` always returns ``False`` for non-``None``
+    values — even ``SecretStr("   ")`` — so ``get_secret_value().strip()`` is used
+    for secrets to catch whitespace-only values that are semantically empty.
+
+    Args:
+        settings: The ``ConclaveSettings`` instance to inspect.
+        field_name: The uppercase environment variable name (e.g. ``"AUDIT_KEY"``).
+            The settings attribute is the lowercase equivalent (Pydantic convention).
+
+    Returns:
+        ``True`` when the field value is absent, ``None``, or empty/whitespace-only.
+        ``False`` when the field contains a non-empty, non-whitespace value.
+    """
+    value = getattr(settings, field_name.lower(), None)
+    if value is None:
+        return True
+    if hasattr(value, "get_secret_value"):
+        return not value.get_secret_value().strip()
+    return not str(value).strip()
 
 
 def _validate_jwt_secret_key(errors: list[str]) -> None:
@@ -381,7 +406,7 @@ def validate_config() -> None:
     # Access each required variable via the settings model rather than os.environ.
     # Settings field names are the lowercase equivalents of the env var names
     # (e.g. DATABASE_URL -> settings.database_url).
-    errors: list[str] = [var for var in required if not getattr(settings, var.lower(), None)]
+    errors: list[str] = [var for var in required if _is_field_empty(settings, var)]
 
     # T42.1: validate multi-key signing consistency in all deployment modes.
     # If artifact_signing_keys is non-empty, artifact_signing_key_active must be
