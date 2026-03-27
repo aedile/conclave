@@ -25,9 +25,45 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
+_VALID_BCRYPT_HASH = "$2b$12$" + "a" * 53  # 60 chars total — valid structural format
+
+
 # ---------------------------------------------------------------------------
-# Shared helper
+# Shared helpers
 # ---------------------------------------------------------------------------
+
+
+def _set_all_production_required(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set ALL production-required env vars so ConclaveSettings() succeeds in production mode.
+
+    After T63.1, the model_validator enforces all required fields at construction
+    time when conclave_env='production'. Tests that remove CONCLAVE_ENV (so it
+    defaults to 'production') must also provide all required fields to avoid
+    ValidationError.
+
+    Args:
+        monkeypatch: The pytest monkeypatch fixture.
+    """
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
+    monkeypatch.setenv("AUDIT_KEY", "deadbeefdeadbeefdeadbeefdeadbeef")  # pragma: allowlist secret
+    monkeypatch.setenv(
+        "ARTIFACT_SIGNING_KEY",
+        "cafecafecafecafecafecafecafecafe",  # pragma: allowlist secret
+    )
+    monkeypatch.setenv(
+        "MASKING_SALT",
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # pragma: allowlist secret
+    )
+    monkeypatch.setenv("JWT_SECRET_KEY", "c" * 64)  # pragma: allowlist secret
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", _VALID_BCRYPT_HASH)
+    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
+    monkeypatch.delenv("MTLS_ENABLED", raising=False)
 
 
 def _minimal_prod_base(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,8 +106,9 @@ def test_unset_conclave_env_is_not_development(monkeypatch: pytest.MonkeyPatch) 
     """
     from synth_engine.shared.settings import ConclaveSettings
 
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
-    monkeypatch.delenv("ENV", raising=False)
+    # T63.1: provide all production-required fields so the validator does not raise.
+    # The key assertion is that conclave_env defaults to 'production' (not '').
+    _set_all_production_required(monkeypatch)
 
     s = ConclaveSettings()
     assert s.is_production() is True, (
@@ -90,8 +127,9 @@ def test_unset_conclave_env_conclave_env_field_is_production(
     """
     from synth_engine.shared.settings import ConclaveSettings
 
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
-    monkeypatch.delenv("ENV", raising=False)
+    # T63.1: provide all production-required fields so the validator does not raise.
+    # The key assertion is that conclave_env defaults to 'production' (not '').
+    _set_all_production_required(monkeypatch)
 
     s = ConclaveSettings()
     assert s.conclave_env == "production", (

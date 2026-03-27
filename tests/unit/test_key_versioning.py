@@ -624,8 +624,11 @@ class TestBuildKeyMapFromSettings:
             "00000001": "not-valid-hex!",
             "00000002": "also-not-hex!!",
         }
+        # T63.1: CONCLAVE_ENV=development prevents the production-mode validator from
+        # requiring ARTIFACT_SIGNING_KEY when ARTIFACT_SIGNING_KEYS entries are all malformed.
         env_vars = {
             "ARTIFACT_SIGNING_KEYS": json.dumps(keys_dict),
+            "CONCLAVE_ENV": "development",
         }
         remove_keys = ["ARTIFACT_SIGNING_KEY", "ARTIFACT_SIGNING_KEY_ACTIVE"]
         with patch.dict(os.environ, env_vars, clear=False):

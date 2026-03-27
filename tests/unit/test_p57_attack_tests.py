@@ -57,11 +57,49 @@ def _clear_settings_cache() -> Any:
 # ===========================================================================
 
 
-def _set_minimal_production_env(monkeypatch: pytest.MonkeyPatch, *, jwt_secret: str = "") -> None:
-    """Set minimum environment for a valid production ConclaveSettings.
+def _make_prod_settings_empty_jwt() -> object:
+    """Create a ConclaveSettings-like object for production mode with empty JWT.
 
-    Sets all fields required by the T57.3 production validator except JWT_SECRET_KEY
-    (which is the variable under test for T57.1).
+    After T63.1, ConclaveSettings() raises ValidationError when JWT_SECRET_KEY
+    is empty in production mode. To test auth behavior independently of settings
+    validation, we use model_construct() to bypass validators and create a settings
+    object representing a misconfigured production deployment.
+
+    Returns:
+        A ConclaveSettings instance constructed via model_construct (no validation).
+    """
+    from pydantic import SecretStr
+
+    from synth_engine.shared.settings import ConclaveSettings
+
+    return ConclaveSettings.model_construct(
+        conclave_env="production",
+        env="",
+        database_url="postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+        audit_key=SecretStr("aa" * 32),
+        jwt_secret_key=SecretStr(""),  # empty — the misconfiguration under test
+        jwt_algorithm="HS256",
+        jwt_expiry_seconds=3600,
+        operator_credentials_hash="",
+        artifact_signing_key=None,
+        artifact_signing_keys={},
+        artifact_signing_key_active=None,
+        masking_salt=None,
+        mtls_enabled=False,
+        conclave_ssl_required=True,
+        conclave_tls_cert_path=None,
+        rate_limit_fail_open=False,
+    )
+
+
+def _set_minimal_production_env(monkeypatch: pytest.MonkeyPatch, *, jwt_secret: str = "") -> None:
+    """Set env vars for production mode (used by tests that don't call get_settings directly).
+
+    NOTE: After T63.1, ConclaveSettings() with empty JWT_SECRET_KEY in production mode
+    raises ValidationError at construction time. Tests that call get_current_operator(),
+    AuthenticationGateMiddleware, or require_scope() must patch get_settings() to return
+    _make_prod_settings_empty_jwt() rather than relying on this function to make
+    ConclaveSettings() constructible.
 
     Args:
         monkeypatch: The pytest monkeypatch fixture.
@@ -77,55 +115,60 @@ def _set_minimal_production_env(monkeypatch: pytest.MonkeyPatch, *, jwt_secret: 
     monkeypatch.delenv("ENV", raising=False)
 
 
-def test_production_empty_jwt_returns_401_not_500(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_production_empty_jwt_returns_401_not_500() -> None:
     """In production with empty JWT_SECRET_KEY, get_current_operator raises 401 not 500.
 
     Attack: misconfigured production deployment with JWT_SECRET_KEY unset.
     Expected: HTTPException(401) raised, not AuthenticationError propagating as 500.
+
+    After T63.1, ConclaveSettings() raises ValidationError for empty JWT in production.
+    We use model_construct() to bypass validation and test auth behavior in isolation.
     """
     from fastapi import HTTPException
 
-    _set_minimal_production_env(monkeypatch)
-
     from synth_engine.bootstrapper.dependencies.auth import get_current_operator
-    from synth_engine.shared.settings import get_settings
 
-    settings = get_settings()
-    assert settings.is_production() is True, "Pre-condition: must be in production mode"
+    fake_settings = _make_prod_settings_empty_jwt()
+    assert fake_settings.is_production() is True, "Pre-condition: must be in production mode"  # type: ignore[union-attr]
 
     # Simulate a request with no Authorization header
     mock_request = MagicMock()
     mock_request.headers.get = lambda k, d=None: None
 
-    with pytest.raises(HTTPException) as exc_info:
-        get_current_operator(mock_request)
+    with patch(
+        "synth_engine.bootstrapper.dependencies.auth.get_settings",
+        return_value=fake_settings,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            get_current_operator(mock_request)
 
     assert exc_info.value.status_code == 401, (
         f"Production + empty JWT_SECRET_KEY must raise HTTP 401, got {exc_info.value.status_code}"
     )
 
 
-def test_production_empty_jwt_rejects_even_with_bearer_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_production_empty_jwt_rejects_even_with_bearer_token() -> None:
     """In production with empty JWT_SECRET_KEY, even a Bearer token is rejected.
 
     Attack: attacker provides ANY bearer token when JWT is unconfigured.
     Expected: 401, not pass-through with sentinel operator identity.
+
+    After T63.1, uses model_construct() to bypass settings validation.
     """
     from fastapi import HTTPException
 
-    _set_minimal_production_env(monkeypatch)
-
     from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 
+    fake_settings = _make_prod_settings_empty_jwt()
     mock_request = MagicMock()
     mock_request.headers.get = lambda k, d=None: "Bearer sometoken" if k == "Authorization" else d
 
-    with pytest.raises(HTTPException) as exc_info:
-        get_current_operator(mock_request)
+    with patch(
+        "synth_engine.bootstrapper.dependencies.auth.get_settings",
+        return_value=fake_settings,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            get_current_operator(mock_request)
 
     assert exc_info.value.status_code == 401, (
         "Production + empty JWT_SECRET_KEY must reject even bearer-token requests "
@@ -156,24 +199,27 @@ def test_dev_mode_pass_through_preserved(
     )
 
 
-def test_401_body_does_not_reveal_config_state(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_401_body_does_not_reveal_config_state() -> None:
     """The 401 response body must NOT reveal that JWT_SECRET_KEY is unconfigured.
 
     Info disclosure: attacker could enumerate config state from error messages.
+
+    After T63.1, uses model_construct() to bypass settings validation.
     """
     from fastapi import HTTPException
 
-    _set_minimal_production_env(monkeypatch)
-
     from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 
+    fake_settings = _make_prod_settings_empty_jwt()
     mock_request = MagicMock()
     mock_request.headers.get = lambda k, d=None: None
 
-    with pytest.raises(HTTPException) as exc_info:
-        get_current_operator(mock_request)
+    with patch(
+        "synth_engine.bootstrapper.dependencies.auth.get_settings",
+        return_value=fake_settings,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            get_current_operator(mock_request)
 
     detail = str(exc_info.value.detail).lower()
     assert "jwt_secret_key" not in detail, (
@@ -191,14 +237,14 @@ def test_401_body_does_not_reveal_config_state(
 
 
 @pytest.mark.asyncio
-async def test_production_empty_jwt_middleware_rejects_non_exempt_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_production_empty_jwt_middleware_rejects_non_exempt_path() -> None:
     """AuthenticationGateMiddleware must also reject in production with empty JWT secret.
 
     Attack: middleware's pass-through block must be gated on production mode.
+
+    After T63.1, uses model_construct() to bypass settings validation.
     """
-    _set_minimal_production_env(monkeypatch)
+    fake_settings = _make_prod_settings_empty_jwt()
 
     from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
 
@@ -210,7 +256,18 @@ async def test_production_empty_jwt_middleware_rejects_non_exempt_path(
 
     call_next = AsyncMock()
 
-    response = await middleware.dispatch(mock_request, call_next)
+    # Patch get_settings in both auth and auth_middleware (dispatch may import from either)
+    with (
+        patch(
+            "synth_engine.bootstrapper.dependencies.auth.get_settings",
+            return_value=fake_settings,
+        ),
+        patch(
+            "synth_engine.bootstrapper.dependencies.auth_middleware.get_settings",
+            return_value=fake_settings,
+        ),
+    ):
+        response = await middleware.dispatch(mock_request, call_next)
 
     assert response.status_code == 401, (
         "AuthenticationGateMiddleware in production + empty JWT must return 401, "
@@ -220,26 +277,29 @@ async def test_production_empty_jwt_middleware_rejects_non_exempt_path(
     call_next.assert_not_called()
 
 
-def test_require_scope_production_empty_jwt_raises(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_require_scope_production_empty_jwt_raises() -> None:
     """require_scope() must also hard-fail in production with empty JWT secret.
 
     Attack: scope bypass when JWT_SECRET_KEY is unconfigured in production.
+
+    After T63.1, uses model_construct() to bypass settings validation.
     """
     from fastapi import HTTPException
 
-    _set_minimal_production_env(monkeypatch)
-
     from synth_engine.bootstrapper.dependencies.auth import require_scope
 
+    fake_settings = _make_prod_settings_empty_jwt()
     scope_checker = require_scope("security:admin")
 
     mock_request = MagicMock()
     mock_request.headers.get = lambda k, d=None: None
 
-    with pytest.raises(HTTPException) as exc_info:
-        scope_checker(request=mock_request, operator="")
+    with patch(
+        "synth_engine.bootstrapper.dependencies.auth.get_settings",
+        return_value=fake_settings,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            scope_checker(request=mock_request, operator="")
 
     assert exc_info.value.status_code in (401, 403), (
         "require_scope() in production + empty JWT must raise 401 or 403, "
@@ -793,12 +853,18 @@ def test_env_alias_sets_conclave_env_when_conclave_env_not_set(
     # conclave_env wins, so is_production() returns True.
     monkeypatch.setenv("ENV", "development")
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
-    # Must set required production fields since CONCLAVE_ENV defaults to "production"
+    # T63.1: must set ALL production-required fields since CONCLAVE_ENV defaults to "production"
     monkeypatch.setenv(
         "DATABASE_URL",
         "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
     )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafe" * 16)  # pragma: allowlist secret
+    monkeypatch.setenv("MASKING_SALT", "test-salt-value")
+    monkeypatch.setenv("JWT_SECRET_KEY", "c" * 64)  # pragma: allowlist secret
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "$2b$12$" + "a" * 53)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     from synth_engine.shared.settings import ConclaveSettings
 
@@ -844,13 +910,20 @@ def test_env_alias_deprecation_emits_warning_when_used(
     when conclave_env was the default "production" — this test encodes the correct behavior.
     """
     monkeypatch.setenv("ENV", "development")
-    # CONCLAVE_ENV unset — defaults to "production", so we must set DATABASE_URL and AUDIT_KEY
+    # CONCLAVE_ENV unset — defaults to "production"
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    # T63.1: must set ALL production-required fields since CONCLAVE_ENV defaults to "production"
     monkeypatch.setenv(
         "DATABASE_URL",
         "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
     )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafe" * 16)  # pragma: allowlist secret
+    monkeypatch.setenv("MASKING_SALT", "test-salt-value")
+    monkeypatch.setenv("JWT_SECRET_KEY", "c" * 64)  # pragma: allowlist secret
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "$2b$12$" + "a" * 53)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     with caplog.at_level(logging.WARNING, logger="synth_engine.shared.settings"):
         from synth_engine.shared.settings import ConclaveSettings
@@ -892,6 +965,13 @@ def test_is_production_uses_conclave_env_as_primary_source(
     )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.delenv("ENV", raising=False)
+    # T63.1: add all production-required fields to avoid ValidationError
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "cafe" * 16)  # pragma: allowlist secret
+    monkeypatch.setenv("MASKING_SALT", "test-salt-value")
+    monkeypatch.setenv("JWT_SECRET_KEY", "c" * 64)  # pragma: allowlist secret
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "$2b$12$" + "a" * 53)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
     from synth_engine.shared.settings import ConclaveSettings
 
