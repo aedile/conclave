@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 from synth_engine.shared.exceptions import ArtifactTamperingError
 from synth_engine.shared.security import SecurityError
 from synth_engine.shared.security.hmac_signing import compute_hmac

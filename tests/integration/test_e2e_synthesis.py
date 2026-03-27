@@ -268,7 +268,7 @@ def test_dummy_synthesizer_train_returns_model_artifact() -> None:
     Validates that the dummy synthesizer implements the same interface as
     SynthesisEngine so it can be substituted in integration test pipelines.
     """
-    from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+    from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 
     synthesizer = DummyMLSynthesizer()
     artifact = synthesizer.train("test_table", "/fake/path.parquet")

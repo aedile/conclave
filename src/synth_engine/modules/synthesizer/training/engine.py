@@ -58,7 +58,7 @@ except ImportError:  # pragma: no cover — only triggered if synthesizer group 
 if TYPE_CHECKING:
     from sdv.metadata import SingleTableMetadata
 
-    from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+    from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 
 _logger = logging.getLogger(__name__)
 
@@ -355,7 +355,7 @@ class SynthesisEngine:
             ImportError: If the ``sdv`` package is not installed (synthesizer
                 group not installed).
         """
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 
         if not os.path.exists(parquet_path):
             raise FileNotFoundError(

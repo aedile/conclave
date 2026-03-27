@@ -27,7 +27,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 from synth_engine.shared.security import SecurityError
 
 pytestmark = pytest.mark.unit

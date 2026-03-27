@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 
 
 class _PicklableModelStub:
@@ -301,7 +301,7 @@ class TestSynthesisEngineTrain:
 
     def test_train_returns_model_artifact(self) -> None:
         """train() must return a ModelArtifact instance."""
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with (
@@ -585,7 +585,7 @@ class TestSynthesisEngineWithDPWrapper:
         T7.3: When dp_wrapper is provided, DPCompatibleCTGAN is used instead of
         CTGANSynthesizer.  Both are patched so no real SDV calls occur.
         """
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         mock_dp_wrapper = MagicMock()
@@ -628,7 +628,7 @@ class TestSynthesisEngineWithDPWrapper:
 
     def test_train_without_dp_wrapper_still_works(self) -> None:
         """train() without dp_wrapper must behave identically to pre-T4.3b behavior."""
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with (
@@ -670,7 +670,7 @@ class TestSynthesisEngineWithDPWrapper:
         """
         import logging
 
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         mock_dp_wrapper = MagicMock()

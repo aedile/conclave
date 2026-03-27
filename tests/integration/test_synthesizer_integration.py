@@ -98,7 +98,7 @@ class TestSynthesisEngineCTGANIntegration:
 
     def test_train_returns_model_artifact(self, persons_parquet: str) -> None:
         """train() with real CTGAN must return a ModelArtifact."""
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine(epochs=2)
@@ -146,7 +146,7 @@ class TestSynthesisEngineCTGANIntegration:
 
         After round-trip, generate() must still produce a valid DataFrame.
         """
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -267,7 +267,7 @@ class TestSynthesisJobTaskIntegration:
         from sqlmodel import Session, SQLModel, create_engine
 
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-        from synth_engine.modules.synthesizer.jobs.tasks import _run_synthesis_job_impl
+        from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
 
         # Build the SQLAlchemy URL from the running proc fixture.
         proc = synth_pg_proc

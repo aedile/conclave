@@ -3,6 +3,113 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+---
+
+## Table of Contents
+
+### Open Advisories by Severity
+
+**SECURITY (TTL enforced — Rule 26)**
+
+| ID | Advisory | Phase |
+|----|----------|-------|
+| ADV-P62-01 | OpenAPI docs (/docs, /redoc, /openapi.json) exposed without auth — reconnaissance risk | [P62](#2026-03-27-phase-62--review-summary) |
+| ADV-P62-02 | X-Forwarded-For accepted without trust validation — rate limit bypass via header spoofing | [P62](#2026-03-27-phase-62--review-summary) |
+| ADV-P63-05 | pygments CVE-2026-4539 — no upstream fix available (track at P65) | [P63](#2026-03-27-phase-63--review-summary) |
+
+**ADVISORY**
+
+| ID | Advisory | Phase |
+|----|----------|-------|
+| ADV-P58-01 | Dead `_sign_v1/_sign_v2/_sign_v3` wrapper methods on AuditLogger — 78 lines vestigial code | [P58](#2026-03-26-phase-58--review-summary) |
+| ADV-P58-02 | Consider `unexpected_webhook_errors_total` Prometheus counter on wiring.py CRITICAL branch | [P58](#2026-03-26-phase-58--review-summary) |
+| ADV-P59-01 | CI SBOM omits synthesizer dependency group — document as dev-only subset | [P59](#2026-03-26-phase-59--review-summary) |
+| ADV-P59-02 | `asyncio.run()` in threadpool for budget refresh — reliability concern under concurrent load | [P59](#2026-03-26-phase-59--review-summary) |
+| ADV-P59-04 | 400 error not in explicit COMMON_ERROR_RESPONSES — covered by FastAPI default handler | [P59](#2026-03-26-phase-59--review-summary) |
+| ADV-P61-01 | CI does not report business-logic coverage separately from infrastructure tests | [P61](#2026-03-27-phase-61--review-summary) |
+| ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
+| ADV-P62-04 | No Prometheus counter for deliveries skipped by open circuit | [P62](#2026-03-27-phase-62--review-summary) |
+| ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
+| ADV-P63-02 | X-Forwarded-For spoofing defeats IP-keyed rate limits when reverse proxy bypassed (pre-existing ADV-P62-02) | [P63](#2026-03-27-phase-63--review-summary) |
+| ADV-P63-03 | Privacy ledger has no owner filter — single-operator model assumption undocumented | [P63](#2026-03-27-phase-63--review-summary) |
+| ADV-P63-04 | Prometheus `rate_limit_redis_fallback_total` counter not pre-initialized with all tier labels | [P63](#2026-03-27-phase-63--review-summary) |
+
+---
+
+### Open Advisories by Domain
+
+**Security**
+- ADV-P58-01: Dead AuditLogger sign wrapper methods
+- ADV-P62-01: OpenAPI docs exposed without auth
+- ADV-P62-02: X-Forwarded-For not validated (also ADV-P59-03, ADV-P63-02)
+- ADV-P63-05: pygments CVE-2026-4539
+
+**Privacy**
+- ADV-P63-03: Privacy ledger single-operator assumption undocumented
+
+**Infrastructure**
+- ADV-P58-02: Missing webhook error Prometheus counter
+- ADV-P59-02: asyncio.run() in threadpool for budget refresh
+- ADV-P61-01: CI business-logic coverage separation
+- ADV-P62-03: Circuit breaker process-local state
+- ADV-P62-04: Missing open-circuit delivery Prometheus counter
+- ADV-P63-01: Grace period per-process across N workers
+- ADV-P63-04: Prometheus fallback counter not pre-initialized
+
+**Configuration**
+- ADV-P59-04: 400 error not in COMMON_ERROR_RESPONSES
+
+**CI / DevOps**
+- ADV-P59-01: CI SBOM omits synthesizer dependency group
+
+---
+
+### Phase Index
+
+| Phase | Date | Link |
+|-------|------|------|
+| Phase 63 | 2026-03-27 | [Review Summary](#2026-03-27-phase-63--review-summary) |
+| Phase 62 | 2026-03-27 | [Review Summary](#2026-03-27-phase-62--review-summary) |
+| Phase 61 | 2026-03-27 | [Review Summary](#2026-03-27-phase-61--review-summary) |
+| Phase 60 | 2026-03-27 | [Review Summary](#2026-03-27-phase-60--review-summary) |
+| Phase 59 | 2026-03-26 | [Review Summary](#2026-03-26-phase-59--review-summary) |
+| Phase 58 | 2026-03-26 | [Review Summary](#2026-03-26-phase-58--review-summary) |
+| Phase 57 | 2026-03-26 | [Review Summary](#2026-03-26-phase-57--review-summary) |
+| Phase 56 | 2026-03-25 | [Review Summary](#2026-03-25-phase-56--review-summary) |
+| Phase 55 | 2026-03-25 | [Review Summary](#2026-03-25-phase-55--review-summary) |
+| Phase 54 | 2026-03-25 | [Review Summary](#2026-03-25-phase-54--review-summary) |
+| Phase 53 | 2026-03-24 | [Review Summary](#2026-03-24-phase-53--review-summary) |
+| T53.4 | 2026-03-24 | [Redis TLS Deduplication](#2026-03-24-t534--redis-tls-promotion-deduplication) |
+| Phase 52 | 2026-03-23 | [End-of-Phase Retrospective](#2026-03-23-phase-52-end-of-phase-retrospective) |
+| Phase 51 | 2026-03-23 | [Release Engineering](#2026-03-23-phase-51--release-engineering) |
+| Phase 50 | 2026-03-23 | [T50.3: Default to Production Mode](#2026-03-23-phase-50--t503-default-to-production-mode) |
+| Phase 49 | 2026-03-23 | [Test Quality Hardening](#2026-03-23-phase-49--test-quality-hardening) |
+| Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
+| Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
+| Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-27] Phase 64 — Review Summary
+
+**Reviewers**: QA (pending), DevOps, Architecture, Red-team
+
+**Verdicts**: Arch — FINDING (2 cosmetic, batched); DevOps — FINDING (1 CVE, fixed); Red-team — PASS
+
+**FINDINGs fixed** (`569e7a2`):
+1. CVE-2026-34073 in cryptography 46.0.5 → updated to 46.0.6 (DevOps)
+
+**Cosmetic findings (batched, not standalone fixes)**:
+- `limit: object` type erasure in rate_limit_backend.py (Arch) — minor type safety
+- `_IP_KEYED_PATHS` dead constant in rate_limit.py (Arch) — dead code
+- `MemoryStorage` dead re-export in rate_limit_backend.__all__ (Arch) — cleanup
+
+**ADVISORIEs** (logged, not blocking):
+- ADV-P64-01: Advisory count at 15, exceeds Rule 11 cap of 8 — drain sprint needed before P65 (DevOps)
+- ADV-P64-02: ADR-0058 should be amended to cover T64.3 rate_limit decomposition pattern (Arch)
+
+---
+
 ### [2026-03-27] Phase 63 — Review Summary
 
 **Reviewers**: QA (pending), DevOps, Architecture, Red-team
