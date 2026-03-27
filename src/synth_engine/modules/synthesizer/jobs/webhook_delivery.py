@@ -175,18 +175,12 @@ class WebhookCircuitBreaker:
     State: in-memory only.  Not shared across workers; not persisted.
     In multi-worker deployments, use Redis-backed state instead.
 
-    Attributes:
+    Args:
         threshold: Consecutive failures before tripping.
         cooldown_seconds: Seconds to wait after tripping before allowing probe.
     """
 
     def __init__(self, threshold: int = 3, cooldown_seconds: int = 300) -> None:
-        """Initialise the circuit breaker with the given thresholds.
-
-        Args:
-            threshold: Number of consecutive failures before the circuit trips.
-            cooldown_seconds: Duration of the cooldown period after tripping.
-        """
         self.threshold = threshold
         self.cooldown_seconds = cooldown_seconds
         self._lock = threading.RLock()
