@@ -652,4 +652,40 @@ def test_empty_signing_keys_without_active_passes(
     assert result is None
 
 
+# ---------------------------------------------------------------------------
+# Attack test: SecretStr whitespace-only bypass (post-P60 audit finding)
+# ---------------------------------------------------------------------------
+
+
+def test_whitespace_audit_key_raises_system_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """validate_config() raises SystemExit when AUDIT_KEY is whitespace-only.
+
+    SecretStr("   ") is truthy because the underlying object is non-None.
+    The always-required check must use get_secret_value().strip() — not a bare
+    truthiness test — to catch whitespace-only values that are semantically empty.
+
+    This is an attack test: a misconfigured AUDIT_KEY (spaces) must be caught
+    at startup, not silently accepted.
+    """
+    from synth_engine.bootstrapper.config_validation import validate_config
+    from synth_engine.shared import settings as settings_module
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv("AUDIT_KEY", "   ")  # whitespace only — semantically empty
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
+    settings_module._settings = None  # reset singleton so monkeypatched env takes effect
+
+    with pytest.raises(SystemExit) as exc_info:
+        validate_config()
+
+    assert "AUDIT_KEY" in str(exc_info.value), (
+        "SystemExit message must name AUDIT_KEY as the misconfigured variable, "
+        f"got: {exc_info.value!r}"
+    )
+
+
 pytestmark = pytest.mark.unit
