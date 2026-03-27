@@ -64,6 +64,7 @@ Task: T47.5 — Add OPERATOR_CREDENTIALS_HASH to production-required validation
 Task: ADV-P46-03 — Fix cert readability check (existence + open())
 Task: T48.5 — ALE Vault Dependency Enforcement (vault-sealed startup warning)
 Task: T50.3 — Default to Production Mode (dev-mode startup warning)
+Task: T63.3 — Rate Limiter Fail-Closed (warn fail-open in production)
 Advisory: ADV-P47-04 — Security route removal from exempt paths (verified here)
 """
 
@@ -444,6 +445,19 @@ def validate_config() -> None:
             "CONCLAVE_SSL_REQUIRED=false in production mode — "
             "SSL enforcement for PostgreSQL connections is disabled. "
             "This is a security misconfiguration for production."
+        )
+
+    # T63.3: Warn when rate_limit_fail_open=True in production.
+    # Fail-open disables distributed rate limiting during Redis outages, which
+    # allows brute-force and DoS attacks to bypass per-IP limits.  This is a
+    # security misconfiguration that must be visible in production log aggregators.
+    if _is_production() and settings.conclave_rate_limit_fail_open:
+        _logger.warning(
+            "CONCLAVE_RATE_LIMIT_FAIL_OPEN=true in production mode — "
+            "rate limiting will fall back to in-memory counting during Redis outages "
+            "instead of rejecting requests (fail-closed). "
+            "This allows brute-force and DoS attacks to bypass distributed rate limits. "
+            "Set CONCLAVE_RATE_LIMIT_FAIL_OPEN=false (the default) for production deployments."
         )
 
     # T46.2: Warn when mTLS is enabled but CONCLAVE_SSL_REQUIRED is false.

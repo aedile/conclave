@@ -62,6 +62,9 @@ Task: T50.3 — Default to Production Mode (secure-by-default)
 Task: fix/review-critical-issues — Use SecretStr for secret fields
 Task: T57.3 — Production-Mode Validation for Required Settings
 Task: T57.6 — Unify Environment Configuration
+Task: T63.3 — Rate Limiter Fail-Closed on Redis Failure (rate_limit_fail_open)
+Task: T63.1 — Consolidate Settings Validation
+Task: T63.2 — Unify Environment Variable Naming
 """
 
 from __future__ import annotations
@@ -330,6 +333,20 @@ class ConclaveSettings(BaseSettings):
             "Maximum download requests per authenticated operator per minute. "
             "Bandwidth protection for /jobs/{id}/download. "
             "Defaults to 10 per the T39.3 security specification."
+        ),
+    )
+    conclave_rate_limit_fail_open: bool = Field(
+        default=False,
+        description=(
+            "When True, restores pre-P63 in-memory fallback behavior on Redis failure "
+            "(fail-open: requests are allowed through). "
+            "When False (default), requests are rejected with 429 after a 5-second grace "
+            "period on Redis failure (fail-closed). "
+            "WARNING: enabling fail-open in production disables distributed rate limiting "
+            "during Redis outages, which allows brute-force and DoS attacks to bypass "
+            "per-IP limits. Set CONCLAVE_RATE_LIMIT_FAIL_OPEN=true only for non-production "
+            "environments or with explicit security review. "
+            "T63.3 — Rate Limiter Fail-Closed on Redis Failure."
         ),
     )
 
