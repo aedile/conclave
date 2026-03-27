@@ -3,6 +3,27 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-27] Phase 63 — Review Summary
+
+**Reviewers**: QA (pending), DevOps, Architecture, Red-team
+
+**Verdicts**: Arch — FINDING (2, both fixed); DevOps — PASS (2 ADVISORIEs); Red-team — FINDING (2 deployment-topology, 2 ADVISORIEs)
+
+**FINDINGs fixed** (`9ac3886`):
+1. auth_middleware.py still passed `str(exc)` into 401 response body — hardened to static "Invalid credentials" and DEBUG logging (Arch SECURITY)
+2. Dead duplicate multi-key signing validation in config_validation.py removed (Arch T63.1 AC3)
+
+**T63.5 (Parquet at-rest encryption) DEFERRED**: Crypto spec incomplete — HKDF parameters, nonce strategy, format detection, encrypt-then-MAC justification all unspecified. Requires dedicated phase with proper crypto ADR.
+
+**ADVISORIEs** (logged, not blocking):
+- ADV-P63-01: Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N (Red-team, documented constraint)
+- ADV-P63-02: X-Forwarded-For spoofing defeats IP-keyed rate limits when reverse proxy bypassed (Red-team, pre-existing ADV-P62-02)
+- ADV-P63-03: Privacy ledger has no owner filter — single-operator model assumption undocumented (Red-team)
+- ADV-P63-04: Prometheus rate_limit_redis_fallback_total counter not pre-initialized with all tier labels (DevOps)
+- ADV-P63-05: pygments CVE-2026-4539 — no upstream fix available (DevOps, track at P65)
+
+---
+
 ### [2026-03-27] Phase 62 — Review Summary
 
 **Reviewers**: QA (pending), DevOps, Architecture, Red-team
