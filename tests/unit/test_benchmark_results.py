@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.infrastructure]
 
 # ---------------------------------------------------------------------------
 # Repository root and artifact paths

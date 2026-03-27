@@ -27,7 +27,7 @@ class TestSyncBudgetCanonicalLocation:
         """sync_spend_budget must be importable from modules/privacy/sync_budget."""
         from synth_engine.modules.privacy.sync_budget import sync_spend_budget
 
-        assert sync_spend_budget is not None
+        assert sync_spend_budget.__name__ == "sync_spend_budget"
 
     def test_function_is_callable(self) -> None:
         """sync_spend_budget must be callable."""

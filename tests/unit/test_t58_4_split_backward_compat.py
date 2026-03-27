@@ -233,7 +233,7 @@ class TestModelsBackwardCompat:
         from synth_engine.modules.synthesizer.storage.models import SecurityError
 
         # SecurityError is an alias for ArtifactTamperingError (see hmac_signing.py)
-        assert SecurityError is not None
+        assert SecurityError.__name__ == "ArtifactTamperingError"
 
     def test_allowed_module_prefixes_importable(self) -> None:
         from synth_engine.modules.synthesizer.storage.models import _ALLOWED_MODULE_PREFIXES

@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [pytest.mark.infrastructure]
+
 # ---------------------------------------------------------------------------
 # Resolve the script path once at module scope so all tests share it.
 # ---------------------------------------------------------------------------

@@ -33,6 +33,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+pytestmark = [pytest.mark.infrastructure]
+
 # ---------------------------------------------------------------------------
 # Module loader — scripts/ is not a package on sys.path by default
 # ---------------------------------------------------------------------------
@@ -403,7 +405,9 @@ class TestLoadTestScriptStructure:
     def test_script_is_importable(self) -> None:
         """scripts/load_test.py must be importable without errors."""
         mod = _import_load_test_module()
-        assert mod is not None, "load_test module must be importable"
+        assert mod.__name__ == "load_test", (
+            f"load_test module must be importable with name 'load_test', got {mod.__name__!r}"
+        )
 
     def test_sanitize_function_imported_from_validate(self, mod: Any) -> None:
         """_sanitize_dataframe_for_sdv must be available in load_test.

@@ -19,6 +19,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = [pytest.mark.infrastructure]
+
 # ---------------------------------------------------------------------------
 # Module loader -- scripts/ is not a package on sys.path by default
 # ---------------------------------------------------------------------------

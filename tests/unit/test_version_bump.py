@@ -26,6 +26,10 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = [pytest.mark.infrastructure]
+
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------

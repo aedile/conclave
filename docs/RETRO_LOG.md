@@ -3,6 +3,30 @@
 Living ledger of review retrospective notes and open advisory items.
 Updated after each task's review phase completes.
 
+### [2026-03-27] Phase 61 — Review Summary
+
+**Reviewers**: QA, DevOps, Red-team
+
+**Verdicts**: QA — FINDING (2, both fixed); DevOps — PASS (1 ADVISORY, fixed); Red-team — PASS
+
+**FINDINGs fixed** (`9a0daa4`):
+1. Shared `MagicMock` in `@pytest.mark.parametrize` — call-state accumulation across re-runs (QA + DevOps)
+2. T61.3 AC4 (separate CI coverage reporting) not implemented — logged as deferred advisory below
+
+**T61.4 (Real DP-SGD Integration Test) DROPPED by PM**:
+Existing DP integration tests (35+ tests across 5 files: `test_dp_discriminator_e2e.py`,
+`test_dp_training_integration.py`, `test_dp_wiring_integration.py`, `test_e2e_dp_pipeline.py`,
+`test_e2e_dp_synthesis.py`) already cover all T61.4 acceptance criteria: epsilon positivity,
+epsilon finiteness, schema matching, row count, budget exhaustion, budget refresh, ledger
+debit, FK post-processing, profile delta comparison, and dtype matching. Adding another test
+would be pure bloat. Spec-challenger identified this redundancy (MISSING-AC-9). Phase exit
+criterion #4 updated accordingly.
+
+**ADVISORIEs** (logged, not blocking):
+- ADV-P61-01: T61.3 AC4 — CI does not report business-logic coverage separately from infrastructure tests. Deferred to Phase 64 (CI polish).
+
+---
+
 ### [2026-03-27] Phase 60 — Review Summary
 
 **Reviewers**: Red-team, Architecture, DevOps (QA pending — long test suite)

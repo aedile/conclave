@@ -19,7 +19,7 @@ class TestEphemeralStorageClientCanonicalLocation:
         """build_ephemeral_storage_client must be importable from factories.py."""
         from synth_engine.bootstrapper.factories import build_ephemeral_storage_client
 
-        assert build_ephemeral_storage_client is not None
+        assert build_ephemeral_storage_client.__name__ == "build_ephemeral_storage_client"
 
     def test_function_is_callable(self) -> None:
         """build_ephemeral_storage_client must be a callable."""
@@ -35,7 +35,7 @@ class TestEphemeralStorageClientReExport:
         """main.py must still export build_ephemeral_storage_client."""
         from synth_engine.bootstrapper.main import build_ephemeral_storage_client
 
-        assert build_ephemeral_storage_client is not None
+        assert build_ephemeral_storage_client.__name__ == "build_ephemeral_storage_client"
 
     def test_factories_and_main_resolve_to_same_function(self) -> None:
         """factories.py and main.py must both point to the same function object."""
