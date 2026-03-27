@@ -854,6 +854,7 @@ Phase 70.
 | Symbol | Canonical Import | Domain |
 |--------|-----------------|--------|
 | `MaskingRegistry` | `synth_engine.modules.masking.registry` | Masking |
+| `ColumnType` | `synth_engine.modules.masking.registry` | Masking |
 
 ### Subsetting
 
@@ -881,9 +882,19 @@ Phase 70.
 | `ForeignKeyInfo` | `synth_engine.shared.schema_topology` | Shared |
 | `DPWrapperProtocol` | `synth_engine.shared.protocols` | Shared |
 | `SpendBudgetProtocol` | `synth_engine.shared.protocols` | Shared |
+| `OwnedRecordModel` | `synth_engine.shared.protocols` | Shared |
+| `WebhookRegistrationProtocol` | `synth_engine.shared.protocols` | Shared |
 | `SynthEngineError` | `synth_engine.shared.exceptions` | Shared |
 | `BudgetExhaustionError` | `synth_engine.shared.exceptions` | Shared |
 | `ArtifactTamperingError` | `synth_engine.shared.exceptions` | Shared |
+| `AuditWriteError` | `synth_engine.shared.exceptions` | Shared |
+| `EpsilonMeasurementError` | `synth_engine.shared.exceptions` | Shared |
+| `OOMGuardrailError` | `synth_engine.shared.exceptions` | Shared |
+| `VaultSealedError` | `synth_engine.shared.exceptions` | Shared |
+| `VaultConfigError` | `synth_engine.shared.exceptions` | Shared |
+| `LicenseError` | `synth_engine.shared.exceptions` | Shared |
+| `TLSCertificateError` | `synth_engine.shared.exceptions` | Shared |
+| `DatasetTooLargeError` | `synth_engine.shared.exceptions` | Shared |
 
 ### Shared — Security & Audit
 
