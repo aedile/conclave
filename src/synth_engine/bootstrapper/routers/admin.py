@@ -32,6 +32,7 @@ Boundary constraints (import-linter enforced):
 CONSTITUTION Priority 0: Security — audit every privilege operation
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T41.1 — Implement Data Retention Policy
+Task: T62.1 — Wrap Database Commits in Exception Handlers
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
@@ -128,7 +130,8 @@ def set_legal_hold(
 
     Returns:
         :class:`LegalHoldResponse` with the updated ``legal_hold`` value on
-        success, or RFC 7807 404 if the job does not exist.
+        success, RFC 7807 404 if the job does not exist, or RFC 7807 500 on
+        database error.
     """
     job = session.get(SynthesisJob, job_id)
     if job is None:
@@ -144,8 +147,26 @@ def set_legal_hold(
     previous = job.legal_hold
     job.legal_hold = body.enable
     session.add(job)
-    session.commit()
-    session.refresh(job)
+    try:
+        session.commit()
+        session.refresh(job)
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "set_legal_hold: SQLAlchemyError for job_id=%d operator=%s",
+            job_id,
+            current_operator,
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
 
     event_type = "LEGAL_HOLD_SET" if body.enable else "LEGAL_HOLD_CLEARED"
     _logger.info(

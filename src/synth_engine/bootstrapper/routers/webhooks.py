@@ -29,6 +29,7 @@ Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F2 (safe URL logging), F4 (import shared/ssrf), F11 (dead code)
 Task: T55.4 — SSRF registration fail-closed on DNS failure
 Task: T59.3 — OpenAPI Documentation Enrichment
+Task: T62.1 — Wrap Database Commits in Exception Handlers
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
@@ -134,8 +136,8 @@ def register_webhook(
         current_operator: Authenticated operator sub claim (injected).
 
     Returns:
-        :class:`WebhookRegistrationResponse` on success, or RFC 7807
-        400/409 on validation failure.
+        :class:`WebhookRegistrationResponse` on success, RFC 7807
+        400/409 on validation failure, or RFC 7807 500 on database error.
     """
     settings = get_settings()
 
@@ -200,8 +202,23 @@ def register_webhook(
         active=True,
     )
     session.add(reg)
-    session.commit()
-    session.refresh(reg)
+    try:
+        session.commit()
+        session.refresh(reg)
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "register_webhook: SQLAlchemyError for operator=%s", current_operator, exc_info=True
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
 
     _logger.info(
         "Webhook registered: id=%s owner=%s url=%s",
@@ -270,7 +287,8 @@ def deactivate_webhook(
         current_operator: Authenticated operator sub claim (injected).
 
     Returns:
-        HTTP 204 No Content on success, or RFC 7807 404 if not found.
+        HTTP 204 No Content on success, RFC 7807 404 if not found, or
+        RFC 7807 500 on database error.
     """
     # Ownership-scoped lookup (IDOR protection: no 403, only 404)
     stmt = select(WebhookRegistration).where(
@@ -296,7 +314,25 @@ def deactivate_webhook(
 
     reg.active = False
     session.add(reg)
-    session.commit()
+    try:
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "deactivate_webhook: SQLAlchemyError for webhook_id=%s operator=%s",
+            webhook_id,
+            current_operator,
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
 
     _logger.info(
         "Webhook deactivated: id=%s owner=%s",

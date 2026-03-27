@@ -36,7 +36,6 @@ def _make_connections_app() -> tuple[Any, Any]:
         (app, engine) tuple.
     """
     from sqlalchemy.pool import StaticPool
-
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
@@ -70,7 +69,6 @@ def _make_jobs_app() -> tuple[Any, Any]:
         (app, engine) tuple.
     """
     from sqlalchemy.pool import StaticPool
-
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
@@ -118,7 +116,6 @@ def _make_settings_app() -> tuple[Any, Any]:
         (app, engine) tuple.
     """
     from sqlalchemy.pool import StaticPool
-
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
@@ -152,7 +149,6 @@ def _make_webhooks_app() -> tuple[Any, Any]:
         (app, engine) tuple.
     """
     from sqlalchemy.pool import StaticPool
-
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
@@ -186,7 +182,6 @@ def _make_admin_app() -> tuple[Any, Any]:
         (app, engine) tuple.
     """
     from sqlalchemy.pool import StaticPool
-
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
@@ -254,10 +249,8 @@ class TestConnectionsCommitErrors:
     @pytest.mark.asyncio
     async def test_create_connection_integrity_error_returns_409_rfc7807(self) -> None:
         """IntegrityError during create_connection must return 409 with RFC 7807 body."""
-        from sqlalchemy.exc import IntegrityError
-
-        import httpx
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import IntegrityError
 
         app, _ = _make_connections_app()
 
@@ -306,17 +299,14 @@ class TestConnectionsCommitErrors:
     @pytest.mark.asyncio
     async def test_create_connection_sqlalchemy_error_returns_500_rfc7807(self) -> None:
         """Generic SQLAlchemyError during create_connection must return 500 RFC 7807."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         app, _ = _make_connections_app()
 
         mock_session = MagicMock()
         mock_session.add = MagicMock()
-        mock_session.commit = MagicMock(
-            side_effect=SQLAlchemyError("connection lost")
-        )
+        mock_session.commit = MagicMock(side_effect=SQLAlchemyError("connection lost"))
         mock_session.rollback = MagicMock()
 
         from synth_engine.bootstrapper.dependencies.db import get_db_session
@@ -350,9 +340,8 @@ class TestConnectionsCommitErrors:
     @pytest.mark.asyncio
     async def test_create_connection_commit_error_triggers_rollback(self) -> None:
         """session.rollback() MUST be called when commit raises IntegrityError."""
-        from sqlalchemy.exc import IntegrityError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import IntegrityError
 
         app, _ = _make_connections_app()
 
@@ -396,9 +385,8 @@ class TestConnectionsCommitErrors:
     @pytest.mark.asyncio
     async def test_integrity_error_detail_does_not_leak_sql(self) -> None:
         """409 response detail must NOT contain SQL text, table names, or constraint names."""
-        from sqlalchemy.exc import IntegrityError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import IntegrityError
 
         app, _ = _make_connections_app()
 
@@ -448,61 +436,34 @@ class TestConnectionsCommitErrors:
         self,
     ) -> None:
         """SQLAlchemyError during delete_connection must return 500 and rollback."""
+        from httpx import ASGITransport, AsyncClient
         from sqlalchemy.exc import SQLAlchemyError
 
-        from sqlmodel import Session, SQLModel, create_engine
-        from sqlalchemy.pool import StaticPool
-
-        from httpx import ASGITransport, AsyncClient
-
-        from synth_engine.bootstrapper.schemas.connections import Connection
-
-        # Create an engine with a real connection so we can seed a record
-        engine = create_engine(
-            "sqlite:///:memory:",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-        SQLModel.metadata.create_all(engine)
-
         conn_id = "test-conn-id"
-        with Session(engine) as session:
-            conn = Connection(
-                id=conn_id,
-                name="my-conn",
-                host="localhost",
-                port=5432,
-                database="mydb",
-                schema_name="public",
-                owner_id="operator-1",
-            )
-            session.add(conn)
-            session.commit()
-
         app, _ = _make_connections_app()
 
-        # Override with a mock session that fails on commit but returns the real conn on get
+        # Return a mock Connection so ALE encryption is never triggered.
+        # The delete endpoint only checks .owner_id before deleting.
+        mock_conn = MagicMock()
+        mock_conn.owner_id = "operator-1"  # matches _vault_license_patches operator
+
         mock_session = MagicMock()
-        real_conn = Connection(
-            id=conn_id,
-            name="my-conn",
-            host="localhost",
-            port=5432,
-            database="mydb",
-            schema_name="public",
-            owner_id="operator-1",
-        )
-        mock_session.get = MagicMock(return_value=real_conn)
+        mock_session.get = MagicMock(return_value=mock_conn)
         mock_session.delete = MagicMock()
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("disk full"))
         mock_session.rollback = MagicMock()
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
 
+        def _mock_operator() -> str:
+            return "operator-1"
+
         app.dependency_overrides[get_db_session] = _bad_session
+        app.dependency_overrides[get_current_operator] = _mock_operator
 
         vault_p, license_p = _vault_license_patches()
         with vault_p, license_p:
@@ -526,9 +487,8 @@ class TestJobsCommitErrors:
     @pytest.mark.asyncio
     async def test_create_job_integrity_error_returns_409_rfc7807(self) -> None:
         """IntegrityError during create_job must return 409 with RFC 7807 body."""
-        from sqlalchemy.exc import IntegrityError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import IntegrityError
 
         app, _ = _make_jobs_app()
 
@@ -573,9 +533,8 @@ class TestJobsCommitErrors:
     @pytest.mark.asyncio
     async def test_create_job_sqlalchemy_error_returns_500_and_rollback(self) -> None:
         """SQLAlchemyError during create_job must return 500 and call rollback."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         app, _ = _make_jobs_app()
 
@@ -626,9 +585,8 @@ class TestShredCommitFailure:
         If the commit fails, the operator gets a confirmed shred that was never
         recorded. This test verifies the fix: 200 is only returned after commit.
         """
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
@@ -650,12 +608,17 @@ class TestShredCommitFailure:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("commit failed"))
         mock_session.rollback = MagicMock()
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
 
+        def _mock_operator() -> str:
+            return "operator-1"
+
         app.dependency_overrides[get_db_session] = _bad_session
+        app.dependency_overrides[get_current_operator] = _mock_operator
 
         vault_p, license_p = _vault_license_patches()
         with (
@@ -682,9 +645,8 @@ class TestShredCommitFailure:
     @pytest.mark.asyncio
     async def test_shred_commit_failure_calls_rollback(self) -> None:
         """session.rollback() must be called when shred commit fails."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
@@ -706,12 +668,17 @@ class TestShredCommitFailure:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("commit failed"))
         mock_session.rollback = MagicMock()
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
 
+        def _mock_operator() -> str:
+            return "operator-1"
+
         app.dependency_overrides[get_db_session] = _bad_session
+        app.dependency_overrides[get_current_operator] = _mock_operator
 
         vault_p, license_p = _vault_license_patches()
         with (
@@ -741,9 +708,8 @@ class TestSettingsCommitErrors:
         self,
     ) -> None:
         """SQLAlchemyError during upsert_setting must return 500 and call rollback."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         app, _ = _make_settings_app()
 
@@ -753,8 +719,8 @@ class TestSettingsCommitErrors:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("db error"))
         mock_session.rollback = MagicMock()
 
-        from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.dependencies.auth import require_scope
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
@@ -783,9 +749,8 @@ class TestSettingsCommitErrors:
         self,
     ) -> None:
         """SQLAlchemyError during delete_setting must return 500 and call rollback."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         from synth_engine.bootstrapper.schemas.settings import Setting
 
@@ -798,8 +763,8 @@ class TestSettingsCommitErrors:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("disk full"))
         mock_session.rollback = MagicMock()
 
-        from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.dependencies.auth import require_scope
+        from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
@@ -834,9 +799,8 @@ class TestWebhooksCommitErrors:
         self,
     ) -> None:
         """SQLAlchemyError during register_webhook commit must return 500 and rollback."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         app, _ = _make_webhooks_app()
 
@@ -881,9 +845,8 @@ class TestWebhooksCommitErrors:
         self,
     ) -> None:
         """SQLAlchemyError during deactivate_webhook commit must return 500 and rollback."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         from synth_engine.bootstrapper.schemas.webhooks import WebhookRegistration
 
@@ -934,9 +897,8 @@ class TestAdminCommitErrors:
     @pytest.mark.asyncio
     async def test_legal_hold_sqlalchemy_error_returns_500_and_rollback(self) -> None:
         """SQLAlchemyError during legal_hold commit must return 500 and call rollback."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
@@ -987,9 +949,8 @@ class TestAdminCommitErrors:
     @pytest.mark.asyncio
     async def test_legal_hold_error_response_does_not_leak_sql(self) -> None:
         """500 response from legal_hold commit failure must not expose SQL details."""
-        from sqlalchemy.exc import SQLAlchemyError
-
         from httpx import ASGITransport, AsyncClient
+        from sqlalchemy.exc import SQLAlchemyError
 
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
@@ -1008,9 +969,7 @@ class TestAdminCommitErrors:
         mock_session.get = MagicMock(return_value=job)
         mock_session.add = MagicMock()
         mock_session.commit = MagicMock(
-            side_effect=SQLAlchemyError(
-                "ERROR: table confidential_table_name constraint pkey"
-            )
+            side_effect=SQLAlchemyError("ERROR: table confidential_table_name constraint pkey")
         )
         mock_session.rollback = MagicMock()
         mock_session.refresh = MagicMock()
