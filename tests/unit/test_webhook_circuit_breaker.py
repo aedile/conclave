@@ -17,12 +17,37 @@ Task: T62.2 — Circuit Breaker for Webhook Delivery
 from __future__ import annotations
 
 import time
+from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 pytestmark = pytest.mark.unit
+
+
+# ---------------------------------------------------------------------------
+# State isolation fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_module_circuit_breaker() -> Generator[None]:
+    """Reset the module-level circuit breaker singleton between tests.
+
+    Prevents state from one test affecting subsequent tests.
+    The module singleton is restored to None so each test gets a fresh
+    circuit breaker from settings defaults.
+
+    Yields:
+        None — setup and teardown only.
+    """
+    import synth_engine.modules.synthesizer.jobs.webhook_delivery as _mod
+
+    original = _mod._MODULE_CIRCUIT_BREAKER
+    _mod._MODULE_CIRCUIT_BREAKER = None
+    yield
+    _mod._MODULE_CIRCUIT_BREAKER = original
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +258,7 @@ class TestCircuitBreakerPrometheusCounter:
         url = "https://counted.example.com/hook"
 
         with patch(
-            "synth_engine.modules.synthesizer.jobs.webhook_delivery"
-            "._circuit_breaker_trips_total"
+            "synth_engine.modules.synthesizer.jobs.webhook_delivery._circuit_breaker_trips_total"
         ) as mock_counter:
             mock_labels = MagicMock()
             mock_counter.labels = MagicMock(return_value=mock_labels)
@@ -286,13 +310,12 @@ class TestDeliveryTimeBudget:
         by checking the function accepts a time_budget parameter or uses
         monotonic internally.
         """
+
         from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             deliver_webhook,
         )
-        import inspect
 
-        sig = inspect.signature(deliver_webhook)
-        # Function must accept time budget or have it hardcoded internally
+        # Function must accept time budget — verified by using it as a keyword argument below.
         # We verify the budget is tracked by running with a very tight budget
         # and confirming it aborts early
 
@@ -452,12 +475,13 @@ class TestCircuitBreakerSettings:
 
         settings = get_settings()
         threshold = settings.webhook_circuit_breaker_threshold
-        assert threshold == 3, (
-            f"Expected webhook_circuit_breaker_threshold=3, got {threshold}"
-        )
+        assert threshold == 3, f"Expected webhook_circuit_breaker_threshold=3, got {threshold}"
 
     def test_settings_has_circuit_breaker_cooldown_field(self) -> None:
-        """ConclaveSettings must expose webhook_circuit_breaker_cooldown_seconds with default 300."""
+        """ConclaveSettings must expose webhook_circuit_breaker_cooldown_seconds.
+
+        Default value must be 300 seconds (5 minutes).
+        """
         from synth_engine.shared.settings import get_settings
 
         settings = get_settings()
