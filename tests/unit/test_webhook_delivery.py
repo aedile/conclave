@@ -18,7 +18,7 @@ Attack/negative tests:
 Feature/positive tests:
 12. HMAC-SHA256 signature format: "sha256=<hex_digest>"
 13. Payload canonicalization: json.dumps sorted keys + compact separators
-14. Retry with exponential backoff: delays are 1s, 4s
+14. Retry no-sleep: time budget used instead of time.sleep() (T62.2)
 15. Successful delivery: status=SUCCESS, attempt_number=1 in log
 16. Delivery ID (UUID) included in log entry
 17. Delivery engine does NOT import from bootstrapper (boundary constraint)
@@ -33,6 +33,7 @@ Task: T45.3 — Implement Webhook Callbacks for Task Completion
 Task: P45 review — F1, F8, F9, F12
 Task: P45 QA re-review — ssrf.py edge-case coverage (lines 97, 102-109, 116-117)
 Task: T55.4 — updated DNS gaierror test to use strict=False (delivery path semantics)
+Task: T62.2 — Circuit Breaker: no time.sleep(), time budget used instead
 """
 
 from __future__ import annotations
@@ -69,6 +70,25 @@ def clear_settings_cache() -> Generator[None]:
         get_settings.cache_clear()
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def reset_circuit_breaker() -> Generator[None]:
+    """Reset the module-level circuit breaker singleton between tests.
+
+    T62.2: The circuit breaker singleton accumulates per-URL failure state.
+    Without this fixture, a test that trips the circuit for
+    ``https://example.com/hook`` will cause subsequent tests using the same
+    URL to get SKIPPED instead of making HTTP calls.
+
+    Yields:
+        None — setup and teardown only.
+    """
+    import synth_engine.modules.synthesizer.jobs.webhook_delivery as _mod
+
+    _mod._MODULE_CIRCUIT_BREAKER = None
+    yield
+    _mod._MODULE_CIRCUIT_BREAKER = None
 
 
 # ===========================================================================
@@ -290,6 +310,11 @@ class TestRetryExhaustion:
     def test_three_failures_mark_delivery_failed(self) -> None:
         """After 3 HTTP failures, delivery log entry must have status=FAILED.
 
+        T62.2: The circuit breaker trips after threshold consecutive failures.
+        With the default threshold of 3, all 3 attempts are made and then the
+        circuit trips, causing the function to return FAILED immediately after
+        the third failure without further retries.
+
         Args: none.
         """
         from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
@@ -305,7 +330,6 @@ class TestRetryExhaustion:
         with (
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
-            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.time.sleep"),
         ):
             mock_httpx.post.side_effect = Exception("Connection refused")
             result = deliver_webhook(
@@ -318,8 +342,12 @@ class TestRetryExhaustion:
         assert result.status == "FAILED"
         assert mock_httpx.post.call_count == 3
 
-    def test_exponential_backoff_delays(self) -> None:
-        """Retry delays must be 1s, 4s (exponential backoff, no sleep after final attempt).
+    def test_no_sleep_between_retries(self) -> None:
+        """T62.2: deliver_webhook must NOT call time.sleep() between retry attempts.
+
+        The old implementation used exponential backoff via time.sleep() (1s, 4s).
+        T62.2 replaced this with a time budget check using time.monotonic() to
+        prevent Huey worker starvation.  time.sleep() must never be called.
 
         Args: none.
         """
@@ -351,9 +379,11 @@ class TestRetryExhaustion:
                 payload={"job_id": "1", "status": "COMPLETE"},
             )
 
-        # Backoff between retries: after attempt 1 → 1s, after attempt 2 → 4s
-        # (no sleep after final attempt 3)
-        assert sleep_calls == [1.0, 4.0]
+        # T62.2: no sleep between retries — time budget used instead
+        assert sleep_calls == [], (
+            f"deliver_webhook called time.sleep() {len(sleep_calls)} time(s): {sleep_calls}. "
+            "T62.2 requires no sleep between retries to prevent Huey worker starvation."
+        )
 
 
 # ===========================================================================
