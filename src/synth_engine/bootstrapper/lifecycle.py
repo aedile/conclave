@@ -1,7 +1,7 @@
 """FastAPI lifespan hooks and core ops route registration.
 
 Contains:
-- ``UnsealRequest`` — Pydantic model for the /unseal request body.
+- ``UnsealRequest`` — re-exported from :mod:`schemas.vault` for backward compatibility.
 - ``_lifespan()`` — async context manager wired as the FastAPI lifespan hook;
   runs startup validation via :func:`~synth_engine.bootstrapper.config_validation.validate_config`
   and initialises certificate expiry Prometheus metrics (T46.3).
@@ -25,6 +25,11 @@ Task: T47.8 — Add Shutdown Cleanup to Lifespan Hook
     3. Calls ``close_redis_client()`` to release Redis connections.
     Each step is isolated in its own ``try/except`` so a failure in one
     step does not prevent the remaining steps from running.
+
+Task: T60.5 — Move UnsealRequest to schemas/vault.py
+    ``UnsealRequest`` now lives in :mod:`synth_engine.bootstrapper.schemas.vault`.
+    Re-exported here unconditionally to preserve the existing import contract:
+    ``from synth_engine.bootstrapper.lifecycle import UnsealRequest``.
 """
 
 from __future__ import annotations
@@ -36,11 +41,13 @@ from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from synth_engine.bootstrapper.config_validation import validate_config
 from synth_engine.bootstrapper.dependencies.redis import close_redis_client
 from synth_engine.bootstrapper.errors import operator_error_response
+from synth_engine.bootstrapper.schemas.vault import (
+    UnsealRequest,
+)
 from synth_engine.shared.cert_metrics import update_cert_expiry_metrics
 from synth_engine.shared.db import dispose_engines
 from synth_engine.shared.security.audit import get_audit_logger
@@ -52,16 +59,6 @@ from synth_engine.shared.security.vault import (
 )
 
 _logger = logging.getLogger(__name__)
-
-
-class UnsealRequest(BaseModel):
-    """Request body for the /unseal endpoint.
-
-    Attributes:
-        passphrase: Operator-provided passphrase used to derive the KEK.
-    """
-
-    passphrase: str
 
 
 @contextlib.asynccontextmanager
