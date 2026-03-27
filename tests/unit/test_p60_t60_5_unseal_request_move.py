@@ -22,7 +22,7 @@ class TestUnsealRequestCanonicalLocation:
         """UnsealRequest must be importable from schemas/vault.py."""
         from synth_engine.bootstrapper.schemas.vault import UnsealRequest
 
-        assert UnsealRequest is not None
+        assert UnsealRequest.__name__ == "UnsealRequest"
 
     def test_unseal_request_is_pydantic_model(self) -> None:
         """UnsealRequest must be a Pydantic BaseModel subclass."""
@@ -66,13 +66,13 @@ class TestUnsealRequestReExports:
         """lifecycle.py must still export UnsealRequest for backward compatibility."""
         from synth_engine.bootstrapper.lifecycle import UnsealRequest
 
-        assert UnsealRequest is not None
+        assert UnsealRequest.__name__ == "UnsealRequest"
 
     def test_unseal_request_re_exported_from_main(self) -> None:
         """main.py must still export UnsealRequest for backward compatibility."""
         from synth_engine.bootstrapper.main import UnsealRequest
 
-        assert UnsealRequest is not None
+        assert UnsealRequest.__name__ == "UnsealRequest"
 
     def test_all_three_are_same_class(self) -> None:
         """schemas/vault, lifecycle, and main must all point to the same class."""

@@ -28,7 +28,7 @@ class TestAuthMiddlewareCanonicalLocation:
             AuthenticationGateMiddleware,
         )
 
-        assert AuthenticationGateMiddleware is not None
+        assert AuthenticationGateMiddleware.__name__ == "AuthenticationGateMiddleware"
 
     def test_middleware_is_defined_in_auth_middleware_module(self) -> None:
         """AuthenticationGateMiddleware.__module__ must point to auth_middleware."""
@@ -74,7 +74,7 @@ class TestAuthPyReExports:
         """auth.py must still export AuthenticationGateMiddleware."""
         from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
 
-        assert AuthenticationGateMiddleware is not None
+        assert AuthenticationGateMiddleware.__name__ == "AuthenticationGateMiddleware"
 
     def test_both_imports_resolve_to_same_class(self) -> None:
         """auth.py and auth_middleware.py must expose the same class object."""
