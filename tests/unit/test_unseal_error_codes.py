@@ -70,13 +70,11 @@ async def test_unseal_empty_passphrase_returns_empty_passphrase_code(
     ) as client:
         response = await client.post("/unseal", json={"passphrase": ""})
 
-    assert response.status_code == 400
+    # min_length=1 on UnsealRequest.passphrase (T60.5 + red-team fix) causes
+    # Pydantic to reject empty strings with 422 before the route handler runs.
+    assert response.status_code == 422
     body = response.json()
-    # RFC 7807 format
-    assert body["title"] == "Empty Passphrase"
-    assert "detail" in body
-    assert "type" in body
-    assert "status" in body
+    assert "detail" in body  # Pydantic validation error detail
 
 
 @pytest.mark.asyncio
@@ -221,9 +219,11 @@ async def test_unseal_error_response_contains_both_error_code_and_detail(
     ) as client:
         response = await client.post("/unseal", json={"passphrase": ""})
 
-    assert response.status_code == 400
+    # min_length=1 on UnsealRequest.passphrase (T60.5 + red-team fix) causes
+    # Pydantic to reject empty strings with 422 before the route handler runs.
+    assert response.status_code == 422
     body = response.json()
-    # RFC 7807 format provides title + detail instead of error_code + detail
+    # Pydantic validation error format
     assert "title" in body
     assert "detail" in body
     # Both must be non-empty strings

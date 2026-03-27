@@ -52,12 +52,13 @@ class TestUnsealRouteRFC7807Format:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/unseal", json={"passphrase": ""})
 
-        assert response.status_code == 400
+        # min_length=1 on UnsealRequest.passphrase (T60.5 + red-team fix)
+        # causes Pydantic to reject empty strings with 422 before the route
+        # handler runs. The empty-passphrase path no longer reaches the vault.
+        assert response.status_code == 422
         body = response.json()
-        # Must be RFC 7807 format
-        assert "type" in body, "Response must contain RFC 7807 'type' field"
-        assert "title" in body, "Response must contain RFC 7807 'title' field"
-        assert "status" in body, "Response must contain RFC 7807 'status' field"
+        # Pydantic validation error format
+        assert "detail" in body, "Response must contain Pydantic 'detail' field"
         assert "detail" in body, "Response must contain RFC 7807 'detail' field"
         # Must NOT be legacy format
         assert "error_code" not in body, (
