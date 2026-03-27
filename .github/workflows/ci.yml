@@ -659,7 +659,7 @@ jobs:
 
       - name: Unseal vault (fictional test passphrase)
         run: |
-          curl -s -X POST http://127.0.0.1:8765/vault/unseal \
+          curl -s -X POST http://127.0.0.1:8765/unseal \
             -H "Content-Type: application/json" \
             -d '{"passphrase": "zap-ci-fictional-unseal-passphrase"}' \
             || true  # Unseal may fail if vault is already unsealed — not a gate

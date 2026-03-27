@@ -743,7 +743,7 @@ The same pattern applies to `DPCompatibleCTGAN`, `PrivacyEngine`, `torch`, and `
 | `modules/synthesizer/training/dp_training.py` | `CTGANSynthesizer`, `CTGAN`, `Generator`, `detect_discrete_columns`, `torch`, `nn`, `DataLoader`, `TensorDataset` | `synthesizer` |
 | `modules/synthesizer/training/dp_discriminator.py` | `torch`, `nn` | `synthesizer` |
 | `modules/privacy/dp_engine.py` | `PrivacyEngine` (opacus) | `synthesizer` |
-| `bootstrapper/main.py` | `MinioStorageBackend` | `synthesizer` |
+| `bootstrapper/factories.py` | `MinioStorageBackend` | `synthesizer` |
 | `shared/telemetry.py` | `OTLPSpanExporter` [1] | optional OTEL exporter |
 
 > [1] `shared/telemetry.py` uses a function-scope lazy import inside `_build_exporter()`, not the module-scope `= None` pattern. The name is never bound at module scope; absence is handled at call time.

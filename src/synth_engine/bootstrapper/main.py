@@ -81,14 +81,6 @@ if TYPE_CHECKING:
 _SERVICE_NAME = "conclave-engine"
 _logger = logging.getLogger(__name__)
 
-# Deferred import so environments without the synthesizer group don't fail.
-# Bound at module scope for patch("synth_engine.bootstrapper.main.MinioStorageBackend").
-try:
-    from synth_engine.modules.synthesizer.storage.storage import MinioStorageBackend
-except ImportError:  # pragma: no cover — synthesizer group not installed
-    MinioStorageBackend = None  # type: ignore[assignment,misc]  # conditional import fallback: None when synthesizer group absent; type narrowed at call sites
-
-
 # ---------------------------------------------------------------------------
 # Rule 8 — Huey task wiring (T4.2c) + DI factory injection (ADR-0029)
 # All wiring logic has been extracted to bootstrapper/wiring.py (T56.2).
