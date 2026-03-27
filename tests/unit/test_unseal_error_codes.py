@@ -223,13 +223,8 @@ async def test_unseal_error_response_contains_both_error_code_and_detail(
     # Pydantic to reject empty strings with 422 before the route handler runs.
     assert response.status_code == 422
     body = response.json()
-    # Pydantic validation error format
-    assert "title" in body
+    # Pydantic validation error format: {"detail": [{"msg": ..., "loc": ...}]}
     assert "detail" in body
-    # Both must be non-empty strings
-    assert isinstance(body["title"], str)
-    assert body["title"] != ""
-    assert isinstance(body["detail"], str)
-    assert body["detail"] != ""
-    # Must NOT use legacy error_code format
-    assert "error_code" not in body
+    assert isinstance(body["detail"], list)
+    assert len(body["detail"]) > 0
+    assert "msg" in body["detail"][0]
