@@ -7,6 +7,8 @@ Tests verify that:
 - The same static message is used for wrong-password AND bcrypt error paths
   (no oracle: both paths are indistinguishable to the caller).
 - The DEBUG log does NOT contain the user passphrase.
+- AuthenticationGateMiddleware returns "Invalid credentials" in 401 body
+  when an invalid Bearer token is presented (T63.4 AC3).
 
 CONSTITUTION Priority 0: Security — no internal error detail in 401 responses
 CONSTITUTION Priority 3: TDD — attack tests before feature tests (Rule 22)
@@ -380,4 +382,72 @@ def test_bcrypt_debug_log_does_not_contain_passphrase(
 
     assert sentinel_passphrase not in caplog.text, (
         f"Passphrase must NOT appear in any log output; found in: {caplog.text!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ATTACK: AuthenticationGateMiddleware returns "Invalid credentials" in body
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_middleware_invalid_bearer_token_body_contains_invalid_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AuthenticationGateMiddleware must return 'Invalid credentials' in 401 body.
+
+    T63.4 AC3: when an invalid Bearer token is sent to a protected route,
+    the middleware must return HTTP 401 AND the response body detail must
+    be the static string "Invalid credentials" — not JWT error internals.
+
+    Arrange: configure JWT_SECRET_KEY so the middleware runs in enforcement
+    mode (not pass-through). Add AuthenticationGateMiddleware to the app.
+    Act: send GET /protected with "Authorization: Bearer not-a-valid-jwt".
+    Assert: response.status_code == 401.
+    Assert: response body detail contains "Invalid credentials".
+    Assert: response body detail does NOT contain JWT decode error text.
+
+    CONSTITUTION Priority 0: no internal error detail in 401 responses.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    from synth_engine.shared.settings import get_settings
+
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-that-is-long-enough-32-chars")
+    get_settings.cache_clear()
+
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+
+    from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
+
+    app = FastAPI()
+    app.add_middleware(AuthenticationGateMiddleware)
+
+    @app.get("/protected")
+    async def _protected_route() -> JSONResponse:
+        return JSONResponse({"status": "ok"})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/protected",
+            headers={"Authorization": "Bearer this-is-not-a-valid-jwt-token"},
+        )
+
+    assert response.status_code == 401, (
+        f"Invalid Bearer token must return 401; got {response.status_code}"
+    )
+    body = response.json()
+    detail: str = body.get("detail", "")
+    assert "Invalid credentials" in detail, (
+        f"Middleware 401 body must contain 'Invalid credentials'; got: {detail!r}"
+    )
+    # Must not leak JWT decode error internals (e.g. "Not enough segments",
+    # "Signature verification failed", algorithm name, etc.)
+    assert "segment" not in detail.lower(), (
+        f"JWT error detail must NOT appear in 401 response body; got: {detail!r}"
+    )
+    assert "signature" not in detail.lower(), (
+        f"JWT signature detail must NOT appear in 401 response body; got: {detail!r}"
     )

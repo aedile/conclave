@@ -65,6 +65,9 @@ Task: ADV-P46-03 — Fix cert readability check (existence + open())
 Task: T48.5 — ALE Vault Dependency Enforcement (vault-sealed startup warning)
 Task: T50.3 — Default to Production Mode (dev-mode startup warning)
 Task: T63.3 — Rate Limiter Fail-Closed (warn fail-open in production)
+Task: P63 QA review — Fix stale docstrings in _validate_jwt_secret_key and
+    _validate_operator_credentials_hash after T63.1 moved production validation
+    to Pydantic model_validator; remove dead production-branch code.
 Advisory: ADV-P47-04 — Security route removal from exempt paths (verified here)
 """
 
@@ -106,34 +109,29 @@ def _is_production() -> bool:
     return get_settings().is_production()
 
 
-def _validate_jwt_secret_key(errors: list[str]) -> None:
-    """Validate that JWT_SECRET_KEY is present and non-empty in production.
+def _validate_jwt_secret_key() -> None:
+    """Emit a development-mode WARNING when JWT_SECRET_KEY is absent or empty.
 
     An absent or whitespace-only key silently disables all authenticated routes
-    at runtime.  In production the key is fatal-if-absent; in development a
-    WARNING is emitted so the developer is aware.
+    at runtime.  This function emits a WARNING in non-production environments
+    to make the developer aware before deploying.
 
-    The warning is NOT emitted in production mode — there it is a fatal error
-    already collected into ``errors``.
+    Production-mode validation for this field has moved to the Pydantic
+    ``model_validator`` in ``settings.py``.  This function now only emits
+    non-production development-mode warnings.
 
-    Args:
-        errors: Mutable list of error strings.  Any new errors found are
-            appended in-place.
+    The warning is NOT emitted in production mode because production failures
+    are caught at settings construction time by
+    :meth:`~synth_engine.shared.settings.ConclaveSettings._validate_production_required_fields`.
     """
     settings = get_settings()
     key_value = settings.jwt_secret_key.get_secret_value().strip()
 
-    if not key_value:
-        if _is_production():
-            errors.append(
-                "JWT_SECRET_KEY is not set or is empty — "
-                "a non-empty HMAC secret is required to sign and verify JWT tokens in production"
-            )
-        else:
-            _logger.warning(
-                "JWT_SECRET_KEY is not set — JWT authentication will not function. "
-                "Set a cryptographically random value before deploying to production."
-            )
+    if not key_value and not _is_production():
+        _logger.warning(
+            "JWT_SECRET_KEY is not set — JWT authentication will not function. "
+            "Set a cryptographically random value before deploying to production."
+        )
 
 
 def _is_valid_bcrypt_hash(value: str) -> bool:
@@ -152,62 +150,44 @@ def _is_valid_bcrypt_hash(value: str) -> bool:
     return value.startswith(_BCRYPT_PREFIX) and len(value) >= _BCRYPT_MIN_LENGTH
 
 
-def _validate_operator_credentials_hash(errors: list[str]) -> None:
-    """Validate that OPERATOR_CREDENTIALS_HASH is present and structurally valid.
+def _validate_operator_credentials_hash() -> None:
+    """Emit development-mode WARNINGs when OPERATOR_CREDENTIALS_HASH is absent or invalid.
 
-    Two checks are applied:
+    Two checks are applied in non-production environments:
 
     1. **Presence**: the value must be non-empty.
     2. **Format**: the value must start with ``$2b$`` and be at least 59 characters
        (structural bcrypt validity check — no cryptographic verification).
 
-    In production, a failed check appends an error that will cause
-    :exc:`SystemExit` at the end of :func:`validate_config`.  The error message
-    always names the variable but NEVER includes the hash value itself, to prevent
-    hash oracle attacks via logs.
+    Production-mode validation for this field has moved to the Pydantic
+    ``model_validator`` in ``settings.py``.  This function now only emits
+    non-production development-mode warnings.
 
-    In development, a failed check emits a WARNING so the developer is aware
-    without blocking startup.
-
-    Args:
-        errors: Mutable list of error strings.  Any new errors found are
-            appended in-place.
+    Production failures are caught at settings construction time by
+    :meth:`~synth_engine.shared.settings.ConclaveSettings._validate_production_required_fields`.
+    The warning message always names the variable but NEVER includes the hash
+    value itself, to prevent hash oracle attacks via logs.
     """
+    if _is_production():
+        return
+
     settings = get_settings()
     hash_value = settings.operator_credentials_hash
-    production = _is_production()
 
     if not hash_value:
-        if production:
-            errors.append(
-                "OPERATOR_CREDENTIALS_HASH is not set — "
-                "a bcrypt hash of the operator passphrase is required in production. "
-                "Generate one with: python -c "
-                '\'import bcrypt; print(bcrypt.hashpw(b"<passphrase>", '
-                "bcrypt.gensalt()).decode())' "
-            )
-        else:
-            _logger.warning(
-                "OPERATOR_CREDENTIALS_HASH is not set — "
-                "POST /auth/token will always fail. "
-                "Set a bcrypt hash of the operator passphrase before deploying to production."
-            )
+        _logger.warning(
+            "OPERATOR_CREDENTIALS_HASH is not set — "
+            "POST /auth/token will always fail. "
+            "Set a bcrypt hash of the operator passphrase before deploying to production."
+        )
         return
 
     if not _is_valid_bcrypt_hash(hash_value):
-        if production:
-            errors.append(
-                "OPERATOR_CREDENTIALS_HASH has an invalid format — "
-                f"expected a bcrypt hash starting with '{_BCRYPT_PREFIX}' "
-                f"and at least {_BCRYPT_MIN_LENGTH} characters long. "
-                "Generate a valid hash before starting the Conclave Engine in production."
-            )
-        else:
-            _logger.warning(
-                "OPERATOR_CREDENTIALS_HASH does not appear to be a valid bcrypt hash — "
-                f"expected prefix '{_BCRYPT_PREFIX}' and minimum length {_BCRYPT_MIN_LENGTH}. "
-                "POST /auth/token may fail at runtime."
-            )
+        _logger.warning(
+            "OPERATOR_CREDENTIALS_HASH does not appear to be a valid bcrypt hash — "
+            f"expected prefix '{_BCRYPT_PREFIX}' and minimum length {_BCRYPT_MIN_LENGTH}. "
+            "POST /auth/token may fail at runtime."
+        )
 
 
 def _validate_mtls_cert_files(errors: list[str]) -> None:
@@ -418,11 +398,11 @@ def validate_config() -> None:
 
     # T47.4: emit WARNING when JWT_SECRET_KEY is absent in development mode.
     # (Production failure is now caught by settings._validate_production_required_fields.)
-    _validate_jwt_secret_key([])
+    _validate_jwt_secret_key()
 
     # T47.5: emit WARNING when OPERATOR_CREDENTIALS_HASH is absent or invalid in dev mode.
     # (Production failure is now caught by settings._validate_production_required_fields.)
-    _validate_operator_credentials_hash([])
+    _validate_operator_credentials_hash()
 
     if _is_production() and not settings.conclave_ssl_required:
         _logger.warning(
