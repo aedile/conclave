@@ -36,6 +36,16 @@ processes that import ``main`` for task discovery only.
 
 See :mod:`synth_engine.bootstrapper.wiring` for the full constraint
 documentation.
+
+Middleware ordering assertion (T62.4)
+--------------------------------------
+:func:`_assert_middleware_ordering` verifies the LIFO middleware stack at app
+creation time.  Any structural regression (e.g. a reordered ``add_middleware``
+call in :mod:`.middleware`) raises ``RuntimeError`` immediately rather than
+silently allowing the wrong order to serve production traffic.
+
+The assertion is fail-closed: any ``AttributeError``, ``TypeError``, or
+unexpected structure raises, never silently passes.
 """
 
 from __future__ import annotations
@@ -90,6 +100,110 @@ _logger = logging.getLogger(__name__)
 wire_all()  # Module-scope: fires on import for Huey workers (see wiring.py docstring)
 
 
+# ---------------------------------------------------------------------------
+# T62.4 — Programmatic middleware ordering assertion
+# ---------------------------------------------------------------------------
+
+#: Expected LIFO ordering of domain middleware classes.
+#: Index 0 = outermost on request path (added last to the stack).
+#: Index 7 = innermost (added first to the stack).
+#:
+#: In Starlette's ``user_middleware`` list, items are prepended on each
+#: ``add_middleware()`` call so the last-added middleware appears at index 0.
+#: RFC7807Middleware added by ``_register_exception_handlers`` appears before
+#: HTTPSEnforcementMiddleware in the final list (index 0) but is excluded
+#: from this contract since it is registered separately.
+_EXPECTED_MIDDLEWARE_ORDER: tuple[str, ...] = (
+    "HTTPSEnforcementMiddleware",
+    "RateLimitGateMiddleware",
+    "RequestBodyLimitMiddleware",
+    "CSPMiddleware",
+    "SealGateMiddleware",
+    "LicenseGateMiddleware",
+    "AuthenticationGateMiddleware",
+    "IdempotencyMiddleware",
+)
+
+
+def _assert_middleware_ordering(app: FastAPI) -> None:
+    """Verify the middleware stack matches the expected LIFO order.
+
+    Reads ``app.user_middleware`` (a Starlette internal list where index 0 =
+    outermost / last-added) and confirms the eight domain middleware classes
+    appear in ``_EXPECTED_MIDDLEWARE_ORDER``.
+
+    This assertion is fail-closed: any unexpected structure (missing attribute,
+    wrong type, missing middleware class) raises ``RuntimeError`` immediately.
+    It is called at the end of ``create_app()`` so a misconfigured middleware
+    stack never silently reaches production traffic.
+
+    Args:
+        app: The FastAPI application whose middleware stack is to be validated.
+
+    Raises:
+        RuntimeError: If ``app.user_middleware`` is missing, has unexpected
+            structure, or does not contain all eight expected classes in the
+            correct order.
+        AttributeError: Re-raised if ``app.user_middleware`` attribute is
+            absent — indicates a Starlette internals change.
+    """
+    user_middleware = getattr(app, "user_middleware", None)
+    if user_middleware is None:
+        raise AttributeError(
+            "FastAPI app has no 'user_middleware' attribute. "
+            "Starlette internals may have changed — review T62.4 implementation. "
+            "This is a fail-closed startup assertion."
+        )
+
+    # Extract class names from user_middleware, skipping entries without a cls attribute.
+    actual_names: list[str] = []
+    for entry in user_middleware:
+        cls = getattr(entry, "cls", None)
+        if cls is not None:
+            actual_names.append(cls.__name__)
+
+    # Verify all expected middleware classes are present
+    actual_set = set(actual_names)
+    for expected_name in _EXPECTED_MIDDLEWARE_ORDER:
+        if expected_name not in actual_set:
+            raise RuntimeError(
+                f"Middleware ordering assertion failed: expected {expected_name!r} "
+                f"in middleware stack but it is missing. "
+                f"Found: {actual_names}. "
+                f"Check bootstrapper/middleware.py for a missing add_middleware() call."
+            )
+
+    # Verify positional order: extract indices of the expected classes
+    # and confirm they are in the correct monotonically increasing order
+    # (since user_middleware index 0 = outermost, and our expected list
+    # is also ordered outermost-first).
+    indices: list[int] = []
+    for expected_name in _EXPECTED_MIDDLEWARE_ORDER:
+        idx = next((i for i, name in enumerate(actual_names) if name == expected_name), None)
+        if idx is None:
+            raise RuntimeError(
+                f"Middleware ordering assertion failed: {expected_name!r} not found "
+                f"in user_middleware. Found: {actual_names}"
+            )
+        indices.append(idx)
+
+    for i in range(len(indices) - 1):
+        if indices[i] >= indices[i + 1]:
+            raise RuntimeError(
+                f"Middleware ordering assertion failed: "
+                f"{_EXPECTED_MIDDLEWARE_ORDER[i]!r} (index {indices[i]}) must appear "
+                f"BEFORE {_EXPECTED_MIDDLEWARE_ORDER[i + 1]!r} (index {indices[i + 1]}) "
+                f"in user_middleware (lower index = outer = fires first on request path). "
+                f"Actual order: {actual_names}. "
+                f"This is a security-critical ordering — review bootstrapper/middleware.py."
+            )
+
+    _logger.debug(
+        "Middleware ordering assertion passed: %s",
+        " -> ".join(_EXPECTED_MIDDLEWARE_ORDER),
+    )
+
+
 def create_app() -> FastAPI:
     """Build and return a fully wired FastAPI application.
 
@@ -109,6 +223,12 @@ def create_app() -> FastAPI:
 
     Returns:
         A configured FastAPI instance ready to serve requests.
+
+    Raises:
+        RuntimeError: If the middleware stack is not in the expected LIFO order
+            (T62.4 fail-closed startup assertion).
+        AttributeError: If Starlette internals change and ``user_middleware``
+            is no longer available.
     """
     configure_telemetry(_SERVICE_NAME)
 
@@ -150,6 +270,10 @@ def create_app() -> FastAPI:
     _register_exception_handlers(app)
     _register_routes(app)
     _include_routers(app)
+
+    # T62.4: Fail-closed startup assertion — raises immediately if ordering is wrong.
+    # Called AFTER all middleware is registered so the full stack is available.
+    _assert_middleware_ordering(app)
 
     return app
 

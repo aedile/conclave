@@ -142,15 +142,8 @@ class TestMiddlewareOrderingAssertion:
         )
         assert https_idx is not None, "HTTPSEnforcementMiddleware not found in stack"
 
-        # All other domain middleware must have HIGHER index (inner, fires after HTTPS check)
-        for i, cls in enumerate(ordered):
-            if cls is HTTPSEnforcementMiddleware:
-                continue
-            # RFC7807Middleware added by register_error_handlers may appear at index 0 — exempt
-            # We check that HTTPS is the first domain middleware
-            pass
-
         # Verify HTTPS has lower index than Auth, Rate Limit, Seal, License, etc.
+        # (RFC7807Middleware from register_error_handlers may appear at lower index — exempt)
         from synth_engine.bootstrapper.dependencies.auth_middleware import (
             AuthenticationGateMiddleware,
         )
@@ -159,9 +152,7 @@ class TestMiddlewareOrderingAssertion:
         auth_idx = next(
             (i for i, c in enumerate(ordered) if c is AuthenticationGateMiddleware), None
         )
-        rate_idx = next(
-            (i for i, c in enumerate(ordered) if c is RateLimitGateMiddleware), None
-        )
+        rate_idx = next((i for i, c in enumerate(ordered) if c is RateLimitGateMiddleware), None)
 
         assert https_idx < auth_idx, (  # type: ignore[operator]
             f"HTTPSEnforcementMiddleware (idx={https_idx}) must be outer (lower index) "
@@ -209,8 +200,9 @@ class TestOversizedBodyBeforeAuth:
         An unauthenticated client with an oversized body should hit the
         413 gate first — proving DoS protection fires before any auth cost.
         """
-        from httpx import ASGITransport, AsyncClient
         from unittest.mock import patch
+
+        from httpx import ASGITransport, AsyncClient
 
         app = _build_app_with_middleware()
 
