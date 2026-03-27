@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # State isolation fixtures
@@ -28,7 +27,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -297,9 +296,7 @@ def test_bcrypt_exception_logged_at_debug_not_info(
     elevated_records = [
         r
         for r in caplog.records
-        if r.levelno >= logging.INFO
-        and r.name == auth_logger
-        and "bcrypt" in r.message.lower()
+        if r.levelno >= logging.INFO and r.name == auth_logger and "bcrypt" in r.message.lower()
     ]
     assert len(elevated_records) == 0, (
         f"Bcrypt error must NOT be logged at INFO/WARNING/ERROR; "
@@ -382,6 +379,5 @@ def test_bcrypt_debug_log_does_not_contain_passphrase(
             verify_operator_credentials(sentinel_passphrase)
 
     assert sentinel_passphrase not in caplog.text, (
-        f"Passphrase must NOT appear in any log output; "
-        f"found in: {caplog.text!r}"
+        f"Passphrase must NOT appear in any log output; found in: {caplog.text!r}"
     )

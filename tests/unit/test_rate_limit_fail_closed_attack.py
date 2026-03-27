@@ -26,14 +26,13 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
 
-
 # ---------------------------------------------------------------------------
 # State isolation fixtures
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -149,7 +148,7 @@ async def test_requests_rejected_429_after_grace_period_expires(
             "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
             return_value=fake_now - grace_period_seconds - 1.0,
         ):
-            r1 = await client.post("/unseal", headers={"X-Forwarded-For": "10.2.2.2"})
+            await client.post("/unseal", headers={"X-Forwarded-For": "10.2.2.2"})
 
         # Second request — now past grace period
         with patch(
@@ -234,9 +233,7 @@ async def test_grace_period_not_reset_on_repeated_redis_failure_cycles() -> None
             "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
             return_value=base_time + 6.0,
         ):
-            r_after_grace = await client.post(
-                "/unseal", headers={"X-Forwarded-For": "10.4.4.4"}
-            )
+            r_after_grace = await client.post("/unseal", headers={"X-Forwarded-For": "10.4.4.4"})
 
     assert r_after_grace.status_code == 429, (
         f"After grace period, repeated Redis failures must still reject (429); "
@@ -306,9 +303,13 @@ async def test_rate_limit_fail_open_true_logs_warning_in_production(
 
     monkeypatch.setenv("CONCLAVE_RATE_LIMIT_FAIL_OPEN", "true")
     monkeypatch.setenv("CONCLAVE_ENV", "production")
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@host/db")  # pragma: allowlist secret
+    monkeypatch.setenv(  # pragma: allowlist secret
+        "DATABASE_URL", "postgresql+asyncpg://user:pass@host/db"
+    )
     monkeypatch.setenv("AUDIT_KEY", "a" * 64)  # pragma: allowlist secret
-    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-that-is-long-enough-32chars")  # pragma: allowlist secret
+    monkeypatch.setenv(  # pragma: allowlist secret
+        "JWT_SECRET_KEY", "test-secret-that-is-long-enough-32chars"
+    )
     monkeypatch.setenv(
         "OPERATOR_CREDENTIALS_HASH",
         "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/L/Ldv5t.iifcXiJea",  # pragma: allowlist secret
