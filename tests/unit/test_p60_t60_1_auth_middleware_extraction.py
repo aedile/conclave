@@ -24,7 +24,7 @@ class TestAuthMiddlewareCanonicalLocation:
 
     def test_middleware_importable_from_auth_middleware(self) -> None:
         """AuthenticationGateMiddleware must be importable from auth_middleware.py."""
-        from synth_engine.bootstrapper.dependencies.auth_middleware import (  # noqa: F401
+        from synth_engine.bootstrapper.dependencies.auth_middleware import (
             AuthenticationGateMiddleware,
         )
 

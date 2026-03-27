@@ -80,11 +80,13 @@ class TestLifecyclePySize:
         110 LOC accounts for minimum compliant docstring overhead.
         """
         lifecycle_path = (
-            Path(__file__).parent.parent.parent
-            / "src/synth_engine/bootstrapper/lifecycle.py"
+            Path(__file__).parent.parent.parent / "src/synth_engine/bootstrapper/lifecycle.py"
         )
         loc = sum(1 for _ in lifecycle_path.read_text(encoding="utf-8").splitlines())
-        assert loc <= 120, f"lifecycle.py is {loc} LOC — must be ≤120 after route move (was 217 LOC; target AC was 100, 115 is achieved with proper ruff formatting)"
+        assert loc <= 120, (
+            f"lifecycle.py is {loc} LOC — must be ≤120 after route move "
+            "(was 217 LOC; target ≤100 LOC, achieved 115 with docstring overhead)"
+        )
 
 
 class TestUnsealRemainsInLifecycle:
@@ -92,7 +94,6 @@ class TestUnsealRemainsInLifecycle:
 
     def test_unseal_route_registered_by_register_routes(self) -> None:
         """_register_routes must register /unseal on the app."""
-        from unittest.mock import MagicMock, call
 
         from fastapi import FastAPI
 

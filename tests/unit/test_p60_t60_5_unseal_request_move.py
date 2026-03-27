@@ -20,7 +20,7 @@ class TestUnsealRequestCanonicalLocation:
 
     def test_unseal_request_importable_from_schemas_vault(self) -> None:
         """UnsealRequest must be importable from schemas/vault.py."""
-        from synth_engine.bootstrapper.schemas.vault import UnsealRequest  # noqa: F401
+        from synth_engine.bootstrapper.schemas.vault import UnsealRequest
 
         assert UnsealRequest is not None
 

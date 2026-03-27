@@ -17,6 +17,14 @@ Task: T60.3 — Move build_ephemeral_storage_client from main.py to factories.py
     patches against ``synth_engine.bootstrapper.main.build_ephemeral_storage_client``
     continue to resolve correctly (AC2 of T60.3).
 
+Task: T60.4 — Extract domain transaction logic to modules/privacy/sync_budget.py
+    ``_sync_wrapper`` in ``build_spend_budget_fn()`` previously contained the
+    full pessimistic-locking transaction inline.  That logic now lives in
+    :func:`~synth_engine.modules.privacy.sync_budget.sync_spend_budget`, and
+    ``_sync_wrapper`` simply delegates to it.  The bootstrapper remains
+    responsible for wiring (engine construction, settings, URL promotion) but
+    no longer owns domain accounting code.
+
 P28-F4 — Sync spend_budget path
 ---------------------------------
 The previous implementation called ``asyncio.run()`` inside the sync wrapper
@@ -47,7 +55,6 @@ connections between invocations provides no benefit and wastes server resources.
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from synth_engine.shared.protocols import SpendBudgetProtocol
@@ -239,18 +246,10 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
     workers are single-call-per-job — pooling idle connections between
     invocations wastes DB server resources.
 
-    The returned callable implements the same pessimistic-locking protocol
-    as the async ``spend_budget()``:
-
-    1. ``SELECT ... FOR UPDATE`` on the ``PrivacyLedger`` row.
-    2. Budget exhaustion check — raises ``BudgetExhaustionError`` if exceeded.
-    3. Deduct epsilon and write a ``PrivacyTransaction`` audit row.
-    4. Commit (or rollback on error).
-
-    Import note:
-        All privacy-module and SQLAlchemy imports are deferred inside this
-        function so environments without a live database do not fail at
-        import time.
+    The returned callable delegates all budget accounting to
+    :func:`~synth_engine.modules.privacy.sync_budget.sync_spend_budget`
+    (T60.4).  The bootstrapper retains responsibility for engine construction
+    and URL promotion; the domain logic lives in ``modules/privacy/``.
 
     URL promotion note:
         ``DATABASE_URL`` may contain an async driver prefix
@@ -260,7 +259,7 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
 
     Returns:
         A sync callable ``(*, amount, job_id, ledger_id, note=None) -> None``
-        that deducts epsilon from the global ``PrivacyLedger`` atomically.
+        that deducts epsilon from the privacy ledger atomically.
         The returned callable satisfies ``SpendBudgetProtocol``.
 
     Example::
@@ -304,73 +303,21 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         ledger_id: int,
         note: str | None = None,
     ) -> None:
-        """Sync wrapper: calls spend_budget logic via a synchronous DB session.
+        """Delegate budget deduction to sync_spend_budget (T60.4).
 
-        Uses the factory-scoped synchronous SQLAlchemy engine (psycopg2 for
-        PostgreSQL, stdlib sqlite3 for SQLite) to avoid ``MissingGreenlet``
-        errors when called from a Huey worker thread (P28-F4, ADR-0035).
+        Passes the factory-scoped synchronous engine to
+        :func:`~synth_engine.modules.privacy.sync_budget.sync_spend_budget`,
+        which owns all pessimistic-locking and transaction logic.
 
         Args:
             amount: Epsilon to deduct.  Must be positive.
             job_id: Synthesis job identifier written to the audit trail.
-            ledger_id: Primary key of the PrivacyLedger row to debit.
+            ledger_id: Privacy ledger row primary key to debit.
             note: Optional human-readable annotation for the transaction.
-
-        Raises:
-            BudgetExhaustionError: If the privacy budget is exhausted.
-            ValueError: If ``amount`` is not positive.
         """
-        from sqlalchemy import select
-        from sqlalchemy.orm import Session
+        from synth_engine.modules.privacy.sync_budget import sync_spend_budget
 
-        from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
-        from synth_engine.shared.exceptions import BudgetExhaustionError
-
-        decimal_amount: Decimal = amount if isinstance(amount, Decimal) else Decimal(str(amount))
-        if decimal_amount <= 0:
-            raise ValueError(f"amount must be positive, got {amount!r}")
-
-        with Session(engine) as session:
-            with session.begin():
-                # Pessimistic lock — same protocol as the async spend_budget().
-                stmt = (
-                    select(PrivacyLedger)
-                    .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
-                    .with_for_update()
-                )
-                result = session.execute(stmt)
-                ledger = result.scalar_one()
-
-                if ledger.total_spent_epsilon + decimal_amount > ledger.total_allocated_epsilon:
-                    _logger.warning(
-                        "Budget exhausted: ledger_id=%d, requested=%s, spent=%s, allocated=%s",
-                        ledger_id,
-                        decimal_amount,
-                        ledger.total_spent_epsilon,
-                        ledger.total_allocated_epsilon,
-                    )
-                    raise BudgetExhaustionError(
-                        requested_epsilon=decimal_amount,
-                        total_spent=ledger.total_spent_epsilon,
-                        total_allocated=ledger.total_allocated_epsilon,
-                    )
-
-                ledger.total_spent_epsilon += decimal_amount
-                transaction = PrivacyTransaction(
-                    ledger_id=ledger_id,
-                    job_id=job_id,
-                    epsilon_spent=decimal_amount,
-                    note=note,
-                )
-                session.add(transaction)
-                # session.begin() context manager commits on clean exit.
-
-        _logger.info(
-            "Epsilon allocated (sync): ledger_id=%d, job_id=%d, amount=%s",
-            ledger_id,
-            job_id,
-            decimal_amount,
-        )
+        sync_spend_budget(engine, amount=amount, job_id=job_id, ledger_id=ledger_id, note=note)
 
     _logger.info("spend_budget sync wrapper built (P28-F4: uses sync engine, no asyncio.run).")
     return _sync_wrapper
