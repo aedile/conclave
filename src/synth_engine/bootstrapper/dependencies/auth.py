@@ -28,7 +28,7 @@ Task: T60.1 — Extract AuthenticationGateMiddleware to auth_middleware.py
 
 CONSTITUTION Priority 0: Security — algorithm pinning, no alg:none
 CONSTITUTION Priority 3: TDD
-Task: T39.1, T39.2, T47.1, T47.3, T57.1
+Task: T39.1, T39.2, T47.1, T47.3, T57.1, T63.4
 """
 
 from __future__ import annotations
@@ -154,9 +154,18 @@ def verify_operator_credentials(passphrase: str) -> bool:
             stored_hash.encode("utf-8"),
         )
         return result
-    except Exception:
-        # Broad catch: any bcrypt error (e.g. invalid hash format) → deny
-        _logger.warning("Credential verification failed due to unexpected error", exc_info=True)
+    except Exception as exc:
+        # Broad catch: any bcrypt error (e.g. invalid hash format) → deny.
+        # Log at DEBUG only: exception type and message are safe (no passphrase
+        # in the frame — bcrypt.checkpw args are encoded bytes, not logged).
+        # NEVER log at INFO or above — that would surface errors in production
+        # log aggregators and create a bcrypt error oracle via log channels.
+        # CONSTITUTION Priority 0: passphrase must never appear in logs.
+        _logger.debug(
+            "Credential verification failed due to bcrypt error: %s",
+            type(exc).__name__,
+            exc_info=True,
+        )
         return False
 
 
@@ -222,9 +231,19 @@ def get_current_operator(request: Request) -> str:
     try:
         claims = verify_token(token)
     except AuthenticationError as exc:
+        # T63.4: Log the actual exception at DEBUG — do NOT put str(exc) in the
+        # 401 response body.  AuthenticationError messages may include internal
+        # JWT details (algorithm, claim names) that could aid an attacker.
+        # Static message prevents oracle attacks via response body differences.
+        # CONSTITUTION Priority 0: no internal error detail in auth responses.
+        _logger.debug(
+            "JWT authentication failed: %s",
+            type(exc).__name__,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=401,
-            detail=str(exc),
+            detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
