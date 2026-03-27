@@ -1,16 +1,21 @@
 """DI factory functions for synthesis-layer application dependencies.
 
 Houses the lazy factory functions that construct :class:`SynthesisEngine`,
-:class:`DPTrainingWrapper`, and the sync ``spend_budget`` wrapper instances.
-These factories are called at synthesis-job start time, never at application
-startup, so missing GPU or database infrastructure does not prevent the
-health check from responding.
+:class:`DPTrainingWrapper`, :class:`EphemeralStorageClient`, and the sync
+``spend_budget`` wrapper instances.  These factories are called at
+synthesis-job start time, never at application startup, so missing GPU or
+database infrastructure does not prevent the health check from responding.
 
-The Docker-secrets cluster (``_read_secret``, ``_SECRETS_DIR``,
-``_MINIO_ENDPOINT``, ``_EPHEMERAL_BUCKET``, ``MinioStorageBackend``,
-``build_ephemeral_storage_client``) lives in ``main.py`` so that existing
-test patches against ``synth_engine.bootstrapper.main.*`` continue to work
-without modification (AC3 of the bootstrapper-decomposition task).
+Task: T60.3 — Move build_ephemeral_storage_client from main.py to factories.py
+    ``build_ephemeral_storage_client`` previously lived in ``main.py`` because
+    it relies on Docker-secrets helpers also defined there.  Those helpers now
+    live in :mod:`docker_secrets`, so there is no obstacle to moving the factory
+    here where all other factories live.
+
+    Backward compatibility: ``main.py`` re-exports
+    ``build_ephemeral_storage_client`` from this module so that existing test
+    patches against ``synth_engine.bootstrapper.main.build_ephemeral_storage_client``
+    continue to resolve correctly (AC2 of T60.3).
 
 P28-F4 — Sync spend_budget path
 ---------------------------------
@@ -49,9 +54,17 @@ from synth_engine.shared.protocols import SpendBudgetProtocol
 
 if TYPE_CHECKING:
     from synth_engine.modules.privacy.dp_engine import DPTrainingWrapper
+    from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
     from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
 _logger = logging.getLogger(__name__)
+
+# Deferred import so environments without the synthesizer group don't fail.
+# Bound at module scope for patch("synth_engine.bootstrapper.factories.MinioStorageBackend").
+try:
+    from synth_engine.modules.synthesizer.storage.storage import MinioStorageBackend
+except ImportError:  # pragma: no cover — synthesizer group not installed
+    MinioStorageBackend = None  # type: ignore[assignment,misc]  # conditional import fallback
 
 
 def build_synthesis_engine(epochs: int = 300) -> SynthesisEngine:
@@ -123,6 +136,58 @@ def build_dp_wrapper(
         noise_multiplier,
     )
     return _DPTrainingWrapper(max_grad_norm=max_grad_norm, noise_multiplier=noise_multiplier)
+
+
+def build_ephemeral_storage_client() -> EphemeralStorageClient:
+    """Build an EphemeralStorageClient backed by MinioStorageBackend.
+
+    Reads MinIO credentials from Docker secrets at synthesis-job start time,
+    not at application startup, so a missing MinIO service does not break
+    the /health endpoint.
+
+    Returns:
+        A configured :class:`EphemeralStorageClient` ready to upload/download
+        Parquet files.
+
+    Raises:
+        RuntimeError: If ``MinioStorageBackend`` is unavailable because the
+            synthesizer dependency group is not installed.  Install it with
+            ``pip install 'synth-engine[synthesizer]'`` or
+            ``poetry install --extras synthesizer``.
+    """
+    from synth_engine.bootstrapper.docker_secrets import (
+        EPHEMERAL_BUCKET as _EPHEMERAL_BUCKET,
+    )
+    from synth_engine.bootstrapper.docker_secrets import (
+        MINIO_ENDPOINT as _MINIO_ENDPOINT,
+    )
+    from synth_engine.bootstrapper.docker_secrets import (
+        _read_secret,
+    )
+    from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
+
+    access_key = _read_secret("minio_ephemeral_access_key")
+    secret_key = _read_secret("minio_ephemeral_secret_key")
+
+    # T57.2: Replace assert with RuntimeError — asserts are stripped by python -O
+    # and raise unhelpful AssertionError.  RuntimeError carries install instructions.
+    if MinioStorageBackend is None:
+        raise RuntimeError(
+            "MinioStorageBackend unavailable — install the synthesizer dependency group: "
+            "pip install 'synth-engine[synthesizer]' or poetry install --extras synthesizer"
+        )
+
+    backend = MinioStorageBackend(
+        endpoint_url=_MINIO_ENDPOINT,
+        access_key=access_key,
+        secret_key=secret_key,
+    )
+    _logger.info(
+        "EphemeralStorageClient initialised (bucket=%s, endpoint=%s).",
+        _EPHEMERAL_BUCKET,
+        _MINIO_ENDPOINT,
+    )
+    return EphemeralStorageClient(bucket=_EPHEMERAL_BUCKET, backend=backend)
 
 
 def _promote_to_sync_url(database_url: str) -> str:

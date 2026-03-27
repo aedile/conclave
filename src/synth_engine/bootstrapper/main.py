@@ -6,7 +6,7 @@ future multi-tenant configurations.
 
 Each concern is delegated to a focused submodule:
 
-- :mod:`.factories` — Synthesis and DP factory functions.
+- :mod:`.factories` — Synthesis, DP, and ephemeral-storage factory functions.
 - :mod:`.middleware` — Middleware stack setup.
 - :mod:`.lifecycle` — Lifespan hooks and ops route registration.
 - :mod:`.router_registry` — Domain router and exception handler wiring.
@@ -20,6 +20,12 @@ Docker-secrets cluster
 re-exported here so that existing code referencing
 ``synth_engine.bootstrapper.main._read_secret`` (including test patches
 against ``main._SECRETS_DIR``) continues to resolve correctly.
+
+Task: T60.3 — Move build_ephemeral_storage_client to factories.py
+    ``build_ephemeral_storage_client`` now lives in :mod:`.factories`.
+    It is re-exported here so that existing test patches against
+    ``synth_engine.bootstrapper.main.build_ephemeral_storage_client``
+    continue to resolve correctly.
 
 IoC wiring (Rule 8 — T45.3, P45 review F3)
 --------------------------------------------
@@ -46,14 +52,9 @@ from synth_engine.bootstrapper.docker_secrets import (  # noqa: F401 — re-expo
     _SECRETS_DIR,
     _read_secret,
 )
-from synth_engine.bootstrapper.docker_secrets import (
-    EPHEMERAL_BUCKET as _EPHEMERAL_BUCKET,
-)
-from synth_engine.bootstrapper.docker_secrets import (
-    MINIO_ENDPOINT as _MINIO_ENDPOINT,
-)
 from synth_engine.bootstrapper.factories import (  # noqa: F401 — re-exported for test patches
     build_dp_wrapper,
+    build_ephemeral_storage_client,
     build_spend_budget_fn,
     build_synthesis_engine,
 )
@@ -75,7 +76,7 @@ from synth_engine.bootstrapper.wiring import (  # noqa: F401 — re-exported for
 from synth_engine.shared.telemetry import configure_telemetry
 
 if TYPE_CHECKING:
-    from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
+    pass
 
 _SERVICE_NAME = "conclave-engine"
 _logger = logging.getLogger(__name__)
@@ -86,49 +87,6 @@ try:
     from synth_engine.modules.synthesizer.storage.storage import MinioStorageBackend
 except ImportError:  # pragma: no cover — synthesizer group not installed
     MinioStorageBackend = None  # type: ignore[assignment,misc]  # conditional import fallback: None when synthesizer group absent; type narrowed at call sites
-
-
-def build_ephemeral_storage_client() -> EphemeralStorageClient:
-    """Build an EphemeralStorageClient backed by MinioStorageBackend.
-
-    Reads MinIO credentials from Docker secrets at synthesis-job start time,
-    not at application startup, so a missing MinIO service does not break
-    the /health endpoint.
-
-    Returns:
-        A configured :class:`EphemeralStorageClient` ready to upload/download
-        Parquet files.
-
-    Raises:
-        RuntimeError: If ``MinioStorageBackend`` is unavailable because the
-            synthesizer dependency group is not installed.  Install it with
-            ``pip install 'synth-engine[synthesizer]'`` or
-            ``poetry install --extras synthesizer``.
-    """
-    from synth_engine.modules.synthesizer.storage.storage import EphemeralStorageClient
-
-    access_key = _read_secret("minio_ephemeral_access_key")
-    secret_key = _read_secret("minio_ephemeral_secret_key")
-
-    # T57.2: Replace assert with RuntimeError — asserts are stripped by python -O
-    # and raise unhelpful AssertionError.  RuntimeError carries install instructions.
-    if MinioStorageBackend is None:
-        raise RuntimeError(
-            "MinioStorageBackend unavailable — install the synthesizer dependency group: "
-            "pip install 'synth-engine[synthesizer]' or poetry install --extras synthesizer"
-        )
-
-    backend = MinioStorageBackend(
-        endpoint_url=_MINIO_ENDPOINT,
-        access_key=access_key,
-        secret_key=secret_key,
-    )
-    _logger.info(
-        "EphemeralStorageClient initialised (bucket=%s, endpoint=%s).",
-        _EPHEMERAL_BUCKET,
-        _MINIO_ENDPOINT,
-    )
-    return EphemeralStorageClient(bucket=_EPHEMERAL_BUCKET, backend=backend)
 
 
 # ---------------------------------------------------------------------------

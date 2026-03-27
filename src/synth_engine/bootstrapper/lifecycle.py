@@ -45,9 +45,7 @@ from fastapi.responses import JSONResponse
 from synth_engine.bootstrapper.config_validation import validate_config
 from synth_engine.bootstrapper.dependencies.redis import close_redis_client
 from synth_engine.bootstrapper.errors import operator_error_response
-from synth_engine.bootstrapper.schemas.vault import (
-    UnsealRequest,
-)
+from synth_engine.bootstrapper.schemas.vault import UnsealRequest as UnsealRequest  # re-exported
 from synth_engine.shared.cert_metrics import update_cert_expiry_metrics
 from synth_engine.shared.db import dispose_engines
 from synth_engine.shared.security.audit import get_audit_logger
