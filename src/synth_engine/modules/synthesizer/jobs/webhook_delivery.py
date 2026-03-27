@@ -43,9 +43,12 @@ Total time budget: 15 seconds per delivery chain.  The retry loop checks
 from the retry loop — backoff is enforced by the budget check only.
 This prevents Huey worker starvation on retries to slow endpoints.
 
-Prometheus counter: ``webhook_circuit_breaker_trips_total``
-Labels: ``{reason: "consecutive_failures"}``.
-No ``registration_id`` label (unbounded cardinality).
+Prometheus counters:
+- ``webhook_circuit_breaker_trips_total`` — incremented when circuit trips.
+  Labels: ``{reason: "consecutive_failures"}``.
+- ``webhook_deliveries_skipped_total`` — incremented when delivery is skipped
+  because the circuit breaker is open. Labels: ``{reason}``.
+  No ``registration_id`` label (unbounded cardinality).
 
 Boundary constraints (import-linter enforced):
     - Must NOT import from bootstrapper/.
@@ -101,6 +104,16 @@ _DEFAULT_TIME_BUDGET_SECONDS: float = 15.0
 _circuit_breaker_trips_total: Counter = Counter(
     "webhook_circuit_breaker_trips_total",
     "Number of times the webhook delivery circuit breaker has tripped.",
+    ["reason"],
+)
+
+#: Counter incremented when a delivery is skipped because the circuit is open.
+#: Labels: {reason} — "circuit_open" is the only value currently used.
+#: ADV-P62-04: surfaced in Prometheus dashboards to quantify skipped deliveries
+#: without requiring log parsing.
+WEBHOOK_DELIVERIES_SKIPPED_TOTAL: Counter = Counter(
+    "webhook_deliveries_skipped_total",
+    "Webhook deliveries skipped due to open circuit breaker",
     ["reason"],
 )
 
@@ -419,6 +432,7 @@ def deliver_webhook(
     # Circuit breaker check — skip delivery if circuit is open for this URL.
     cb = _get_circuit_breaker()
     if cb.is_open(registration.callback_url):
+        WEBHOOK_DELIVERIES_SKIPPED_TOTAL.labels(reason="circuit_open").inc()
         _logger.warning(
             "Webhook circuit breaker is OPEN for url=%s — skipping delivery "
             "for registration=%s job=%d.",

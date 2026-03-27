@@ -52,6 +52,7 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
+from prometheus_client import Counter
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
@@ -74,6 +75,17 @@ from synth_engine.shared.security import (
 from synth_engine.shared.settings import get_settings
 
 _logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# ADV-P58-02 — Prometheus counter for unexpected webhook delivery errors.
+# Incremented when an unexpected exception (not SQLAlchemy/network/OS) reaches
+# the broad catch in _deliver().  CRITICAL-level log + this counter together
+# make the failure visible in both operator logs and Prometheus dashboards.
+# ---------------------------------------------------------------------------
+UNEXPECTED_WEBHOOK_ERRORS_TOTAL: Counter = Counter(
+    "unexpected_webhook_errors_total",
+    "Unexpected exceptions in webhook delivery callback",
+)
 
 
 def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
@@ -177,6 +189,7 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
         except Exception as exc:  # broad catch intentional: protect job lifecycle
             # Unexpected programming error — log at CRITICAL so it is highly visible
             # but still never propagated (preserves "never crash the job" contract).
+            UNEXPECTED_WEBHOOK_ERRORS_TOTAL.inc()
             _logger.critical(
                 "Unexpected error in webhook delivery (job_id=%d): %s",
                 job_id,
