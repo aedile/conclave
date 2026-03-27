@@ -61,7 +61,9 @@ def test_conclave_settings_has_mtls_enabled_field() -> None:
     """ConclaveSettings exposes mtls_enabled field with default=False."""
     from synth_engine.shared.settings import ConclaveSettings
 
-    s = ConclaveSettings(database_url="sqlite:///test.db", audit_key="aa" * 32)
+    s = ConclaveSettings(
+        database_url="sqlite:///test.db", audit_key="aa" * 32, conclave_env="development"
+    )
     assert s.mtls_enabled is False
 
 
@@ -72,6 +74,7 @@ def test_conclave_settings_mtls_enabled_true_from_env(
     monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MTLS_ENABLED", "true")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.shared.settings import ConclaveSettings
 
@@ -83,7 +86,9 @@ def test_conclave_settings_mtls_cert_paths_have_defaults() -> None:
     """mTLS cert path fields have sensible default values."""
     from synth_engine.shared.settings import ConclaveSettings
 
-    s = ConclaveSettings(database_url="sqlite:///test.db", audit_key="aa" * 32)
+    s = ConclaveSettings(
+        database_url="sqlite:///test.db", audit_key="aa" * 32, conclave_env="development"
+    )
     assert s.mtls_ca_cert_path == "secrets/mtls/ca.crt"
     assert s.mtls_client_cert_path == "secrets/mtls/app.crt"
     assert s.mtls_client_key_path == "secrets/mtls/app.key"  # pragma: allowlist secret
@@ -98,6 +103,7 @@ def test_conclave_settings_mtls_cert_paths_from_env(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", "/custom/ca.crt")
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", "/custom/app.crt")
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", "/custom/app.key")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.shared.settings import ConclaveSettings
 
@@ -203,6 +209,7 @@ def test_get_engine_passes_ssl_connect_args_when_mtls_enabled(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(mtls_cert_files["ca"]))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(mtls_cert_files["cert"]))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(mtls_cert_files["key"]))
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     captured_kwargs: dict[str, object] = {}
 
@@ -238,6 +245,7 @@ def test_get_engine_no_ssl_args_when_mtls_disabled(
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host/db")  # pragma: allowlist secret
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MTLS_ENABLED", "false")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     captured_kwargs: dict[str, object] = {}
 
@@ -278,6 +286,7 @@ def test_get_async_engine_passes_ssl_context_when_mtls_enabled(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(mtls_cert_files["ca"]))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(mtls_cert_files["cert"]))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(mtls_cert_files["key"]))
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     captured_kwargs: dict[str, object] = {}
 
@@ -336,6 +345,7 @@ def test_redis_client_gets_ssl_kwargs_when_mtls_enabled(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(mtls_cert_files["ca"]))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(mtls_cert_files["cert"]))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(mtls_cert_files["key"]))
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     captured_url: list[str] = []
     captured_kwargs: dict[str, object] = {}
@@ -371,6 +381,7 @@ def test_redis_client_no_ssl_kwargs_when_mtls_disabled(
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MTLS_ENABLED", "false")
     monkeypatch.setenv("REDIS_URL", "redis://redis:6379/0")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     captured_url: list[str] = []
     captured_kwargs: dict[str, object] = {}
@@ -415,6 +426,7 @@ def test_build_huey_uses_rediss_url_when_mtls_enabled(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(mtls_cert_files["ca"]))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(mtls_cert_files["cert"]))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(mtls_cert_files["key"]))
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     captured_url: list[str] = []
     captured_conn_kwargs: list[dict[str, object]] = []
@@ -469,6 +481,7 @@ def test_build_spend_budget_fn_uses_ssl_connect_args_when_mtls_enabled(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(mtls_cert_files["ca"]))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(mtls_cert_files["cert"]))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(mtls_cert_files["key"]))
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     captured_kwargs: dict[str, object] = {}
 
@@ -499,6 +512,7 @@ def test_build_spend_budget_fn_no_ssl_args_when_mtls_disabled(
     )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MTLS_ENABLED", "false")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     captured_kwargs: dict[str, object] = {}
 

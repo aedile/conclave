@@ -62,6 +62,7 @@ def test_mtls_validation_raises_on_missing_ca_cert(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(tmp_path / "nonexistent_ca.crt"))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(cert))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(key))
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.bootstrapper.config_validation import validate_config
 
@@ -87,6 +88,7 @@ def test_mtls_validation_raises_on_missing_client_cert(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(ca))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(tmp_path / "nonexistent.crt"))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(key))
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.bootstrapper.config_validation import validate_config
 
@@ -112,6 +114,7 @@ def test_mtls_validation_raises_on_missing_client_key(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", str(ca))
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(cert))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(tmp_path / "nonexistent.key"))
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.bootstrapper.config_validation import validate_config
 
@@ -131,6 +134,7 @@ def test_mtls_validation_collects_all_missing_certs(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", "/nonexistent/ca.crt")
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", "/nonexistent/app.crt")
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", "/nonexistent/app.key")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.bootstrapper.config_validation import validate_config
 
@@ -158,6 +162,7 @@ def test_mtls_validation_raises_on_empty_ca_cert_path(
     monkeypatch.setenv("MTLS_CA_CERT_PATH", "")
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", "/some/cert.crt")
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", "/some/key.key")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.bootstrapper.config_validation import validate_config
 
@@ -210,6 +215,7 @@ def test_db_engine_no_tls_args_when_mtls_disabled(
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host/db")  # pragma: allowlist secret
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
     monkeypatch.setenv("MTLS_ENABLED", "false")
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     from synth_engine.shared.settings import ConclaveSettings
 
@@ -242,6 +248,7 @@ def test_db_no_ssl_connect_args_when_mtls_disabled_settings() -> None:
         database_url="sqlite:///test.db",
         audit_key="aa" * 32,
         mtls_enabled=False,
+        conclave_env="development",
     )
     # No error raised — just verify the field exists and is False
     assert s.mtls_enabled is False

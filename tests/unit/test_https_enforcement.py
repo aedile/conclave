@@ -354,6 +354,13 @@ def test_middleware_reads_production_flag_from_settings(monkeypatch: pytest.Monk
     monkeypatch.setenv("CONCLAVE_ENV", "production")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
     monkeypatch.setenv("AUDIT_KEY", "a" * 64)
+    # T63.1: production mode requires all security fields at construction time
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "b" * 64)  # pragma: allowlist secret
+    monkeypatch.setenv("MASKING_SALT", "test-salt-value")
+    monkeypatch.setenv("JWT_SECRET_KEY", "c" * 64)  # pragma: allowlist secret
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", "$2b$12$" + "a" * 53)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
     get_settings.cache_clear()
 
     middleware = HTTPSEnforcementMiddleware.__new__(HTTPSEnforcementMiddleware)

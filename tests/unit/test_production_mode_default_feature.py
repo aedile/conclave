@@ -6,6 +6,11 @@ They verify happy-path and backward-compatibility behaviours.
 CONSTITUTION Priority 3: TDD — feature tests after attack tests
 Task: T50.3 — Default to Production Mode
 Advisory: ADV-P47-04 — Remove security routes from AUTH_EXEMPT_PATHS
+Fix: T63.1 — Provide all production-required fields in tests that construct
+             ConclaveSettings in production mode.  After T63.1, the
+             model_validator enforces artifact_signing_key, masking_salt,
+             jwt_secret_key, and operator_credentials_hash at construction
+             time rather than deferring to validate_config().
 """
 
 from __future__ import annotations
@@ -17,6 +22,44 @@ import pytest
 pytestmark = pytest.mark.unit
 
 _VALID_BCRYPT_HASH = "$2b$12$" + "a" * 53  # 60 chars total — valid structural format
+
+# ---------------------------------------------------------------------------
+# Helper: inject all production-required fields
+# ---------------------------------------------------------------------------
+# After T63.1, Pydantic model_validators enforce production-required fields at
+# construction time.  Any test that constructs ConclaveSettings in production
+# mode (conclave_env='production') must supply these four secrets or the
+# validator raises ValidationError before the test can make its assertion.
+#
+# Tests that only care about conclave_env / is_production() use this helper to
+# satisfy the validator without obscuring the test intent.
+# ---------------------------------------------------------------------------
+
+_PRODUCTION_REQUIRED_FIELDS: dict[str, str] = {
+    "DATABASE_URL": "sqlite:///test.db",
+    "AUDIT_KEY": "a" * 64,  # 32 bytes hex-encoded
+    "ARTIFACT_SIGNING_KEY": "b" * 64,
+    "MASKING_SALT": "test-salt-value",
+    "JWT_SECRET_KEY": "c" * 64,
+    "OPERATOR_CREDENTIALS_HASH": _VALID_BCRYPT_HASH,
+}
+
+
+def _set_production_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inject all production-required env vars so the model_validator passes.
+
+    Call this before constructing ``ConclaveSettings()`` whenever the test
+    forces production mode (i.e. deletes CONCLAVE_ENV or sets it to
+    'production').  Remove ARTIFACT_SIGNING_KEYS and
+    ARTIFACT_SIGNING_KEY_ACTIVE to avoid triggering the multi-key validator.
+
+    Args:
+        monkeypatch: The pytest monkeypatch fixture.
+    """
+    for key, value in _PRODUCTION_REQUIRED_FIELDS.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
+    monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -34,6 +77,7 @@ def test_settings_defaults_conclave_env_to_production(
     """
     from synth_engine.shared.settings import ConclaveSettings
 
+    _set_production_env(monkeypatch)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ENV", raising=False)
 
@@ -50,6 +94,7 @@ def test_unset_conclave_env_is_production_mode(monkeypatch: pytest.MonkeyPatch) 
     """
     from synth_engine.shared.settings import ConclaveSettings
 
+    _set_production_env(monkeypatch)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ENV", raising=False)
 
@@ -79,6 +124,7 @@ def test_explicit_production_mode_still_works(monkeypatch: pytest.MonkeyPatch) -
     """
     from synth_engine.shared.settings import ConclaveSettings
 
+    _set_production_env(monkeypatch)
     monkeypatch.setenv("CONCLAVE_ENV", "production")
     monkeypatch.delenv("ENV", raising=False)
 
@@ -93,6 +139,7 @@ def test_legacy_env_production_still_works(monkeypatch: pytest.MonkeyPatch) -> N
     """
     from synth_engine.shared.settings import ConclaveSettings
 
+    _set_production_env(monkeypatch)
     monkeypatch.setenv("ENV", "production")
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
@@ -110,6 +157,7 @@ def test_legacy_env_development_with_conclave_env_production_is_production(
     """
     from synth_engine.shared.settings import ConclaveSettings
 
+    _set_production_env(monkeypatch)
     monkeypatch.setenv("ENV", "development")
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)  # defaults to 'production'
 

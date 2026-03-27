@@ -210,15 +210,20 @@ def test_xff_spoofing_empty_header_falls_back_to_client_host() -> None:
 
 @pytest.mark.asyncio
 async def test_graceful_degradation_redis_down_allows_request() -> None:
-    """When Redis is unavailable, the request MUST be allowed (fail open) with WARNING log.
+    """Within the grace period, Redis failure falls back to in-memory counter (T63.3).
 
-    Graceful degradation spec:
-    - Redis connection failure during rate limit check must not block the request.
-    - A WARNING must be logged.
-    - The request passes through to the next handler.
+    T63.3 updated this behavior: the first request during the grace period (< 5s
+    after Redis failure) is still served by the in-memory fallback — it passes (200).
+    The in-memory counter still enforces limits during the grace period.
+    After the grace period, requests are rejected with 429 (fail-closed).
 
-    This ensures availability is preserved during Redis outages.
+    This test verifies the grace period allows the first request through,
+    consistent with the in-memory fallback being active during those 5 seconds.
+    A WARNING must still be logged for the Redis failure.
     """
+    import time
+    from unittest.mock import patch
+
     mock_redis = MagicMock(spec=redis_lib.Redis)
     mock_pipeline = MagicMock()
     mock_pipeline.__enter__ = MagicMock(return_value=mock_pipeline)
@@ -226,13 +231,20 @@ async def test_graceful_degradation_redis_down_allows_request() -> None:
     mock_pipeline.execute.side_effect = redis_lib.ConnectionError("Redis down")
     mock_redis.pipeline.return_value = mock_pipeline
 
-    app = _build_redis_app(redis_client=mock_redis, unseal_limit=2)
+    app = _build_redis_app(redis_client=mock_redis, unseal_limit=100)
 
+    # Freeze monotonic time so we stay within the grace period
+    frozen_time = time.monotonic()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post("/unseal", headers={"X-Forwarded-For": "10.1.1.1"})
+        with patch(
+            "synth_engine.bootstrapper.dependencies.rate_limit.time.monotonic",
+            return_value=frozen_time,
+        ):
+            response = await client.post("/unseal", headers={"X-Forwarded-For": "10.1.1.1"})
 
     assert response.status_code == 200, (
-        f"Redis down must fail open (allow request); got {response.status_code}"
+        f"Redis down within grace period must allow request (in-memory fallback); "
+        f"got {response.status_code}"
     )
 
 

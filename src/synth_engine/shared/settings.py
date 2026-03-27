@@ -62,6 +62,9 @@ Task: T50.3 — Default to Production Mode (secure-by-default)
 Task: fix/review-critical-issues — Use SecretStr for secret fields
 Task: T57.3 — Production-Mode Validation for Required Settings
 Task: T57.6 — Unify Environment Configuration
+Task: T63.3 — Rate Limiter Fail-Closed on Redis Failure (rate_limit_fail_open)
+Task: T63.1 — Consolidate Settings Validation
+Task: T63.2 — Unify Environment Variable Naming
 """
 
 from __future__ import annotations
@@ -70,10 +73,16 @@ import logging
 import os
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _logger = logging.getLogger(__name__)
+
+#: Minimum structural length for a bcrypt hash ($2b$NN$<22-char salt><31-char hash>).
+#: A full bcrypt output is 60 characters; 59 is the minimum we accept to guard against
+#: truncation without calling bcrypt.checkpw() (which is intentionally slow).
+_BCRYPT_HASH_PREFIX: str = "$2b$"
+_BCRYPT_HASH_MIN_LENGTH: int = 59
 
 
 class ConclaveSettings(BaseSettings):
@@ -112,19 +121,25 @@ class ConclaveSettings(BaseSettings):
 
     database_url: str = Field(
         default="",
+        validation_alias=AliasChoices("CONCLAVE_DATABASE_URL", "DATABASE_URL"),
         description=(
             "Async-compatible PostgreSQL DSN or SQLite URL. "
             "Required at runtime — startup validation enforced by "
-            "config_validation.validate_config()."
+            "config_validation.validate_config(). "
+            "Accepts env vars: CONCLAVE_DATABASE_URL (preferred, T63.2) or "
+            "DATABASE_URL (legacy, still supported)."
         ),
     )
     audit_key: SecretStr = Field(
         default=SecretStr(""),
+        validation_alias=AliasChoices("CONCLAVE_AUDIT_KEY", "AUDIT_KEY"),
         description=(
             "Hex-encoded 32-byte HMAC key for audit event signing. "
             "Required at runtime — startup validation enforced by "
             "config_validation.validate_config(). "
-            "SecretStr — raw value never exposed in repr or model_dump()."
+            "SecretStr — raw value never exposed in repr or model_dump(). "
+            "Accepts env vars: CONCLAVE_AUDIT_KEY (preferred, T63.2) or "
+            "AUDIT_KEY (legacy, still supported)."
         ),
     )
 
@@ -161,9 +176,12 @@ class ConclaveSettings(BaseSettings):
     )
     masking_salt: SecretStr | None = Field(
         default=None,
+        validation_alias=AliasChoices("CONCLAVE_MASKING_SALT", "MASKING_SALT"),
         description=(
             "Secret salt for deterministic HMAC masking. Required in production mode. "
-            "SecretStr — raw value never exposed in repr or model_dump()."
+            "SecretStr — raw value never exposed in repr or model_dump(). "
+            "Accepts env vars: CONCLAVE_MASKING_SALT (preferred, T63.2) or "
+            "MASKING_SALT (legacy, still supported)."
         ),
     )
     license_public_key: str | None = Field(
@@ -288,12 +306,15 @@ class ConclaveSettings(BaseSettings):
     )
     jwt_secret_key: SecretStr = Field(
         default=SecretStr(""),
+        validation_alias=AliasChoices("CONCLAVE_JWT_SECRET_KEY", "JWT_SECRET_KEY"),
         description=(
             "HMAC secret key for JWT signing and verification. "
             "Required when jwt_algorithm is HS256/HS384/HS512. "
             "Must be a cryptographically random string of at least 32 characters. "
             "Empty string only acceptable in development/test environments. "
-            "SecretStr — raw value never exposed in repr or model_dump()."
+            "SecretStr — raw value never exposed in repr or model_dump(). "
+            "Accepts env vars: CONCLAVE_JWT_SECRET_KEY (preferred, T63.2) or "
+            "JWT_SECRET_KEY (legacy, still supported)."
         ),
     )
 
@@ -330,6 +351,20 @@ class ConclaveSettings(BaseSettings):
             "Maximum download requests per authenticated operator per minute. "
             "Bandwidth protection for /jobs/{id}/download. "
             "Defaults to 10 per the T39.3 security specification."
+        ),
+    )
+    conclave_rate_limit_fail_open: bool = Field(
+        default=False,
+        description=(
+            "When True, restores pre-P63 in-memory fallback behavior on Redis failure "
+            "(fail-open: requests are allowed through). "
+            "When False (default), requests are rejected with 429 after a 5-second grace "
+            "period on Redis failure (fail-closed). "
+            "WARNING: enabling fail-open in production disables distributed rate limiting "
+            "during Redis outages, which allows brute-force and DoS attacks to bypass "
+            "per-IP limits. Set CONCLAVE_RATE_LIMIT_FAIL_OPEN=true only for non-production "
+            "environments or with explicit security review. "
+            "T63.3 — Rate Limiter Fail-Closed on Redis Failure."
         ),
     )
 
@@ -532,17 +567,26 @@ class ConclaveSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_required_fields(self) -> ConclaveSettings:
-        """Reject empty required fields in production and handle ENV= alias (T57.3, T57.6).
+        """Reject empty required fields in production and handle ENV= alias (T57.3, T57.6, T63.1).
 
-        Two concerns are handled here:
+        Three concerns are handled here:
 
         **T57.6 — ENV= alias resolution**: If the legacy ``ENV=`` variable is set,
         a deprecation WARNING is emitted.  When both ``ENV`` and ``CONCLAVE_ENV``
         are set and conflict, ``conclave_env`` takes precedence.
 
-        **T57.3 — Production required field validation**: In production mode,
-        ``database_url`` and ``audit_key`` must not be empty or whitespace-only.
-        Empty defaults are only acceptable in development/test environments.
+        **T57.3 — Always-required field validation**: ``database_url`` and
+        ``audit_key`` are validated in production mode at construction time.
+        In non-production environments these fields may be empty — validation
+        is deferred to ``config_validation.validate_config()`` at startup.
+
+        **T63.1 — Production-required field validation**: In production mode,
+        additional fields are required: ``artifact_signing_key`` or
+        ``artifact_signing_keys`` (at least one), ``masking_salt``,
+        ``jwt_secret_key``, and ``operator_credentials_hash``.
+
+        All errors are collected before raising so the operator receives a complete
+        list in a single error message.
 
         The ``database_url`` value is **never** included in error messages —
         it may contain credentials (user:password@host).
@@ -551,8 +595,8 @@ class ConclaveSettings(BaseSettings):
             The validated ``ConclaveSettings`` instance (self).
 
         Raises:
-            ValueError: When production mode is active and ``database_url`` or
-                ``audit_key`` is empty or whitespace-only.
+            ValueError: When production mode is active and any required field is
+                empty or whitespace-only.
         """
         # T57.6: Emit WARNING whenever legacy ENV= is set.
         if self.env:
@@ -569,28 +613,124 @@ class ConclaveSettings(BaseSettings):
                     self.conclave_env,
                 )
 
-        # T57.3: Production-mode required field validation (construction-time).
-        # Collect ALL field errors before raising so the operator receives
-        # a complete list in a single error message (mirrors validate_config behaviour).
+        # T57.3 / T63.1: Production-required field validation (construction-time).
+        # Collect ALL field errors before raising so the operator receives a complete
+        # list in a single error message.
+        #
+        # Initialise field_errors unconditionally so the reference at the end of this
+        # method is always valid, regardless of which branch is taken.
+        field_errors: list[str] = []
+
         if self.conclave_env.lower() == "production":
-            field_errors: list[str] = []
+            # DATABASE_URL — required in production.
             if not self.database_url or not self.database_url.strip():
                 field_errors.append(
                     "database_url must not be empty in production mode (CONCLAVE_ENV=production). "
                     "Set DATABASE_URL to a valid PostgreSQL DSN."
                 )
-            # audit_key is SecretStr — MUST call .get_secret_value() before checking.
-            # A bare `if not self.audit_key` check is ALWAYS False because
-            # the SecretStr object is always truthy regardless of the wrapped value.
+
+            # AUDIT_KEY — SecretStr; MUST call .get_secret_value() before checking.
+            # A bare `if not self.audit_key` is ALWAYS False because the SecretStr
+            # object is truthy regardless of the wrapped value.
             audit_key_value = self.audit_key.get_secret_value()
             if not audit_key_value or not audit_key_value.strip():
                 field_errors.append(
                     "audit_key must not be empty in production mode (CONCLAVE_ENV=production). "
                     "Set AUDIT_KEY to a valid hex-encoded 32-byte HMAC key."
                 )
-            if field_errors:
-                raise ValueError(" ".join(field_errors))
 
+            # ARTIFACT_SIGNING_KEY — required when ARTIFACT_SIGNING_KEYS is absent.
+            signing_key_value = (
+                self.artifact_signing_key.get_secret_value()
+                if self.artifact_signing_key is not None
+                else ""
+            )
+            has_signing_key = bool(signing_key_value and signing_key_value.strip())
+            has_signing_keys_map = bool(self.artifact_signing_keys)
+            if not has_signing_key and not has_signing_keys_map:
+                field_errors.append(
+                    "artifact_signing_key (or artifact_signing_keys) must not be empty "
+                    "in production mode (CONCLAVE_ENV=production). "
+                    "Set ARTIFACT_SIGNING_KEY to a hex-encoded HMAC key."
+                )
+
+            # MASKING_SALT — required in production.
+            masking_salt_value = (
+                self.masking_salt.get_secret_value() if self.masking_salt is not None else ""
+            )
+            if not masking_salt_value or not masking_salt_value.strip():
+                field_errors.append(
+                    "masking_salt must not be empty in production mode (CONCLAVE_ENV=production). "
+                    "Set MASKING_SALT to a secret salt value."
+                )
+
+            # JWT_SECRET_KEY — required in production.
+            jwt_key_value = self.jwt_secret_key.get_secret_value()
+            if not jwt_key_value or not jwt_key_value.strip():
+                field_errors.append(
+                    "jwt_secret_key must not be empty in production mode "
+                    "(CONCLAVE_ENV=production). "
+                    "Set JWT_SECRET_KEY to a cryptographically random string."
+                )
+
+            # OPERATOR_CREDENTIALS_HASH — required in production.
+            # Also validate bcrypt format: must start with $2b$ and be >= 59 chars.
+            if not self.operator_credentials_hash:
+                field_errors.append(
+                    "operator_credentials_hash must not be empty "
+                    "in production mode (CONCLAVE_ENV=production). "
+                    "Set OPERATOR_CREDENTIALS_HASH to a bcrypt hash of the operator passphrase."
+                )
+            elif not (
+                self.operator_credentials_hash.startswith(_BCRYPT_HASH_PREFIX)
+                and len(self.operator_credentials_hash) >= _BCRYPT_HASH_MIN_LENGTH
+            ):
+                field_errors.append(
+                    "OPERATOR_CREDENTIALS_HASH has an invalid format — "
+                    f"expected a bcrypt hash starting with '{_BCRYPT_HASH_PREFIX}' "
+                    f"and at least {_BCRYPT_HASH_MIN_LENGTH} characters long."
+                )
+
+        if field_errors:
+            raise ValueError(" | ".join(field_errors))
+
+        return self
+
+    @model_validator(mode="after")
+    def _validate_multi_key_signing_consistency(self) -> ConclaveSettings:
+        """Validate multi-key signing consistency in all deployment modes (T42.1).
+
+        When ``artifact_signing_keys`` is non-empty, ``artifact_signing_key_active``
+        must be set and present as a key within the map.  This prevents silent
+        misconfiguration during key rotation where the active key pointer is
+        forgotten or misspelled.
+
+        Checked in ALL deployment modes (not just production) because rotation
+        misconfiguration can cause signed artifacts to be unverifiable regardless
+        of environment.
+
+        Returns:
+            The validated ``ConclaveSettings`` instance (self).
+
+        Raises:
+            ValueError: When ``artifact_signing_keys`` is non-empty but
+                ``artifact_signing_key_active`` is absent or not in the map.
+        """
+        if not self.artifact_signing_keys:
+            return self
+
+        if not self.artifact_signing_key_active:
+            raise ValueError(
+                "artifact_signing_key_active (ARTIFACT_SIGNING_KEY_ACTIVE) must be set "
+                "when artifact_signing_keys (ARTIFACT_SIGNING_KEYS) is non-empty. "
+                "Set it to the hex key ID of the currently active signing key."
+            )
+        if self.artifact_signing_key_active not in self.artifact_signing_keys:
+            raise ValueError(
+                f"artifact_signing_key_active '{self.artifact_signing_key_active}' "
+                f"is not present in artifact_signing_keys. "
+                f"Known key IDs: {sorted(self.artifact_signing_keys.keys())}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -607,10 +747,25 @@ class ConclaveSettings(BaseSettings):
         Returns:
             The validated ``ConclaveSettings`` instance (self).
         """
-        known_conclave_env_vars: frozenset[str] = frozenset(
+        # Collect known CONCLAVE_ env var names from two sources:
+        # 1. Field names starting with "conclave_" (e.g. CONCLAVE_ENV, CONCLAVE_SSL_REQUIRED).
+        # 2. AliasChoices entries starting with "CONCLAVE_" from any field's
+        #    validation_alias (e.g. CONCLAVE_DATABASE_URL, CONCLAVE_AUDIT_KEY).
+        #    This ensures the warning is NOT emitted for known T63.2 aliases.
+        known_from_field_names: set[str] = {
             field_name.upper()
             for field_name in self.__class__.model_fields
             if field_name.startswith("conclave_")
+        }
+        known_from_aliases: set[str] = {
+            alias.upper()
+            for field_info in self.__class__.model_fields.values()
+            if isinstance(field_info.validation_alias, AliasChoices)
+            for alias in field_info.validation_alias.choices
+            if isinstance(alias, str) and alias.upper().startswith("CONCLAVE_")
+        }
+        known_conclave_env_vars: frozenset[str] = frozenset(
+            known_from_field_names | known_from_aliases
         )
         for env_var, value in os.environ.items():
             if env_var.startswith("CONCLAVE_") and env_var not in known_conclave_env_vars:

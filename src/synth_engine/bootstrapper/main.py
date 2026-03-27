@@ -223,12 +223,6 @@ def create_app() -> FastAPI:
 
     Returns:
         A configured FastAPI instance ready to serve requests.
-
-    Raises:
-        RuntimeError: If the middleware stack is not in the expected LIFO order
-            (T62.4 fail-closed startup assertion).
-        AttributeError: If Starlette internals change and ``user_middleware``
-            is no longer available.
     """
     configure_telemetry(_SERVICE_NAME)
 

@@ -264,7 +264,8 @@ def test_mtls_cert_unreadable_appends_error(
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(client_cert))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(client_key))
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    # T63.1: use development mode — this test checks mTLS behavior, not production validation.
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
@@ -310,7 +311,8 @@ def test_mtls_cert_is_directory_fails(
     monkeypatch.setenv("MTLS_CLIENT_CERT_PATH", str(client_cert))
     monkeypatch.setenv("MTLS_CLIENT_KEY_PATH", str(client_key))
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    # T63.1: use development mode — this test checks mTLS behavior, not production validation.
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("ARTIFACT_SIGNING_KEYS", raising=False)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
 
