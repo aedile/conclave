@@ -90,6 +90,26 @@ Updated after each task's review phase completes.
 
 ---
 
+### [2026-03-27] Phase 64 — Review Summary
+
+**Reviewers**: QA (pending), DevOps, Architecture, Red-team
+
+**Verdicts**: Arch — FINDING (2 cosmetic, batched); DevOps — FINDING (1 CVE, fixed); Red-team — PASS
+
+**FINDINGs fixed** (`569e7a2`):
+1. CVE-2026-34073 in cryptography 46.0.5 → updated to 46.0.6 (DevOps)
+
+**Cosmetic findings (batched, not standalone fixes)**:
+- `limit: object` type erasure in rate_limit_backend.py (Arch) — minor type safety
+- `_IP_KEYED_PATHS` dead constant in rate_limit.py (Arch) — dead code
+- `MemoryStorage` dead re-export in rate_limit_backend.__all__ (Arch) — cleanup
+
+**ADVISORIEs** (logged, not blocking):
+- ADV-P64-01: Advisory count at 15, exceeds Rule 11 cap of 8 — drain sprint needed before P65 (DevOps)
+- ADV-P64-02: ADR-0058 should be amended to cover T64.3 rate_limit decomposition pattern (Arch)
+
+---
+
 ### [2026-03-27] Phase 63 — Review Summary
 
 **Reviewers**: QA (pending), DevOps, Architecture, Red-team
