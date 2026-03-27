@@ -573,12 +573,15 @@ def test_signing_keys_non_empty_without_active_raises_system_exit(
     monkeypatch.setenv("ARTIFACT_SIGNING_KEYS", keys_dict)
     monkeypatch.delenv("ARTIFACT_SIGNING_KEY_ACTIVE", raising=False)
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    # T63.1: use development mode to isolate the multi-key check from production-
+    # required field validation. The multi-key check runs in all modes.
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     with pytest.raises(SystemExit) as exc_info:
         validate_config()
 
-    assert "ARTIFACT_SIGNING_KEY_ACTIVE" in str(exc_info.value)
+    error_msg = str(exc_info.value)
+    assert "ARTIFACT_SIGNING_KEY_ACTIVE" in error_msg or "artifact_signing_key_active" in error_msg
 
 
 def test_signing_keys_active_not_in_map_raises_system_exit(
@@ -597,7 +600,9 @@ def test_signing_keys_active_not_in_map_raises_system_exit(
     monkeypatch.setenv("ARTIFACT_SIGNING_KEYS", keys_dict)
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY_ACTIVE", "00000001")  # not in map!
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("CONCLAVE_ENV", raising=False)
+    # T63.1: use development mode to isolate the multi-key check from production-
+    # required field validation. The multi-key check runs in all modes.
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
 
     with pytest.raises(SystemExit) as exc_info:
         validate_config()

@@ -331,6 +331,7 @@ _security_rotation  # unused import — side-effect: registers ALE key rotation 
 # ---------------------------------------------------------------------------
 
 _warn_unrecognized_conclave_env_vars  # Pydantic model_validator — called at construction time
+_validate_multi_key_signing_consistency  # Pydantic model_validator — multi-key signing consistency check called at construction time (shared/settings.py T42.1, T63.1)
 
 # ---------------------------------------------------------------------------
 # Category S — T58.4 backward-compat AuditLogger wrapper methods

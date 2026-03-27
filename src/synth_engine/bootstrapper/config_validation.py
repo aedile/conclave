@@ -76,17 +76,12 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
-from synth_engine.shared.settings import ConclaveSettings, get_settings
+from synth_engine.shared.settings import get_settings
 
-_ALWAYS_REQUIRED: tuple[str, ...] = (
-    "DATABASE_URL",
-    "AUDIT_KEY",
-)
-
-_PRODUCTION_REQUIRED: tuple[str, ...] = (
-    "ARTIFACT_SIGNING_KEY",
-    "MASKING_SALT",
-)
+# T63.1: _ALWAYS_REQUIRED and _PRODUCTION_REQUIRED removed — these field-level
+# checks are now enforced by ConclaveSettings._validate_production_required_fields()
+# at Pydantic model construction time.  This eliminates the duplicate check and
+# ensures validation always fires at settings construction, not just at startup.
 
 # Minimum structural length for a bcrypt hash ($2b$NN$<22-char salt><31-char hash>).
 # A full bcrypt output is 60 characters; 59 is the minimum we accept to guard against
@@ -109,31 +104,6 @@ def _is_production() -> bool:
         ``True`` when the deployment mode is production, ``False`` otherwise.
     """
     return get_settings().is_production()
-
-
-def _is_field_empty(settings: ConclaveSettings, field_name: str) -> bool:
-    """Return ``True`` when a settings field is absent, ``None``, or empty/whitespace.
-
-    Handles both plain string fields and ``pydantic.SecretStr`` fields correctly.
-    A bare truthiness test on ``SecretStr`` always returns ``False`` for non-``None``
-    values — even ``SecretStr("   ")`` — so ``get_secret_value().strip()`` is used
-    for secrets to catch whitespace-only values that are semantically empty.
-
-    Args:
-        settings: The ``ConclaveSettings`` instance to inspect.
-        field_name: The uppercase environment variable name (e.g. ``"AUDIT_KEY"``).
-            The settings attribute is the lowercase equivalent (Pydantic convention).
-
-    Returns:
-        ``True`` when the field value is absent, ``None``, or empty/whitespace-only.
-        ``False`` when the field contains a non-empty, non-whitespace value.
-    """
-    value = getattr(settings, field_name.lower(), None)
-    if value is None:
-        return True
-    if hasattr(value, "get_secret_value"):
-        return not value.get_secret_value().strip()
-    return not str(value).strip()
 
 
 def _validate_jwt_secret_key(errors: list[str]) -> None:
@@ -394,24 +364,40 @@ def validate_config() -> None:
     """
     try:
         settings = get_settings()
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
+        # T63.1: ConclaveSettings now validates all required fields at construction
+        # time via @model_validator.  A Pydantic ValidationError or ValueError here
+        # means a required field is missing or misconfigured.  Convert to SystemExit
+        # with a clear, operator-readable message.
         raise SystemExit(
             f"Startup configuration error: the following required environment "
             f"variable(s) are not set or are misconfigured: {exc}. "
             f"Set them before starting the Conclave Engine."
         ) from exc
-    required = list(_ALWAYS_REQUIRED)
-    if _is_production():
-        required.extend(_PRODUCTION_REQUIRED)
 
-    # Access each required variable via the settings model rather than os.environ.
-    # Settings field names are the lowercase equivalents of the env var names
-    # (e.g. DATABASE_URL -> settings.database_url).
-    errors: list[str] = [var for var in required if _is_field_empty(settings, var)]
+    errors: list[str] = []
+
+    # Always-required fields: DATABASE_URL and AUDIT_KEY must be non-empty in ALL modes.
+    # In production mode, Pydantic already caught these at settings construction time.
+    # Here we enforce them in development mode too — an empty AUDIT_KEY means all
+    # audit event HMAC signatures will be computed with an empty key, which is a
+    # security vulnerability in any mode.
+    if not settings.database_url or not settings.database_url.strip():
+        errors.append(
+            "DATABASE_URL is not set or is empty — "
+            "set it to a valid async-compatible PostgreSQL DSN (e.g. postgresql+asyncpg://...)"
+        )
+    audit_key_value = settings.audit_key.get_secret_value()
+    if not audit_key_value or not audit_key_value.strip():
+        errors.append(
+            "AUDIT_KEY is not set or is empty — "
+            "set it to a hex-encoded 32-byte HMAC key for audit event signing"
+        )
 
     # T42.1: validate multi-key signing consistency in all deployment modes.
-    # If artifact_signing_keys is non-empty, artifact_signing_key_active must be
-    # set and present as a key in the map.
+    # This cross-field check is kept in config_validation (not settings) because
+    # it requires inspecting two related fields together and emitting a specific
+    # error message that names both field names.
     if settings.artifact_signing_keys:
         if not settings.artifact_signing_key_active:
             errors.append(
@@ -423,13 +409,9 @@ def validate_config() -> None:
                 f"is not present in ARTIFACT_SIGNING_KEYS"
             )
 
-    # T47.4: validate JWT_SECRET_KEY presence in production.
-    _validate_jwt_secret_key(errors)
-
-    # T47.5: validate OPERATOR_CREDENTIALS_HASH presence and bcrypt format in production.
-    _validate_operator_credentials_hash(errors)
-
     # T46.2 / ADV-P46-03: validate mTLS cert files exist and are readable.
+    # File-system existence checks cannot be done in Pydantic validators (they would
+    # run at import time in some test setups) — kept as startup warnings here.
     _validate_mtls_cert_files(errors)
 
     if errors:
@@ -439,6 +421,14 @@ def validate_config() -> None:
             f"variable(s) are not set or are misconfigured: {error_list}. "
             f"Set them before starting the Conclave Engine."
         )
+
+    # T47.4: emit WARNING when JWT_SECRET_KEY is absent in development mode.
+    # (Production failure is now caught by settings._validate_production_required_fields.)
+    _validate_jwt_secret_key([])
+
+    # T47.5: emit WARNING when OPERATOR_CREDENTIALS_HASH is absent or invalid in dev mode.
+    # (Production failure is now caught by settings._validate_production_required_fields.)
+    _validate_operator_credentials_hash([])
 
     if _is_production() and not settings.conclave_ssl_required:
         _logger.warning(

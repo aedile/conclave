@@ -14,11 +14,9 @@ Task: T63.1 — Consolidate Settings Validation
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Generator
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # State isolation fixtures
@@ -26,7 +24,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -137,16 +135,27 @@ def test_settings_allows_nonempty_database_url_in_production(
 
     Happy path: production mode with a valid DSN must not raise.
 
-    Arrange: set CONCLAVE_ENV=production, DATABASE_URL=valid DSN, AUDIT_KEY=valid.
+    T63.1: All production-required fields must be provided for the construction
+    to succeed. This test verifies the happy path where all required fields are
+    set correctly.
+
+    Arrange: set CONCLAVE_ENV=production with all production-required fields.
     Act: construct ConclaveSettings.
     Assert: no exception raised; database_url matches the provided value.
     """
     from synth_engine.shared.settings import ConclaveSettings
 
     valid_url = "postgresql+asyncpg://user:pass@host:5432/db"  # pragma: allowlist secret
+    _valid_bcrypt_hash = "$2b$12$" + "a" * 53  # pragma: allowlist secret
     monkeypatch.setenv("CONCLAVE_ENV", "production")
     monkeypatch.setenv("DATABASE_URL", valid_url)
     monkeypatch.setenv("AUDIT_KEY", "d" * 64)  # pragma: allowlist secret
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "e" * 32)  # pragma: allowlist secret
+    monkeypatch.setenv("MASKING_SALT", "f" * 16)  # pragma: allowlist secret
+    monkeypatch.setenv(  # pragma: allowlist secret
+        "JWT_SECRET_KEY", "supersecretjwtkey-for-production-happy-path"
+    )
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", _valid_bcrypt_hash)
 
     settings = ConclaveSettings()
     assert settings.database_url == valid_url, (

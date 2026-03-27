@@ -21,6 +21,39 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
+# ---------------------------------------------------------------------------
+# Shared helpers for production-mode tests (T63.1)
+# ---------------------------------------------------------------------------
+
+#: Structurally valid bcrypt hash for tests (60 chars, starts with $2b$).
+_VALID_BCRYPT_HASH: str = "$2b$12$" + "a" * 53  # pragma: allowlist secret
+
+
+def _set_all_production_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set all production-required env vars to valid values.
+
+    T63.1: ConclaveSettings now validates all required fields at construction
+    time in production mode.  Tests that construct ConclaveSettings with
+    CONCLAVE_ENV=production (or the default, which is production) must provide
+    all production-required fields or receive a ValidationError.
+
+    This helper provides the minimal set of valid production field values so
+    tests can focus on the specific behaviour they are testing.
+
+    Args:
+        monkeypatch: pytest monkeypatch fixture for environment manipulation.
+    """
+    monkeypatch.setenv(  # pragma: allowlist secret
+        "DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db"
+    )
+    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)  # pragma: allowlist secret
+    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "bb" * 32)  # pragma: allowlist secret
+    monkeypatch.setenv("MASKING_SALT", "cc" * 16)  # pragma: allowlist secret
+    monkeypatch.setenv(  # pragma: allowlist secret
+        "JWT_SECRET_KEY", "supersecretjwtkey-for-production-tests"
+    )
+    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", _VALID_BCRYPT_HASH)
+
 
 # ---------------------------------------------------------------------------
 # Tests: ConclaveSettings field parsing
@@ -56,9 +89,11 @@ def test_settings_parses_audit_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_settings_parses_conclave_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.conclave_env is populated from CONCLAVE_ENV env var."""
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-    monkeypatch.setenv("AUDIT_KEY", "cc" * 32)
+    """ConclaveSettings.conclave_env is populated from CONCLAVE_ENV env var.
+
+    T63.1: All production-required fields must be provided when CONCLAVE_ENV=production.
+    """
+    _set_all_production_fields(monkeypatch)
     monkeypatch.setenv("CONCLAVE_ENV", "production")
 
     from synth_engine.shared.settings import ConclaveSettings
@@ -73,9 +108,11 @@ def test_settings_defaults_conclave_env_to_production(monkeypatch: pytest.Monkey
     The default shifted from '' to 'production' in T50.3 to implement the
     secure-by-default principle.  An unset CONCLAVE_ENV now means production
     mode, not development mode.
+
+    T63.1: All production-required fields must be provided because the default
+    mode is production, so the production validator fires at construction time.
     """
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-    monkeypatch.setenv("AUDIT_KEY", "dd" * 32)
+    _set_all_production_fields(monkeypatch)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
     monkeypatch.delenv("ENV", raising=False)
 
@@ -333,9 +370,11 @@ def test_get_settings_cache_can_be_cleared(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_is_production_via_conclave_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.is_production() returns True when CONCLAVE_ENV=production."""
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    """ConclaveSettings.is_production() returns True when CONCLAVE_ENV=production.
+
+    T63.1: All production-required fields must be provided when CONCLAVE_ENV=production.
+    """
+    _set_all_production_fields(monkeypatch)
     monkeypatch.setenv("CONCLAVE_ENV", "production")
     monkeypatch.delenv("ENV", raising=False)
 
@@ -346,9 +385,15 @@ def test_is_production_via_conclave_env(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_is_production_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ConclaveSettings.is_production() returns True when ENV=production."""
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    """ConclaveSettings.is_production() returns True when CONCLAVE_ENV defaults to production.
+
+    When CONCLAVE_ENV is not set, it defaults to 'production' (T50.3 secure-by-default).
+    The legacy ENV= field is deprecated; is_production() reads conclave_env only.
+
+    T63.1: All production-required fields must be provided because CONCLAVE_ENV
+    defaults to production when not set.
+    """
+    _set_all_production_fields(monkeypatch)
     monkeypatch.setenv("ENV", "production")
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
@@ -381,9 +426,11 @@ def test_is_production_true_when_neither_set(monkeypatch: pytest.MonkeyPatch) ->
 
     T50.3: CONCLAVE_ENV defaults to 'production', so an unset configuration
     is now treated as production mode — the secure-by-default behaviour.
+
+    T63.1: All production-required fields must be provided because the default
+    mode is production.
     """
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    _set_all_production_fields(monkeypatch)
     monkeypatch.delenv("ENV", raising=False)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
@@ -400,22 +447,28 @@ def test_is_production_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None
     ``ENV=Production`` and ``ENV=PRODUCTION`` — not only the canonical lowercase
     ``production`` — so that deployment tooling using different casing conventions
     still correctly triggers production-mode validation.
+
+    T63.1: All production-required fields must be provided because CONCLAVE_ENV
+    defaults to 'production' when not explicitly set.
     """
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-    monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
+    _set_all_production_fields(monkeypatch)
     monkeypatch.delenv("CONCLAVE_ENV", raising=False)
 
     from synth_engine.shared.settings import ConclaveSettings
 
-    # Title-case variant
+    # Title-case variant (ENV= is deprecated but still supported for is_production())
     monkeypatch.setenv("ENV", "Production")
     s1 = ConclaveSettings()
-    assert s1.is_production() is True, "ENV=Production must be recognised as production mode"
+    assert s1.is_production() is True, (
+        "CONCLAVE_ENV defaults to 'production' — is_production() must be True"
+    )
 
     # All-caps variant
     monkeypatch.setenv("ENV", "PRODUCTION")
     s2 = ConclaveSettings()
-    assert s2.is_production() is True, "ENV=PRODUCTION must be recognised as production mode"
+    assert s2.is_production() is True, (
+        "CONCLAVE_ENV defaults to 'production' — is_production() must be True"
+    )
 
 
 # ---------------------------------------------------------------------------
