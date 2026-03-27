@@ -130,16 +130,16 @@ class TestDPWiringInImpl:
     """
 
     @pytest.mark.parametrize(
-        ("enable_dp", "dp_wrapper_arg", "expect_none"),
+        ("enable_dp", "use_dp_wrapper", "expect_none"),
         [
-            pytest.param(True, _make_mock_dp_wrapper(epsilon=2.5), False, id="dp_enabled"),
-            pytest.param(False, None, True, id="dp_disabled"),
+            pytest.param(True, True, False, id="dp_enabled"),
+            pytest.param(False, False, True, id="dp_disabled"),
         ],
     )
     def test_dp_wrapper_forwarded_to_engine_train(
         self,
         enable_dp: bool,
-        dp_wrapper_arg: MagicMock | None,
+        use_dp_wrapper: bool,
         expect_none: bool,
     ) -> None:
         """engine.train() must receive or omit dp_wrapper based on enable_dp (P22-T22.2).
@@ -148,6 +148,7 @@ class TestDPWiringInImpl:
           wrapper object.
         dp_disabled: dp_wrapper kwarg must be None on every engine.train() call.
         """
+        dp_wrapper_arg = _make_mock_dp_wrapper(epsilon=2.5) if use_dp_wrapper else None
         _, _, mock_engine = _run_impl(job_id=10, enable_dp=enable_dp, dp_wrapper=dp_wrapper_arg)
         for call in mock_engine.train.call_args_list:
             actual = call.kwargs.get("dp_wrapper", None)
@@ -161,16 +162,16 @@ class TestDPWiringInImpl:
                 )
 
     @pytest.mark.parametrize(
-        ("enable_dp", "dp_wrapper_arg", "expected_epsilon"),
+        ("enable_dp", "epsilon_value", "expected_epsilon"),
         [
-            pytest.param(True, _make_mock_dp_wrapper(epsilon=3.14), 3.14, id="dp_enabled"),
+            pytest.param(True, 3.14, 3.14, id="dp_enabled"),
             pytest.param(False, None, None, id="dp_disabled"),
         ],
     )
     def test_actual_epsilon_recorded_correctly(
         self,
         enable_dp: bool,
-        dp_wrapper_arg: MagicMock | None,
+        epsilon_value: float | None,
         expected_epsilon: float | None,
     ) -> None:
         """job.actual_epsilon must be set to epsilon_spent() result or remain None (P22-T22.2).
@@ -178,6 +179,9 @@ class TestDPWiringInImpl:
         dp_enabled: actual_epsilon == dp_wrapper.epsilon_spent(delta=1e-5).
         dp_disabled: actual_epsilon remains None.
         """
+        dp_wrapper_arg = (
+            _make_mock_dp_wrapper(epsilon=epsilon_value) if epsilon_value is not None else None
+        )
         job, _, _ = _run_impl(job_id=12, enable_dp=enable_dp, dp_wrapper=dp_wrapper_arg)
         assert job.actual_epsilon == expected_epsilon, (
             f"Expected actual_epsilon={expected_epsilon!r}; got {job.actual_epsilon}"
@@ -355,21 +359,16 @@ class TestSpendBudgetWiring:
         )
 
     @pytest.mark.parametrize(
-        ("enable_dp", "dp_wrapper_arg"),
+        ("enable_dp", "use_error_dp_wrapper"),
         [
-            pytest.param(False, None, id="non_dp_job"),
-            pytest.param(
-                True,
-                # epsilon_spent raises → actual_epsilon stays None → no deduction
-                MagicMock(**{"epsilon_spent.side_effect": RuntimeError("Opacus internal error")}),
-                id="epsilon_measurement_failed",
-            ),
+            pytest.param(False, False, id="non_dp_job"),
+            pytest.param(True, True, id="epsilon_measurement_failed"),
         ],
     )
     def test_spend_budget_not_called(
         self,
         enable_dp: bool,
-        dp_wrapper_arg: MagicMock | None,
+        use_error_dp_wrapper: bool,
     ) -> None:
         """spend_budget fn must NOT be called when no epsilon was measurably spent.
 
@@ -377,6 +376,14 @@ class TestSpendBudgetWiring:
         epsilon_measurement_failed: epsilon_spent() raises, actual_epsilon stays None,
           so no budget deduction should occur.
         """
+        _wrapper: MagicMock | None
+        if use_error_dp_wrapper:
+            _w = MagicMock()
+            _w.epsilon_spent.side_effect = RuntimeError("Opacus internal error")
+            _wrapper = _w
+        else:
+            _wrapper = None
+        dp_wrapper_arg = _wrapper
         mock_budget_fn = MagicMock()
         _run_impl(
             job_id=26, enable_dp=enable_dp, dp_wrapper=dp_wrapper_arg, budget_fn=mock_budget_fn
