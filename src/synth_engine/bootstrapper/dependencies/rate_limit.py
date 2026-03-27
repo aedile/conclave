@@ -63,9 +63,6 @@ from __future__ import annotations
 import jwt as pyjwt
 from starlette.requests import Request
 
-#: Paths where the rate limit key is the client IP (pre-authentication endpoints).
-_IP_KEYED_PATHS: frozenset[str] = frozenset({"/unseal", "/auth/token"})
-
 #: Path suffix that triggers the download-specific (lower) rate limit tier.
 #: Uses endswith() to enforce the specific /jobs/{id}/download route contract.
 _DOWNLOAD_PATH_SUFFIX: str = "/download"
@@ -80,7 +77,6 @@ from synth_engine.bootstrapper.dependencies.rate_limit_middleware import (  # no
 
 __all__ = [
     "_DOWNLOAD_PATH_SUFFIX",
-    "_IP_KEYED_PATHS",
     "RateLimitGateMiddleware",
     "_extract_client_ip",
     "_extract_operator_id",
