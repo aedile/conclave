@@ -33,6 +33,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+pytestmark = [pytest.mark.infrastructure]
+
 # ---------------------------------------------------------------------------
 # Module loader — scripts/ is not a package on sys.path by default
 # ---------------------------------------------------------------------------

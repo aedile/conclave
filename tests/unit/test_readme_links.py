@@ -10,6 +10,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = [pytest.mark.infrastructure]
+
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DEMOS_README = PROJECT_ROOT / "demos" / "README.md"
 MAIN_README = PROJECT_ROOT / "README.md"
