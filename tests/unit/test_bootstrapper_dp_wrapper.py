@@ -203,7 +203,7 @@ class TestSynthesisEngineRoutes:
 
     def test_train_with_dp_wrapper_uses_dp_compatible_ctgan(self) -> None:
         """train() with dp_wrapper must use DPCompatibleCTGAN (DP path)."""
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         df = self._make_persons_df()
@@ -238,7 +238,7 @@ class TestSynthesisEngineRoutes:
 
     def test_train_with_dp_wrapper_returns_model_artifact(self) -> None:
         """train() with dp_wrapper must return a ModelArtifact."""
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         df = self._make_persons_df()

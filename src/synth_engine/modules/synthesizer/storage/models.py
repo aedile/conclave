@@ -1,8 +1,27 @@
-"""Data models for the synthesizer module — re-export shim.
+"""Data models for the synthesizer module — deprecated re-export shim.
 
-This module exists for backward compatibility.  All symbols are now defined
-in the following focused sub-modules:
+All symbols are now defined in the following focused sub-modules.
+Internal callers have been migrated to canonical paths (T64.1).
+Shim removal planned for Phase 70.
 
+Canonical import paths::
+
+    # artifact.py:
+    from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
+    from synth_engine.modules.synthesizer.storage.artifact import SecurityError
+    from synth_engine.modules.synthesizer.storage.artifact import (
+        ARTIFACT_VERIFICATION_FAILURE_TOTAL,
+    )
+
+    # restricted_unpickler.py:
+    from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+        RestrictedUnpickler,
+        SynthesizerModel,
+        _ALLOWED_MODULE_PREFIXES,
+        _ALLOWED_BUILTIN_NAMES,
+    )
+
+Sub-modules:
 - :mod:`synth_engine.modules.synthesizer.storage.restricted_unpickler` —
   :class:`RestrictedUnpickler`, :data:`_ALLOWED_MODULE_PREFIXES`,
   :data:`_ALLOWED_BUILTIN_NAMES`, :class:`SynthesizerModel` Protocol.
@@ -11,14 +30,8 @@ in the following focused sub-modules:
   :func:`_validate_signing_key`, :func:`_log_verification_failure`,
   :data:`ARTIFACT_VERIFICATION_FAILURE_TOTAL`.
 
-All existing callers that use::
-
-    from synth_engine.modules.synthesizer.storage.models import ModelArtifact
-    from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
-
-continue to work unchanged — this file re-exports every public name.
-
 Task: T58.4 — Split models.py into artifact/unpickler
+Task: T64.1 — Migrate internal imports away from re-export shims
 ADR: ADR-0017 (CTGAN + Opacus; per-table training strategy)
 ADR: ADR-0055 (Restricted Unpickler for ModelArtifact deserialization)
 """

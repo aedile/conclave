@@ -2,7 +2,7 @@
 
 Public API:
   - :class:`~synth_engine.modules.synthesizer.training.engine.SynthesisEngine`
-  - :class:`~synth_engine.modules.synthesizer.storage.models.ModelArtifact`
+  - :class:`~synth_engine.modules.synthesizer.storage.artifact.ModelArtifact`
   - :func:`~synth_engine.modules.synthesizer.training.engine.apply_fk_post_processing`
   - :class:`~synth_engine.modules.synthesizer.storage.storage.EphemeralStorageClient`
   - :class:`~synth_engine.modules.synthesizer.storage.storage.MinioStorageBackend`
@@ -22,7 +22,7 @@ which causes the collection to fail under ``-W error``.
 Callers should import directly from the sub-packages, e.g.::
 
     from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
-    from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+    from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 """
 
 __all__ = [

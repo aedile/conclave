@@ -40,7 +40,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 
 _logger = logging.getLogger(__name__)
 
