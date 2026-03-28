@@ -21,9 +21,16 @@ Updated after each task's review phase completes.
 |----|----------|-------|
 | ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
 | ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
-| ADV-P66-01 | Settings key path parameter (`PUT/GET/DELETE /settings/{key}`) has no max_length — unbounded DB key + log entry | [P66](#2026-03-28-phase-66--expired-security-advisory-resolution) |
-| ADV-P66-02 | `TokenRequest.passphrase` has no max_length — bcrypt truncates at 72 bytes but 1 MiB body can reach checkpw; add max_length=1024 | [P66](#2026-03-28-phase-66--expired-security-advisory-resolution) |
-| ADV-P66-03 | `TLSCertificateError` missing from `OPERATOR_ERROR_MAP` — falls through to 500 catch-all (pre-existing) | [P66](#2026-03-28-phase-66--expired-security-advisory-resolution) |
+| ADV-P67-01 | Systematic input validation gap: unbounded max_length on `table_name`, `parquet_path`, `callback_url`, `signing_key`, `justification`, `connection_id`, `webhook_id` fields — same class as T67.1 fix but not yet applied project-wide | [P67](#2026-03-28-phase-67--advisory-drain-input-validation--error-mapping-hardening) |
+| ADV-P67-02 | `rate_limit_fail_open=True` in production mode only emits warning, does not block startup — should be ConfigurationError | [P67](#2026-03-28-phase-67--advisory-drain-input-validation--error-mapping-hardening) |
+
+**CLOSED (P67 — input validation & error mapping hardening)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P66-01 | CLOSED — `_SettingKey = Annotated[str, Path(max_length=255)]` applied to all 3 settings endpoints (T67.1) | P67 |
+| ADV-P66-02 | CLOSED — `TokenRequest.passphrase` gains `max_length=1024` matching `UnsealRequest` (T67.2) | P67 |
+| ADV-P66-03 | CLOSED — `TLSCertificateError` added to `OPERATOR_ERROR_MAP` with status 400, static detail string (T67.3) | P67 |
 
 **CLOSED (P66 — expired security advisory resolution)**
 
@@ -60,12 +67,19 @@ Updated after each task's review phase completes.
 - ADV-P62-03: Circuit breaker process-local state
 - ADV-P63-01: Grace period per-process across N workers
 
+**Input Validation**
+- ADV-P67-01: Systematic unbounded field lengths project-wide
+
+**Configuration**
+- ADV-P67-02: rate_limit_fail_open warns-only in production mode
+
 ---
 
 ### Phase Index
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 67 | 2026-03-28 | [Advisory Drain: Input Validation & Error Mapping Hardening](#2026-03-28-phase-67--advisory-drain-input-validation--error-mapping-hardening) |
 | Phase 66 | 2026-03-28 | [Expired Security Advisory Resolution](#2026-03-28-phase-66--expired-security-advisory-resolution) |
 | Phase 65 | 2026-03-27 | [Advisory Drain & Polish](#2026-03-27-phase-65--advisory-drain--polish) |
 | Phase 64 | 2026-03-27 | [Review Summary](#2026-03-27-phase-64--review-summary) |
@@ -88,6 +102,20 @@ Updated after each task's review phase completes.
 | Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
 | Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
 | Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-28] Phase 67 — Advisory Drain: Input Validation & Error Mapping Hardening
+
+**Tasks**: T67.1 (settings key max_length), T67.2 (passphrase max_length), T67.3 (TLS error mapping)
+
+**Review agents**: QA ✓, DevOps ✓, Red-team ✓, Architecture ✓ — 0 BLOCKERs.
+
+**QA findings fixed**: docstring drift on TLSCertificateError (500→400), weak len()>0 assertions strengthened to exact values, missing DELETE boundary test added.
+
+**New advisories**: ADV-P67-01 (systematic unbounded field lengths), ADV-P67-02 (rate_limit_fail_open warns-only).
+
+**Advisory count**: 4 open (ADV-P62-03, ADV-P63-01, ADV-P67-01, ADV-P67-02). Below Rule 11 threshold.
 
 ---
 
