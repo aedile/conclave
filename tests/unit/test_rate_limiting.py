@@ -678,3 +678,61 @@ def test_build_retry_after_fallback_logs_hashed_key_not_raw(
     assert expected_hash_prefix in caplog.text, (
         f"Hashed key prefix '{expected_hash_prefix}' must appear in log; got: {caplog.text!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# P66 DevOps finding — XFF invalid-entry log must hash the raw candidate
+# ---------------------------------------------------------------------------
+
+
+def test_xff_invalid_entry_logged_as_hash_not_raw(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Attack test: invalid XFF candidate must be SHA-256 hashed in WARNING log.
+
+    An attacker can inject a crafted ``X-Forwarded-For`` value (e.g. a
+    log-injection payload or a long string) that appears in the WARNING log
+    when IP validation fails.  The fix (P66 DevOps finding) replaces the raw
+    truncated value with a SHA-256 hash prefix so attacker-controlled data
+    never reaches the log file in plaintext.
+    """
+    import hashlib
+
+    from starlette.datastructures import Headers
+    from starlette.requests import Request
+
+    from synth_engine.bootstrapper.dependencies.rate_limit import _extract_client_ip
+
+    malicious_xff = "not-an-ip; DROP TABLE users; --"
+    expected_hash_prefix = hashlib.sha256(malicious_xff.encode()).hexdigest()[:16]
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/test",
+        "query_string": b"",
+        "headers": Headers(
+            {
+                "x-forwarded-for": f"{malicious_xff}, 1.2.3.4",
+            }
+        ).raw,
+        "client": ("10.0.0.1", 12345),
+    }
+    request = Request(scope)
+
+    rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit"
+    with caplog.at_level(logging.WARNING, logger=rate_limit_logger):
+        result = _extract_client_ip(request, trusted_proxy_count=1)
+
+    # Must fall back to socket IP (fail-closed).
+    assert result == "10.0.0.1", f"Expected socket IP fallback; got {result!r}"
+
+    # Raw malicious value must NOT appear in logs.
+    assert malicious_xff not in caplog.text, (
+        f"Raw XFF candidate must not appear in logs; got: {caplog.text!r}"
+    )
+
+    # Hash prefix MUST appear in logs.
+    assert expected_hash_prefix in caplog.text, (
+        f"SHA-256 hash prefix must appear in WARNING log; got: {caplog.text!r}"
+    )

@@ -67,6 +67,7 @@ Task: T66.3 — Trusted Proxy Validation for X-Forwarded-For
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import logging
 
@@ -166,10 +167,10 @@ def _extract_client_ip(request: Request, *, trusted_proxy_count: int = 0) -> str
         return candidate
     except ValueError:
         _logger.warning(
-            "XFF entry at index %d is not a valid IP address: %r — "
+            "XFF entry at index %d is not a valid IP address (sha256[:16]=%s) — "
             "falling back to socket IP (possible log injection attempt)",
             target_index,
-            candidate[:80],  # Truncate to prevent oversized log entries.
+            hashlib.sha256(candidate.encode()).hexdigest()[:16],  # Hash to prevent log injection.
         )
         return socket_ip
 

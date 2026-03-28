@@ -103,6 +103,31 @@ def _build_development_app() -> FastAPI:
     return app
 
 
+def _build_production_app_with_proxy() -> FastAPI:
+    """Build a production app with trusted_proxy_count=1 (one trusted reverse proxy).
+
+    Used for tests that exercise X-Forwarded-Proto behaviour in a standard
+    reverse-proxy deployment.  With ``trusted_proxy_count=1`` the middleware
+    trusts the proxy's ``X-Forwarded-Proto`` header.
+
+    Returns:
+        A minimal FastAPI instance with HTTPSEnforcementMiddleware registered
+        in production mode with ``trusted_proxy_count=1``.
+    """
+    from synth_engine.bootstrapper.dependencies.https_enforcement import (
+        HTTPSEnforcementMiddleware,
+    )
+
+    app = FastAPI()
+    app.add_middleware(HTTPSEnforcementMiddleware, production=True, trusted_proxy_count=1)
+
+    @app.get("/test")
+    async def _test_route() -> JSONResponse:
+        return JSONResponse(content={"ok": True})
+
+    return app
+
+
 # ---------------------------------------------------------------------------
 # AC1 — Production mode rejects HTTP with 421
 # ---------------------------------------------------------------------------
@@ -161,8 +186,8 @@ async def test_development_http_allowed_without_forwarded_proto() -> None:
 
 @pytest.mark.asyncio
 async def test_production_https_allowed_via_forwarded_proto() -> None:
-    """Production mode: X-Forwarded-Proto: https must pass through (200)."""
-    app = _build_production_app()
+    """Production mode: X-Forwarded-Proto: https must pass through (200) when proxy trusted."""
+    app = _build_production_app_with_proxy()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/test", headers={"X-Forwarded-Proto": "https"})
 
@@ -233,8 +258,9 @@ async def test_forwarded_proto_https_overrides_http_base_url() -> None:
 
     In a reverse-proxy deployment the ASGI transport sees http:// on the
     internal network; only X-Forwarded-Proto carries the real client scheme.
+    Requires trusted_proxy_count=1 so the header is not ignored.
     """
-    app = _build_production_app()
+    app = _build_production_app_with_proxy()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/test", headers={"X-Forwarded-Proto": "https"})
 
@@ -243,9 +269,9 @@ async def test_forwarded_proto_https_overrides_http_base_url() -> None:
 
 @pytest.mark.asyncio
 async def test_forwarded_proto_http_rejected_in_production() -> None:
-    """X-Forwarded-Proto: http must be rejected in production even from https base URL."""
-    app = _build_production_app()
-    # base_url uses https:// but proxy says http — treat the proxy claim as authoritative
+    """X-Forwarded-Proto: http must be rejected when proxy is trusted and sends http."""
+    app = _build_production_app_with_proxy()
+    # base_url uses https:// but proxy says http — proxy claim is authoritative when trusted
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
         response = await client.get("/test", headers={"X-Forwarded-Proto": "http"})
 
@@ -259,13 +285,13 @@ async def test_forwarded_proto_http_rejected_in_production() -> None:
 
 @pytest.mark.asyncio
 async def test_forwarded_proto_mixed_case_https_allowed_in_production() -> None:
-    """X-Forwarded-Proto: HTTPS (mixed-case) must be allowed in production.
+    """X-Forwarded-Proto: HTTPS (mixed-case) must be allowed when proxy is trusted.
 
     Verifies that _extract_scheme() applies .lower() normalisation so that
     non-standard proxy implementations that capitalise the value do not
     cause false rejections.
     """
-    app = _build_production_app()
+    app = _build_production_app_with_proxy()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/test", headers={"X-Forwarded-Proto": "HTTPS"})
 
@@ -274,13 +300,13 @@ async def test_forwarded_proto_mixed_case_https_allowed_in_production() -> None:
 
 @pytest.mark.asyncio
 async def test_forwarded_proto_whitespace_padded_https_allowed_in_production() -> None:
-    """X-Forwarded-Proto with surrounding whitespace must be allowed in production.
+    """X-Forwarded-Proto with surrounding whitespace must be allowed when proxy is trusted.
 
     Verifies that _extract_scheme() applies .strip() normalisation so that
     proxies that emit whitespace around the value (e.g. "  https  ") do not
     cause false rejections.
     """
-    app = _build_production_app()
+    app = _build_production_app_with_proxy()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/test", headers={"X-Forwarded-Proto": "  https  "})
 
@@ -433,3 +459,99 @@ def test_setup_middleware_registers_https_enforcement() -> None:
     # becomes the outermost layer in LIFO processing order.
     last_call = mock_app.add_middleware.call_args_list[-1]
     assert last_call.args[0] is HTTPSEnforcementMiddleware
+
+
+# ---------------------------------------------------------------------------
+# P66 red-team F-03 — X-Forwarded-Proto spoofing attack tests
+# ---------------------------------------------------------------------------
+
+
+def _build_production_app_trusted_proxy_zero() -> FastAPI:
+    """Build a production app with trusted_proxy_count=0 (zero-trust default).
+
+    Returns:
+        A FastAPI instance with HTTPSEnforcementMiddleware in production mode
+        and trusted_proxy_count=0, so X-Forwarded-Proto is ignored.
+    """
+    from synth_engine.bootstrapper.dependencies.https_enforcement import (
+        HTTPSEnforcementMiddleware,
+    )
+
+    app = FastAPI()
+    app.add_middleware(HTTPSEnforcementMiddleware, production=True, trusted_proxy_count=0)
+
+    @app.get("/test")
+    async def _test_route() -> JSONResponse:
+        return JSONResponse(content={"ok": True})
+
+    return app
+
+
+def _build_production_app_trusted_proxy_one() -> FastAPI:
+    """Build a production app with trusted_proxy_count=1 (one trusted proxy).
+
+    Returns:
+        A FastAPI instance with HTTPSEnforcementMiddleware in production mode
+        and trusted_proxy_count=1, so X-Forwarded-Proto is trusted.
+    """
+    from synth_engine.bootstrapper.dependencies.https_enforcement import (
+        HTTPSEnforcementMiddleware,
+    )
+
+    app = FastAPI()
+    app.add_middleware(HTTPSEnforcementMiddleware, production=True, trusted_proxy_count=1)
+
+    @app.get("/test")
+    async def _test_route() -> JSONResponse:
+        return JSONResponse(content={"ok": True})
+
+    return app
+
+
+@pytest.mark.asyncio
+async def test_xfp_spoofing_ignored_when_trusted_proxy_count_zero() -> None:
+    """Attack test: X-Forwarded-Proto: https MUST be ignored when trusted_proxy_count=0.
+
+    An attacker on a direct (non-proxied) connection can inject
+    X-Forwarded-Proto: https to bypass HTTPS enforcement. When
+    trusted_proxy_count=0, the middleware MUST ignore the header and
+    enforce based on the raw ASGI scheme instead.
+    """
+    app = _build_production_app_trusted_proxy_zero()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Attacker sends X-Forwarded-Proto: https on a plain HTTP connection.
+        response = await client.get("/test", headers={"X-Forwarded-Proto": "https"})
+
+    # Must still reject: the attacker-supplied header must be ignored.
+    assert response.status_code == 421
+
+
+@pytest.mark.asyncio
+async def test_xfp_trusted_when_proxy_count_nonzero() -> None:
+    """Feature test: X-Forwarded-Proto: https MUST be trusted when trusted_proxy_count >= 1.
+
+    When a legitimate reverse proxy is configured (trusted_proxy_count=1),
+    the proxy's X-Forwarded-Proto: https header must be honoured so that
+    the internal HTTP connection is recognised as HTTPS.
+    """
+    app = _build_production_app_trusted_proxy_one()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Proxy sets X-Forwarded-Proto: https — must be accepted.
+        response = await client.get("/test", headers={"X-Forwarded-Proto": "https"})
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_xfp_absent_uses_asgi_scheme_when_proxy_count_nonzero() -> None:
+    """When trusted_proxy_count >= 1 but X-Forwarded-Proto absent, fall back to ASGI scheme.
+
+    Ensures the fallback path still works when a proxy does not inject
+    X-Forwarded-Proto.
+    """
+    app = _build_production_app_trusted_proxy_one()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # No X-Forwarded-Proto — ASGI scheme is http — must be rejected.
+        response = await client.get("/test")
+
+    assert response.status_code == 421
