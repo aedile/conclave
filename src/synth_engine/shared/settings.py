@@ -367,6 +367,26 @@ class ConclaveSettings(BaseSettings):
             "T63.3 — Rate Limiter Fail-Closed on Redis Failure."
         ),
     )
+    conclave_trusted_proxy_count: int = Field(
+        default=0,
+        ge=0,
+        le=10,
+        description=(
+            "Number of trusted reverse proxies in front of the application. "
+            "Controls X-Forwarded-For validation in the rate limiter (T66.3). "
+            "0 (default, zero-trust): X-Forwarded-For is ignored entirely — the "
+            "socket IP is always used as the rate-limit key. "
+            "N > 0: the Nth-from-right XFF entry is used as the client IP, "
+            "which is the real client IP when exactly N proxies each append their "
+            "own IP to the header. If XFF has fewer than N+1 entries, falls back "
+            "to the socket IP (fail-closed). Invalid IPs also fall back to the "
+            "socket IP to prevent log injection. "
+            "WARNING: set this to the exact number of trusted proxies — "
+            "undercount allows IP spoofing; overcount strips real client IPs. "
+            "Requires CONCLAVE_TRUSTED_PROXY_COUNT environment variable. "
+            "T66.3 — Trusted Proxy Validation for X-Forwarded-For."
+        ),
+    )
 
     # -----------------------------------------------------------------------
     # Data Retention Policy (T41.1)

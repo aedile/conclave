@@ -13,11 +13,8 @@ Negative/attack tests (committed before feature tests per Rule 22).
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 from starlette.requests import Request
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -28,19 +25,24 @@ def _make_request(
     xff: str | None = None,
     client_host: str = "10.0.0.1",
 ) -> Request:
-    """Build a minimal Starlette Request with the given XFF header and client host."""
-    scope: dict[object, object] = {
+    """Build a minimal Starlette Request with the given XFF header and client host.
+
+    Starlette's ``request.client`` is an ``Address(host, port)`` namedtuple
+    derived from the ``"client"`` key in the ASGI scope — a ``(host, port)``
+    tuple.  We pass the tuple directly.
+    """
+    headers: list[tuple[bytes, bytes]] = []
+    if xff is not None:
+        headers.append((b"x-forwarded-for", xff.encode()))
+
+    scope: dict[str, object] = {
         "type": "http",
         "method": "GET",
         "path": "/health",
         "query_string": b"",
-        "headers": [],
+        "headers": headers,
+        "client": (client_host, 12345),
     }
-    if xff is not None:
-        scope["headers"] = [(b"x-forwarded-for", xff.encode())]
-    mock_conn_info = MagicMock()
-    mock_conn_info.host = client_host
-    scope["client"] = mock_conn_info  # type: ignore[assignment]
     return Request(scope)  # type: ignore[arg-type]
 
 
@@ -89,9 +91,7 @@ def test_xff_nth_from_right_extracted_correctly() -> None:
 
     result = _extract_client_ip(request, trusted_proxy_count=2)
 
-    assert result == "1.2.3.4", (
-        f"Expected client IP '1.2.3.4' with proxy_count=2, got {result!r}"
-    )
+    assert result == "1.2.3.4", f"Expected client IP '1.2.3.4' with proxy_count=2, got {result!r}"
 
 
 def test_xff_fewer_entries_than_proxy_count_falls_back() -> None:
@@ -131,9 +131,9 @@ def test_trusted_proxy_count_rejects_negative(monkeypatch: pytest.MonkeyPatch) -
 
     get_settings.cache_clear()
     try:
-        with pytest.raises(ValidationError):
-            from synth_engine.shared.settings import ConclaveSettings
+        from synth_engine.shared.settings import ConclaveSettings
 
+        with pytest.raises(ValidationError):
             ConclaveSettings()
     finally:
         get_settings.cache_clear()
@@ -157,9 +157,9 @@ def test_trusted_proxy_count_rejects_absurdly_large(
 
     get_settings.cache_clear()
     try:
-        with pytest.raises(ValidationError):
-            from synth_engine.shared.settings import ConclaveSettings
+        from synth_engine.shared.settings import ConclaveSettings
 
+        with pytest.raises(ValidationError):
             ConclaveSettings()
     finally:
         get_settings.cache_clear()
@@ -220,9 +220,7 @@ def test_xff_with_ipv6_address_accepted() -> None:
 
     result = _extract_client_ip(request, trusted_proxy_count=1)
 
-    assert result == ipv6_client, (
-        f"Expected IPv6 address {ipv6_client!r}, got {result!r}"
-    )
+    assert result == ipv6_client, f"Expected IPv6 address {ipv6_client!r}, got {result!r}"
 
 
 def test_xff_fix_does_not_affect_operator_id_extraction() -> None:
@@ -232,25 +230,30 @@ def test_xff_fix_does_not_affect_operator_id_extraction() -> None:
     Verifying isolation ensures we haven't accidentally broken the JWT
     sub-claim extraction path.
     """
+    import warnings
+
     import jwt as pyjwt
 
     from synth_engine.bootstrapper.dependencies.rate_limit import _extract_operator_id
 
-    token = pyjwt.encode(
-        {"sub": "operator-grace", "exp": 9999999999},
-        "secret",
-        algorithm="HS256",
-    )
-    scope: dict[object, object] = {
+    # Use a long enough key to avoid InsecureKeyLengthWarning
+    secret = "a" * 32
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        token = pyjwt.encode(
+            {"sub": "operator-grace", "exp": 9999999999},
+            secret,
+            algorithm="HS256",
+        )
+
+    scope: dict[str, object] = {
         "type": "http",
         "method": "GET",
         "path": "/api/v1/jobs",
         "query_string": b"",
         "headers": [(b"authorization", f"Bearer {token}".encode())],
+        "client": ("10.0.0.1", 12345),
     }
-    mock_conn = MagicMock()
-    mock_conn.host = "10.0.0.1"
-    scope["client"] = mock_conn  # type: ignore[assignment]
     request = Request(scope)  # type: ignore[arg-type]
 
     result = _extract_operator_id(request)
