@@ -9,6 +9,13 @@ Advisory: ADV-P62-01 — OpenAPI docs exposed without auth.
 Task: T66.2 — Disable OpenAPI Docs in Production Mode.
 
 Negative/attack tests (committed before feature tests per Rule 22).
+
+Note on testing strategy: the full-stack TestClient approach is not suitable
+here because production mode enables HTTPS enforcement (421 on plain HTTP)
+and vault seal gate (423) which fire before the docs routes. Instead, we
+verify the FastAPI app's ``docs_url``, ``redoc_url``, and ``openapi_url``
+attributes directly — these are set by ``create_app()`` and govern whether
+FastAPI registers the documentation routes at all.
 """
 
 from __future__ import annotations
@@ -16,8 +23,6 @@ from __future__ import annotations
 from collections.abc import Generator
 
 import pytest
-from fastapi.testclient import TestClient
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -25,7 +30,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None, None, None]:
+def _clear_settings_cache() -> Generator[None]:
     """Clear LRU cache before and after each test."""
     from synth_engine.shared.settings import get_settings
 
@@ -34,9 +39,9 @@ def _clear_settings_cache() -> Generator[None, None, None]:
     get_settings.cache_clear()
 
 
-@pytest.fixture()
+@pytest.fixture
 def production_app(monkeypatch: pytest.MonkeyPatch) -> object:
-    """Create a FastAPI app configured for production mode (no lifespan startup)."""
+    """Create a FastAPI app configured for production mode."""
     import bcrypt
 
     passphrase = b"prod-passphrase"
@@ -48,7 +53,8 @@ def production_app(monkeypatch: pytest.MonkeyPatch) -> object:
     monkeypatch.setenv("AUDIT_KEY", "b" * 64)
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "c" * 64)
     monkeypatch.setenv("MASKING_SALT", "d" * 32)
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+    _test_db_url = "postgresql+asyncpg://test:test@localhost/test"  # pragma: allowlist secret
+    monkeypatch.setenv("DATABASE_URL", _test_db_url)
 
     from synth_engine.shared.settings import get_settings
 
@@ -59,13 +65,14 @@ def production_app(monkeypatch: pytest.MonkeyPatch) -> object:
     return create_app()
 
 
-@pytest.fixture()
+@pytest.fixture
 def development_app(monkeypatch: pytest.MonkeyPatch) -> object:
     """Create a FastAPI app configured for development mode."""
     monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", "dev-secret-key-32-characters-long!!")
     monkeypatch.setenv("AUDIT_KEY", "e" * 64)
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
+    _test_db_url = "postgresql+asyncpg://test:test@localhost/test"  # pragma: allowlist secret
+    monkeypatch.setenv("DATABASE_URL", _test_db_url)
 
     from synth_engine.shared.settings import get_settings
 
@@ -77,14 +84,18 @@ def development_app(monkeypatch: pytest.MonkeyPatch) -> object:
 
 
 # ---------------------------------------------------------------------------
-# Attack tests — FAIL (RED) before T66.2 implementation
+# Attack tests — verifying FastAPI app configuration attributes
 # ---------------------------------------------------------------------------
 
 
 def test_docs_endpoint_returns_404_in_production_mode(
     production_app: object,
 ) -> None:
-    """GET /docs must return 404 in production mode.
+    """FastAPI docs_url must be None in production mode.
+
+    When ``docs_url=None``, FastAPI does not register the ``/docs`` route,
+    so any GET /docs request returns 404 regardless of middleware.
+    This is the authoritative security check — the route does not exist.
 
     Exposing /docs in production reveals the full API surface to attackers,
     enabling endpoint discovery and reconnaissance attacks (ADV-P62-01).
@@ -92,106 +103,101 @@ def test_docs_endpoint_returns_404_in_production_mode(
     from fastapi import FastAPI
 
     assert isinstance(production_app, FastAPI)
-    # Use raise_server_exceptions=False to avoid 404 being raised
-    client = TestClient(production_app, raise_server_exceptions=False)
-    response = client.get("/docs", follow_redirects=False)
-    assert response.status_code == 404, (
-        f"Expected /docs to be disabled (404) in production, got {response.status_code}"
+    assert production_app.docs_url is None, (
+        f"Expected docs_url=None in production, got {production_app.docs_url!r}. "
+        "The /docs endpoint must be disabled to prevent API reconnaissance."
     )
 
 
 def test_redoc_endpoint_returns_404_in_production_mode(
     production_app: object,
 ) -> None:
-    """GET /redoc must return 404 in production mode."""
+    """FastAPI redoc_url must be None in production mode."""
     from fastapi import FastAPI
 
     assert isinstance(production_app, FastAPI)
-    client = TestClient(production_app, raise_server_exceptions=False)
-    response = client.get("/redoc", follow_redirects=False)
-    assert response.status_code == 404, (
-        f"Expected /redoc to be disabled (404) in production, got {response.status_code}"
+    assert production_app.redoc_url is None, (
+        f"Expected redoc_url=None in production, got {production_app.redoc_url!r}."
     )
 
 
 def test_openapi_json_endpoint_returns_404_in_production_mode(
     production_app: object,
 ) -> None:
-    """GET /openapi.json must return 404 in production mode."""
+    """FastAPI openapi_url must be None in production mode."""
     from fastapi import FastAPI
 
     assert isinstance(production_app, FastAPI)
-    client = TestClient(production_app, raise_server_exceptions=False)
-    response = client.get("/openapi.json", follow_redirects=False)
-    assert response.status_code == 404, (
-        f"Expected /openapi.json to be disabled (404) in production, got {response.status_code}"
+    assert production_app.openapi_url is None, (
+        f"Expected openapi_url=None in production, got {production_app.openapi_url!r}."
     )
 
 
 def test_docs_not_in_exempt_paths_in_production_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """COMMON_INFRA_EXEMPT_PATHS must not contain /docs, /redoc, /openapi.json in production.
+    """COMMON_INFRA_EXEMPT_PATHS must not contain /docs, /redoc, /openapi.json.
 
-    If these paths remain in the auth-bypass list, they will bypass
-    AuthenticationGateMiddleware even when the FastAPI app disables them.
-    The clean solution is to remove doc paths from the exempt set unconditionally
-    (they 404 in prod, and in dev they're reachable only by the auth gate allowing
-    them through as any other GET request would be).
+    If these paths remain in the auth-bypass list, they bypass
+    AuthenticationGateMiddleware — even in development mode this is wrong
+    because doc paths should require a Bearer token like other endpoints.
+    The clean fix (T66.2) removes them unconditionally from the exempt set.
     """
-    import bcrypt
-
-    passphrase = b"prod-passphrase-2"
-    hashed = bcrypt.hashpw(passphrase, bcrypt.gensalt()).decode()
-
-    monkeypatch.setenv("CONCLAVE_ENV", "production")
-    monkeypatch.setenv("JWT_SECRET_KEY", "prod-secret-key-32-characters-long2")
-    monkeypatch.setenv("OPERATOR_CREDENTIALS_HASH", hashed)
-    monkeypatch.setenv("AUDIT_KEY", "f" * 64)
-    monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "g" * 64)
-    monkeypatch.setenv("MASKING_SALT", "h" * 32)
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost/test")
-
-    from synth_engine.shared.settings import get_settings
-
-    get_settings.cache_clear()
-
-    # Try importing the new mode-aware function; fall back to constant.
-    try:
-        from synth_engine.bootstrapper.dependencies._exempt_paths import (  # type: ignore[attr-defined]
-            get_infra_exempt_paths,
-        )
-
-        exempt = get_infra_exempt_paths()
-    except (ImportError, AttributeError):
-        from synth_engine.bootstrapper.dependencies._exempt_paths import (
-            COMMON_INFRA_EXEMPT_PATHS,
-        )
-
-        exempt = COMMON_INFRA_EXEMPT_PATHS
+    from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
 
     doc_paths = {"/docs", "/redoc", "/openapi.json"}
-    found = doc_paths & exempt
+    found = doc_paths & COMMON_INFRA_EXEMPT_PATHS
     assert not found, (
-        f"Documentation paths {found} are still in the production exempt set. "
-        "These paths must be removed from the auth-bypass list."
+        f"Documentation paths {found} are still in COMMON_INFRA_EXEMPT_PATHS. "
+        "These paths must be removed from the auth-bypass list (T66.2, ADV-P62-01)."
     )
-    get_settings.cache_clear()
 
 
 def test_docs_endpoint_returns_200_in_development_mode(
     development_app: object,
 ) -> None:
-    """GET /docs must return 200 in development mode.
+    """FastAPI docs_url must be '/docs' in development mode.
 
     Documentation endpoints are valuable for development and must remain
-    enabled when CONCLAVE_ENV != 'production'.
+    registered when CONCLAVE_ENV != 'production'.
     """
     from fastapi import FastAPI
 
     assert isinstance(development_app, FastAPI)
-    client = TestClient(development_app, raise_server_exceptions=False)
-    response = client.get("/docs", follow_redirects=False)
-    assert response.status_code == 200, (
-        f"Expected /docs to be accessible (200) in development mode, got {response.status_code}"
+    assert development_app.docs_url == "/docs", (
+        f"Expected docs_url='/docs' in development mode, got {development_app.docs_url!r}. "
+        "Documentation must be accessible in non-production environments."
+    )
+
+
+def test_all_routes_require_auth_still_passes_after_docs_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The auth gate exemption change must not break existing auth enforcement.
+
+    Removing /docs, /redoc, /openapi.json from COMMON_INFRA_EXEMPT_PATHS
+    means those paths now require auth in development. This is intentional.
+    Verify that /auth/token (which IS in the exempt set) still has no
+    unwanted paths added, and the exemption set remains well-formed.
+    """
+    from synth_engine.bootstrapper.dependencies._exempt_paths import (
+        COMMON_INFRA_EXEMPT_PATHS,
+        SEAL_EXEMPT_PATHS,
+    )
+
+    # Auth/token path must NOT be exempt (it needs rate limiting, not auth bypass)
+    assert "/auth/token" not in COMMON_INFRA_EXEMPT_PATHS, (
+        "/auth/token must not be in COMMON_INFRA_EXEMPT_PATHS"
+    )
+
+    # SEAL_EXEMPT_PATHS must be a superset of COMMON_INFRA_EXEMPT_PATHS
+    assert COMMON_INFRA_EXEMPT_PATHS.issubset(SEAL_EXEMPT_PATHS), (
+        "SEAL_EXEMPT_PATHS must be a superset of COMMON_INFRA_EXEMPT_PATHS"
+    )
+
+    # Essential infra paths must remain present
+    essential_paths = {"/health", "/ready", "/metrics", "/unseal"}
+    missing = essential_paths - COMMON_INFRA_EXEMPT_PATHS
+    assert not missing, (
+        f"Essential infra paths {missing} are missing from COMMON_INFRA_EXEMPT_PATHS"
     )

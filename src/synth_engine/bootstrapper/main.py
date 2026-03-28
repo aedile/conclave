@@ -221,10 +221,24 @@ def create_app() -> FastAPI:
     in the /docs UI.  Route-level ``summary`` and ``responses`` with RFC 7807
     schemas are defined in each router module.
 
+    Security (T66.2): OpenAPI docs (/docs, /redoc, /openapi.json) are
+    disabled in production mode to reduce API reconnaissance surface
+    (ADV-P62-01).  In development mode all three endpoints are available.
+
     Returns:
         A configured FastAPI instance ready to serve requests.
     """
+    from synth_engine.shared.settings import get_settings
+
     configure_telemetry(_SERVICE_NAME)
+
+    # T66.2: Disable OpenAPI docs in production to prevent API reconnaissance.
+    # In production: docs_url=None, redoc_url=None, openapi_url=None → 404.
+    # In development: default URLs (/docs, /redoc, /openapi.json) are enabled.
+    _is_prod = get_settings().is_production()
+    _docs_url: str | None = None if _is_prod else "/docs"
+    _redoc_url: str | None = None if _is_prod else "/redoc"
+    _openapi_url: str | None = None if _is_prod else "/openapi.json"
 
     app = FastAPI(
         title="Conclave Engine",
@@ -241,8 +255,9 @@ def create_app() -> FastAPI:
             "[RFC 7807 Problem Details](https://www.rfc-editor.org/rfc/rfc7807)."
         ),
         version=synth_engine.__version__,
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url=_docs_url,
+        redoc_url=_redoc_url,
+        openapi_url=_openapi_url,
         lifespan=_lifespan,
         openapi_tags=TAGS_METADATA,
         contact={

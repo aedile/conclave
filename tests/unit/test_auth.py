@@ -686,6 +686,12 @@ def test_auth_exempt_paths_includes_all_required_endpoints() -> None:
     Updated in P50 review fix: /security/shred and /security/keys/rotate are
     removed from the required set because they must NOT bypass authentication.
     Both routes require JWT auth with security:admin scope (ADV-P47-04).
+
+    Updated in T66.2 (ADV-P62-01): /docs, /redoc, /openapi.json are removed
+    from the required exempt set.  These paths are now protected by the auth
+    gate in development mode and return 404 in production mode.  They must
+    NOT be in AUTH_EXEMPT_PATHS because bypassing auth on doc endpoints
+    allows unauthenticated API schema reconnaissance.
     """
     from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
@@ -693,9 +699,6 @@ def test_auth_exempt_paths_includes_all_required_endpoints() -> None:
         "/unseal",
         "/health",
         "/metrics",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
         "/license/challenge",
         "/license/activate",
         "/auth/token",
@@ -710,6 +713,19 @@ def test_auth_exempt_paths_includes_all_required_endpoints() -> None:
     )
     assert "/security/keys/rotate" not in AUTH_EXEMPT_PATHS, (
         "/security/keys/rotate must NOT be in AUTH_EXEMPT_PATHS (requires JWT auth)"
+    )
+
+    # SECURITY: documentation paths must NOT be in AUTH_EXEMPT_PATHS (T66.2).
+    # /docs and /redoc return 404 in production (disabled by create_app()).
+    # In development they require a Bearer token like any other GET endpoint.
+    assert "/docs" not in AUTH_EXEMPT_PATHS, (
+        "/docs must NOT be in AUTH_EXEMPT_PATHS (T66.2 — ADV-P62-01)"
+    )
+    assert "/redoc" not in AUTH_EXEMPT_PATHS, (
+        "/redoc must NOT be in AUTH_EXEMPT_PATHS (T66.2 — ADV-P62-01)"
+    )
+    assert "/openapi.json" not in AUTH_EXEMPT_PATHS, (
+        "/openapi.json must NOT be in AUTH_EXEMPT_PATHS (T66.2 — ADV-P62-01)"
     )
 
 

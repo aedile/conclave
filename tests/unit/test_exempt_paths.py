@@ -48,19 +48,18 @@ class TestCommonInfraExemptPaths:
     Security routes are NOT included: they require JWT auth.
     """
 
-    def test_common_infra_exempt_paths_has_exactly_ten_paths(self) -> None:
-        """COMMON_INFRA_EXEMPT_PATHS must contain exactly 10 paths.
+    def test_common_infra_exempt_paths_has_exactly_seven_paths(self) -> None:
+        """COMMON_INFRA_EXEMPT_PATHS must contain exactly 7 paths.
 
-        After the P50 layered exemption model:
-        - /security/shred removed (now in SEAL_EXEMPT_PATHS only)
-        - /security/keys/rotate removed (not exempt at any gate except route-level 423)
-        Count: 11 (T48.3) → 9 (P50 fix) → 10 (T55.1 added /health/vault).
+        After the T66.2 security fix (ADV-P62-01):
+        - /docs, /redoc, /openapi.json removed from exempt set.
+        Count: 11 (T48.3) → 9 (P50 fix) → 10 (T55.1) → 7 (T66.2).
         """
         from synth_engine.bootstrapper.dependencies._exempt_paths import (
             COMMON_INFRA_EXEMPT_PATHS,
         )
 
-        assert len(COMMON_INFRA_EXEMPT_PATHS) == 10
+        assert len(COMMON_INFRA_EXEMPT_PATHS) == 7
 
     def test_common_infra_exempt_paths_is_frozenset(self) -> None:
         """COMMON_INFRA_EXEMPT_PATHS must be an immutable frozenset."""
@@ -71,10 +70,14 @@ class TestCommonInfraExemptPaths:
         assert isinstance(COMMON_INFRA_EXEMPT_PATHS, frozenset)
 
     def test_common_infra_exempt_paths_contains_expected_paths(self) -> None:
-        """COMMON_INFRA_EXEMPT_PATHS must contain exactly the 10 expected paths.
+        """COMMON_INFRA_EXEMPT_PATHS must contain exactly the 7 expected paths.
 
         Security routes are excluded from this set — they require JWT auth
         and are handled by the SEAL_EXEMPT_PATHS for vault/license bypass only.
+
+        T66.2 (ADV-P62-01): /docs, /redoc, /openapi.json removed.  In production
+        these endpoints return 404 (FastAPI docs disabled).  In development they
+        require a Bearer token like any other GET endpoint.
         """
         from synth_engine.bootstrapper.dependencies._exempt_paths import (
             COMMON_INFRA_EXEMPT_PATHS,
@@ -87,14 +90,31 @@ class TestCommonInfraExemptPaths:
                 "/ready",
                 "/health/vault",
                 "/metrics",
-                "/docs",
-                "/redoc",
-                "/openapi.json",
                 "/license/challenge",
                 "/license/activate",
             }
         )
         assert COMMON_INFRA_EXEMPT_PATHS == expected
+
+    def test_common_infra_exempt_paths_excludes_doc_paths(self) -> None:
+        """/docs, /redoc, /openapi.json must NOT be in COMMON_INFRA_EXEMPT_PATHS (T66.2).
+
+        Removing these paths from the auth-bypass set prevents unauthenticated
+        API schema reconnaissance (ADV-P62-01).
+        """
+        from synth_engine.bootstrapper.dependencies._exempt_paths import (
+            COMMON_INFRA_EXEMPT_PATHS,
+        )
+
+        assert "/docs" not in COMMON_INFRA_EXEMPT_PATHS, (
+            "/docs must NOT be in COMMON_INFRA_EXEMPT_PATHS (T66.2 — ADV-P62-01)"
+        )
+        assert "/redoc" not in COMMON_INFRA_EXEMPT_PATHS, (
+            "/redoc must NOT be in COMMON_INFRA_EXEMPT_PATHS (T66.2 — ADV-P62-01)"
+        )
+        assert "/openapi.json" not in COMMON_INFRA_EXEMPT_PATHS, (
+            "/openapi.json must NOT be in COMMON_INFRA_EXEMPT_PATHS (T66.2 — ADV-P62-01)"
+        )
 
     def test_common_infra_exempt_paths_contains_ready(self) -> None:
         """/ready must be in COMMON_INFRA_EXEMPT_PATHS (T48.3 -- readiness probe)."""
@@ -137,13 +157,16 @@ class TestSealExemptPaths:
 
         assert isinstance(SEAL_EXEMPT_PATHS, frozenset)
 
-    def test_seal_exempt_paths_has_exactly_eleven_paths(self) -> None:
-        """SEAL_EXEMPT_PATHS must have exactly 11 paths (10 common + /security/shred)."""
+    def test_seal_exempt_paths_has_exactly_eight_paths(self) -> None:
+        """SEAL_EXEMPT_PATHS must have exactly 8 paths (7 common + /security/shred).
+
+        T66.2 reduced COMMON_INFRA_EXEMPT_PATHS from 10 to 7 paths.
+        """
         from synth_engine.bootstrapper.dependencies._exempt_paths import (
             SEAL_EXEMPT_PATHS,
         )
 
-        assert len(SEAL_EXEMPT_PATHS) == 11
+        assert len(SEAL_EXEMPT_PATHS) == 8
 
     def test_seal_exempt_paths_contains_security_shred(self) -> None:
         """/security/shred must be in SEAL_EXEMPT_PATHS (emergency vault bypass)."""
@@ -207,17 +230,17 @@ class TestAuthExemptPaths:
 
         assert "/auth/token" in AUTH_EXEMPT_PATHS
 
-    def test_auth_exempt_paths_has_exactly_eleven_paths(self) -> None:
-        """AUTH_EXEMPT_PATHS must have exactly 11 paths (10 common + /auth/token).
+    def test_auth_exempt_paths_has_exactly_eight_paths(self) -> None:
+        """AUTH_EXEMPT_PATHS must have exactly 8 paths (7 common + /auth/token).
 
-        After T55.1 added /health/vault to COMMON_INFRA_EXEMPT_PATHS:
-        - COMMON_INFRA_EXEMPT_PATHS has 10 paths
-        - AUTH_EXEMPT_PATHS = 10 + /auth/token = 11 paths
-        Count: 12 (T48.3) → 10 (P50 fix) → 11 (T55.1).
+        After T66.2 removed /docs, /redoc, /openapi.json from COMMON_INFRA_EXEMPT_PATHS:
+        - COMMON_INFRA_EXEMPT_PATHS has 7 paths
+        - AUTH_EXEMPT_PATHS = 7 + /auth/token = 8 paths
+        Count: 12 (T48.3) → 10 (P50) → 11 (T55.1) → 8 (T66.2, ADV-P62-01).
         """
         from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
-        assert len(AUTH_EXEMPT_PATHS) == 11
+        assert len(AUTH_EXEMPT_PATHS) == 8
 
     def test_auth_exempt_paths_contains_ready(self) -> None:
         """/ready must be in AUTH_EXEMPT_PATHS (T48.3 -- readiness probe)."""
