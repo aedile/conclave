@@ -280,20 +280,35 @@ async def test_429_response_has_retry_after_header() -> None:
 
 
 @pytest.mark.asyncio
-async def test_different_ips_have_independent_limits_on_unseal() -> None:
+async def test_different_ips_have_independent_limits_on_unseal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Two different IPs must have independent rate limit buckets on /unseal.
 
-    Arrange: build with limit=1.
+    T66.3: Sets trusted_proxy_count=1 so that the X-Forwarded-For header
+    is trusted for IP differentiation.  Without this, all requests would
+    share the socket IP bucket.
+
+    Arrange: build with limit=1; set CONCLAVE_TRUSTED_PROXY_COUNT=1.
     Act: exhaust limit for IP A, then make a request from IP B.
     Assert: IP A gets 429 on second request; IP B still gets 200.
     """
+    from synth_engine.shared.settings import get_settings
+
+    monkeypatch.setenv("CONCLAVE_TRUSTED_PROXY_COUNT", "1")
+    get_settings.cache_clear()
+
     app = _build_isolated_app(unseal_limit=1)
+    # With trusted_proxy_count=1, XFF must have 2 entries: "client, proxy".
+    # The trusted proxy appends its own IP; the client IP is at index -2.
+    xff_a = {"X-Forwarded-For": "10.0.1.1, 10.1.1.1"}
+    xff_b = {"X-Forwarded-For": "10.0.1.2, 10.1.1.1"}
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # Exhaust IP A
-        await client.post("/unseal", headers={"X-Forwarded-For": "10.0.1.1"})
-        response_a2 = await client.post("/unseal", headers={"X-Forwarded-For": "10.0.1.1"})
+        # Exhaust IP A (with proxy-appended entry at rightmost position)
+        await client.post("/unseal", headers=xff_a)
+        response_a2 = await client.post("/unseal", headers=xff_a)
         # IP B should still be allowed
-        response_b1 = await client.post("/unseal", headers={"X-Forwarded-For": "10.0.1.2"})
+        response_b1 = await client.post("/unseal", headers=xff_b)
 
     assert response_a2.status_code == 429, "IP A must be rate limited after exceeding"
     assert response_b1.status_code == 200, "IP B must NOT be affected by IP A's limit"
@@ -444,10 +459,11 @@ def test_rate_limit_middleware_registered_in_setup_middleware(
 
 
 def test_extract_client_ip_uses_x_forwarded_for() -> None:
-    """_extract_client_ip must prefer X-Forwarded-For over client.host.
+    """_extract_client_ip uses X-Forwarded-For when trusted_proxy_count=1.
 
-    The first IP in the X-Forwarded-For header is the client IP in a proxied
-    deployment (the rightmost is the last proxy, leftmost is the real client).
+    T66.3: With trusted_proxy_count=1, the leftmost XFF entry is used as
+    the client IP.  With trusted_proxy_count=0 (zero-trust default), XFF
+    is ignored entirely and the socket IP is used.
     """
     from unittest.mock import MagicMock
 
@@ -458,7 +474,8 @@ def test_extract_client_ip_uses_x_forwarded_for() -> None:
     request.client = MagicMock()
     request.client.host = "127.0.0.1"
 
-    ip = _extract_client_ip(request)
+    # trusted_proxy_count=1: XFF is trusted; client IP is the leftmost entry
+    ip = _extract_client_ip(request, trusted_proxy_count=1)
     assert ip == "203.0.113.1"
 
 
