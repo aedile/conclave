@@ -21,6 +21,7 @@ Updated after each task's review phase completes.
 |----|----------|-------|
 | ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
 | ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
+| ADV-P66-01 | Settings key path parameter (`PUT/GET/DELETE /settings/{key}`) has no max_length — unbounded DB key + log entry | [P66](#2026-03-28-phase-66--expired-security-advisory-resolution) |
 
 **CLOSED (P66 — expired security advisory resolution)**
 
