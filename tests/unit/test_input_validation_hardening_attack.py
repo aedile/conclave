@@ -20,7 +20,6 @@ Negative Test Requirements (from spec-challenger):
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from typing import Any
 from unittest.mock import patch
 
@@ -43,17 +42,7 @@ _TEST_JWT_SECRET = "test-jwt-secret-key-long-enough-for-hs256-algo"  # pragma: a
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None]:
-    """Clear LRU cache before and after each test to prevent state leakage."""
-    from synth_engine.shared.settings import get_settings
-
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-
-@pytest.fixture()
+@pytest.fixture
 def settings_client(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Build a TestClient for the settings router using a bare FastAPI app.
 
@@ -101,7 +90,7 @@ def settings_client(monkeypatch: pytest.MonkeyPatch) -> Any:
     return TestClient(app, raise_server_exceptions=False)
 
 
-@pytest.fixture()
+@pytest.fixture
 def auth_client(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Build a TestClient for the auth router using a bare FastAPI app.
 
@@ -142,9 +131,7 @@ class TestSettingsKeyMaxLength:
     max_length=255 caps this to a sane upper bound.
     """
 
-    def test_settings_key_rejects_oversized_key_on_put(
-        self, settings_client: Any
-    ) -> None:
+    def test_settings_key_rejects_oversized_key_on_put(self, settings_client: Any) -> None:
         """PUT /settings/{key} with a 256-char key must return 422.
 
         A key longer than 255 characters must be rejected by FastAPI path
@@ -160,9 +147,7 @@ class TestSettingsKeyMaxLength:
             f"Expected 422 for 256-char key on PUT, got {response.status_code}"
         )
 
-    def test_settings_key_rejects_oversized_key_on_get(
-        self, settings_client: Any
-    ) -> None:
+    def test_settings_key_rejects_oversized_key_on_get(self, settings_client: Any) -> None:
         """GET /settings/{key} with a 256-char key must return 422."""
         oversized_key = "b" * 256
         response = settings_client.get(f"/settings/{oversized_key}")
@@ -170,9 +155,7 @@ class TestSettingsKeyMaxLength:
             f"Expected 422 for 256-char key on GET, got {response.status_code}"
         )
 
-    def test_settings_key_rejects_oversized_key_on_delete(
-        self, settings_client: Any
-    ) -> None:
+    def test_settings_key_rejects_oversized_key_on_delete(self, settings_client: Any) -> None:
         """DELETE /settings/{key} with a 256-char key must return 422."""
         oversized_key = "c" * 256
         response = settings_client.delete(f"/settings/{oversized_key}")
@@ -180,9 +163,7 @@ class TestSettingsKeyMaxLength:
             f"Expected 422 for 256-char key on DELETE, got {response.status_code}"
         )
 
-    def test_settings_key_accepts_max_length_key_on_put(
-        self, settings_client: Any
-    ) -> None:
+    def test_settings_key_accepts_max_length_key_on_put(self, settings_client: Any) -> None:
         """PUT /settings/{key} with exactly 255-char key must not be rejected by validation.
 
         A 255-char key is at the boundary and must pass validation — the route
@@ -197,9 +178,7 @@ class TestSettingsKeyMaxLength:
             f"Expected non-422 for 255-char key (at boundary), got {response.status_code}"
         )
 
-    def test_settings_key_accepts_max_length_key_on_get(
-        self, settings_client: Any
-    ) -> None:
+    def test_settings_key_accepts_max_length_key_on_get(self, settings_client: Any) -> None:
         """GET /settings/{key} with exactly 255-char key must not be rejected by validation."""
         max_key = "e" * 255
         response = settings_client.get(f"/settings/{max_key}")
@@ -208,9 +187,7 @@ class TestSettingsKeyMaxLength:
             f"Expected non-422 for 255-char key on GET, got {response.status_code}"
         )
 
-    def test_settings_key_rejects_very_long_key_on_put(
-        self, settings_client: Any
-    ) -> None:
+    def test_settings_key_rejects_very_long_key_on_put(self, settings_client: Any) -> None:
         """PUT /settings/{key} with a 1024-char key must return 422.
 
         Tests that rejection holds for significantly oversized keys, not only
@@ -240,9 +217,7 @@ class TestAuthTokenPassphraseMaxLength:
     max_length=1024 caps the passphrase to a safe upper bound.
     """
 
-    def test_auth_token_rejects_oversized_passphrase(
-        self, auth_client: Any
-    ) -> None:
+    def test_auth_token_rejects_oversized_passphrase(self, auth_client: Any) -> None:
         """POST /auth/token with 1025-char passphrase must return 422.
 
         Validation must reject the oversized passphrase before bcrypt
@@ -257,9 +232,7 @@ class TestAuthTokenPassphraseMaxLength:
             f"Expected 422 for 1025-char passphrase, got {response.status_code}"
         )
 
-    def test_auth_token_rejects_very_oversized_passphrase(
-        self, auth_client: Any
-    ) -> None:
+    def test_auth_token_rejects_very_oversized_passphrase(self, auth_client: Any) -> None:
         """POST /auth/token with 10 000-char passphrase must return 422."""
         very_long = "q" * 10_000
         response = auth_client.post(
@@ -270,9 +243,7 @@ class TestAuthTokenPassphraseMaxLength:
             f"Expected 422 for 10000-char passphrase, got {response.status_code}"
         )
 
-    def test_auth_token_accepts_max_length_passphrase(
-        self, auth_client: Any
-    ) -> None:
+    def test_auth_token_accepts_max_length_passphrase(self, auth_client: Any) -> None:
         """POST /auth/token with exactly 1024-char passphrase must not be rejected by validation.
 
         A 1024-char passphrase is at the boundary — it must pass validation
@@ -289,9 +260,7 @@ class TestAuthTokenPassphraseMaxLength:
             f"Expected non-422 for 1024-char passphrase (at boundary), got {response.status_code}"
         )
 
-    def test_auth_token_rejects_empty_passphrase(
-        self, auth_client: Any
-    ) -> None:
+    def test_auth_token_rejects_empty_passphrase(self, auth_client: Any) -> None:
         """POST /auth/token with empty passphrase must return 422 (min_length=1).
 
         The min_length=1 constraint is pre-existing; this test confirms it
@@ -434,12 +403,12 @@ class TestTLSCertificateErrorMapping:
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.shared.exceptions import TLSCertificateError
 
-        _SENTINEL = "SENTINEL-CERT-DETAIL-XYZ"
+        sentinel = "SENTINEL-CERT-DETAIL-XYZ"
         app = create_app()
 
         @app.get("/test-tls-cert-no-leak")
         async def _raise_tls_sentinel() -> None:
-            raise TLSCertificateError(f"Certificate error: {_SENTINEL}")
+            raise TLSCertificateError(f"Certificate error: {sentinel}")
 
         with (
             patch(
@@ -458,6 +427,6 @@ class TestTLSCertificateErrorMapping:
 
         assert response.status_code == 400
         body_str = response.text
-        assert _SENTINEL not in body_str, (
-            f"HTTP response must not contain the raw exception message sentinel: {_SENTINEL}"
+        assert sentinel not in body_str, (
+            f"HTTP response must not contain the raw exception message sentinel: {sentinel}"
         )
