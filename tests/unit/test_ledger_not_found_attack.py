@@ -13,10 +13,9 @@ Negative/attack tests (committed before feature tests per Rule 22).
 from __future__ import annotations
 
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Attack tests — FAIL (RED) before T66.5 implementation
@@ -24,7 +23,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_spend_budget_nonexistent_ledger_raises_LedgerNotFoundError() -> None:
+async def test_spend_budget_nonexistent_ledger_raises_ledger_not_found_error() -> None:
     """spend_budget() with a nonexistent ledger_id must raise LedgerNotFoundError.
 
     Previously, SQLAlchemy's scalar_one() raised a raw NoResultFound, which
@@ -59,14 +58,13 @@ async def test_spend_budget_nonexistent_ledger_raises_LedgerNotFoundError() -> N
             session=mock_session,
         )
 
-    assert exc_info.value is not None
     assert "99999" in str(exc_info.value), (
         "LedgerNotFoundError message must include the ledger_id for log correlation"
     )
 
 
 @pytest.mark.asyncio
-async def test_reset_budget_nonexistent_ledger_raises_LedgerNotFoundError() -> None:
+async def test_reset_budget_nonexistent_ledger_raises_ledger_not_found_error() -> None:
     """reset_budget() with a nonexistent ledger_id must raise LedgerNotFoundError.
 
     Same as spend_budget — the raw NoResultFound must be wrapped.
@@ -92,13 +90,12 @@ async def test_reset_budget_nonexistent_ledger_raises_LedgerNotFoundError() -> N
             session=mock_session,
         )
 
-    assert exc_info.value is not None
     assert "88888" in str(exc_info.value), (
         "LedgerNotFoundError message must include the ledger_id for log correlation"
     )
 
 
-def test_LedgerNotFoundError_message_includes_ledger_id() -> None:
+def test_ledger_not_found_error_message_includes_ledger_id() -> None:
     """LedgerNotFoundError message must include the ledger_id for log correlation.
 
     The internal exception message (for log ingestion) must contain the
@@ -113,7 +110,7 @@ def test_LedgerNotFoundError_message_includes_ledger_id() -> None:
     )
 
 
-def test_LedgerNotFoundError_is_subclass_of_SynthEngineError() -> None:
+def test_ledger_not_found_error_is_subclass_of_synth_engine_error() -> None:
     """LedgerNotFoundError must inherit from SynthEngineError.
 
     All domain exceptions must inherit from SynthEngineError so they are
@@ -126,7 +123,7 @@ def test_LedgerNotFoundError_is_subclass_of_SynthEngineError() -> None:
     )
 
 
-def test_LedgerNotFoundError_mapped_to_404() -> None:
+def test_ledger_not_found_error_mapped_to_404() -> None:
     """LedgerNotFoundError must map to HTTP 404 in OPERATOR_ERROR_MAP.
 
     The HTTP mapping prevents a raw 500 from leaking and signals to clients

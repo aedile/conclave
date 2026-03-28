@@ -9,13 +9,13 @@ Tests verify:
 4. ``get_async_engine()`` and ``get_async_session()`` helpers are importable and
    return the correct SQLAlchemy async types.
 5. ``spend_budget()`` raises ``ValueError`` for zero or negative ``amount``.
-6. ``spend_budget()`` raises ``sqlalchemy.exc.NoResultFound`` when the
+6. ``spend_budget()`` raises ``LedgerNotFoundError`` when the
    requested ``ledger_id`` does not exist.
 7. ``spend_budget()`` with a ``Decimal`` input exercises the
    ``isinstance(amount, Decimal)`` fast-path (no float→string→Decimal conversion).
 8. ``reset_budget()`` resets ``total_spent_epsilon`` to zero atomically.
 9. ``reset_budget()`` with ``new_allocated_epsilon`` updates the ceiling.
-10. ``reset_budget()`` raises ``NoResultFound`` for a missing ledger.
+10. ``reset_budget()`` raises ``LedgerNotFoundError`` for a missing ledger.
 11. ``reset_budget()`` raises ``ValueError`` for a non-positive new allocation.
 12. NUMERIC(20,10) precision: value at rounding boundary rounds to zero in SQLite.
 
@@ -39,7 +39,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import SQLModel
 
@@ -416,19 +415,23 @@ async def test_spend_budget_raises_value_error_for_negative_amount(
 
 
 @pytest.mark.asyncio
-async def test_spend_budget_raises_no_result_found_for_missing_ledger(
+async def test_spend_budget_raises_ledger_not_found_error_for_missing_ledger(
     async_engine: AsyncEngine,
 ) -> None:
-    """spend_budget() raises NoResultFound when the ledger_id does not exist.
+    """spend_budget() raises LedgerNotFoundError when the ledger_id does not exist.
+
+    T66.5: The raw NoResultFound is wrapped in a typed LedgerNotFoundError so
+    that the bootstrapper error map can return HTTP 404 instead of 500.
 
     Arrange: Empty database — no PrivacyLedger rows inserted.
     Act: Call spend_budget with ledger_id=9999 (non-existent).
-    Assert: sqlalchemy.exc.NoResultFound is raised.
+    Assert: LedgerNotFoundError is raised (not raw NoResultFound).
     """
     from synth_engine.modules.privacy.accountant import spend_budget
+    from synth_engine.shared.exceptions import LedgerNotFoundError
 
     async with get_async_session(async_engine) as s:
-        with pytest.raises(NoResultFound):
+        with pytest.raises(LedgerNotFoundError):
             await spend_budget(amount=0.5, job_id=1, ledger_id=9999, session=s)
 
 
@@ -660,19 +663,23 @@ async def test_reset_budget_with_new_allocated_updates_ceiling(
 
 
 @pytest.mark.asyncio
-async def test_reset_budget_raises_no_result_found_for_missing_ledger(
+async def test_reset_budget_raises_ledger_not_found_error_for_missing_ledger(
     async_engine: AsyncEngine,
 ) -> None:
-    """reset_budget() raises NoResultFound when the ledger_id does not exist.
+    """reset_budget() raises LedgerNotFoundError when the ledger_id does not exist.
+
+    T66.5: The raw NoResultFound is wrapped in a typed LedgerNotFoundError so
+    that the bootstrapper error map can return HTTP 404 instead of 500.
 
     Arrange: Empty database — no PrivacyLedger rows.
     Act: Call reset_budget(ledger_id=9999, session=...).
-    Assert: sqlalchemy.exc.NoResultFound is raised.
+    Assert: LedgerNotFoundError is raised (not raw NoResultFound).
     """
     from synth_engine.modules.privacy.accountant import reset_budget
+    from synth_engine.shared.exceptions import LedgerNotFoundError
 
     async with get_async_session(async_engine) as s:
-        with pytest.raises(NoResultFound):
+        with pytest.raises(LedgerNotFoundError):
             await reset_budget(ledger_id=9999, session=s)
 
 
