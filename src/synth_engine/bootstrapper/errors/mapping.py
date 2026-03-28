@@ -23,6 +23,7 @@ Task: T37.1 — Add EpsilonMeasurementError to OPERATOR_ERROR_MAP
 Task: T38.1 — Add AuditWriteError to OPERATOR_ERROR_MAP (status 500)
 Task: T47.7 — Add DatasetTooLargeError to OPERATOR_ERROR_MAP (status 413)
 Task: T66.5 — Add LedgerNotFoundError to OPERATOR_ERROR_MAP (status 404)
+Task: T67.3 — Add TLSCertificateError to OPERATOR_ERROR_MAP (status 400) (ADV-P66-03)
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ from synth_engine.shared.exceptions import (
     LicenseError,
     OOMGuardrailError,
     PrivilegeEscalationError,
+    TLSCertificateError,
     VaultAlreadyUnsealedError,
     VaultConfigError,
     VaultEmptyPassphraseError,
@@ -144,6 +146,17 @@ OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
         title="Dataset Too Large",
         detail="The uploaded dataset exceeds the configured size or row count limit.",
         status_code=413,
+        type_uri="about:blank",
+    ),
+    TLSCertificateError: OperatorErrorEntry(
+        # HTTP 400 (Bad Request): the client provided or the system was
+        # configured with an invalid TLS certificate — a bad-input situation,
+        # not an internal server error.
+        # The detail is a static string — certificate CN/SAN fields from the
+        # raw exception message MUST NOT appear in the HTTP response.
+        title="TLS Certificate Validation Failed",
+        detail="TLS certificate validation failed.",
+        status_code=400,
         type_uri="about:blank",
     ),
     VaultSealedError: OperatorErrorEntry(

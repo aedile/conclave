@@ -19,6 +19,7 @@ Scope-based authorization (T47.3):
 Task: P5-T5.1 — Task Orchestration API Core
 Task: T47.3 — Scope-based auth for settings write endpoints
 Task: T62.1 — Wrap Database Commits in Exception Handlers
+Task: T67.1 — Add max_length=255 to key path parameter (ADV-P66-01)
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
@@ -45,6 +46,11 @@ from synth_engine.bootstrapper.schemas.settings import (
 _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+#: Type alias for the validated settings key path parameter.
+#: Enforces max_length=255 to prevent oversized strings reaching the
+#: database primary key column or log entries (ADV-P66-01).
+_SettingKey = Annotated[str, Path(max_length=255)]
 
 
 @router.get(
@@ -83,7 +89,7 @@ def list_settings(
     response_model=SettingResponse,
 )
 def upsert_setting(
-    key: str,
+    key: _SettingKey,
     body: SettingUpsertRequest,
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(require_scope("settings:write"))],
@@ -96,7 +102,7 @@ def upsert_setting(
     Requires scope: ``settings:write`` (T47.3).
 
     Args:
-        key: The setting key (URL path parameter).
+        key: The setting key (URL path parameter, max 255 characters).
         body: Request body containing the new value.
         session: Database session (injected by FastAPI DI).
         current_operator: Authenticated operator sub claim, verified to hold
@@ -136,7 +142,7 @@ def upsert_setting(
 
 @router.get("/{key}", response_model=SettingResponse)
 def get_setting(
-    key: str,
+    key: _SettingKey,
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> SettingResponse | JSONResponse:
@@ -145,7 +151,7 @@ def get_setting(
     No scope restriction — any authenticated operator may read settings.
 
     Args:
-        key: The setting key to look up.
+        key: The setting key to look up (max 255 characters).
         session: Database session (injected by FastAPI DI).
         current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
@@ -173,7 +179,7 @@ def get_setting(
     status_code=204,
 )
 def delete_setting(
-    key: str,
+    key: _SettingKey,
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(require_scope("settings:write"))],
 ) -> Response:
@@ -182,7 +188,7 @@ def delete_setting(
     Requires scope: ``settings:write`` (T47.3).
 
     Args:
-        key: The setting key to delete.
+        key: The setting key to delete (max 255 characters).
         session: Database session (injected by FastAPI DI).
         current_operator: Authenticated operator sub claim, verified to hold
             the ``settings:write`` scope (injected by FastAPI DI).

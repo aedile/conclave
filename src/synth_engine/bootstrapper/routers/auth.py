@@ -17,6 +17,10 @@ Security rationale
   12-character keyed HMAC-SHA256 identifier derived from the audit_key is
   logged.  This identifier is deterministic (same username → same token) for
   SIEM correlation but not reversible without the audit key.
+- Passphrase bounded to 1024 characters (T67.2 — ADV-P66-02): without
+  this cap, a 1 MiB body could be deserialized by FastAPI before bcrypt is
+  invoked — a CPU/memory DoS vector.  bcrypt truncates at 72 bytes but
+  FastAPI deserialization still processes the full input.
 
 CONSTITUTION Priority 0: Security — credentials never logged, bcrypt verify
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
@@ -24,6 +28,7 @@ Task: T47.1 — Scope-based auth for security endpoints
 Task: T47.3 — Scope-based auth for settings write endpoints
 Task: T59.3 — OpenAPI Documentation Enrichment
 Task: T66.1 — Replace PII logging with keyed HMAC identifier
+Task: T67.2 — Add max_length=1024 to TokenRequest.passphrase (ADV-P66-02)
 """
 
 from __future__ import annotations
@@ -109,6 +114,11 @@ class TokenRequest(BaseModel):
             DoS via oversized input in downstream HMAC computation and to
             match common username length limits in identity providers.
         passphrase: Plain-text passphrase to verify against the stored hash.
+            Bounded to 1024 characters (T67.2 — ADV-P66-02): bcrypt truncates
+            input at 72 bytes, but without a cap FastAPI still deserializes
+            the full body — a CPU/memory DoS vector via oversized requests.
+            The 1024-character limit matches :class:`UnsealRequest` for
+            consistency across all passphrase-accepting endpoints.
     """
 
     username: str = Field(
@@ -119,6 +129,7 @@ class TokenRequest(BaseModel):
     passphrase: str = Field(
         description="Operator passphrase (plain text — transmitted only over TLS).",
         min_length=1,
+        max_length=1024,
     )
 
 
@@ -176,6 +187,8 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
         the same generic 401 regardless of whether the username exists or
         the passphrase is wrong (no oracle attack surface).
         The raw username is never logged (T66.1 PII protection).
+        The passphrase is bounded to 1024 characters (T67.2) to prevent
+        a CPU/memory DoS via oversized request bodies.
     """
     opaque_id = _opaque_identifier(body.username)
     if not verify_operator_credentials(body.passphrase):
