@@ -445,7 +445,8 @@ class TLSCertificateError(SynthEngineError):
 
     HTTP-safe: yes — the message describes a certificate validation failure
     without leaking private key material or internal secrets.  The bootstrapper
-    maps this to HTTP 500 or 503 depending on context (startup vs. health-check).
+    maps this to HTTP 400 (Bad Request) — the client or system was configured
+    with an invalid TLS certificate.
 
     Moved from ``shared/tls/config.py`` to ``shared/exceptions.py`` in T46.1
     review (ARCH-F1) to ensure all domain exceptions inherit from

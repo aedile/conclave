@@ -187,6 +187,18 @@ class TestSettingsKeyMaxLength:
             f"Expected non-422 for 255-char key on GET, got {response.status_code}"
         )
 
+    def test_settings_key_accepts_max_length_key_on_delete(self, settings_client: Any) -> None:
+        """DELETE /settings/{key} with exactly 255-char key must not be rejected by validation.
+
+        A 255-char key is at the boundary and must pass validation — the route
+        may respond with 200/204/404/500 but NOT 422 (validation failure).
+        """
+        max_key = "f" * 255
+        response = settings_client.delete(f"/settings/{max_key}")
+        assert response.status_code != 422, (
+            f"Expected non-422 for 255-char key on DELETE (at boundary), got {response.status_code}"
+        )
+
     def test_settings_key_rejects_very_long_key_on_put(self, settings_client: Any) -> None:
         """PUT /settings/{key} with a 1024-char key must return 422.
 
@@ -325,8 +337,8 @@ class TestTLSCertificateErrorMapping:
         from synth_engine.shared.exceptions import TLSCertificateError
 
         entry = OPERATOR_ERROR_MAP[TLSCertificateError]
-        assert len(entry["title"]) > 0, "title must be non-empty"
-        assert len(entry["detail"]) > 0, "detail must be non-empty"
+        assert entry["title"] == "TLS Certificate Validation Failed"
+        assert entry["detail"] == "TLS certificate validation failed."
         assert entry["status_code"] == 400
         assert isinstance(entry["type_uri"], str), "type_uri must be a string"
 
