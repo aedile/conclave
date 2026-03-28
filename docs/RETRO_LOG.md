@@ -13,9 +13,7 @@ Updated after each task's review phase completes.
 
 | ID | Advisory | Phase |
 |----|----------|-------|
-| ADV-P62-01 | OpenAPI docs (/docs, /redoc, /openapi.json) exposed without auth — reconnaissance risk | [P62](#2026-03-27-phase-62--review-summary) |
-| ADV-P62-02 | X-Forwarded-For accepted without trust validation — rate limit bypass via header spoofing | [P62](#2026-03-27-phase-62--review-summary) |
-| ADV-P63-05 | pygments CVE-2026-4539 — no upstream fix available (track at P66) | [P63](#2026-03-27-phase-63--review-summary) |
+| (none) | All security advisories resolved as of P66. | — |
 
 **ADVISORY**
 
@@ -23,7 +21,15 @@ Updated after each task's review phase completes.
 |----|----------|-------|
 | ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
 | ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
-| ADV-P63-03 | Privacy ledger has no owner filter — single-operator model assumption undocumented | [P63](#2026-03-27-phase-63--review-summary) |
+
+**CLOSED (P66 — expired security advisory resolution)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P62-01 | CLOSED — OpenAPI docs (/docs, /redoc, /openapi.json) disabled in production mode via `docs_url=None`, `redoc_url=None`, `openapi_url=None` (T66.2) | P66 |
+| ADV-P62-02 | CLOSED — `trusted_proxy_count` setting added (zero-trust default); XFF ignored unless explicitly configured; IP format validation via `ipaddress.ip_address()` (T66.3) | P66 |
+| ADV-P63-03 | CLOSED — single-operator privacy ledger assumption documented in ADR-0062; code comments added to both ledger queries (T66.6) | P66 |
+| ADV-P63-05 | CLOSED — pygments confirmed dev-only transitive dependency, not in production Docker image; documented in ADR-0061 (T66.4) | P66 |
 
 **CLOSED (P65 advisory drain — T65.1)**
 
@@ -45,12 +51,7 @@ Updated after each task's review phase completes.
 ### Open Advisories by Domain
 
 **Security**
-- ADV-P62-01: OpenAPI docs exposed without auth
-- ADV-P62-02: X-Forwarded-For not validated
-- ADV-P63-05: pygments CVE-2026-4539
-
-**Privacy**
-- ADV-P63-03: Privacy ledger single-operator assumption undocumented
+- (none — all resolved in P66)
 
 **Infrastructure**
 - ADV-P62-03: Circuit breaker process-local state
@@ -62,6 +63,7 @@ Updated after each task's review phase completes.
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 66 | 2026-03-28 | [Expired Security Advisory Resolution](#2026-03-28-phase-66--expired-security-advisory-resolution) |
 | Phase 65 | 2026-03-27 | [Advisory Drain & Polish](#2026-03-27-phase-65--advisory-drain--polish) |
 | Phase 64 | 2026-03-27 | [Review Summary](#2026-03-27-phase-64--review-summary) |
 | Phase 63 | 2026-03-27 | [Review Summary](#2026-03-27-phase-63--review-summary) |
@@ -83,6 +85,35 @@ Updated after each task's review phase completes.
 | Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
 | Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
 | Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-28] Phase 66 — Expired Security Advisory Resolution
+
+**Tasks**: T66.1–T66.6
+
+**Summary**: Resolved 3 expired security advisories (Rule 26 compliance), fixed CRITICAL
+PII logging vulnerability, fixed correctness bug in privacy accountant, documented
+single-operator assumption. Closed 4 advisories (ADV-P62-01, ADV-P62-02, ADV-P63-03,
+ADV-P63-05). Open advisory count: 2 (ADV-P62-03, ADV-P63-01).
+
+**Closed by code change:**
+1. ADV-P62-01: OpenAPI docs disabled in production mode (`docs_url=None`, `redoc_url=None`, `openapi_url=None`). Exempt paths updated.
+2. ADV-P62-02: Trusted proxy validation — `trusted_proxy_count` setting (zero-trust default). XFF ignored unless configured. IP format validation via `ipaddress.ip_address()`.
+3. ADV-P63-05: Pygments confirmed dev-only transitive dependency; not in production Docker image. ADR-0061 documents mitigation.
+4. ADV-P63-03: Single-operator privacy ledger assumption documented in ADR-0062. Code comments at both ledger queries.
+
+**Additional fixes:**
+5. T66.1 (CRITICAL): Operator username removed from INFO/WARNING logs in `auth.py`. Replaced with keyed HMAC-SHA256 identifier (truncated to 12 hex chars). Username `max_length=255` added to prevent DoS.
+6. T66.5: `scalar_one()` in `accountant.py` wrapped in `LedgerNotFoundError` (both `spend_budget` and `reset_budget`). HTTP mapping to 404. Ledger ID excluded from HTTP response body.
+
+**Review findings:**
+- FINDING (architecture): `LedgerNotFoundError` missing from `_OPERATOR_ERROR_HANDLERS` — fixed by deriving handler list from `OPERATOR_ERROR_MAP.keys()`. Also fixed pre-existing gap (15 map entries, only 9 handlers). Regression test added.
+- ADVISORY: `CONCLAVE_TRUSTED_PROXY_COUNT` added to `.env.example`.
+
+**Lessons learned:**
+- Exception handler registration has two separate data structures (map + handler list) that can diverge silently. The derived-from-map fix permanently eliminates this drift.
+- The developer subagent repeatedly re-ran the full test suite after encountering failures instead of fixing and re-running targeted tests. Future phases should instruct: "fix failures, run ONLY affected files, then commit."
 
 ---
 
