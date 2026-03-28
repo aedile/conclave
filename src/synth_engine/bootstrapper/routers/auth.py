@@ -13,16 +13,23 @@ Security rationale
   when no operator is configured — hard fail, never a silent pass.
 - 401 responses use RFC 7807 Problem Details format for consistency.
 - Token issuance is rate-limited by :class:.
+- PII protection (T66.1): the raw username is NEVER logged.  Instead, a
+  12-character keyed HMAC-SHA256 identifier derived from the audit_key is
+  logged.  This identifier is deterministic (same username → same token) for
+  SIEM correlation but not reversible without the audit key.
 
 CONSTITUTION Priority 0: Security — credentials never logged, bcrypt verify
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T47.1 — Scope-based auth for security endpoints
 Task: T47.3 — Scope-based auth for settings write endpoints
 Task: T59.3 — OpenAPI Documentation Enrichment
+Task: T66.1 — Replace PII logging with keyed HMAC identifier
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 
 from fastapi import APIRouter
@@ -37,6 +44,16 @@ _logger = logging.getLogger(__name__)
 
 #: OAuth2 / RFC 6750 token scheme identifier.
 _TOKEN_SCHEME = "bearer"  # noqa: S105  # nosec B105 — token scheme identifier (RFC 6750), not a password
+
+#: Fallback salt used when audit_key is empty (development mode only).
+#: This is a publicly known constant — security relies on the audit_key
+#: being secret in production, not on this salt being secret.
+_DEV_LOG_SALT: bytes = b"conclave-dev-log-salt"
+
+#: Length of the opaque HMAC identifier in hex characters.
+#: 12 hex chars = 48 bits of identifier space — sufficient for SIEM correlation
+#: while keeping log lines short.
+_OPAQUE_ID_HEX_CHARS: int = 12
 
 #: All scopes issued to the single authenticated operator.
 #: Single-operator model: one operator gets every permission.
@@ -55,17 +72,49 @@ _DEFAULT_OPERATOR_SCOPES: list[str] = [
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _opaque_identifier(username: str) -> str:
+    """Compute a keyed HMAC-SHA256 opaque identifier for the given username.
+
+    Uses the ``audit_key`` from :func:`~synth_engine.shared.settings.get_settings`
+    as the HMAC key.  When ``audit_key`` is empty (development mode), a fixed
+    public salt ``_DEV_LOG_SALT`` is used instead — security relies on the
+    audit_key being secret in production.
+
+    The result is truncated to :data:`_OPAQUE_ID_HEX_CHARS` hex characters
+    (12 chars = 48 bits).  This is deterministic: the same username always
+    produces the same identifier, enabling SIEM log correlation.
+
+    The identifier is NOT reversible without the audit key — it cannot be
+    used to recover the original username via a lookup table.
+
+    Args:
+        username: The operator username to anonymize.
+
+    Returns:
+        A 12-character lowercase hex string derived from HMAC-SHA256.
+    """
+    from synth_engine.shared.settings import get_settings
+
+    audit_key_raw = get_settings().audit_key.get_secret_value()
+    key: bytes = audit_key_raw.encode() if audit_key_raw else _DEV_LOG_SALT
+    digest = hmac.new(key, username.encode(), hashlib.sha256).hexdigest()
+    return digest[:_OPAQUE_ID_HEX_CHARS]
+
+
 class TokenRequest(BaseModel):
     """Request body for POST /auth/token.
 
     Attributes:
-        username: Operator identifier (logged but not used for dispatch in MVP).
+        username: Operator identifier.  Bounded to 255 characters to prevent
+            DoS via oversized input in downstream HMAC computation and to
+            match common username length limits in identity providers.
         passphrase: Plain-text passphrase to verify against the stored hash.
     """
 
     username: str = Field(
         description="Operator username.",
         min_length=1,
+        max_length=255,
     )
     passphrase: str = Field(
         description="Operator passphrase (plain text — transmitted only over TLS).",
@@ -110,6 +159,10 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
     The issued token can be used as ``Authorization: Bearer <token>`` on all
     subsequent requests to authenticated endpoints.
 
+    PII protection (T66.1): the raw username is NEVER written to logs.
+    A keyed HMAC-SHA256 opaque identifier is used instead — deterministic for
+    SIEM correlation but not reversible without the audit key.
+
     Args:
         body: JSON body with ``username`` and ``passphrase`` fields.
 
@@ -122,11 +175,13 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
         bcrypt's constant-time comparison.  A failed verification returns
         the same generic 401 regardless of whether the username exists or
         the passphrase is wrong (no oracle attack surface).
+        The raw username is never logged (T66.1 PII protection).
     """
+    opaque_id = _opaque_identifier(body.username)
     if not verify_operator_credentials(body.passphrase):
         _logger.warning(
-            "Failed authentication attempt for username=%r",
-            body.username,
+            "Failed authentication attempt for operator_id=%s",
+            opaque_id,
         )
         return JSONResponse(
             status_code=401,
@@ -139,5 +194,5 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
         )
 
     token = create_token(sub=body.username, scope=_DEFAULT_OPERATOR_SCOPES)
-    _logger.info("Issued JWT token for operator=%r", body.username)
+    _logger.info("Issued JWT token for operator_id=%s", opaque_id)
     return TokenResponse(access_token=token, token_type=_TOKEN_SCHEME)

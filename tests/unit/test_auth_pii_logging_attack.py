@@ -26,14 +26,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None, None, None]:
+def _clear_settings_cache() -> Generator[None]:
     """Clear LRU cache before and after each test."""
     from synth_engine.shared.settings import get_settings
 
@@ -42,7 +41,7 @@ def _clear_settings_cache() -> Generator[None, None, None]:
     get_settings.cache_clear()
 
 
-@pytest.fixture()
+@pytest.fixture
 def auth_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Minimal TestClient with only the auth router mounted.
 
@@ -138,11 +137,7 @@ def test_auth_log_opaque_identifier_is_keyed_hash_not_plain_sha256(
         )
 
     # At least one log record should exist
-    auth_records = [
-        r
-        for r in caplog.records
-        if r.name == "synth_engine.bootstrapper.routers.auth"
-    ]
+    auth_records = [r for r in caplog.records if r.name == "synth_engine.bootstrapper.routers.auth"]
     assert len(auth_records) >= 1, "Expected at least one log record from auth router"
 
     for record in auth_records:
@@ -192,9 +187,7 @@ def test_auth_log_identifier_stable_for_same_username(
                 json={"username": test_username, "passphrase": "test-passphrase"},
             )
         auth_records = [
-            r
-            for r in caplog.records
-            if r.name == "synth_engine.bootstrapper.routers.auth"
+            r for r in caplog.records if r.name == "synth_engine.bootstrapper.routers.auth"
         ]
         assert len(auth_records) >= 1
         identifiers.append(auth_records[-1].getMessage())
@@ -221,9 +214,7 @@ def test_auth_log_identifier_differs_for_different_usernames(
                 json={"username": username, "passphrase": "test-passphrase"},
             )
         auth_records = [
-            r
-            for r in caplog.records
-            if r.name == "synth_engine.bootstrapper.routers.auth"
+            r for r in caplog.records if r.name == "synth_engine.bootstrapper.routers.auth"
         ]
         assert len(auth_records) >= 1
         messages[username] = auth_records[-1].getMessage()
