@@ -5,10 +5,19 @@ over the download endpoint.  If the deployment uses plain ``http://``, that
 data is sent in cleartext and is trivially interceptable in flight.
 
 This middleware enforces HTTPS on every request in production deployments.
-It inspects the ``X-Forwarded-Proto`` header first (the authoritative scheme
-signal in a reverse-proxy deployment) and falls back to the raw ASGI request
-scheme when the header is absent.  Any ``http`` request in production mode is
-rejected immediately with HTTP 421 Misdirected Request (RFC 7231 §6.5.11).
+It applies the same trusted-proxy model as :func:`_extract_client_ip` (T66.3)
+to decide whether ``X-Forwarded-Proto`` is trustworthy:
+
+- ``trusted_proxy_count=0`` (default, zero-trust): ``X-Forwarded-Proto`` is
+  ignored entirely.  The raw ASGI scheme (``request.url.scheme``) is always
+  used.  This prevents attackers from sending ``X-Forwarded-Proto: https``
+  on a plaintext connection to bypass HTTPS enforcement.
+- ``trusted_proxy_count > 0``: ``X-Forwarded-Proto`` is trusted, because
+  a configured reverse proxy is responsible for stripping attacker-supplied
+  instances of the header and setting it correctly.
+
+Any ``http`` request in production mode is rejected immediately with HTTP 421
+Misdirected Request (RFC 7231 §6.5.11).
 
 Development mode (``is_production() == False``) is exempt — operators need to
 run the application over plain HTTP during local development and integration
@@ -38,7 +47,9 @@ Caddy, HAProxy) that:
 3. Strips any ``X-Forwarded-Proto`` header supplied by the client.
 
 The nginx configuration template in ``docs/PRODUCTION_DEPLOYMENT.md`` satisfies
-all three requirements.
+all three requirements.  When this proxy is in place, set
+``CONCLAVE_TRUSTED_PROXY_COUNT=1`` (or higher for multi-hop deployments) so
+that the middleware trusts its ``X-Forwarded-Proto`` header.
 
 Startup health check
 --------------------
@@ -51,6 +62,7 @@ misconfiguration.
 CONSTITUTION Priority 0: Security — cleartext synthetic data transmission forbidden
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T42.2 — Add HTTPS Enforcement & Deployment Safety Checks
+Task: P66 red-team F-03 — Apply trusted_proxy_count to X-Forwarded-Proto
 """
 
 from __future__ import annotations
@@ -80,27 +92,37 @@ _DETAIL_HTTP_NOT_ALLOWED: str = (
 )
 
 
-def _extract_scheme(request: Request) -> str:
+def _extract_scheme(request: Request, *, trusted_proxy_count: int = 0) -> str:
     """Extract the effective request scheme from a Starlette ``Request``.
 
-    Prefers the ``X-Forwarded-Proto`` header, which carries the real client
-    scheme in a reverse-proxy deployment where the ASGI server sees internal
-    ``http://`` traffic even when the client connected over ``https://``.
+    Applies the trusted-proxy model to decide whether ``X-Forwarded-Proto``
+    is trustworthy (P66 red-team F-03):
 
-    Falls back to ``request.url.scheme`` (the raw ASGI scheme) when the
-    header is absent — appropriate for direct connections without a proxy.
+    - **trusted_proxy_count=0** (zero-trust default): ``X-Forwarded-Proto``
+      is ignored entirely.  The raw ASGI scheme (``request.url.scheme``) is
+      returned.  This prevents an attacker from sending
+      ``X-Forwarded-Proto: https`` on a cleartext connection to bypass HTTPS
+      enforcement.
+
+    - **trusted_proxy_count > 0**: ``X-Forwarded-Proto`` is trusted and
+      returned when present (normalised to lowercase).  Falls back to
+      ``request.url.scheme`` when the header is absent.
 
     Args:
         request: Incoming HTTP request.
+        trusted_proxy_count: Number of trusted reverse proxies in front of
+            this service.  Must be ``>= 0``.  Defaults to ``0`` (zero-trust).
 
     Returns:
         The effective scheme string, normalised to lowercase.
         Typical values: ``"https"`` or ``"http"``.
     """
-    forwarded_proto: str | None = request.headers.get("X-Forwarded-Proto")
-    if forwarded_proto:
-        # Strip whitespace and normalise; proxies may add spaces or mixed case.
-        return forwarded_proto.strip().lower()
+    if trusted_proxy_count > 0:
+        forwarded_proto: str | None = request.headers.get("X-Forwarded-Proto")
+        if forwarded_proto:
+            # Strip whitespace and normalise; proxies may add spaces or mixed case.
+            return forwarded_proto.strip().lower()
+
     return request.url.scheme.lower()
 
 
@@ -156,8 +178,12 @@ class HTTPSEnforcementMiddleware(BaseHTTPMiddleware):
     In production mode (``production=True``), any request whose effective
     scheme is not ``https`` receives a 421 Misdirected Request response with
     an RFC 7807 Problem Details body.  The effective scheme is determined by
-    :func:`_extract_scheme` — ``X-Forwarded-Proto`` takes precedence over the
-    raw ASGI scheme.
+    :func:`_extract_scheme`, which applies the trusted-proxy model:
+
+    - ``trusted_proxy_count=0``: ``X-Forwarded-Proto`` is ignored; raw ASGI
+      scheme used.  Prevents header-injection bypass on direct connections.
+    - ``trusted_proxy_count > 0``: ``X-Forwarded-Proto`` is trusted (a
+      configured reverse proxy is responsible for setting it correctly).
 
     In development mode (``production=False``), all requests pass through
     unchanged.
@@ -176,9 +202,16 @@ class HTTPSEnforcementMiddleware(BaseHTTPMiddleware):
             Explicit values override the singleton — this allows tests to inject
             a known production/development state without environment variable
             manipulation.
+        trusted_proxy_count: Number of trusted reverse proxies in front of
+            this service.  When ``None`` (default), the value is read from
+            :attr:`~synth_engine.shared.settings.ConclaveSettings.trusted_proxy_count`
+            via the :func:`~synth_engine.shared.settings.get_settings` singleton.
+            Explicit values override the singleton for testing.
 
     Attributes:
         _production: Resolved production flag used for scheme enforcement.
+        _trusted_proxy_count: Resolved trusted proxy count used by
+            :func:`_extract_scheme`.
     """
 
     def __init__(
@@ -186,10 +219,15 @@ class HTTPSEnforcementMiddleware(BaseHTTPMiddleware):
         app: object,
         *,
         production: bool | None = None,
+        trusted_proxy_count: int | None = None,
     ) -> None:
         super().__init__(app)  # type: ignore[arg-type]
-        self._production: bool = (
-            production if production is not None else get_settings().is_production()
+        settings = get_settings()
+        self._production: bool = production if production is not None else settings.is_production()
+        self._trusted_proxy_count: int = (
+            trusted_proxy_count
+            if trusted_proxy_count is not None
+            else settings.conclave_trusted_proxy_count
         )
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -207,7 +245,8 @@ class HTTPSEnforcementMiddleware(BaseHTTPMiddleware):
             A 421 JSONResponse (RFC 7807) if in production mode and the
             effective scheme is ``http``, otherwise the downstream response.
         """
-        if self._production and _extract_scheme(request) != "https":
+        scheme = _extract_scheme(request, trusted_proxy_count=self._trusted_proxy_count)
+        if self._production and scheme != "https":
             _logger.warning(
                 "https_enforcement: rejected plain-http request path=%s",
                 request.url.path,

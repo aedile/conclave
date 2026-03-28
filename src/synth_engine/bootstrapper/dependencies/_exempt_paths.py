@@ -8,14 +8,21 @@ Layered exemption model (P50 review fix)
 Different middleware layers enforce access control at different levels.
 Each layer imports the appropriate constant for its security posture:
 
-:data:`COMMON_INFRA_EXEMPT_PATHS` — **auth baseline** (10 paths)
+:data:`COMMON_INFRA_EXEMPT_PATHS` — **auth baseline** (7 paths)
     Pre-auth bootstrapping and infrastructure paths that must be reachable
     before any credential is issued or the vault is unsealed.  This is the
     most restrictive set — anything in it bypasses all three gates.
     ``AuthenticationGateMiddleware`` (``auth.py``) composes from this set.
     Security routes are **NOT** included here: they require JWT auth.
 
-:data:`SEAL_EXEMPT_PATHS` — **vault/license gate set** (11 paths)
+    T66.2: ``/docs``, ``/redoc``, ``/openapi.json`` have been removed from
+    this set.  In production mode these endpoints return 404 (disabled by
+    the FastAPI factory).  In development mode they are accessible and
+    protected by the auth gate — requiring a Bearer token like any other
+    endpoint.  This is the correct posture: documentation should not bypass
+    the authentication gate in any mode (ADV-P62-01).
+
+:data:`SEAL_EXEMPT_PATHS` — **vault/license gate set** (8 paths)
     Extends ``COMMON_INFRA_EXEMPT_PATHS`` with ``/security/shred`` so that
     the emergency cryptographic shred protocol remains reachable even when
     the vault is sealed (or unlicensed).  ``SealGateMiddleware`` (``vault.py``)
@@ -36,7 +43,7 @@ Path summary
      - COMMON
      - SEAL
      - AUTH
-   * - /unseal, /health, /ready, /metrics, /docs, /redoc, /openapi.json,
+   * - /unseal, /health, /ready, /metrics,
        /license/challenge, /license/activate, /health/vault
      - Yes
      - Yes
@@ -53,6 +60,10 @@ Path summary
      - No
      - No
      - Yes (operator login)
+   * - /docs, /redoc, /openapi.json
+     - **No** (T66.2 — removed from exempt set)
+     - **No**
+     - No (requires JWT auth in dev; 404 in production)
 
 Why ``/health/vault`` is in COMMON_INFRA_EXEMPT_PATHS
 ------------------------------------------------------
@@ -62,19 +73,31 @@ observe *which* workers are sealed before issuing unseal commands).  The seal
 gate cannot block the endpoint that reports on the seal state — that would
 create a deadlock for operators diagnosing multi-worker unseal issues.
 
+Why ``/docs``, ``/redoc``, ``/openapi.json`` were removed (T66.2)
+------------------------------------------------------------------
+Previously these paths bypassed the auth gate, allowing unauthenticated access
+to the full API schema — an API reconnaissance risk (ADV-P62-01).
+
+In production mode these endpoints return 404 (disabled by the FastAPI factory
+via ``docs_url=None``, ``redoc_url=None``, ``openapi_url=None``).  In
+development mode they are reachable but protected by the auth gate.  Removing
+them from the exempt set is strictly safer in both modes.
+
 CONSTITUTION Priority 0: Security
 Advisory: ADV-T39.1-01 — Extract EXEMPT_PATHS to shared module
 Advisory: ADV-P47-04 — Enforce JWT auth on security endpoints
+Advisory: ADV-P62-01 — OpenAPI docs exposed without auth (resolved T66.2)
 Task: T48.3 — Readiness Probe & External Dependency Health Checks
 Task: P50 review fix — restore /security/shred vault-layer bypass (layered model)
 Task: T55.1 — Vault State Health Endpoint & Multi-Worker Coordination
+Task: T66.2 — Remove /docs, /redoc, /openapi.json from COMMON_INFRA_EXEMPT_PATHS
 """
 
 from __future__ import annotations
 
 #: Auth baseline: paths accessible to all middleware gates regardless of system state.
 #:
-#: These 10 paths cover pre-auth bootstrapping and infrastructure concerns that must
+#: These 7 paths cover pre-auth bootstrapping and infrastructure concerns that must
 #: remain reachable before the vault is unsealed, a license is activated, or an
 #: operator has authenticated:
 #:
@@ -83,8 +106,13 @@ from __future__ import annotations
 #: - ``/ready`` — readiness probe (infra; Kubernetes readiness gate)
 #: - ``/health/vault`` — per-worker vault seal status (ops; must not be gate-locked)
 #: - ``/metrics`` — Prometheus scrape (infra)
-#: - ``/docs``, ``/redoc``, ``/openapi.json`` — API documentation
 #: - ``/license/challenge``, ``/license/activate`` — offline license activation
+#:
+#: T66.2: ``/docs``, ``/redoc``, ``/openapi.json`` have been removed from this set.
+#: In production mode these endpoints return 404 (FastAPI docs disabled).
+#: In development mode they require a valid Bearer token like any other endpoint.
+#: Removing them from the exempt set is the correct security posture in both modes
+#: (ADV-P62-01).
 #:
 #: Security routes (``/security/shred``, ``/security/keys/rotate``) are **not**
 #: included here — they require JWT authentication (ADV-P47-04).
@@ -96,9 +124,6 @@ COMMON_INFRA_EXEMPT_PATHS: frozenset[str] = frozenset(
         "/ready",
         "/health/vault",
         "/metrics",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
         "/license/challenge",
         "/license/activate",
     }

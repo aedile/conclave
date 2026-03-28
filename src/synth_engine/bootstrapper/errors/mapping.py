@@ -11,6 +11,10 @@ that contain no security-sensitive context (no role names, no artifact paths,
 no HMAC hints).  The raw exception message is logged at WARNING level but
 must never appear verbatim in the HTTP response body (ADV-036+044).
 
+Security rule: :exc:`LedgerNotFoundError` is mapped with a STATIC detail
+string ``"Privacy ledger not found"`` — the ``ledger_id`` from the exception
+message MUST NOT be echoed in the HTTP response body.
+
 Task: P29-T29.3 — Error Message Audience Differentiation
 Task: T34.3 — Complete OPERATOR_ERROR_MAP for All Domain Exceptions
 Task: T36.2 — Split bootstrapper/errors.py Into Focused Modules
@@ -18,6 +22,7 @@ Task: P36 review — Import CycleDetectionError and CollisionError from shared.e
 Task: T37.1 — Add EpsilonMeasurementError to OPERATOR_ERROR_MAP
 Task: T38.1 — Add AuditWriteError to OPERATOR_ERROR_MAP (status 500)
 Task: T47.7 — Add DatasetTooLargeError to OPERATOR_ERROR_MAP (status 413)
+Task: T66.5 — Add LedgerNotFoundError to OPERATOR_ERROR_MAP (status 404)
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ from synth_engine.shared.exceptions import (
     CycleDetectionError,
     DatasetTooLargeError,
     EpsilonMeasurementError,
+    LedgerNotFoundError,
     LicenseError,
     OOMGuardrailError,
     PrivilegeEscalationError,
@@ -80,6 +86,10 @@ class OperatorErrorEntry(TypedDict):
 #: must never appear verbatim in the HTTP response body (ADV-036+044).
 #: The ``detail`` field in these entries is a safe, sanitized constant — not
 #: derived from ``str(exc)``.
+#:
+#: Security rule: :exc:`LedgerNotFoundError` is mapped with a static detail
+#: ``"Privacy ledger not found"`` — the ``ledger_id`` from the exception
+#: message MUST NOT be forwarded to the HTTP response body.
 OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
     AuditWriteError: OperatorErrorEntry(
         title="Audit Trail Write Failure",
@@ -110,6 +120,15 @@ OPERATOR_ERROR_MAP: dict[type[Exception], OperatorErrorEntry] = {
         ),
         status_code=500,
         type_uri="/problems/epsilon-measurement-failure",
+    ),
+    LedgerNotFoundError: OperatorErrorEntry(
+        # Static detail — ledger_id must NOT appear in the HTTP response body.
+        # The exception str() includes ledger_id for internal log correlation;
+        # it is logged at WARNING level and must not be forwarded here.
+        title="Privacy Ledger Not Found",
+        detail="Privacy ledger not found.",
+        status_code=404,
+        type_uri="about:blank",
     ),
     OOMGuardrailError: OperatorErrorEntry(
         title="Memory Limit Exceeded",

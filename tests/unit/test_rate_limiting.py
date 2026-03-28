@@ -280,20 +280,35 @@ async def test_429_response_has_retry_after_header() -> None:
 
 
 @pytest.mark.asyncio
-async def test_different_ips_have_independent_limits_on_unseal() -> None:
+async def test_different_ips_have_independent_limits_on_unseal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Two different IPs must have independent rate limit buckets on /unseal.
 
-    Arrange: build with limit=1.
+    T66.3: Sets trusted_proxy_count=1 so that the X-Forwarded-For header
+    is trusted for IP differentiation.  Without this, all requests would
+    share the socket IP bucket.
+
+    Arrange: build with limit=1; set CONCLAVE_TRUSTED_PROXY_COUNT=1.
     Act: exhaust limit for IP A, then make a request from IP B.
     Assert: IP A gets 429 on second request; IP B still gets 200.
     """
+    from synth_engine.shared.settings import get_settings
+
+    monkeypatch.setenv("CONCLAVE_TRUSTED_PROXY_COUNT", "1")
+    get_settings.cache_clear()
+
     app = _build_isolated_app(unseal_limit=1)
+    # With trusted_proxy_count=1, XFF must have 2 entries: "client, proxy".
+    # The trusted proxy appends its own IP; the client IP is at index -2.
+    xff_a = {"X-Forwarded-For": "10.0.1.1, 10.1.1.1"}
+    xff_b = {"X-Forwarded-For": "10.0.1.2, 10.1.1.1"}
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # Exhaust IP A
-        await client.post("/unseal", headers={"X-Forwarded-For": "10.0.1.1"})
-        response_a2 = await client.post("/unseal", headers={"X-Forwarded-For": "10.0.1.1"})
+        # Exhaust IP A (with proxy-appended entry at rightmost position)
+        await client.post("/unseal", headers=xff_a)
+        response_a2 = await client.post("/unseal", headers=xff_a)
         # IP B should still be allowed
-        response_b1 = await client.post("/unseal", headers={"X-Forwarded-For": "10.0.1.2"})
+        response_b1 = await client.post("/unseal", headers=xff_b)
 
     assert response_a2.status_code == 429, "IP A must be rate limited after exceeding"
     assert response_b1.status_code == 200, "IP B must NOT be affected by IP A's limit"
@@ -444,10 +459,11 @@ def test_rate_limit_middleware_registered_in_setup_middleware(
 
 
 def test_extract_client_ip_uses_x_forwarded_for() -> None:
-    """_extract_client_ip must prefer X-Forwarded-For over client.host.
+    """_extract_client_ip uses X-Forwarded-For when trusted_proxy_count=1.
 
-    The first IP in the X-Forwarded-For header is the client IP in a proxied
-    deployment (the rightmost is the last proxy, leftmost is the real client).
+    T66.3: With trusted_proxy_count=1, the leftmost XFF entry is used as
+    the client IP.  With trusted_proxy_count=0 (zero-trust default), XFF
+    is ignored entirely and the socket IP is used.
     """
     from unittest.mock import MagicMock
 
@@ -458,7 +474,8 @@ def test_extract_client_ip_uses_x_forwarded_for() -> None:
     request.client = MagicMock()
     request.client.host = "127.0.0.1"
 
-    ip = _extract_client_ip(request)
+    # trusted_proxy_count=1: XFF is trusted; client IP is the leftmost entry
+    ip = _extract_client_ip(request, trusted_proxy_count=1)
     assert ip == "203.0.113.1"
 
 
@@ -660,4 +677,62 @@ def test_build_retry_after_fallback_logs_hashed_key_not_raw(
     )
     assert expected_hash_prefix in caplog.text, (
         f"Hashed key prefix '{expected_hash_prefix}' must appear in log; got: {caplog.text!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# P66 DevOps finding — XFF invalid-entry log must hash the raw candidate
+# ---------------------------------------------------------------------------
+
+
+def test_xff_invalid_entry_logged_as_hash_not_raw(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Attack test: invalid XFF candidate must be SHA-256 hashed in WARNING log.
+
+    An attacker can inject a crafted ``X-Forwarded-For`` value (e.g. a
+    log-injection payload or a long string) that appears in the WARNING log
+    when IP validation fails.  The fix (P66 DevOps finding) replaces the raw
+    truncated value with a SHA-256 hash prefix so attacker-controlled data
+    never reaches the log file in plaintext.
+    """
+    import hashlib
+
+    from starlette.datastructures import Headers
+    from starlette.requests import Request
+
+    from synth_engine.bootstrapper.dependencies.rate_limit import _extract_client_ip
+
+    malicious_xff = "not-an-ip; DROP TABLE users; --"
+    expected_hash_prefix = hashlib.sha256(malicious_xff.encode()).hexdigest()[:16]
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/test",
+        "query_string": b"",
+        "headers": Headers(
+            {
+                "x-forwarded-for": f"{malicious_xff}, 1.2.3.4",
+            }
+        ).raw,
+        "client": ("10.0.0.1", 12345),
+    }
+    request = Request(scope)
+
+    rate_limit_logger = "synth_engine.bootstrapper.dependencies.rate_limit"
+    with caplog.at_level(logging.WARNING, logger=rate_limit_logger):
+        result = _extract_client_ip(request, trusted_proxy_count=1)
+
+    # Must fall back to socket IP (fail-closed).
+    assert result == "10.0.0.1", f"Expected socket IP fallback; got {result!r}"
+
+    # Raw malicious value must NOT appear in logs.
+    assert malicious_xff not in caplog.text, (
+        f"Raw XFF candidate must not appear in logs; got: {caplog.text!r}"
+    )
+
+    # Hash prefix MUST appear in logs.
+    assert expected_hash_prefix in caplog.text, (
+        f"SHA-256 hash prefix must appear in WARNING log; got: {caplog.text!r}"
     )

@@ -19,6 +19,7 @@ Task: T39.3 — Add Rate Limiting Middleware
 Task: T48.1 — Redis-Backed Rate Limiting
 Task: T63.3 — Rate Limiter Fail-Closed on Redis Failure
 Task: T64.3 — Decompose rate_limit.py
+Task: T66.3 — Pass trusted_proxy_count to _extract_client_ip for safe XFF handling
 """
 
 from __future__ import annotations
@@ -165,6 +166,14 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         # T63.3: monotonic timestamp of first Redis failure; None = healthy.
         # Reset to None only on genuine Redis recovery (non-renewable grace period).
         self._redis_first_failure_time: float | None = None
+        # T66.3: number of trusted reverse proxies for XFF extraction.
+        self._trusted_proxy_count: int = settings.conclave_trusted_proxy_count
+        if self._trusted_proxy_count > 0:
+            _logger.warning(
+                "X-Forwarded-For trust enabled (trusted_proxy_count=%d) — "
+                "ensure deployment terminates TLS at a trusted reverse proxy.",
+                self._trusted_proxy_count,
+            )
         if redis_client is not None:
             self._redis: redis_lib.Redis = redis_client
         else:
@@ -182,6 +191,8 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         """Determine the rate limit tier and identity key for a request.
 
         Deferred imports from :mod:`.rate_limit` prevent circular imports.
+        Passes ``trusted_proxy_count`` to :func:`_extract_client_ip` for
+        safe XFF extraction (T66.3 — ADV-P62-02).
 
         Args:
             request: Incoming HTTP request.
@@ -198,11 +209,21 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
 
         path = request.url.path
         if path == "/unseal":
-            return self._unseal_limit, f"ip:{_extract_client_ip(request)}"
+            return (
+                self._unseal_limit,
+                f"ip:{_extract_client_ip(request, trusted_proxy_count=self._trusted_proxy_count)}",
+            )
         if path == "/auth/token":
-            return self._auth_limit, f"ip:{_extract_client_ip(request)}"
+            return (
+                self._auth_limit,
+                f"ip:{_extract_client_ip(request, trusted_proxy_count=self._trusted_proxy_count)}",
+            )
         operator_id = _extract_operator_id(request)
-        key = f"op:{operator_id}" if operator_id else f"ip:{_extract_client_ip(request)}"
+        key = (
+            f"op:{operator_id}"
+            if operator_id
+            else f"ip:{_extract_client_ip(request, trusted_proxy_count=self._trusted_proxy_count)}"
+        )
         if path.endswith(_DOWNLOAD_PATH_SUFFIX):
             return self._download_limit, key
         return self._general_limit, key

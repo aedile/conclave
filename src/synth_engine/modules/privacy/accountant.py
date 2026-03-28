@@ -45,6 +45,14 @@ This preserves decimal precision before any arithmetic against the ledger's
 Mixed-type arithmetic (``Decimal + float``) raises ``TypeError`` in Python;
 the conversion at the function boundary prevents this error.
 
+Single-operator model (T66.6)
+------------------------------
+The privacy ledger currently assumes a single operator.  The queries in
+:func:`spend_budget` and :func:`reset_budget` do not filter by an
+``owner_id`` column — they match the ledger row by primary key only.
+See ADR-0062 for the documented assumption and the migration path required
+to support multi-tenant deployments.
+
 Import boundaries:
   Must NOT import from any other module in ``modules/``, from
   ``bootstrapper/``, or from application-layer code.  Only ``shared/`` and
@@ -56,6 +64,8 @@ Task: P4-T4.4 — Privacy Accountant
 Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050)
 Task: P22-T22.4 — Budget Management API (reset_budget)
 Task: T47.9 — Scrub epsilon from BudgetExhaustionError message; use structured constructor
+Task: T66.5 — Wrap scalar_one() in LedgerNotFoundError; catch raw NoResultFound
+Task: T66.6 — Document single-operator ledger assumption (see ADR-0062)
 """
 
 from __future__ import annotations
@@ -65,10 +75,11 @@ from decimal import Decimal
 
 from prometheus_client import Counter
 from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction
-from synth_engine.shared.exceptions import BudgetExhaustionError
+from synth_engine.shared.exceptions import BudgetExhaustionError, LedgerNotFoundError
 
 _logger = logging.getLogger(__name__)
 
@@ -123,6 +134,10 @@ async def spend_budget(
     The transaction context manager rolls back automatically, releasing the
     lock without writing any transaction record.
 
+    Single-operator assumption (ADR-0062): the query does not filter by an
+    ``owner_id`` column — it matches the ledger row by primary key only.
+    This is intentional for the current single-operator deployment model.
+
     Args:
         amount: The epsilon to deduct.  Must be positive.  Accepts ``float``
             or :class:`decimal.Decimal`.  ``float`` values are converted to
@@ -142,6 +157,8 @@ async def spend_budget(
 
     Raises:
         ValueError: If ``amount`` is not positive (zero or negative).
+        LedgerNotFoundError: If no :class:`PrivacyLedger` row exists for
+            ``ledger_id``.  Wraps ``sqlalchemy.exc.NoResultFound``.
         BudgetExhaustionError: If ``total_spent + amount > total_allocated``.
             The ledger row is left unchanged; no transaction record is written.
 
@@ -165,13 +182,21 @@ async def spend_budget(
         # Acquire pessimistic lock — blocks until previous holder commits.
         # SQLModel class-level attribute comparison — instrumented at runtime
         # by SQLAlchemy, not a plain Python bool despite what mypy infers.
+        # Single-operator assumption: query by primary key only (ADR-0062).
         stmt = (
             select(PrivacyLedger)
             .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
             .with_for_update()
         )
         result = await session.execute(stmt)
-        ledger = result.scalar_one()
+        try:
+            ledger = result.scalar_one()
+        except NoResultFound:
+            _logger.warning(
+                "spend_budget: ledger_id=%d not found — no PrivacyLedger row exists",
+                ledger_id,
+            )
+            raise LedgerNotFoundError(ledger_id=ledger_id) from None
 
         if ledger.total_spent_epsilon + decimal_amount > ledger.total_allocated_epsilon:
             _logger.warning(
@@ -238,6 +263,10 @@ async def reset_budget(
     This function does NOT emit audit events — that responsibility belongs to
     the router layer.
 
+    Single-operator assumption (ADR-0062): the query does not filter by an
+    ``owner_id`` column — it matches the ledger row by primary key only.
+    This is intentional for the current single-operator deployment model.
+
     Args:
         ledger_id: Primary key of the :class:`PrivacyLedger` row to reset.
         session: An open :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
@@ -255,6 +284,8 @@ async def reset_budget(
     Raises:
         ValueError: If ``new_allocated_epsilon`` is provided and is not
             strictly positive.
+        LedgerNotFoundError: If no :class:`PrivacyLedger` row exists for
+            ``ledger_id``.  Wraps ``sqlalchemy.exc.NoResultFound``.
 
     Example::
 
@@ -271,13 +302,21 @@ async def reset_budget(
     async with session.begin():
         # Acquire pessimistic lock — same pattern as spend_budget() to prevent
         # races between concurrent refresh and spend operations.
+        # Single-operator assumption: query by primary key only (ADR-0062).
         stmt = (
             select(PrivacyLedger)
             .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
             .with_for_update()
         )
         result = await session.execute(stmt)
-        ledger = result.scalar_one()
+        try:
+            ledger = result.scalar_one()
+        except NoResultFound:
+            _logger.warning(
+                "reset_budget: ledger_id=%d not found — no PrivacyLedger row exists",
+                ledger_id,
+            )
+            raise LedgerNotFoundError(ledger_id=ledger_id) from None
 
         # Apply the reset: spent always returns to zero.
         ledger.total_spent_epsilon = Decimal("0.0")

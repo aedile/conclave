@@ -19,6 +19,7 @@ Exception taxonomy
   - :exc:`EpsilonMeasurementError` — privacy cost of a training run could not be measured
   - :exc:`CollisionError` — masking registry collision guard
   - :exc:`CycleDetectionError` — circular FK dependency in schema graph
+  - :exc:`LedgerNotFoundError` — privacy ledger row not found for the given ledger_id
   - :exc:`OOMGuardrailError` — training job rejected by memory pre-flight
   - :exc:`PrivilegeEscalationError` — ingestion user has write privileges
   - :exc:`ArtifactTamperingError` — HMAC verification failure on a model artifact
@@ -39,7 +40,9 @@ Exceptions are classified as HTTP-safe or logged-only:
   :exc:`CollisionError`, :exc:`CycleDetectionError`, :exc:`OOMGuardrailError`,
   :exc:`VaultSealedError`, :exc:`VaultEmptyPassphraseError`,
   :exc:`VaultConfigError`, :exc:`VaultAlreadyUnsealedError`,
-  :exc:`LicenseError`, :exc:`TLSCertificateError`, :exc:`DatasetTooLargeError`
+  :exc:`LicenseError`, :exc:`TLSCertificateError`, :exc:`DatasetTooLargeError`,
+  :exc:`LedgerNotFoundError` (HTTP detail is a static string — ledger_id
+  not echoed in the response body; only present in the exception message for logs)
 
 - **Logged-only** (must NOT appear in HTTP response body — log only):
   :exc:`PrivilegeEscalationError`, :exc:`ArtifactTamperingError`
@@ -65,6 +68,7 @@ Task: T38.1 — Add AuditWriteError; fail job on WORM audit write failure after 
 Task: T46.1 — Add TLSCertificateError; move from shared/tls/config.py (ARCH-F1)
 Task: T47.7 — Add DatasetTooLargeError; enforce Parquet memory bounds
 Task: T47.9 — BudgetExhaustionError: scrub epsilon from message; add structured attributes
+Task: T66.5 — Add LedgerNotFoundError; wrap scalar_one() NoResultFound in privacy accountant
 """
 
 from __future__ import annotations
@@ -79,6 +83,7 @@ __all__ = [
     "CycleDetectionError",
     "DatasetTooLargeError",
     "EpsilonMeasurementError",
+    "LedgerNotFoundError",
     "LicenseError",
     "OOMGuardrailError",
     "PrivilegeEscalationError",
@@ -247,6 +252,36 @@ class CycleDetectionError(SynthEngineError):
             f"Circular dependency detected in schema graph: {cycle_repr}. "
             "Provide explicit cycle-breaking rules before ingestion can proceed."
         )
+
+
+class LedgerNotFoundError(SynthEngineError):
+    """Raised when a :class:`~synth_engine.modules.privacy.ledger.PrivacyLedger` row
+    is not found for the given ``ledger_id``.
+
+    Wraps the raw ``sqlalchemy.exc.NoResultFound`` raised by ``scalar_one()``
+    so that callers can catch this by type and the bootstrapper can return
+    a clean HTTP 404 response without exposing SQLAlchemy internals.
+
+    HTTP-safe: conditional — the HTTP-visible detail (in ``OPERATOR_ERROR_MAP``)
+    is a static string ``"Privacy ledger not found"`` that does NOT echo the
+    ``ledger_id``.  The exception ``str()`` includes the ``ledger_id`` for
+    internal log and SIEM correlation only; it MUST NOT be forwarded verbatim
+    to the HTTP response body.
+
+    Args:
+        ledger_id: Primary key of the missing :class:`PrivacyLedger` row.
+
+    Attributes:
+        ledger_id: The missing ledger identifier (for internal log use only).
+
+    Example::
+
+        raise LedgerNotFoundError(ledger_id=99)
+    """
+
+    def __init__(self, ledger_id: int) -> None:
+        self.ledger_id: int = ledger_id
+        super().__init__(f"Privacy ledger {ledger_id} not found")
 
 
 class OOMGuardrailError(SynthEngineError):

@@ -40,9 +40,15 @@ Identity resolution
 -------------------
 For ``/unseal`` and ``/auth/token`` the client IP address is used as the
 rate-limit key because these are pre-authentication endpoints.  The IP is
-extracted from the ``X-Forwarded-For`` header (first entry — leftmost IP
-is the real client behind a reverse proxy) with fallback to
-``request.client.host``.
+extracted using the trusted-proxy model (T66.3):
+
+- ``trusted_proxy_count=0`` (default, zero-trust): ``X-Forwarded-For`` is
+  ignored entirely; the socket IP (``request.client.host``) is always used.
+  This prevents IP spoofing via header manipulation.
+- ``trusted_proxy_count=N``: the Nth-from-right entry in the
+  ``X-Forwarded-For`` list is used as the client IP.  If the list has
+  fewer than N+1 entries, or if the extracted value is not a valid IP
+  address, the socket IP is used as a fail-closed fallback.
 
 For all other endpoints the JWT ``sub`` claim is used when a Bearer token
 is present.  The token is decoded without signature verification — the
@@ -56,9 +62,14 @@ Task: T39.3 — Add Rate Limiting Middleware
 Task: T48.1 — Redis-Backed Rate Limiting
 Task: T63.3 — Rate Limiter Fail-Closed on Redis Failure
 Task: T64.3 — Decompose rate_limit.py
+Task: T66.3 — Trusted Proxy Validation for X-Forwarded-For
 """
 
 from __future__ import annotations
+
+import hashlib
+import ipaddress
+import logging
 
 import jwt as pyjwt
 from starlette.requests import Request
@@ -66,6 +77,8 @@ from starlette.requests import Request
 #: Path suffix that triggers the download-specific (lower) rate limit tier.
 #: Uses endswith() to enforce the specific /jobs/{id}/download route contract.
 _DOWNLOAD_PATH_SUFFIX: str = "/download"
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Backward-compat re-export — canonical: rate_limit_middleware.RateLimitGateMiddleware
@@ -84,34 +97,82 @@ __all__ = [
 ]
 
 
-def _extract_client_ip(request: Request) -> str:
+def _extract_client_ip(request: Request, *, trusted_proxy_count: int = 0) -> str:
     """Extract the client IP address from the request.
 
-    Prefers the first (leftmost) entry in the ``X-Forwarded-For`` header,
-    which represents the real client IP in a standard reverse-proxy deployment.
-    Falls back to ``request.client.host`` when the header is absent.  Returns
-    ``"unknown"`` when neither source is available (e.g. test clients without
-    a bound socket).
+    Uses the trusted-proxy model to safely interpret the ``X-Forwarded-For``
+    header (T66.3 — ADV-P62-02):
 
-    The leftmost-IP trust model is consistent with standard proxy conventions
-    and is preserved in the Redis-backed implementation (T48.1).
+    - **trusted_proxy_count=0** (zero-trust default): the ``X-Forwarded-For``
+      header is ignored entirely.  The socket IP (``request.client.host``)
+      is always returned.  This prevents attackers from spoofing their IP by
+      setting a forged ``X-Forwarded-For`` header.
+
+    - **trusted_proxy_count=N**: the Nth-from-right entry in the
+      comma-separated ``X-Forwarded-For`` list is used.  With N trusted
+      proxies each appending their IP to the right, index ``-(N+1)`` in the
+      split list is the real client IP.  If the list has fewer than ``N+1``
+      entries, the socket IP is returned (fail-closed).
+
+    In both cases, the extracted value is validated as a valid IP address
+    using ``ipaddress.ip_address()``.  Values that are not valid IPs (e.g.
+    log-injection payloads like ``"; DROP TABLE"``) fall back to the socket IP.
+
+    Supports both IPv4 and IPv6 addresses.
 
     Args:
         request: Incoming HTTP request.
+        trusted_proxy_count: Number of trusted reverse proxies.  Must be
+            ``>= 0``.  Defaults to ``0`` (zero-trust — ignore XFF entirely).
 
     Returns:
-        Client IP address string, or ``"unknown"`` if unavailable.
+        A valid IP address string (IPv4 or IPv6), or ``"unknown"`` if neither
+        the XFF header nor the socket provides a usable address.
     """
+    socket_ip: str = request.client.host if request.client is not None else "unknown"
+
+    if trusted_proxy_count == 0:
+        # Zero-trust: ignore X-Forwarded-For entirely.
+        return socket_ip
+
     forwarded_for: str | None = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # X-Forwarded-For may be a comma-separated list; the leftmost IP is the
-        # real client (each proxy appends its own IP to the right).
-        first_ip = forwarded_for.split(",")[0].strip()
-        if first_ip:
-            return first_ip
-    if request.client is not None:
-        return request.client.host
-    return "unknown"
+    if not forwarded_for:
+        return socket_ip
+
+    # Split and strip whitespace from each entry.
+    parts: list[str] = [p.strip() for p in forwarded_for.split(",")]
+
+    # With N proxies, the real client IP is at index -(N+1) from the right.
+    # Example: XFF = "client, proxy1, proxy2" with N=2 → index -3 = "client".
+    target_index: int = -(trusted_proxy_count + 1)
+    if len(parts) < trusted_proxy_count + 1:
+        # Undercount: fewer entries than expected — fail-closed to socket IP.
+        _logger.debug(
+            "XFF undercount: expected %d+ entries for trusted_proxy_count=%d, "
+            "got %d — falling back to socket IP",
+            trusted_proxy_count + 1,
+            trusted_proxy_count,
+            len(parts),
+        )
+        return socket_ip
+
+    candidate: str = parts[target_index]
+    if not candidate:
+        # Empty string (e.g. leading comma) — fail-closed.
+        return socket_ip
+
+    try:
+        # Validates both IPv4 and IPv6; raises ValueError for non-IP strings.
+        ipaddress.ip_address(candidate)
+        return candidate
+    except ValueError:
+        _logger.warning(
+            "XFF entry at index %d is not a valid IP address (sha256[:16]=%s) — "
+            "falling back to socket IP (possible log injection attempt)",
+            target_index,
+            hashlib.sha256(candidate.encode()).hexdigest()[:16],  # Hash to prevent log injection.
+        )
+        return socket_ip
 
 
 def _extract_operator_id(request: Request) -> str | None:

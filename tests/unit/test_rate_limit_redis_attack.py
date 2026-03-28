@@ -159,30 +159,30 @@ def test_redis_key_does_not_collide_with_idempotency_prefix() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_xff_spoofing_uses_leftmost_ip_not_arbitrary_entry() -> None:
-    """X-Forwarded-For rate limit key uses leftmost IP (real client), not rightmost.
+def test_xff_spoofing_ignored_when_trusted_proxy_count_is_zero() -> None:
+    """With trusted_proxy_count=0 (zero-trust default), XFF header is ignored entirely.
 
-    A spoofed X-Forwarded-For header with multiple IPs must still key on
-    the leftmost IP (the real client in a standard proxy chain), not a
-    spoofed entry injected by the client at another position.
-
-    The leftmost-IP trust model is consistent with the existing implementation
-    and must not change with the Redis backend upgrade.
+    T66.3: The zero-trust default (trusted_proxy_count=0) ignores the
+    X-Forwarded-For header entirely and always returns the socket IP.
+    This prevents IP spoofing attacks via forged XFF headers — an attacker
+    cannot manipulate their rate-limit bucket by injecting any IP in the
+    XFF chain.  The socket IP is the only trusted source of the client
+    address (ADV-P62-02).
     """
     from unittest.mock import MagicMock
 
     from synth_engine.bootstrapper.dependencies.rate_limit import _extract_client_ip
 
-    # Attacker tries to inject a trusted internal IP in the middle of the chain
+    # Attacker injects a fake IP chain — all XFF entries must be ignored
     request = MagicMock()
     request.headers = {"X-Forwarded-For": "203.0.113.99, 10.0.0.1, 192.168.1.1"}
     request.client = MagicMock()
     request.client.host = "172.16.0.1"
 
-    ip = _extract_client_ip(request)
-    # Must return the LEFTMOST IP — the real client's address
-    assert ip == "203.0.113.99", (
-        f"IP extraction must use leftmost XFF entry (real client); got: {ip!r}"
+    ip = _extract_client_ip(request)  # trusted_proxy_count=0 (default)
+    # Must return the SOCKET IP — XFF is ignored to block header spoofing
+    assert ip == "172.16.0.1", (
+        f"With trusted_proxy_count=0, socket IP must be returned (XFF ignored); got: {ip!r}"
     )
 
 

@@ -319,7 +319,7 @@ def test_health_vault_in_common_infra_exempt_paths() -> None:
     )
 
     assert "/health/vault" in COMMON_INFRA_EXEMPT_PATHS
-    assert len(COMMON_INFRA_EXEMPT_PATHS) == 10  # P55 count
+    assert len(COMMON_INFRA_EXEMPT_PATHS) == 7  # T66.2: /docs, /redoc, /openapi.json removed
 
 
 def test_health_vault_in_seal_exempt_paths() -> None:
@@ -327,4 +327,4 @@ def test_health_vault_in_seal_exempt_paths() -> None:
     from synth_engine.bootstrapper.dependencies._exempt_paths import SEAL_EXEMPT_PATHS
 
     assert "/health/vault" in SEAL_EXEMPT_PATHS
-    assert len(SEAL_EXEMPT_PATHS) == 11  # P55 count
+    assert len(SEAL_EXEMPT_PATHS) == 8  # T66.2: /docs, /redoc, /openapi.json removed

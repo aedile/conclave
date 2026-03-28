@@ -74,9 +74,9 @@ _EXPECTED_AUTH_EXEMPT_PATHS: frozenset[str] = frozenset(
         "/ready",
         "/health/vault",  # T55.1 — vault status endpoint; must be exempt from auth gate
         "/metrics",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
+        # T66.2 (ADV-P62-01): /docs, /redoc, /openapi.json removed from exempt set.
+        # In production these endpoints return 404 (FastAPI docs disabled).
+        # In development they require a Bearer token like any other endpoint.
         "/license/challenge",
         "/license/activate",
         "/auth/token",

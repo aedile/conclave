@@ -67,10 +67,11 @@ class TestSecurityRoutesNotInCommonExemptPaths:
             "It requires JWT auth with security:admin scope."
         )
 
-    def test_common_infra_exempt_paths_has_exactly_ten_paths(self) -> None:
-        """COMMON_INFRA_EXEMPT_PATHS must have exactly 10 paths.
+    def test_common_infra_exempt_paths_has_exactly_seven_paths(self) -> None:
+        """COMMON_INFRA_EXEMPT_PATHS must have exactly 7 paths.
 
-        9 original + /health/vault added in T55.1.
+        Original set minus 3 docs paths removed in T66.2 (/docs, /redoc,
+        /openapi.json), which bypassed the auth gate (ADV-P62-01).
 
         After the layered exemption model is in place, security routes are NOT
         in COMMON_INFRA_EXEMPT_PATHS (auth baseline).  They were removed to
@@ -80,9 +81,9 @@ class TestSecurityRoutesNotInCommonExemptPaths:
             COMMON_INFRA_EXEMPT_PATHS,
         )
 
-        assert len(COMMON_INFRA_EXEMPT_PATHS) == 10, (
-            f"Expected 10 paths in COMMON_INFRA_EXEMPT_PATHS, "
-            f"got {len(COMMON_INFRA_EXEMPT_PATHS)}. See T55.1."
+        assert len(COMMON_INFRA_EXEMPT_PATHS) == 7, (
+            f"Expected 7 paths in COMMON_INFRA_EXEMPT_PATHS, "
+            f"got {len(COMMON_INFRA_EXEMPT_PATHS)}. See T66.2."
         )
 
 
@@ -147,15 +148,15 @@ class TestSealExemptPathsComposition:
             "(adds /security/shred for emergency vault bypass)."
         )
 
-    def test_seal_exempt_paths_has_exactly_eleven_paths(self) -> None:
-        """SEAL_EXEMPT_PATHS must have exactly 11 paths (10 common + /security/shred)."""
+    def test_seal_exempt_paths_has_exactly_eight_paths(self) -> None:
+        """SEAL_EXEMPT_PATHS must have exactly 8 paths (7 common + /security/shred)."""
         from synth_engine.bootstrapper.dependencies._exempt_paths import (
             SEAL_EXEMPT_PATHS,
         )
 
-        assert len(SEAL_EXEMPT_PATHS) == 11, (
-            f"Expected 11 paths in SEAL_EXEMPT_PATHS, got {len(SEAL_EXEMPT_PATHS)}. "
-            "SEAL_EXEMPT_PATHS = COMMON_INFRA_EXEMPT_PATHS (10) + /security/shred (1)."
+        assert len(SEAL_EXEMPT_PATHS) == 8, (
+            f"Expected 8 paths in SEAL_EXEMPT_PATHS, got {len(SEAL_EXEMPT_PATHS)}. "
+            "SEAL_EXEMPT_PATHS = COMMON_INFRA_EXEMPT_PATHS (7) + /security/shred (1)."
         )
 
     def test_seal_exempt_paths_contains_security_shred(self) -> None:

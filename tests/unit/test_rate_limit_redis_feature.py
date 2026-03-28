@@ -211,24 +211,38 @@ async def test_redis_count_one_over_limit_returns_429() -> None:
 
 
 @pytest.mark.asyncio
-async def test_redis_key_includes_ip_for_unseal() -> None:
+async def test_redis_key_includes_ip_for_unseal(monkeypatch: pytest.MonkeyPatch) -> None:
     """The Redis key for /unseal must encode the client IP for per-IP scoping.
 
-    Arrange: mock Redis; build app.
+    T66.3: With trusted_proxy_count=1, the XFF header is trusted and the
+    IP it contains is used as the rate-limit key.  This test sets
+    CONCLAVE_TRUSTED_PROXY_COUNT=1 to enable XFF extraction.
+
+    Arrange: mock Redis; build app with trusted_proxy_count=1.
     Act: POST /unseal with a specific X-Forwarded-For.
     Assert: the Redis INCR key contains the IP address.
     """
+    from synth_engine.shared.settings import get_settings
+
+    monkeypatch.setenv("CONCLAVE_TRUSTED_PROXY_COUNT", "1")
+    get_settings.cache_clear()
+
     mock_redis, mock_pipeline = _make_mock_redis(count=1)
     app = _build_redis_app(redis_client=mock_redis, unseal_limit=5)
 
     target_ip = "198.51.100.42"
+    # With trusted_proxy_count=1, XFF must have 2 entries: "client, proxy".
+    # The trusted proxy appends its own IP; the client IP is at index -2.
+    xff_header = f"{target_ip}, 10.0.0.1"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/unseal", headers={"X-Forwarded-For": target_ip})
+        await client.post("/unseal", headers={"X-Forwarded-For": xff_header})
 
     key_arg = mock_pipeline.incr.call_args[0][0]
     assert target_ip in key_arg, (
         f"Redis key for /unseal must contain the client IP; key={key_arg!r}, ip={target_ip!r}"
     )
+
+    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

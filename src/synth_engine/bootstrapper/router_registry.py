@@ -56,11 +56,19 @@ Task: T59.1 — API Versioning
     All business-logic routes moved to /api/v1/ prefix via parent APIRouter.
     Infrastructure routes (auth, security, licensing, health) remain at root.
 Task: P58 — Replace 9 identical exception handlers with data-driven loop.
-    _OPERATOR_ERROR_HANDLERS collects all domain exception types.  A single
-    async handler function is registered for each type via loop.  Security
-    contract preserved: PrivilegeEscalationError and ArtifactTamperingError
-    still delegate to operator_error_response() which uses STATIC detail
-    strings from OPERATOR_ERROR_MAP — never str(exc).
+    _OPERATOR_ERROR_HANDLERS derived from OPERATOR_ERROR_MAP.keys() so it
+    never diverges from the map.  A single async handler function is registered
+    for each type via loop.  Security contract preserved: PrivilegeEscalationError
+    and ArtifactTamperingError still delegate to operator_error_response() which
+    uses STATIC detail strings from OPERATOR_ERROR_MAP — never str(exc).
+Task: P66 review — Fix handler registration gap.
+    _OPERATOR_ERROR_HANDLERS is now derived from OPERATOR_ERROR_MAP.keys()
+    instead of a hand-curated list, eliminating the divergence permanently.
+    Previously, 6 exceptions (AuditWriteError, EpsilonMeasurementError,
+    LedgerNotFoundError, DatasetTooLargeError, VaultEmptyPassphraseError,
+    VaultConfigError) were in OPERATOR_ERROR_MAP but not in
+    _OPERATOR_ERROR_HANDLERS, causing them to fall through to the 500 catch-all
+    and potentially leak internal exception details in HTTP responses.
 """
 
 from __future__ import annotations
@@ -70,45 +78,31 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from synth_engine.shared.exceptions import (
-    ArtifactTamperingError,
-    BudgetExhaustionError,
-    CollisionError,
-    CycleDetectionError,
-    LicenseError,
-    OOMGuardrailError,
-    PrivilegeEscalationError,
-    SynthEngineError,
-    VaultAlreadyUnsealedError,
-    VaultSealedError,
-)
+from synth_engine.bootstrapper.errors.mapping import OPERATOR_ERROR_MAP
+from synth_engine.shared.exceptions import SynthEngineError
 
 if TYPE_CHECKING:
     pass
 
 # ---------------------------------------------------------------------------
-# Data-driven exception handler registration (P58)
+# Data-driven exception handler registration (P58 / P66 review)
 #
-# All 9 domain exception types that delegate uniformly to operator_error_response().
+# Derived directly from OPERATOR_ERROR_MAP.keys() so that adding a new
+# exception to the map automatically registers its HTTP handler.  This
+# eliminates the historic divergence where the map and the handler list
+# could silently drift apart.
 #
-# Security note: PrivilegeEscalationError and ArtifactTamperingError are
-# intentionally included here.  operator_error_response() looks up each
-# exception in OPERATOR_ERROR_MAP and returns the STATIC detail string
-# defined there — it never uses str(exc).  The raw exception message is
-# written to the server-side WARNING log inside operator_error_response()
-# and is never forwarded in the HTTP response body (ADV-036+044).
+# Security note: PrivilegeEscalationError, ArtifactTamperingError, and
+# LedgerNotFoundError are intentionally included here.
+# operator_error_response() looks up each exception in OPERATOR_ERROR_MAP
+# and returns the STATIC detail string defined there — it never uses
+# str(exc).  The raw exception message is written to the server-side
+# WARNING log inside operator_error_response() and is never forwarded
+# in the HTTP response body (ADV-036+044).
 # ---------------------------------------------------------------------------
-_OPERATOR_ERROR_HANDLERS: list[type[SynthEngineError]] = [
-    CycleDetectionError,
-    BudgetExhaustionError,
-    OOMGuardrailError,
-    VaultSealedError,
-    VaultAlreadyUnsealedError,
-    LicenseError,
-    CollisionError,
-    PrivilegeEscalationError,
-    ArtifactTamperingError,
-]
+_OPERATOR_ERROR_HANDLERS: list[type[SynthEngineError]] = list(
+    OPERATOR_ERROR_MAP.keys()  # type: ignore[arg-type]
+)
 
 
 def _include_routers(app: FastAPI) -> None:
@@ -176,20 +170,24 @@ def _register_exception_handlers(app: FastAPI) -> None:
     the correct RFC 7807 body with operator-friendly title and detail.
 
     Domain exception types are registered via a data-driven loop over
-    :data:`_OPERATOR_ERROR_HANDLERS` — a single async handler closure is
-    bound for each exception type, eliminating 9 identical boilerplate
-    handler definitions.
+    :data:`_OPERATOR_ERROR_HANDLERS` — derived from
+    :data:`~synth_engine.bootstrapper.errors.mapping.OPERATOR_ERROR_MAP`.keys()
+    so that adding a new exception to the map automatically registers its
+    handler without any manual list maintenance.
 
     ADV-022: CycleDetectionError -> HTTP 422 RFC 7807 Problem Details.
     T5.1: Generic Exception -> HTTP 500 RFC 7807 Problem Details (ADV-036+044).
     T6.2: RequestValidationError -> HTTP 422 with NaN/Infinity-safe serialization.
     T29.3: Domain exceptions -> operator-friendly RFC 7807 via OPERATOR_ERROR_MAP.
-    T34.3: All 11 SynthEngineError subclasses registered; no domain exception
+    T34.3: All SynthEngineError subclasses registered; no domain exception
         falls through to the catch-all 500 handler.
+    P66 review: Handler list derived from OPERATOR_ERROR_MAP.keys() —
+        adding an entry to the map now automatically registers its handler.
 
-    Security: :exc:`PrivilegeEscalationError` and :exc:`ArtifactTamperingError`
-    are registered with FIXED, STATIC detail strings in OPERATOR_ERROR_MAP.
-    The raw exception message is logged at WARNING level by
+    Security: :exc:`PrivilegeEscalationError`, :exc:`ArtifactTamperingError`,
+    and :exc:`LedgerNotFoundError` are registered with FIXED, STATIC detail
+    strings in OPERATOR_ERROR_MAP.  The raw exception message is logged at
+    WARNING level by
     :func:`~synth_engine.bootstrapper.errors.operator_error_response` but
     never forwarded verbatim in the HTTP response body (ADV-036+044).
 
@@ -219,8 +217,9 @@ def _register_exception_handlers(app: FastAPI) -> None:
             Delegates to operator_error_response() which looks up the exception
             class in OPERATOR_ERROR_MAP and returns the correct RFC 7807 body.
             Security-critical exceptions (PrivilegeEscalationError,
-            ArtifactTamperingError) use STATIC detail strings from the map —
-            the raw exception message is never forwarded in the HTTP response.
+            ArtifactTamperingError, LedgerNotFoundError) use STATIC detail
+            strings from the map — the raw exception message is never forwarded
+            in the HTTP response.
 
             Args:
                 request: The incoming HTTP request (required by FastAPI signature).
