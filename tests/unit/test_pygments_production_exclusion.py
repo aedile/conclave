@@ -46,18 +46,12 @@ def test_pygments_absent_from_production_requirements() -> None:
     if result.returncode != 0:
         import pytest
 
-        pytest.skip(
-            f"poetry export failed (exit {result.returncode}): {result.stderr[:200]}"
-        )
+        pytest.skip(f"poetry export failed (exit {result.returncode}): {result.stderr[:200]}")
 
     output_lower = result.stdout.lower()
     assert "pygments" not in output_lower, (
         "pygments was found in the production (main group) requirements export. "
         "This is a CVE-2026-4539 violation. "
-        f"Matching lines: "
-        + "\n".join(
-            line
-            for line in result.stdout.splitlines()
-            if "pygments" in line.lower()
-        )
+        "Matching lines: "
+        + "\n".join(line for line in result.stdout.splitlines() if "pygments" in line.lower())
     )
