@@ -547,49 +547,88 @@ class TestT343CompleteOperatorErrorMap:
 
 
 class TestDataDrivenExceptionHandlers:
-    """P58: Exception handler registration must use data-driven loop.
+    """P58 / P66 review: Exception handler registration must use data-driven loop.
 
-    The 9 identical single-line exception handlers in router_registry.py
-    should be replaced with a data-driven loop to eliminate boilerplate.
-    This test asserts structural correctness of the refactored approach
-    and verifies that security-critical handlers preserve STATIC detail strings.
+    _OPERATOR_ERROR_HANDLERS is derived from OPERATOR_ERROR_MAP.keys() so that
+    adding a new exception to the map automatically registers its HTTP handler.
+    This test asserts structural correctness of the refactored approach and
+    verifies that security-critical handlers preserve STATIC detail strings.
 
     Task: P58 — Replace 9 exception handlers with data-driven loop
+    Task: P66 review — Derive _OPERATOR_ERROR_HANDLERS from OPERATOR_ERROR_MAP.keys()
     """
 
     def test_operator_error_handlers_list_exists_in_router_registry(self) -> None:
         """_OPERATOR_ERROR_HANDLERS must be defined in router_registry.py."""
+        from synth_engine.bootstrapper.errors.mapping import OPERATOR_ERROR_MAP
         from synth_engine.bootstrapper.router_registry import _OPERATOR_ERROR_HANDLERS
 
         assert isinstance(_OPERATOR_ERROR_HANDLERS, list), "_OPERATOR_ERROR_HANDLERS must be a list"
-        assert len(_OPERATOR_ERROR_HANDLERS) >= 9, (
-            f"_OPERATOR_ERROR_HANDLERS must contain at least 9 exception types; "
-            f"got {len(_OPERATOR_ERROR_HANDLERS)}"
+        expected_count = len(OPERATOR_ERROR_MAP)
+        assert len(_OPERATOR_ERROR_HANDLERS) == expected_count, (
+            f"_OPERATOR_ERROR_HANDLERS must contain exactly {expected_count} exception types "
+            f"(one per OPERATOR_ERROR_MAP entry); got {len(_OPERATOR_ERROR_HANDLERS)}"
+        )
+
+    def test_operator_error_handlers_derived_from_operator_error_map(self) -> None:
+        """_OPERATOR_ERROR_HANDLERS must contain exactly the keys of OPERATOR_ERROR_MAP.
+
+        P66 review: The list is derived from OPERATOR_ERROR_MAP.keys() so that
+        adding an exception to the map automatically registers its HTTP handler.
+        This test is the regression guard: if someone replaces the derivation
+        with a hand-curated list, this test will catch the divergence.
+        """
+        from synth_engine.bootstrapper.errors.mapping import OPERATOR_ERROR_MAP
+        from synth_engine.bootstrapper.router_registry import _OPERATOR_ERROR_HANDLERS
+
+        registered = set(_OPERATOR_ERROR_HANDLERS)
+        expected = set(OPERATOR_ERROR_MAP.keys())
+        missing = expected - registered
+        extra = registered - expected
+        assert not missing, (
+            f"_OPERATOR_ERROR_HANDLERS is missing these OPERATOR_ERROR_MAP keys: "
+            f"{', '.join(c.__name__ for c in missing)}"
+        )
+        assert not extra, (
+            f"_OPERATOR_ERROR_HANDLERS has extra types not in OPERATOR_ERROR_MAP: "
+            f"{', '.join(c.__name__ for c in extra)}"
         )
 
     def test_operator_error_handlers_contains_all_expected_types(self) -> None:
-        """_OPERATOR_ERROR_HANDLERS must contain all 9 domain exception types."""
+        """_OPERATOR_ERROR_HANDLERS must contain all domain exception types."""
         from synth_engine.bootstrapper.router_registry import _OPERATOR_ERROR_HANDLERS
         from synth_engine.shared.exceptions import (
             ArtifactTamperingError,
+            AuditWriteError,
             BudgetExhaustionError,
             CollisionError,
             CycleDetectionError,
+            DatasetTooLargeError,
+            EpsilonMeasurementError,
+            LedgerNotFoundError,
             LicenseError,
             OOMGuardrailError,
             PrivilegeEscalationError,
             VaultAlreadyUnsealedError,
+            VaultConfigError,
+            VaultEmptyPassphraseError,
             VaultSealedError,
         )
 
         expected = {
-            CycleDetectionError,
+            AuditWriteError,
             BudgetExhaustionError,
+            EpsilonMeasurementError,
+            LedgerNotFoundError,
             OOMGuardrailError,
+            DatasetTooLargeError,
             VaultSealedError,
+            VaultEmptyPassphraseError,
+            VaultConfigError,
             VaultAlreadyUnsealedError,
             LicenseError,
             CollisionError,
+            CycleDetectionError,
             PrivilegeEscalationError,
             ArtifactTamperingError,
         }
