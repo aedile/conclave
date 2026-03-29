@@ -12,7 +12,6 @@ Task: T71.4 — Extract settings sub-models to settings_models.py
 from __future__ import annotations
 
 import inspect
-import sys
 from pathlib import Path
 
 import pytest
@@ -21,33 +20,24 @@ pytestmark = pytest.mark.unit
 
 
 def test_settings_models_imports_without_circular_import() -> None:
-    """shared.settings_models must import cleanly without importing shared.settings.
+    """shared.settings_models must not import from shared.settings.
 
     This proves there is no circular dependency: settings_models.py must
     NOT import from settings.py (which would be circular since settings.py
     imports from settings_models.py).
-    """
-    # Remove any cached module to force a fresh import trace.
-    # Only remove shared/settings modules — NOT bootstrapper schema modules.
-    # Removing bootstrapper.schemas.settings causes SQLAlchemy to re-register
-    # the Setting table in SQLModel.metadata, which triggers InvalidRequestError
-    # when other tests later call create_app().
-    mods_to_remove = [
-        k
-        for k in sys.modules
-        if "settings" in k
-        and "synth_engine" in k
-        and "bootstrapper" not in k  # preserve bootstrapper ORM models
-    ]
-    for mod in mods_to_remove:
-        sys.modules.pop(mod, None)
 
-    # Import settings_models FIRST, before settings.
+    The invariant is verified via source inspection only — no sys.modules
+    eviction.  Evicting synth_engine.shared.settings from sys.modules splits
+    the module identity: any module that held a module-level reference to
+    the original get_settings() would keep that stale reference while
+    conftest fixtures clear the new one, causing lru_cache isolation
+    failures in subsequent tests (P71 regression root cause).
+    """
     import synth_engine.shared.settings_models as sm
 
-    # Verify settings.py was NOT imported as a side effect.
-    # (It may have been imported earlier in the session — check the module graph.)
     # The key invariant: settings_models must not *depend* on settings.
+    # Source inspection is sufficient — circular imports leave a textual
+    # trace in the import statement regardless of how modules are cached.
     source = inspect.getsource(sm)
     assert "from synth_engine.shared.settings import" not in source, (
         "settings_models.py must NOT import from settings.py (circular import risk)"
