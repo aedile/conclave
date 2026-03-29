@@ -20,7 +20,7 @@ import base64
 import os
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -36,7 +36,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None, None, None]:
+def _clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -50,7 +50,7 @@ def _clear_settings_cache() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def _unseal_vault(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _unseal_vault(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Unseal vault for tests that need DB writes (Connection records use ALE).
 
     Yields:
@@ -116,7 +116,7 @@ def _make_compliance_client(
     app = FastAPI()
     app.include_router(compliance_router)
 
-    def _get_session() -> Generator[Session, None, None]:
+    def _get_session() -> Generator[Session]:
         with Session(db_engine) as session:
             yield session
 
@@ -230,13 +230,10 @@ class TestErasureIDORProtection:
             )
 
         assert response.status_code == 200, (
-            f"Self-erasure must return 200; got {response.status_code}. "
-            f"Body: {response.json()}"
+            f"Self-erasure must return 200; got {response.status_code}. Body: {response.json()}"
         )
         body = response.json()
-        assert body["deleted_jobs"] == 1, (
-            f"Expected 1 deleted job; got {body['deleted_jobs']}"
-        )
+        assert body["deleted_jobs"] == 1, f"Expected 1 deleted job; got {body['deleted_jobs']}"
         assert body["subject_id"] == "operator-a"
 
     def test_erasure_cross_operator_attempt_emits_audit_event(
@@ -368,7 +365,7 @@ class TestErasureIDORProtection:
         app.include_router(compliance_router)
 
         # Wire real DB session (no auth override)
-        def _get_session() -> Generator[Session, None, None]:
+        def _get_session() -> Generator[Session]:
             with Session(db_engine) as session:
                 yield session
 

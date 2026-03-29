@@ -14,6 +14,12 @@ retained, with GDPR-basis justifications for each retained category.
 Security posture
 ----------------
 - Requires operator authentication via ``get_current_operator`` dependency.
+- Self-erasure only: ``body.subject_id`` must equal ``current_operator`` (JWT
+  ``sub``). Cross-operator erasure returns 403 with an RFC 7807 error. The IDOR
+  check fires BEFORE the vault-sealed check to prevent information disclosure
+  about vault state to unauthorized callers (T69.6, ADV-P68-01).
+- Cross-operator attempts emit an audit event for intrusion detection. The
+  target ``subject_id`` is intentionally omitted from the audit payload (PII).
 - Vault-sealed state returns 423 Locked — ALE-encrypted data cannot be
   reliably identified for deletion when the vault is sealed.
 - Rate limit: erasure requests fall under the general rate limit tier
@@ -34,9 +40,10 @@ Boundary constraints (import-linter enforced)
 - The DI-provided ``Session`` is passed directly to ``ErasureService``,
   eliminating the ``session.get_bind()`` leaky abstraction (ARCH-F7 review fix).
 
-CONSTITUTION Priority 0: Security — vault gate, PII-safe audit
+CONSTITUTION Priority 0: Security — IDOR guard, vault gate, PII-safe audit
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
+Task: T69.6 — Fix Compliance Erasure IDOR (ADV-P68-01)
 """
 
 from __future__ import annotations
@@ -55,6 +62,7 @@ from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.connections import Connection
 from synth_engine.modules.synthesizer.lifecycle.erasure import DeletionManifest, ErasureService
+from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.security.vault import VaultState
 
 _logger = logging.getLogger(__name__)
@@ -75,6 +83,8 @@ class ErasureRequest(BaseModel):
             email).  Used as a filter key — never logged verbatim.
             Must be at least 1 character to prevent accidental bulk-deletion
             of all records with an empty default owner_id.
+            Must equal the authenticated operator's JWT ``sub`` claim
+            (self-erasure only, T69.6).
     """
 
     subject_id: str = Field(
@@ -82,7 +92,8 @@ class ErasureRequest(BaseModel):
         max_length=255,
         description=(
             "Opaque data subject identifier used to locate records for deletion. "
-            "Must match the owner_id stored on connection and job records."
+            "Must match the owner_id stored on connection and job records. "
+            "Must equal the authenticated operator's JWT sub claim (self-erasure only)."
         ),
     )
 
@@ -158,7 +169,8 @@ class ErasureResponse(BaseModel):
     summary="Execute GDPR erasure",
     description=(
         "Delete all synthesis jobs and artifacts for a data subject. "
-        "Emits a WORM-audited compliance event."
+        "Emits a WORM-audited compliance event. "
+        "Subject ID must equal the authenticated operator's own identity (self-erasure only)."
     ),
     responses=COMMON_ERROR_RESPONSES,
     response_model=ErasureResponse,
@@ -175,6 +187,11 @@ def erasure(
     and the WORM audit trail are always preserved (with justifications in
     the compliance receipt).
 
+    IDOR check fires FIRST — before the vault-sealed check — to prevent
+    information disclosure about vault state to unauthorized callers.
+    Cross-operator erasure attempts are rejected with 403 and an audit
+    event is emitted (target subject_id omitted to protect PII).
+
     If the vault is sealed, the request is rejected with 423 Locked because
     ALE-encrypted fields cannot be reliably identified for deletion without
     the vault key.
@@ -188,9 +205,50 @@ def erasure(
         current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
-        :class:`ErasureResponse` compliance receipt on success, or RFC 7807
+        :class:`ErasureResponse` compliance receipt on success, RFC 7807
+        403 if subject_id does not match current_operator, or RFC 7807
         423 response if the vault is sealed.
     """
+    # ---------------------------------------------------------------------------
+    # T69.6 IDOR guard — fires BEFORE vault-sealed check.
+    # Only the authenticated operator may erase their own data.
+    # The target subject_id is NOT included in the audit event (PII protection).
+    # ---------------------------------------------------------------------------
+    if body.subject_id != current_operator:
+        _logger.warning(
+            "Cross-operator erasure attempt blocked: actor=%s"
+            " (subject_id withheld — no PII in logs)",
+            current_operator,
+        )
+        # Emit audit event for intrusion detection — no subject_id in details.
+        try:
+            get_audit_logger().log_event(
+                event_type="COMPLIANCE_ERASURE_IDOR_ATTEMPT",
+                actor=current_operator,
+                resource="data_subject",
+                action="erasure_blocked_idor",
+                details={
+                    "reason": "subject_id does not match authenticated operator",
+                },
+            )
+        except Exception:
+            _logger.exception(
+                "Audit logging failed for IDOR erasure attempt (actor=%s).",
+                current_operator,
+            )
+        return JSONResponse(
+            status_code=403,
+            content=problem_detail(
+                status=403,
+                title="Forbidden",
+                detail=(
+                    "Erasure is restricted to self-erasure only. "
+                    "The subject_id must match your authenticated operator identity."
+                ),
+            ),
+            media_type="application/problem+json",
+        )
+
     # Vault-sealed guard: ALE-encrypted fields cannot be identified without the KEK.
     if VaultState.is_sealed():
         return JSONResponse(

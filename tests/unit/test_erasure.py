@@ -537,12 +537,12 @@ class TestComplianceEndpointHappy:
             response = client.request(
                 "DELETE",
                 "/compliance/erasure",
-                json={"subject_id": "sub-001"},
+                json={"subject_id": "test-operator"},
             )
 
         assert response.status_code == 200
         body = response.json()
-        assert body["subject_id"] == "sub-001"
+        assert body["subject_id"] == "test-operator"
         assert body["retained_synthesized_output"] is True
         assert body["retained_audit_trail"] is True
 
@@ -552,7 +552,7 @@ class TestComplianceEndpointHappy:
 
         engine = _make_engine()
         with Session(engine) as session:
-            session.add(_make_job(owner_id="sub-001"))
+            session.add(_make_job(owner_id="test-operator"))
             session.add(_make_job(owner_id="sub-999"))
             session.commit()
 
@@ -567,7 +567,7 @@ class TestComplianceEndpointHappy:
             response = client.request(
                 "DELETE",
                 "/compliance/erasure",
-                json={"subject_id": "sub-001"},
+                json={"subject_id": "test-operator"},
             )
 
         assert response.status_code == 200
@@ -592,7 +592,7 @@ class TestComplianceEndpointHappy:
             "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
             return_value=audit_mock,
         ):
-            client.request("DELETE", "/compliance/erasure", json={"subject_id": "sub-001"})
+            client.request("DELETE", "/compliance/erasure", json={"subject_id": "test-operator"})
 
         audit_mock.log_event.assert_called_once()
         assert audit_mock.log_event.call_args.kwargs["event_type"] == "GDPR_ERASURE"
@@ -613,7 +613,7 @@ class TestComplianceEndpointHappy:
             response = client.request(
                 "DELETE",
                 "/compliance/erasure",
-                json={"subject_id": "no-such-subject"},
+                json={"subject_id": "test-operator"},  # operator with no records (idempotent)
             )
 
         assert response.status_code == 200
@@ -638,7 +638,7 @@ class TestComplianceEndpointHappy:
             response = client.request(
                 "DELETE",
                 "/compliance/erasure",
-                json={"subject_id": "sub-001"},
+                json={"subject_id": "test-operator"},
             )
 
         assert response.status_code == 200
@@ -696,7 +696,7 @@ class TestComplianceEndpointVaultSealed:
         response = client.request(
             "DELETE",
             "/compliance/erasure",
-            json={"subject_id": "sub-001"},
+            json={"subject_id": "test-operator"},
         )
 
         VaultState._is_sealed = False  # restore
@@ -718,7 +718,7 @@ class TestComplianceEndpointVaultSealed:
         response = client.request(
             "DELETE",
             "/compliance/erasure",
-            json={"subject_id": "sub-001"},
+            json={"subject_id": "test-operator"},
         )
 
         VaultState._is_sealed = False  # restore
@@ -748,7 +748,7 @@ class TestComplianceEndpointVaultSealed:
             response = client.request(
                 "DELETE",
                 "/compliance/erasure",
-                json={"subject_id": "sub-001"},
+                json={"subject_id": "test-operator"},
             )
 
         # Restore sealed state
@@ -834,16 +834,15 @@ class TestErasureRequestValidation:
 
         assert response.status_code == 422
 
-    def test_whitespace_only_subject_id_returns_200_safe_noop(self) -> None:
-        """DELETE /compliance/erasure with subject_id="   " documents safe behaviour.
+    def test_whitespace_only_subject_id_returns_403_idor(self) -> None:
+        """DELETE /compliance/erasure with subject_id="   " returns 403 (T69.6 IDOR).
 
         Pydantic's min_length constraint applies to the raw string value.
         A whitespace-only string has length >= 1 and passes min_length=1.
 
-        Note: We do NOT add strip_whitespace=True because subject_id is
-        treated as an opaque identifier and must not be silently modified.
-        A whitespace-only ID will match zero real records (safe no-op), so
-        this is not a bulk-delete risk — only the empty string ("") is.
+        With the T69.6 self-erasure-only constraint, a whitespace-only
+        subject_id does NOT match the authenticated operator identity
+        ("test-operator"), so the IDOR guard returns 403 Forbidden.
         """
         from fastapi.testclient import TestClient
 
@@ -851,9 +850,9 @@ class TestErasureRequestValidation:
         app = self._build_app(engine)
         audit_mock = MagicMock()
 
-        client = TestClient(app)
+        client = TestClient(app, raise_server_exceptions=False)
         with patch(
-            "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
+            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
             return_value=audit_mock,
         ):
             response = client.request(
@@ -862,11 +861,8 @@ class TestErasureRequestValidation:
                 json={"subject_id": "   "},
             )
 
-        # "   " has length 3, passes min_length=1; returns 200 with empty manifest
-        assert response.status_code == 200
-        body = response.json()
-        assert body["deleted_jobs"] == 0
-        assert body["deleted_connections"] == 0
+        # "   " != "test-operator" → IDOR guard returns 403 (T69.6)
+        assert response.status_code == 403
 
 
 class TestComplianceEndpointAuthGuard:
