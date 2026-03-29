@@ -69,6 +69,7 @@ from synth_engine.modules.synthesizer.storage import (
     retention_tasks as _retention_tasks,  # noqa: F401 — side-effect: registers Huey task
 )
 from synth_engine.shared.db import get_engine
+from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.security import (
     rotation as _security_rotation,  # noqa: F401 — side-effect: registers rotation task
 )
@@ -165,6 +166,13 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
                     )
 
                     # Persist delivery audit row
+                    # Sanitize and truncate error_message before storage:
+                    # prevents internal IP addresses, paths, or module names
+                    # from leaking through the deliveries API endpoint.
+                    _raw_err = result.error_message
+                    _safe_err: str | None = (
+                        safe_error_msg(_raw_err or "")[:500] if _raw_err else None
+                    )
                     delivery = WebhookDelivery(
                         registration_id=reg.id,
                         job_id=job_id,
@@ -173,7 +181,7 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
                         attempt_number=result.attempt_number,
                         status=result.status,
                         response_code=result.response_code,
-                        error_message=result.error_message,
+                        error_message=_safe_err,
                     )
                     session.add(delivery)
 

@@ -189,7 +189,11 @@ def resolve_and_pin_ips(hostname: str) -> list[str]:
     return result
 
 
-def validate_delivery_ips(hostname: str) -> None:
+def validate_delivery_ips(
+    hostname: str,
+    *,
+    pinned_ips: list[str] | None = None,
+) -> None:
     """Validate that ``hostname`` resolves only to public IPs at delivery time.
 
     Called before each HTTP delivery attempt (DNS-rebinding protection).
@@ -202,8 +206,21 @@ def validate_delivery_ips(hostname: str) -> None:
     where ``strict=False`` in :func:`validate_callback_url` would silently
     pass DNS failures through to httpx.
 
+    When ``pinned_ips`` is provided and non-empty (from
+    ``WebhookRegistration.pinned_ips`` stored at registration time), the
+    freshly resolved set is compared against the pinned set.  A change
+    (IP drift) is logged at WARNING for operational visibility but does NOT
+    block delivery — the security gate is the :data:`BLOCKED_NETWORKS` check,
+    not IP stability.  This tolerates legitimate CDN IP rotation while
+    surfacing unexpected changes in dashboards.
+
     Args:
         hostname: Bare hostname to re-resolve (extracted from callback URL).
+        pinned_ips: Optional list of IP strings pinned at registration time
+            (from ``WebhookRegistration.pinned_ips`` parsed from JSON).
+            When provided and non-empty, drift from the pinned set is logged
+            at WARNING level.  Pass ``None`` or ``[]`` to skip drift detection
+            (e.g. for legacy registrations that have no pinned IPs).
 
     Raises:
         ValueError: If DNS resolution fails (fail-closed — DNS failure at
@@ -220,15 +237,32 @@ def validate_delivery_ips(hostname: str) -> None:
             "Delivery rejected — DNS failure treated as suspicious."
         ) from None
 
+    resolved_ips: set[str] = set()
     for addr_info in addr_infos:
         sockaddr = addr_info[4]
         ip_str = str(sockaddr[0])
+        resolved_ips.add(ip_str)
         if _is_blocked(ip_str):
             SSRF_DELIVERY_REJECTION_TOTAL.inc()
             raise ValueError(
                 f"Delivery rejected: hostname {hostname!r} resolved to a private, "
                 f"reserved, or forbidden IP address ({ip_str}) at delivery time. "
                 "DNS rebinding attack detected."
+            )
+
+    # IP drift detection: compare against pinned IPs for operational visibility.
+    # This is a monitoring check, NOT a security gate — the security check is
+    # the BLOCKED_NETWORKS validation above.  CDN IP rotation is legitimate;
+    # we log a WARNING so operators can investigate unexpected changes.
+    if pinned_ips:
+        pinned_set = set(pinned_ips)
+        if resolved_ips != pinned_set:
+            _logger.warning(
+                "IP drift detected for hostname %r: "
+                "pinned=%r resolved=%r — delivery proceeding (security gate passed).",
+                hostname,
+                sorted(pinned_set),
+                sorted(resolved_ips),
             )
 
 

@@ -404,8 +404,6 @@ def list_webhook_deliveries(
         or RFC 7807 404 if the registration is not found or not owned by the
         caller.
     """
-    import json as _json
-
     # Ownership check: look up registration by (id, owner_id) — IDOR protection.
     # Returning 404 (not 403) for cross-tenant IDs prevents resource enumeration.
     reg_stmt = select(WebhookRegistration).where(
@@ -416,12 +414,10 @@ def list_webhook_deliveries(
     if reg is None:
         return JSONResponse(
             status_code=404,
-            content=_json.dumps(
-                problem_detail(
-                    status=404,
-                    title="Not Found",
-                    detail=f"Webhook registration with id={webhook_id!r} not found.",
-                )
+            content=problem_detail(
+                status=404,
+                title="Not Found",
+                detail=f"Webhook registration with id={webhook_id!r} not found.",
             ),
             media_type="application/problem+json",
         )

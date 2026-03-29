@@ -316,3 +316,129 @@ class TestRateLimiterUnderBurstTraffic:
         assert count_200 + count_429 == 50, (
             f"Total responses must be 50; got {count_200 + count_429}"
         )
+
+
+# ---------------------------------------------------------------------------
+# T69.3 AC4: Database connection pool exhaustion
+# ---------------------------------------------------------------------------
+
+
+class TestDatabaseConnectionPoolExhaustion:
+    """DB pool exhaustion: production-like pool constants, 4th connection waits or fails."""
+
+    def test_pool_size_plus_overflow_connections_succeed_fourth_waits_or_raises(
+        self,
+    ) -> None:
+        """3 concurrent connections succeed (pool_size=2 + max_overflow=1); 4th waits or raises.
+
+        Uses production-like constants: pool_size=2, max_overflow=1 to verify
+        that the pool does not silently discard connections beyond capacity.
+
+        Arrange: SQLite engine with pool_size=2, max_overflow=1, pool_timeout=0.1.
+        Act: acquire 3 connections concurrently (all succeed), then attempt a 4th.
+        Assert: first 3 succeed; 4th either completes (if a slot freed) or raises
+            sqlalchemy.exc.TimeoutError after pool_timeout.
+        """
+        import threading
+
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.exc import TimeoutError as SATimeoutError
+        from sqlalchemy.pool import QueuePool
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            poolclass=QueuePool,
+            pool_size=2,
+            max_overflow=1,
+            pool_timeout=0.1,  # very short timeout so the test does not block
+            connect_args={"check_same_thread": False},
+        )
+
+        barrier = threading.Barrier(3)  # 3 threads start together
+
+        def _hold_connection(hold_seconds: float = 0.3) -> bool:
+            """Check out a connection, hold it, then return it.
+
+            Args:
+                hold_seconds: Seconds to hold the connection before releasing.
+
+            Returns:
+                True if connection acquired, False if pool timeout.
+            """
+            import time
+
+            try:
+                conn = engine.connect()
+                conn.execute(text("SELECT 1"))
+                time.sleep(hold_seconds)
+                conn.close()
+                return True
+            except SATimeoutError:
+                return False
+
+        results: list[bool] = []
+        result_lock = threading.Lock()
+
+        def _thread_fn() -> None:
+            barrier.wait()  # synchronize all 3 threads to maximize contention
+            ok = _hold_connection(hold_seconds=0.3)
+            with result_lock:
+                results.append(ok)
+
+        threads = [threading.Thread(target=_thread_fn) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5.0)
+
+        successes_3 = sum(1 for r in results if r)
+        assert successes_3 == 3, (
+            f"All 3 connections (pool_size=2 + max_overflow=1) must succeed; "
+            f"got {successes_3} successes"
+        )
+
+        # Now all 3 connections are returned. Attempt a 4th with the pool idle —
+        # it must succeed since pool is no longer exhausted.
+        conn4 = engine.connect()
+        conn4.execute(text("SELECT 1"))
+        conn4.close()
+
+        # Verify pool exhaustion: request 4 connections simultaneously with pool_size=2,
+        # max_overflow=1, pool_timeout=0.1 — the 4th must raise TimeoutError.
+        engine2 = create_engine(
+            "sqlite:///:memory:",
+            poolclass=QueuePool,
+            pool_size=2,
+            max_overflow=1,
+            pool_timeout=0.1,
+            connect_args={"check_same_thread": False},
+        )
+
+        held_connections: list[object] = []
+        held_lock = threading.Lock()
+
+        def _acquire_and_hold() -> None:
+            """Acquire and hold a connection without releasing."""
+            conn = engine2.connect()
+            conn.execute(text("SELECT 1"))
+            with held_lock:
+                held_connections.append(conn)
+
+        # Acquire 3 connections (pool_size=2 + max_overflow=1) and hold them
+        acquire_threads = [threading.Thread(target=_acquire_and_hold) for _ in range(3)]
+        for t in acquire_threads:
+            t.start()
+        for t in acquire_threads:
+            t.join(timeout=5.0)
+
+        assert len(held_connections) == 3, (
+            f"All 3 connections must be acquired; got {len(held_connections)}"
+        )
+
+        # Now pool is exhausted — 4th connection must time out
+        with pytest.raises(SATimeoutError):
+            engine2.connect()
+
+        # Cleanup
+        for conn in held_connections:
+            conn.close()  # type: ignore[union-attr]

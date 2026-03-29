@@ -399,9 +399,9 @@ def deliver_webhook(
     time budget before each attempt.  If the budget is exhausted, the loop
     exits without sleeping, preventing Huey worker starvation.
 
-    SSRF protection: ``validate_callback_url()`` is called before each
-    HTTP attempt (DNS-rebinding guard, ``strict=False`` / fail-open so
-    transient DNS failures do not abort delivery).
+    SSRF protection: ``validate_delivery_ips()`` is called before each
+    HTTP attempt (fail-closed: DNS resolution failure or SSRF violation
+    immediately fails the delivery attempt).
 
     The HTTP request uses ``follow_redirects=False`` to prevent SSRF via
     open redirects.
@@ -486,7 +486,15 @@ def deliver_webhook(
         try:
             parsed_url = urlparse(registration.callback_url)
             delivery_hostname = parsed_url.hostname or ""
-            validate_delivery_ips(delivery_hostname)
+            pinned_ips_parsed: list[str] | None = None
+            if registration.pinned_ips:
+                import json as _json_ips
+
+                try:
+                    pinned_ips_parsed = _json_ips.loads(registration.pinned_ips)
+                except (ValueError, TypeError):
+                    pinned_ips_parsed = None
+            validate_delivery_ips(delivery_hostname, pinned_ips=pinned_ips_parsed)
         except ValueError as ssrf_exc:
             _logger.error(
                 "SSRF delivery validation failed for registration %s (attempt %d): %s",
@@ -499,7 +507,9 @@ def deliver_webhook(
                 status="FAILED",
                 attempt_number=attempt,
                 delivery_id=delivery_id,
-                error_message=str(ssrf_exc),
+                error_message=(
+                    "SSRF delivery validation failed: callback URL resolves to a blocked address."
+                ),
             )
 
         # Circuit check again mid-loop: if a previous attempt just tripped the circuit, abort.
