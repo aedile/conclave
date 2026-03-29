@@ -52,8 +52,18 @@ class JobCreateRequest(BaseModel):
         max_length=1024,
         description="Path to training Parquet file. Maximum 1024 characters. T68.6.",
     )
-    total_epochs: int = Field(..., gt=0, description="Total training epochs.")
-    num_rows: int = Field(..., gt=0, description="Number of synthetic rows to generate.")
+    total_epochs: int = Field(
+        ...,
+        gt=0,
+        le=10000,
+        description="Total training epochs. Maximum 10000.",
+    )
+    num_rows: int = Field(
+        ...,
+        gt=0,
+        le=10_000_000,
+        description="Number of synthetic rows to generate. Maximum 10,000,000.",
+    )
     checkpoint_every_n: int = Field(default=5, ge=1, description="Epochs between checkpoints.")
     # Defense-in-depth: these Field constraints are duplicated as __init__ guards
     # in modules/synthesizer/job_models.py.  Both must be updated together.

@@ -2,9 +2,11 @@
 
 Covers DevOps finding D1: unvalidated parquet_path in JobCreateRequest.
 Updated for T69.7: parquet_path is now sandboxed to CONCLAVE_DATA_DIR.
+Updated for P70: total_epochs and num_rows have upper bound (le=) constraints.
 
 Task: P5-T5.1 — Task Orchestration API Core (DevOps fix)
 Task: T69.7 — Sandbox parquet_path to Allowed Directory (ADV-P68-02)
+Task: P70 — Add upper bounds to total_epochs and num_rows (review finding)
 """
 
 from __future__ import annotations
@@ -208,3 +210,95 @@ class TestParquetPathValidator:
         valid_path = str(data_dir / "train.parquet")
         req = JobCreateRequest(**_VALID_BASE, parquet_path=valid_path)
         assert req.parquet_path.startswith("/")
+
+
+class TestJobCreateRequestBounds:
+    """Attack tests: total_epochs and num_rows must reject oversized values."""
+
+    def test_total_epochs_oversized_returns_422(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        data_dir: Path,
+    ) -> None:
+        """total_epochs > 10000 must raise ValidationError (maps to HTTP 422).
+
+        An attacker supplying a huge epoch count could trigger runaway compute.
+        The le=10000 constraint rejects such values at the schema layer.
+        """
+        monkeypatch.setenv("CONCLAVE_DATA_DIR", str(data_dir))
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+        valid_path = str(data_dir / "train.parquet")
+        with pytest.raises(ValidationError):
+            JobCreateRequest(
+                **{**_VALID_BASE, "total_epochs": 10001},
+                parquet_path=valid_path,
+            )
+
+    def test_total_epochs_at_boundary_is_accepted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        data_dir: Path,
+    ) -> None:
+        """total_epochs == 10000 is the upper boundary and must be accepted."""
+        monkeypatch.setenv("CONCLAVE_DATA_DIR", str(data_dir))
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+        valid_path = str(data_dir / "train.parquet")
+        req = JobCreateRequest(
+            **{**_VALID_BASE, "total_epochs": 10000},
+            parquet_path=valid_path,
+        )
+        assert req.total_epochs == 10000
+
+    def test_num_rows_oversized_returns_422(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        data_dir: Path,
+    ) -> None:
+        """num_rows > 10_000_000 must raise ValidationError (maps to HTTP 422).
+
+        An attacker supplying an extreme row count could exhaust memory or disk.
+        The le=10_000_000 constraint rejects such values at the schema layer.
+        """
+        monkeypatch.setenv("CONCLAVE_DATA_DIR", str(data_dir))
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+        valid_path = str(data_dir / "train.parquet")
+        with pytest.raises(ValidationError):
+            JobCreateRequest(
+                **{**_VALID_BASE, "num_rows": 10_000_001},
+                parquet_path=valid_path,
+            )
+
+    def test_num_rows_at_boundary_is_accepted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        data_dir: Path,
+    ) -> None:
+        """num_rows == 10_000_000 is the upper boundary and must be accepted."""
+        monkeypatch.setenv("CONCLAVE_DATA_DIR", str(data_dir))
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+        valid_path = str(data_dir / "train.parquet")
+        req = JobCreateRequest(
+            **{**_VALID_BASE, "num_rows": 10_000_000},
+            parquet_path=valid_path,
+        )
+        assert req.num_rows == 10_000_000

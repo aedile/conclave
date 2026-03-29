@@ -387,3 +387,15 @@ webhook  # unused property — ConclaveSettings.webhook sub-model accessor (shar
 retention  # unused property — ConclaveSettings.retention sub-model accessor (shared/settings.py T70.4)
 parquet  # unused property — ConclaveSettings.parquet sub-model accessor (shared/settings.py T70.4)
 anchor  # unused property — ConclaveSettings.anchor sub-model accessor (shared/settings.py T70.4)
+
+# ---------------------------------------------------------------------------
+# Category W — P70 review fix: sign_v1/sign_v2 backward-compat aliases
+# sign_v1 and sign_v2 are module-level aliases in audit_signatures.py that
+# preserve the old public names for callers (tests/unit/test_t58_4_split_backward_compat.py,
+# tests/unit/test_audit_v3_hmac_attack.py, tests/unit/test_p70_t702_signature_removal_attack.py)
+# that still import by the unprefixed names.  The real implementations are
+# _sign_v1 and _sign_v2; audit_logger.py uses the private names directly.
+# ---------------------------------------------------------------------------
+
+sign_v1  # unused variable — backward-compat alias for _sign_v1 (audit_signatures.py); consumed by test imports
+sign_v2  # unused variable — backward-compat alias for _sign_v2 (audit_signatures.py); consumed by test imports

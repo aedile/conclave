@@ -37,7 +37,7 @@ from datetime import UTC, datetime
 from prometheus_client import Counter
 from pydantic import BaseModel
 
-from synth_engine.shared.security.audit_signatures import sign_v1, sign_v2, sign_v3
+from synth_engine.shared.security.audit_signatures import _sign_v1, _sign_v2, sign_v3
 
 _AUDIT_LOGGER_NAME = "synth_engine.security.audit"
 _GENESIS_HASH = "0" * 64
@@ -384,7 +384,7 @@ class AuditLogger:
 
         if sig.startswith("v2:"):
             try:
-                expected = sign_v2(
+                expected = _sign_v2(
                     self._audit_key,
                     event.timestamp,
                     event.event_type,
@@ -412,7 +412,7 @@ class AuditLogger:
             return is_valid_v2
 
         if sig.startswith("v1:"):
-            expected_v1 = sign_v1(
+            expected_v1 = _sign_v1(
                 self._audit_key,
                 event.timestamp,
                 event.event_type,
