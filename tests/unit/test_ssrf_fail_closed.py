@@ -273,4 +273,4 @@ class TestSSRFFailClosedFeature:
             )
 
         # validate_delivery_ips must be called with the hostname (T69.1 — fail-closed)
-        mock_validate.assert_called_once_with("delivery.example.com")
+        mock_validate.assert_called_once_with("delivery.example.com", pinned_ips=None)
