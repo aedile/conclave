@@ -13,8 +13,7 @@ Updated after each task's review phase completes.
 
 | ID | Advisory | Phase |
 |----|----------|-------|
-| ADV-P68-01 | Compliance erasure IDOR: any operator can delete another operator's data (TTL: P70) | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
-| ADV-P68-02 | parquet_path not sandboxed to allowed directory (TTL: P70) | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
+| (none) | All security advisories resolved as of P69. | — |
 
 **ADVISORY**
 
@@ -25,6 +24,13 @@ Updated after each task's review phase completes.
 | ADV-P68-03 | Remaining unbounded path params: `connection_id` and `webhook_id` path parameters lack `max_length` — partial closure of ADV-P67-01 | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
 | ADV-P68-04 | Audit ordering inconsistency: T68.3 established audit-before-mutation in security.py/admin.py but jobs.py:shred_job and privacy.py:refresh_budget still use audit-after-mutation | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
 | ADV-P68-05 | No Prometheus counter on audit-write-failure paths in admin.py, security.py — failures only visible in logs, not metrics plane | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
+
+**CLOSED (P69 — security depth & test coverage)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P68-01 | CLOSED — `DELETE /compliance/erasure` enforces `body.subject_id == current_operator` (403 on mismatch). IDOR check fires before vault-sealed check. Audit event on cross-operator attempt. (T69.6) | P69 |
+| ADV-P68-02 | CLOSED — `conclave_data_dir` setting with `model_validator`. `validate_parquet_path` enforces `Path.resolve() + is_relative_to()` sandbox. Root `/` forbidden. Production requires absolute path. (T69.7) | P69 |
 
 **CLOSED (P68 — critical safety hardening)**
 
@@ -88,6 +94,7 @@ Updated after each task's review phase completes.
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 69 | 2026-03-29 | [Security Depth & Test Coverage](#2026-03-29-phase-69--security-depth--test-coverage) |
 | Phase 68 | 2026-03-28 | [Critical Safety Hardening](#2026-03-28-phase-68--critical-safety-hardening) |
 | Phase 67 | 2026-03-28 | [Advisory Drain: Input Validation & Error Mapping Hardening](#2026-03-28-phase-67--advisory-drain-input-validation--error-mapping-hardening) |
 | Phase 66 | 2026-03-28 | [Expired Security Advisory Resolution](#2026-03-28-phase-66--expired-security-advisory-resolution) |
@@ -112,6 +119,22 @@ Updated after each task's review phase completes.
 | Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
 | Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
 | Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-29] Phase 69 — Security Depth & Test Coverage
+
+**Tasks**: T69.1 (DNS pinning), T69.2 (profiler PII mode), T69.3 (concurrent load tests), T69.4 (timeout simulation), T69.5 (webhook deliveries endpoint), T69.6 (compliance erasure IDOR), T69.7 (parquet_path sandbox)
+
+**Source**: Senior Architect & Security Audit (2026-03-28) — findings C4, C5, C8, C10 + security advisories ADV-P68-01, ADV-P68-02.
+
+**Review agents**: QA ✓, DevOps ✓, Red-team ✓, Architecture ✓ — 0 BLOCKERs.
+
+**Review findings fixed**: SSRF error leaking private IPs in deliveries endpoint (DevOps+Red-team), `pinned_ips` dead data consumed at delivery (Architecture), double-serialized JSON in deliveries 404 (Architecture), DB pool exhaustion test added (QA), error_message sanitization via safe_error_msg() (QA), stale docstring corrected (QA).
+
+**Security advisories closed**: ADV-P68-01 (compliance erasure IDOR → self-erasure only), ADV-P68-02 (parquet_path sandboxed to CONCLAVE_DATA_DIR).
+
+**Advisory count**: 5 open (ADV-P62-03, ADV-P63-01, ADV-P68-03, ADV-P68-04, ADV-P68-05). Below Rule 11 threshold.
 
 ---
 
