@@ -224,7 +224,7 @@ class TestCircuitBreakerTripping:
                 return_value=cb,
             ),
             patch(
-                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url",
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
             patch("httpx.post", side_effect=Exception("connection refused")),
         ):
@@ -266,7 +266,7 @@ class TestCircuitBreakerTripping:
                 return_value=cb,
             ),
             patch(
-                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url",
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
             patch(
                 "httpx.post",
@@ -401,7 +401,7 @@ class TestDeliveryTimeBudget:
         start = time.monotonic()
         with (
             patch(
-                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url",
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
             patch("httpx.post", side_effect=_slow_post),
             patch(
@@ -450,7 +450,7 @@ class TestDeliveryTimeBudget:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url",
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
             patch("httpx.post", side_effect=_slow_post),
             patch(
@@ -508,7 +508,7 @@ class TestNoBlockingSleep:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url",
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
             patch("httpx.post", side_effect=Exception("refused")),
             patch(

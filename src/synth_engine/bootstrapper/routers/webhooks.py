@@ -49,13 +49,16 @@ from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors.formatter import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.webhooks import (
+    WebhookDelivery,
+    WebhookDeliveryListResponse,
+    WebhookDeliveryResponse,
     WebhookRegistration,
     WebhookRegistrationListResponse,
     WebhookRegistrationRequest,
     WebhookRegistrationResponse,
 )
 from synth_engine.shared.settings import get_settings
-from synth_engine.shared.ssrf import validate_callback_url
+from synth_engine.shared.ssrf import resolve_and_pin_ips, validate_callback_url
 
 _logger = logging.getLogger(__name__)
 
@@ -194,12 +197,38 @@ def register_webhook(
             ),
         )
 
+    # Pin resolved IPs at registration time (T69.1 — DNS pinning SSRF protection).
+    # If pinning fails (DNS changed between validate_callback_url and resolve_and_pin_ips),
+    # registration is rejected.  This is intentionally fail-closed.
+    _hostname = urlparse(body.callback_url).hostname or ""
+    try:
+        _pinned = resolve_and_pin_ips(_hostname)
+        _pinned_json: str | None = json.dumps(_pinned)
+    except ValueError as pin_exc:
+        _logger.warning(
+            "DNS pinning failed for callback URL (operator=%s): %s",
+            current_operator,
+            pin_exc,
+        )
+        return JSONResponse(
+            status_code=400,
+            content=problem_detail(
+                status=400,
+                title="Invalid Callback URL",
+                detail=(
+                    "The callback URL hostname could not be resolved or resolves to "
+                    "a private address. DNS pinning failed at registration time."
+                ),
+            ),
+        )
+
     reg = WebhookRegistration(
         owner_id=current_operator,
         callback_url=body.callback_url,
         signing_key=body.signing_key,
         events=json.dumps(body.events),
         active=True,
+        pinned_ips=_pinned_json,
     )
     session.add(reg)
     try:
@@ -340,3 +369,68 @@ def deactivate_webhook(
         current_operator,
     )
     return Response(status_code=204)
+
+
+@router.get(
+    "/{webhook_id}/deliveries",
+    summary="List webhook deliveries",
+    description=(
+        "Return recent delivery attempts for a webhook registration. "
+        "Results are scoped to the authenticated operator (IDOR protection)."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=WebhookDeliveryListResponse,
+)
+def list_webhook_deliveries(
+    webhook_id: str,
+    session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
+) -> WebhookDeliveryListResponse | JSONResponse:
+    """List delivery attempts for a webhook registration.
+
+    Returns up to 100 most recent delivery attempts, ordered by creation
+    date descending.  The endpoint enforces ownership: a 404 is returned
+    for any ``webhook_id`` not owned by the authenticated operator.
+    This prevents enumeration — callers cannot distinguish "not found"
+    from "found but forbidden" (IDOR protection, T39.2 pattern).
+
+    Args:
+        webhook_id: UUID string primary key of the parent registration.
+        session: Database session (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim (injected).
+
+    Returns:
+        :class:`WebhookDeliveryListResponse` with up to 100 delivery records,
+        or RFC 7807 404 if the registration is not found or not owned by the
+        caller.
+    """
+    # Ownership check: look up registration by (id, owner_id) — IDOR protection.
+    # Returning 404 (not 403) for cross-tenant IDs prevents resource enumeration.
+    reg_stmt = select(WebhookRegistration).where(
+        WebhookRegistration.id == webhook_id,
+        WebhookRegistration.owner_id == current_operator,
+    )
+    reg = session.exec(reg_stmt).first()
+    if reg is None:
+        return JSONResponse(
+            status_code=404,
+            content=problem_detail(
+                status=404,
+                title="Not Found",
+                detail=f"Webhook registration with id={webhook_id!r} not found.",
+            ),
+            media_type="application/problem+json",
+        )
+
+    # Fetch delivery records for this registration (most recent first)
+    delivery_stmt = (
+        select(WebhookDelivery)
+        .where(WebhookDelivery.registration_id == webhook_id)
+        .order_by(WebhookDelivery.created_at.desc())  # type: ignore[attr-defined]
+        .limit(100)
+    )
+    deliveries = session.exec(delivery_stmt).all()
+
+    return WebhookDeliveryListResponse(
+        items=[WebhookDeliveryResponse.model_validate(d) for d in deliveries]
+    )

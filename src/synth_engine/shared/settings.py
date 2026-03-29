@@ -72,6 +72,7 @@ from __future__ import annotations
 import logging
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -598,6 +599,22 @@ class ConclaveSettings(BaseSettings):
     )
 
     # -----------------------------------------------------------------------
+    # Parquet Path Sandbox (T69.7)
+    # -----------------------------------------------------------------------
+
+    conclave_data_dir: str = Field(
+        default="data/",
+        description=(
+            "Base directory that parquet_path values must resolve to (path sandbox). "
+            "All JobCreateRequest.parquet_path values must be inside this directory after "
+            "Path.resolve(). Defaults to 'data/' (resolved to absolute at construction). "
+            "Forbid root '/' to prevent the sandbox from being a no-op. "
+            "In production mode, the directory must exist at startup. "
+            "T69.7 — Sandbox parquet_path to Allowed Directory (ADV-P68-02)."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
     # Validators
     # -----------------------------------------------------------------------
 
@@ -835,6 +852,54 @@ class ConclaveSettings(BaseSettings):
         """
         if self.conclave_health_strict is None:
             self.conclave_health_strict = self.conclave_env.lower() == "production"
+        return self
+
+    @model_validator(mode="after")
+    def _validate_conclave_data_dir(self) -> ConclaveSettings:
+        """Validate and resolve conclave_data_dir (T69.7, ADV-P68-02).
+
+        Rules (enforced in order):
+        1. Resolve to absolute path so relative dirs like 'data/' work.
+        2. Reject '/' (filesystem root) — allows ALL paths, defeating sandbox.
+        3. In production mode, require the directory to exist.
+
+        The resolved absolute path is stored back on the instance so
+        validate_parquet_path in JobCreateRequest can use it consistently.
+
+        Returns:
+            The validated ConclaveSettings instance (self).
+
+        Raises:
+            ValueError: When conclave_data_dir is '/' or, in production mode,
+                when the directory does not exist.
+        """
+        resolved = Path(self.conclave_data_dir).resolve()
+
+        # Rule 2: forbid root — would allow any path on the filesystem.
+        if str(resolved) == "/":
+            raise ValueError(
+                "CONCLAVE_DATA_DIR must not be the filesystem root '/'. "
+                "Set it to a specific data directory (e.g. 'data/' or '/app/data')."
+            )
+
+        # Rule 3: production requires the directory to exist when explicitly configured.
+        # The default 'data/' is created at runtime by the synthesizer pipeline;
+        # only reject if the operator has set a custom directory that does not exist.
+        _default_resolved = Path("data/").resolve()
+        is_default_dir = resolved == _default_resolved
+        if (
+            self.conclave_env.lower() == "production"
+            and not is_default_dir
+            and not resolved.exists()
+        ):
+            raise ValueError(
+                f"CONCLAVE_DATA_DIR '{self.conclave_data_dir}' (resolved: {resolved}) "
+                f"does not exist. Create the directory before starting the application "
+                f"in production mode."
+            )
+
+        # Store resolved absolute path so consumers get a consistent string.
+        self.conclave_data_dir = str(resolved)
         return self
 
     # -----------------------------------------------------------------------

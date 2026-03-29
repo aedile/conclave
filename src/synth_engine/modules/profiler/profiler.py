@@ -30,6 +30,11 @@ _QUANTILES = (0.25, 0.50, 0.75)
 # 'i' = signed integer, 'u' = unsigned integer, 'f' = floating point.
 _NUMERIC_KINDS = frozenset({"i", "u", "f"})
 
+#: Cardinality threshold for safe-default PII suppression (T69.2).
+#: Categorical columns with this many or more distinct values have their
+#: ``value_counts`` suppressed when ``pii_columns=None`` (opt-out model).
+_PII_CARDINALITY_THRESHOLD: int = 50
+
 
 def _is_numeric(series: pd.Series[Any]) -> bool:
     """Return True when the series holds numeric (integer or float) data.
@@ -141,6 +146,53 @@ def _profile_categorical_column(name: str, series: pd.Series[Any]) -> ColumnProf
     )
 
 
+def _profile_pii_column(name: str, series: pd.Series[Any]) -> ColumnProfile:
+    """Build a :class:`ColumnProfile` for a PII-tagged categorical Series.
+
+    Suppresses raw ``value_counts`` entirely to prevent PII from appearing
+    in the statistical profile.  Reports only safe aggregate statistics:
+    ``cardinality``, ``null_rate``, ``min_length``, and ``max_length``.
+
+    Args:
+        name: Column name.
+        series: Pandas Series with a non-numeric dtype tagged as PII.
+
+    Returns:
+        A :class:`ColumnProfile` with ``value_counts=None`` and safe
+        aggregate fields populated.  Suitable for export without PII leakage.
+    """
+    total = len(series)
+    null_count = int(series.isna().sum())
+    null_rate = null_count / total if total > 0 else 0.0
+
+    non_null = series.dropna()
+    cardinality = non_null.nunique()
+
+    if len(non_null) == 0:
+        return ColumnProfile(
+            name=name,
+            dtype=str(series.dtype),
+            null_count=null_count,
+            null_rate=null_rate,
+            cardinality=0,
+        )
+
+    # Compute min/max string lengths for distribution shape (no raw values)
+    lengths = non_null.astype(str).str.len()
+    min_len = int(lengths.min())
+    max_len = int(lengths.max())
+
+    return ColumnProfile(
+        name=name,
+        dtype=str(series.dtype),
+        null_count=null_count,
+        null_rate=null_rate,
+        cardinality=cardinality,
+        min_length=min_len,
+        max_length=max_len,
+    )
+
+
 def _covariance_entry(raw: Any) -> float:
     """Convert a raw covariance matrix cell value to a safe float.
 
@@ -197,7 +249,13 @@ class StatisticalProfiler:
         delta = profiler.compare(baseline, synthetic)
     """
 
-    def profile(self, table_name: str, df: pd.DataFrame) -> TableProfile:
+    def profile(
+        self,
+        table_name: str,
+        df: pd.DataFrame,
+        *,
+        pii_columns: set[str] | None = None,
+    ) -> TableProfile:
         """Compute statistical properties of every column in *df*.
 
         For each column:
@@ -205,28 +263,56 @@ class StatisticalProfiler:
           min, max, q25, q50, q75.
         - Categorical columns: dtype, null_count, null_rate, value_counts,
           cardinality.
+        - PII columns (T69.2): value_counts suppressed; only cardinality,
+          null_rate, min_length, max_length reported.
 
         A covariance matrix is computed for all numeric column pairs.
+
+        Safe-default PII suppression (T69.2): when ``pii_columns`` is
+        ``None`` (not explicitly provided), categorical columns with
+        cardinality >= :data:`_PII_CARDINALITY_THRESHOLD` (50) have their
+        ``value_counts`` suppressed to prevent inadvertent PII leakage.
+        Pass ``pii_columns=set()`` to opt out of safe-default suppression
+        and report all columns normally.
 
         Args:
             table_name: Logical name of the source table (used for
                 identification in :class:`TableProfile` and
                 :class:`ProfileDelta`).
             df: Source DataFrame.  May contain NaN/None values.
+            pii_columns: Optional set of column names to treat as PII.
+                For tagged columns, ``value_counts`` is suppressed and only
+                safe aggregates are reported.  Column names not present in
+                ``df`` are silently ignored.  When ``None`` (default), safe
+                heuristic suppression applies: any categorical column with
+                cardinality >= :data:`_PII_CARDINALITY_THRESHOLD` is treated
+                as PII.  Pass ``set()`` to disable heuristic suppression.
 
         Returns:
             A frozen :class:`TableProfile` snapshot.
         """
         numeric_cols: list[str] = []
         columns: dict[str, ColumnProfile] = {}
+        # Resolve the PII column set against actual DataFrame columns.
+        # Unknown names in pii_columns are silently ignored.
+        resolved_pii: set[str] = (pii_columns or set()) & set(df.columns)
 
         for col_name in df.columns:
             series = df[col_name]
             if _is_numeric(series):
                 numeric_cols.append(col_name)
                 columns[col_name] = _profile_numeric_column(col_name, series)
+            elif col_name in resolved_pii:
+                # Explicit PII tagging — suppress value_counts
+                columns[col_name] = _profile_pii_column(col_name, series)
             else:
-                columns[col_name] = _profile_categorical_column(col_name, series)
+                profile = _profile_categorical_column(col_name, series)
+                # Safe-default threshold: when pii_columns was None (not set()),
+                # suppress high-cardinality columns automatically.
+                if pii_columns is None and (profile.cardinality or 0) >= _PII_CARDINALITY_THRESHOLD:
+                    columns[col_name] = _profile_pii_column(col_name, series)
+                else:
+                    columns[col_name] = profile
 
         covariance_matrix = _build_covariance_matrix(df, numeric_cols)
 

@@ -177,9 +177,13 @@ class WebhookRegistrationProtocol(Protocol):
         callback_url: Absolute HTTP(S) URL to deliver payloads to.
         signing_key: HMAC signing secret for payload authentication.
         id: Unique string identifier for this registration (UUID v4).
+        pinned_ips: JSON-encoded list of IP strings pinned at registration time
+            (T69.1 DNS pinning).  ``None`` for legacy pre-T69.1 registrations
+            that have not yet been lazy-migrated.
     """
 
     active: bool
     callback_url: str
     signing_key: str
     id: str
+    pinned_ips: str | None

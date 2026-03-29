@@ -188,7 +188,7 @@ class TestSSRFAtDelivery:
         reg.id = "reg-ssrf-fail"
 
         with patch(
-            "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url",
+            "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             side_effect=ValueError("SSRF: resolves to private IP"),
         ):
             result = deliver_webhook(
@@ -328,7 +328,7 @@ class TestRetryExhaustion:
         reg.id = "reg-001"
 
         with (
-            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
             mock_httpx.post.side_effect = Exception("Connection refused")
@@ -364,7 +364,7 @@ class TestRetryExhaustion:
         sleep_calls: list[float] = []
 
         with (
-            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.time.sleep",
@@ -471,7 +471,7 @@ class TestDeliveryHeaders:
         mock_response.raise_for_status.return_value = None
 
         with (
-            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
 
@@ -539,7 +539,7 @@ class TestDeliveryResult:
         mock_response.raise_for_status.return_value = None
 
         with (
-            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
             mock_httpx.post.return_value = mock_response
@@ -790,7 +790,7 @@ class TestSafeErrorMsg:
         from unittest.mock import patch
 
         with (
-            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"),
+            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
             mock_httpx.post.side_effect = ConnectionError(f"{sensitive}: timed out")

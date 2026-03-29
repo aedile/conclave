@@ -30,6 +30,11 @@ _TEST_AUDIT_KEY: str = "aa" * 32  # 64 hex chars = 32 bytes  # pragma: allowlist
 #: which do not explicitly control CONCLAVE_ENV do not trigger production-mode
 #: validation (which requires JWT_SECRET_KEY, MASKING_SALT, etc.).
 _TEST_CONCLAVE_ENV: str = "development"
+#: T69.7: CONCLAVE_DATA_DIR defaults to '/tmp' for all tests.
+#: The parquet_path sandbox validator (T69.7) rejects paths outside
+#: CONCLAVE_DATA_DIR. Integration tests use /tmp paths (e.g. /tmp/test.parquet),
+#: so /tmp is the correct test-safe default for both unit and integration tests.
+_TEST_CONCLAVE_DATA_DIR: str = "/tmp"
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -102,6 +107,10 @@ def _clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     # Tests that exercise production-mode paths must call monkeypatch.delenv("CONCLAVE_ENV").
     if not os.environ.get("CONCLAVE_ENV") and not os.environ.get("ENV"):
         monkeypatch.setenv("CONCLAVE_ENV", _TEST_CONCLAVE_ENV)
+    # T69.7: Default CONCLAVE_DATA_DIR to /tmp so tests using parquet_path=/tmp/...
+    # pass the sandbox validator. Tests can override via monkeypatch.setenv.
+    if not os.environ.get("CONCLAVE_DATA_DIR"):
+        monkeypatch.setenv("CONCLAVE_DATA_DIR", _TEST_CONCLAVE_DATA_DIR)
 
     yield
 

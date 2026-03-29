@@ -7,6 +7,11 @@ Fix: P47 — Suppress .env file reading in unit tests so that
      ``monkeypatch.setenv`` / ``monkeypatch.delenv`` have full, reliable effect
      on every ``ConclaveSettings`` construction — regardless of whether the
      field's value is also present in the local ``.env`` file.
+
+T69.7 — Set CONCLAVE_DATA_DIR to '/tmp' for all unit tests (unless overridden).
+     This prevents parquet_path sandbox validation failures on existing tests
+     that use paths under '/tmp/'. Tests that require a specific data_dir set
+     CONCLAVE_DATA_DIR explicitly via monkeypatch.setenv, which overrides this.
 """
 
 from __future__ import annotations
@@ -37,6 +42,11 @@ def _suppress_env_file_in_unit_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     This patch is applied BEFORE each test and rolled back AFTER each test by
     pytest's monkeypatch machinery.
 
+    Also sets CONCLAVE_DATA_DIR to '/tmp' (T69.7) as the default sandbox for
+    unit tests that use paths under /tmp/. Tests that need a specific data_dir
+    override this by calling monkeypatch.setenv("CONCLAVE_DATA_DIR", ...) in
+    their own fixtures (which takes precedence because it runs after this one).
+
     Args:
         monkeypatch: The pytest monkeypatch fixture for reversible patching.
     """
@@ -52,3 +62,12 @@ def _suppress_env_file_in_unit_tests(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(ConclaveSettings, "__init__", _init_no_env_file)
     except ImportError:
         pass  # Module not yet loaded during discovery
+
+    # T69.7: Default CONCLAVE_DATA_DIR to /tmp so existing unit tests that use
+    # parquet paths under /tmp/ continue to work without modification.
+    # Individual tests that need a specific data sandbox override this by
+    # calling monkeypatch.setenv("CONCLAVE_DATA_DIR", ...) in their own fixture.
+    import os
+
+    if "CONCLAVE_DATA_DIR" not in os.environ:
+        monkeypatch.setenv("CONCLAVE_DATA_DIR", "/tmp")

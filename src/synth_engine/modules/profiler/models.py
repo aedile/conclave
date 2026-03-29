@@ -41,9 +41,13 @@ class ColumnProfile:
             columns.
         q75: 75th percentile; ``None`` for categorical or all-null columns.
         value_counts: Mapping of category -> frequency; ``None`` for numeric
-            columns.
+            columns or PII-suppressed columns.
         cardinality: Number of distinct non-null values; ``None`` for numeric
             columns.
+        min_length: Minimum string length of non-null values in a PII column;
+            ``None`` for numeric columns and non-PII categorical columns.
+        max_length: Maximum string length of non-null values in a PII column;
+            ``None`` for numeric columns and non-PII categorical columns.
     """
 
     name: str
@@ -60,6 +64,8 @@ class ColumnProfile:
     q75: float | None = None
     value_counts: dict[str, int] | None = None
     cardinality: int | None = None
+    min_length: int | None = None
+    max_length: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialise to a plain dictionary suitable for JSON export.
@@ -83,6 +89,8 @@ class ColumnProfile:
             "q75": self.q75,
             "value_counts": self.value_counts,
             "cardinality": self.cardinality,
+            "min_length": self.min_length,
+            "max_length": self.max_length,
         }
 
     @classmethod
@@ -110,6 +118,8 @@ class ColumnProfile:
             q75=data.get("q75"),
             value_counts=data.get("value_counts"),
             cardinality=data.get("cardinality"),
+            min_length=data.get("min_length"),
+            max_length=data.get("max_length"),
         )
 
 

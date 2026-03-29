@@ -77,6 +77,9 @@ class WebhookRegistration(SQLModel, table=True):
     events: str = SqlField(default='["job.completed","job.failed"]')
     active: bool = SqlField(default=True)
     created_at: datetime = SqlField(default_factory=lambda: datetime.now(UTC))
+    #: JSON-encoded list of IP strings pinned at registration time (T69.1).
+    #: NULL for legacy pre-T69.1 registrations (lazy-migrated at delivery time).
+    pinned_ips: str | None = SqlField(default=None)
 
 
 class WebhookDelivery(SQLModel, table=True):
@@ -99,6 +102,8 @@ class WebhookDelivery(SQLModel, table=True):
         response_code: HTTP status code from the last attempt (``None`` on network error).
         error_message: Error detail on failure (``None`` on success).
         created_at: UTC timestamp of this attempt row creation.
+        delivered_at: UTC timestamp when the delivery completed (success or
+            final failure).  ``None`` for PENDING deliveries.
     """
 
     __tablename__ = "webhook_delivery"
@@ -113,6 +118,9 @@ class WebhookDelivery(SQLModel, table=True):
     response_code: int | None = SqlField(default=None)
     error_message: str | None = SqlField(default=None)
     created_at: datetime = SqlField(default_factory=lambda: datetime.now(UTC))
+    #: UTC timestamp when the delivery was completed (success or final failure).
+    #: NULL for PENDING deliveries. Set by the delivery engine on completion.
+    delivered_at: datetime | None = SqlField(default=None)
 
 
 # ---------------------------------------------------------------------------
@@ -227,3 +235,47 @@ class WebhookRegistrationListResponse(BaseModel):
     """
 
     items: list[WebhookRegistrationResponse]
+
+
+class WebhookDeliveryResponse(BaseModel):
+    """Response body for a single WebhookDelivery record.
+
+    Omits internal fields and sanitizes error messages.
+
+    Attributes:
+        id: UUID primary key of the delivery record.
+        registration_id: ID of the parent WebhookRegistration.
+        job_id: PK of the SynthesisJob that triggered delivery.
+        event_type: Event type string (e.g. ``"job.failed"``).
+        delivery_id: UUID identifying the logical delivery event.
+        attempt_number: 1-indexed attempt counter.
+        status: ``"SUCCESS"`` | ``"FAILED"`` | ``"SKIPPED"`` | ``"PENDING"``.
+        response_code: HTTP status code from the last attempt.
+        error_message: Sanitized error detail (``None`` on success).
+        created_at: Timestamp of this attempt row.
+        delivered_at: Timestamp when delivery completed (``None`` if pending).
+    """
+
+    id: str
+    registration_id: str
+    job_id: int
+    event_type: str
+    delivery_id: str
+    attempt_number: int
+    status: str
+    response_code: int | None = None
+    error_message: str | None = None
+    created_at: datetime
+    delivered_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class WebhookDeliveryListResponse(BaseModel):
+    """Response body for GET /webhooks/{id}/deliveries.
+
+    Attributes:
+        items: List of delivery attempt records for the registration.
+    """
+
+    items: list[WebhookDeliveryResponse]

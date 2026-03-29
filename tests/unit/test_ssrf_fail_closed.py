@@ -205,6 +205,10 @@ class TestSSRFFailClosedFeature:
             patch(
                 "synth_engine.bootstrapper.routers.webhooks.validate_callback_url"
             ) as mock_validate,
+            patch(
+                "synth_engine.bootstrapper.routers.webhooks.resolve_and_pin_ips",
+                return_value=["93.184.216.34"],
+            ),
         ):
             mock_wh_settings.return_value.is_production.return_value = False
             mock_wh_settings.return_value.webhook_max_registrations = 10
@@ -225,12 +229,15 @@ class TestSSRFFailClosedFeature:
             f"Expected 201 Created, got {response.status_code}: {response.text!r}"
         )
 
-    def test_webhook_delivery_uses_strict_false(self) -> None:
-        """Webhook delivery calls validate_callback_url with strict=False.
+    def test_webhook_delivery_uses_validate_delivery_ips(self) -> None:
+        """Webhook delivery calls validate_delivery_ips with the hostname (T69.1).
 
         Behavioral test: calls deliver_webhook() directly and asserts that
-        validate_callback_url is invoked with (url, strict=False) for
-        DNS-rebinding protection with fail-open behavior.
+        validate_delivery_ips is invoked with the hostname extracted from the
+        callback URL (fail-closed DNS re-validation at delivery time).
+
+        T69.1 replaced validate_callback_url(strict=False) with validate_delivery_ips
+        for fail-closed DNS rebinding protection.
 
         Args: none (no parameters).
         """
@@ -247,7 +254,7 @@ class TestSSRFFailClosedFeature:
 
         with (
             patch(
-                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_callback_url"
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"
             ) as mock_validate,
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx.post") as mock_post,
         ):
@@ -265,8 +272,5 @@ class TestSSRFFailClosedFeature:
                 timeout_seconds=5,
             )
 
-        # validate_callback_url must be called with strict=False (fail-open at delivery)
-        mock_validate.assert_called_once_with(
-            "https://delivery.example.com/hook",
-            strict=False,
-        )
+        # validate_delivery_ips must be called with the hostname (T69.1 — fail-closed)
+        mock_validate.assert_called_once_with("delivery.example.com", pinned_ips=None)

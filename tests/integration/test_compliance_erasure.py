@@ -138,15 +138,24 @@ def _make_connection(*, name: str = "conn", owner_id: str = "op1") -> Connection
     )
 
 
-def _build_app(engine: Any) -> Any:
+def _build_app(engine: Any, operator_id: str = "subject-A") -> Any:
     """Build a test FastAPI app with compliance router and DB override.
 
     Unseals the vault before building the app so ALE-encrypted Connection
     fields can be read. Tests in ``TestErasureVaultSealedGate`` reset the
     vault themselves.
 
+    T69.6: The compliance erasure endpoint now checks IDOR (subject_id ==
+    current_operator) BEFORE the vault-sealed check. All tests that call this
+    helper must pass the same ``operator_id`` they use as ``subject_id`` in
+    their request body, so the IDOR check passes and the intended assertion
+    path is exercised.
+
     Args:
         engine: SQLAlchemy engine to use for dependency override.
+        operator_id: Operator identity returned by the overridden auth
+            dependency. Must equal the ``subject_id`` in the request body so
+            the IDOR self-erasure check passes.
 
     Returns:
         Configured FastAPI app instance.
@@ -157,6 +166,7 @@ def _build_app(engine: Any) -> Any:
     from fastapi import FastAPI
     from sqlmodel import Session
 
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.compliance import router as compliance_router
 
@@ -173,7 +183,11 @@ def _build_app(engine: Any) -> Any:
         with Session(engine) as session:
             yield session
 
+    def _override_operator() -> str:
+        return operator_id
+
     app.dependency_overrides[get_db_session] = _override
+    app.dependency_overrides[get_current_operator] = _override_operator
     return app
 
 
@@ -318,7 +332,7 @@ class TestErasureAuditTrailPreservation:
         from fastapi.testclient import TestClient
 
         engine = _make_engine()
-        app = _build_app(engine)
+        app = _build_app(engine, operator_id="sub-E2E")
         audit_mock = MagicMock()
 
         client = TestClient(app)
@@ -343,7 +357,7 @@ class TestErasureAuditTrailPreservation:
             session.add(_make_connection(name="conn-e2e", owner_id="sub-E2E"))
             session.commit()
 
-        app = _build_app(engine)
+        app = _build_app(engine, operator_id="sub-E2E")
         audit_mock = MagicMock()
 
         client = TestClient(app)
@@ -365,10 +379,10 @@ class TestErasureAuditTrailPreservation:
         from fastapi.testclient import TestClient
 
         engine = _make_engine()
-        app = _build_app(engine)
+        subject_id = "pii-user@example.com"
+        app = _build_app(engine, operator_id=subject_id)
         audit_mock = MagicMock()
 
-        subject_id = "pii-user@example.com"
         client = TestClient(app)
         with patch(
             "synth_engine.modules.synthesizer.lifecycle.erasure.get_audit_logger",
@@ -393,6 +407,7 @@ class TestErasureVaultSealedGate:
         from fastapi.testclient import TestClient
         from sqlmodel import Session
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
         from synth_engine.shared.security.vault import VaultState
@@ -407,7 +422,11 @@ class TestErasureVaultSealedGate:
             with Session(engine) as session:
                 yield session
 
+        def _override_operator() -> str:
+            return "sub-sealed"
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_operator] = _override_operator
 
         VaultState.reset()
         assert VaultState.is_sealed()
@@ -427,6 +446,7 @@ class TestErasureVaultSealedGate:
         from fastapi.testclient import TestClient
         from sqlmodel import Session
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
         from synth_engine.shared.security.vault import VaultState
@@ -441,7 +461,11 @@ class TestErasureVaultSealedGate:
             with Session(engine) as session:
                 yield session
 
+        def _override_operator() -> str:
+            return "sub-sealed"
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_operator] = _override_operator
 
         VaultState.reset()
 
@@ -462,6 +486,7 @@ class TestErasureVaultSealedGate:
         from fastapi.testclient import TestClient
         from sqlmodel import Session
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
         from synth_engine.shared.security.vault import VaultState
@@ -478,7 +503,11 @@ class TestErasureVaultSealedGate:
             with Session(engine) as session:
                 yield session
 
+        def _override_operator() -> str:
+            return "sub-sealed"
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_operator] = _override_operator
 
         VaultState.reset()
 
