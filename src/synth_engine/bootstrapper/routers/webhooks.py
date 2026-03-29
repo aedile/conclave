@@ -39,7 +39,7 @@ import logging
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
@@ -300,7 +300,7 @@ def list_webhooks(
     status_code=204,
 )
 def deactivate_webhook(
-    webhook_id: str,
+    webhook_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> Response:
@@ -382,7 +382,7 @@ def deactivate_webhook(
     response_model=WebhookDeliveryListResponse,
 )
 def list_webhook_deliveries(
-    webhook_id: str,
+    webhook_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> WebhookDeliveryListResponse | JSONResponse:

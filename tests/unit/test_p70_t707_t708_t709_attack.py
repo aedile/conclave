@@ -35,7 +35,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> Generator[None, None, None]:
+def clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -49,7 +49,7 @@ def clear_settings_cache() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def unseal_vault_for_tests(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def unseal_vault_for_tests(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Unseal vault and reset after each test.
 
     Yields:
@@ -378,9 +378,7 @@ class TestShredJobAuditOrdering:
                 "synth_engine.bootstrapper.routers.jobs.get_audit_logger",
                 return_value=mock_audit,
             ),
-            patch(
-                "synth_engine.bootstrapper.routers.jobs.shred_artifacts"
-            ) as mock_shred,
+            patch("synth_engine.bootstrapper.routers.jobs.shred_artifacts") as mock_shred,
         ):
             response = client.post(f"/jobs/{job_id}/shred")
 
@@ -483,13 +481,11 @@ class TestRefreshBudgetAuditOrdering:
                 "synth_engine.bootstrapper.routers.privacy.get_audit_logger",
                 return_value=mock_audit,
             ),
-            patch(
-                "synth_engine.bootstrapper.routers.privacy._run_reset_budget"
-            ) as mock_reset,
+            patch("synth_engine.bootstrapper.routers.privacy._run_reset_budget") as mock_reset,
         ):
             response = client.post(
                 "/privacy/budget/refresh",
-                json={"justification": "test"},
+                json={"justification": "test-reason-for-reset"},
             )
 
         assert response.status_code == 500
@@ -526,7 +522,7 @@ class TestRefreshBudgetAuditOrdering:
         ):
             response = client.post(
                 "/privacy/budget/refresh",
-                json={"justification": "test"},
+                json={"justification": "test-reason-for-reset"},
             )
 
         assert response.status_code == 500
@@ -583,7 +579,8 @@ class TestAuditWriteFailureCounter:
         from synth_engine.bootstrapper.routers import admin as admin_module
 
         counter = admin_module.AUDIT_WRITE_FAILURE_TOTAL
-        before = counter._value.get()
+        labeled_counter = counter.labels(endpoint="/admin/jobs/{job_id}/legal-hold")
+        before = labeled_counter._value.get()
 
         client = TestClient(app, raise_server_exceptions=False)
         with (
@@ -599,7 +596,7 @@ class TestAuditWriteFailureCounter:
             )
 
         assert response.status_code == 500
-        after = counter._value.get()
+        after = labeled_counter._value.get()
         assert after == before + 1.0
 
     def test_audit_write_failure_increments_counter_in_security_shred(self) -> None:
@@ -622,7 +619,8 @@ class TestAuditWriteFailureCounter:
         from synth_engine.bootstrapper.routers import security as security_module
 
         counter = security_module.AUDIT_WRITE_FAILURE_TOTAL
-        before = counter._value.get()
+        labeled_counter = counter.labels(endpoint="/security/shred")
+        before = labeled_counter._value.get()
 
         client = TestClient(app, raise_server_exceptions=False)
         with (
@@ -635,7 +633,7 @@ class TestAuditWriteFailureCounter:
             response = client.post("/security/shred")
 
         assert response.status_code == 500
-        after = counter._value.get()
+        after = labeled_counter._value.get()
         assert after == before + 1.0
 
     def test_audit_write_failure_counter_has_static_endpoint_label(self) -> None:

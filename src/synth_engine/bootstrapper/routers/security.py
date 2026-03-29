@@ -71,6 +71,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from prometheus_client import Counter
 from pydantic import BaseModel, Field
 
 from synth_engine.bootstrapper.dependencies.auth import require_scope
@@ -84,6 +85,15 @@ from synth_engine.shared.security.vault import VaultState
 _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/security", tags=["security"])
+
+# ---------------------------------------------------------------------------
+# T70.9 — Prometheus counter for audit-write failures in security router.
+# ---------------------------------------------------------------------------
+AUDIT_WRITE_FAILURE_TOTAL: Counter = Counter(
+    "audit_write_failure_total_security",
+    "Audit write failures in security router",
+    ["endpoint"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +175,7 @@ async def shred_vault(
             details={"note": "Master KEK zeroized — all ALE ciphertext is now unrecoverable"},
         )
     except Exception:
+        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/security/shred").inc()
         _logger.exception("Audit logging failed during CRYPTO_SHRED; aborting shred (T68.3)")
         return JSONResponse(
             status_code=500,
@@ -277,6 +288,7 @@ async def rotate_keys(
             },
         )
     except Exception:
+        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/security/keys/rotate").inc()
         _logger.exception("Audit logging failed during KEY_ROTATION_REQUESTED; aborting (T68.3)")
         return JSONResponse(
             status_code=500,

@@ -36,11 +36,18 @@ Domain delegation:
     pessimistic locking, preventing races with concurrent ``spend_budget()``
     calls.
 
+Audit ordering (T70.8):
+    Audit BEFORE mutation.  If the audit write fails, 500 is returned and
+    the budget is NOT reset.  If the reset fails AFTER the audit succeeds,
+    a compensating ``BUDGET_RESET_FAILED`` event is emitted and 500 returned.
+
 Import boundaries:
     ``bootstrapper/`` CAN import from ``modules/privacy/`` (allowed direction).
     Do NOT import from other modules.
 
 Task: P22-T22.4 — Budget Management API
+Task: T70.8 — Audit-before-mutation ordering standardisation
+Task: T70.9 — AUDIT_WRITE_FAILURE_TOTAL Prometheus counter
 CONSTITUTION Priority 0: Security — WORM audit emission
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 """
@@ -54,6 +61,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from prometheus_client import Counter
 from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
@@ -71,6 +79,15 @@ from synth_engine.shared.security.audit import get_audit_logger
 _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
+
+# ---------------------------------------------------------------------------
+# T70.9 — Prometheus counter for audit-write failures in privacy router.
+# ---------------------------------------------------------------------------
+AUDIT_WRITE_FAILURE_TOTAL: Counter = Counter(
+    "audit_write_failure_total_privacy",
+    "Audit write failures in privacy router",
+    ["endpoint"],
+)
 
 
 def _ledger_to_budget_response(ledger: PrivacyLedger) -> BudgetResponse:
@@ -92,46 +109,6 @@ def _ledger_to_budget_response(ledger: PrivacyLedger) -> BudgetResponse:
         total_spent_epsilon=spent,
         remaining_epsilon=remaining,
         is_exhausted=remaining <= 0.0,
-    )
-
-
-def _emit_refresh_audit(
-    *,
-    actor: str,
-    ledger_id: int,
-    justification: str,
-    prev_allocated: str,
-    prev_spent: str,
-    new_allocated: str,
-) -> None:
-    """Emit a WORM HMAC-signed audit event for a budget refresh.
-
-    Calls :func:`~synth_engine.shared.security.audit.get_audit_logger` and
-    logs a ``PRIVACY_BUDGET_REFRESH`` event.  Propagates any exception raised
-    by the audit logger (callers must handle to return a 500 response).
-
-    Args:
-        actor: Operator identity from the JWT sub claim.
-        ledger_id: Primary key of the refreshed ``PrivacyLedger`` row.
-        justification: Human-readable reason for the refresh.
-        prev_allocated: Pre-refresh ``total_allocated_epsilon`` as string.
-        prev_spent: Pre-refresh ``total_spent_epsilon`` as string.
-        new_allocated: Post-refresh ``total_allocated_epsilon`` as string.
-
-    """
-    audit_details: dict[str, str] = {
-        "justification": justification,
-        "prev_allocated_epsilon": prev_allocated,
-        "prev_spent_epsilon": prev_spent,
-        "new_allocated_epsilon": new_allocated,
-    }
-    audit = get_audit_logger()
-    audit.log_event(
-        event_type="PRIVACY_BUDGET_REFRESH",
-        actor=actor,
-        resource=f"privacy_ledger/{ledger_id}",
-        action="refresh_budget",
-        details=audit_details,
     )
 
 
@@ -258,13 +235,11 @@ def refresh_budget(
     ``spend_budget()`` calls).  If ``body.new_allocated_epsilon`` is provided,
     the ``total_allocated_epsilon`` ceiling is also updated.
 
-    A HMAC-signed WORM audit event (``PRIVACY_BUDGET_REFRESH``) is emitted via
-    :func:`~synth_engine.shared.security.audit.get_audit_logger` capturing the
-    authenticated operator's JWT sub claim as the actor identity.
-
-    The DB write (via :func:`reset_budget`) occurs BEFORE the audit emit so
-    that a DB failure does not produce an orphaned audit record.  If the audit
-    emit fails after a successful DB write, a 500 is returned.
+    A HMAC-signed WORM audit event (``PRIVACY_BUDGET_REFRESH``) is emitted
+    BEFORE the budget reset (T70.8 audit-before-mutation standardisation).
+    If the audit write fails, 500 is returned and the budget is NOT reset.
+    If the reset fails after a successful audit, a compensating
+    ``BUDGET_RESET_FAILED`` event is emitted and 500 is returned.
 
     Args:
         body: Refresh request containing justification and optional new
@@ -275,7 +250,7 @@ def refresh_budget(
     Returns:
         :class:`BudgetResponse` reflecting the post-refresh state on success,
         RFC 7807 404 :class:`fastapi.responses.JSONResponse` if no ledger
-        row exists, or RFC 7807 500 if the audit emit fails.
+        row exists, or RFC 7807 500 if the audit write or budget reset fails.
     """
     # Check ledger existence first (sync read — no mutation yet).
     ledger = session.exec(select(PrivacyLedger)).first()
@@ -294,40 +269,74 @@ def refresh_budget(
     # Capture pre-refresh state for the audit details.
     prev_allocated = str(ledger.total_allocated_epsilon)
     prev_spent = str(ledger.total_spent_epsilon)
-
-    # Delegate mutation to reset_budget() via asyncio.run() bridge.
-    # reset_budget() uses SELECT ... FOR UPDATE — safe against concurrent spends.
     new_alloc: Decimal | None = (
         Decimal(str(body.new_allocated_epsilon)) if body.new_allocated_epsilon is not None else None
     )
-    _run_reset_budget(ledger_id=ledger_id, new_allocated_epsilon=new_alloc)
 
-    # Re-read the ledger for response construction (the async session has its own
-    # connection; we need the sync session to build the response).
-    session.expire(ledger)
-    session.refresh(ledger)
-
-    # Emit WORM audit event — MUST happen after the DB commit so a DB failure
-    # does not produce an orphaned audit record.  If audit fails, return 500.
+    # T70.8: Emit audit event BEFORE the budget reset.
+    # If the audit write fails (any exception), return 500 — no mutation proceeds.
     try:
-        _emit_refresh_audit(
+        audit = get_audit_logger()
+        audit.log_event(
+            event_type="PRIVACY_BUDGET_REFRESH",
             actor=current_operator,
-            ledger_id=ledger_id,
-            justification=body.justification,
-            prev_allocated=prev_allocated,
-            prev_spent=prev_spent,
-            new_allocated=str(ledger.total_allocated_epsilon),
+            resource=f"privacy_ledger/{ledger_id}",
+            action="refresh_budget",
+            details={
+                "justification": body.justification,
+                "prev_allocated_epsilon": prev_allocated,
+                "prev_spent_epsilon": prev_spent,
+                "new_allocated_epsilon": str(new_alloc)
+                if new_alloc is not None
+                else prev_allocated,
+            },
         )
-    except Exception:  # Broad catch intentional: audit failure must return 500, not propagate
-        _logger.exception("WORM audit emission failed after budget reset — returning 500")
+    except Exception:
+        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/privacy/budget/refresh").inc()
+        _logger.exception("WORM audit emission failed BEFORE budget reset — aborting (T70.8)")
         return JSONResponse(
             status_code=500,
             content=problem_detail(
                 status=500,
                 title="Internal Server Error",
-                detail="Budget was reset but audit emission failed.",
+                detail="Audit write failed. Budget reset was NOT performed.",
             ),
         )
+
+    # Delegate mutation to reset_budget() via asyncio.run() bridge.
+    # reset_budget() uses SELECT ... FOR UPDATE — safe against concurrent spends.
+    # T70.8: If reset fails AFTER audit, emit compensating event and return 500.
+    try:
+        _run_reset_budget(ledger_id=ledger_id, new_allocated_epsilon=new_alloc)
+    except Exception:
+        _logger.exception("Budget reset failed after audit — emitting compensating event (T70.8)")
+        try:
+            audit.log_event(
+                event_type="BUDGET_RESET_FAILED",
+                actor=current_operator,
+                resource=f"privacy_ledger/{ledger_id}",
+                action="refresh_budget",
+                details={
+                    "justification": body.justification,
+                    "prev_allocated_epsilon": prev_allocated,
+                    "prev_spent_epsilon": prev_spent,
+                },
+            )
+        except Exception:
+            _logger.exception("Compensating audit event BUDGET_RESET_FAILED also failed")
+        return JSONResponse(
+            status_code=500,
+            content=problem_detail(
+                status=500,
+                title="Internal Server Error",
+                detail="Budget reset failed after audit was written.",
+            ),
+        )
+
+    # Re-read the ledger for response construction (the async session has its own
+    # connection; we need the sync session to build the response).
+    session.expire(ledger)
+    session.refresh(ledger)
 
     _logger.info(
         "Budget refreshed: spent reset to 0, allocated=%s",

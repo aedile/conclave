@@ -304,13 +304,15 @@ class TestShredEndpointHappyPath:
         assert call_kwargs["details"]["job_id"] == str(job_id)
 
     @pytest.mark.asyncio
-    async def test_shred_status_transitions_to_shredded_even_if_audit_fails(
+    async def test_shred_returns_500_and_does_not_shred_when_audit_fails(
         self,
     ) -> None:
-        """FINDING 4: Job must reach SHREDDED even when the WORM audit logger raises.
+        """T70.8: Audit-before-mutation — audit failure returns 500 and does NOT shred.
 
-        Audit log failure is swallowed post-deletion because aborting would
-        leave ghost state (COMPLETE with no files).  See ADR-0034.
+        T70.8 standardises audit-before-mutation across all destructive endpoints.
+        When the WORM audit logger raises BEFORE shred_artifacts is called,
+        the endpoint returns 500 and the job remains in COMPLETE status
+        (no ghost state is created because the shred did not happen).
         """
         app, engine = _make_test_app_with_job(status="COMPLETE")
 
@@ -327,10 +329,11 @@ class TestShredEndpointHappyPath:
             raise RuntimeError("audit down")
 
         vault_patch, license_patch = _vault_and_license_patches()
+        mock_shred = MagicMock()
         with (
             vault_patch,
             license_patch,
-            patch("synth_engine.bootstrapper.routers.jobs.shred_artifacts"),
+            patch("synth_engine.bootstrapper.routers.jobs.shred_artifacts", mock_shred),
             patch(
                 "synth_engine.bootstrapper.routers.jobs.get_audit_logger",
                 side_effect=_raise_audit_logger,
@@ -341,14 +344,15 @@ class TestShredEndpointHappyPath:
             ) as client:
                 response = await client.post(f"/api/v1/jobs/{job_id}/shred")
 
-        assert response.status_code == 200
+        assert response.status_code == 500
+        mock_shred.assert_not_called()
 
         with Session(engine) as session:
             from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
             updated = session.get(SynthesisJob, job_id)
             assert updated is not None
-            assert updated.status == "SHREDDED"
+            assert updated.status == "COMPLETE"  # Not shredded — audit blocked it
 
 
 # ---------------------------------------------------------------------------
