@@ -133,14 +133,16 @@ class WebhookRegistrationRequest(BaseModel):
 
     callback_url: str = Field(
         ...,
-        description="HTTPS callback URL for delivery.",
+        max_length=2048,
+        description="HTTPS callback URL for delivery. Maximum 2048 characters. T68.6.",
     )
     signing_key: str = Field(
         ...,
         min_length=32,
+        max_length=512,
         description=(
-            "HMAC-SHA256 signing secret.  Minimum 32 characters.  "
-            "Write-only — never returned in responses."
+            "HMAC-SHA256 signing secret.  Minimum 32 characters, maximum 512 characters.  "
+            "Write-only — never returned in responses. T68.6."
         ),
     )
     events: list[str] = Field(

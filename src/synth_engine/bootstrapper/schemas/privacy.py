@@ -48,7 +48,8 @@ class BudgetRefreshRequest(BaseModel):
     justification: str = Field(
         ...,
         min_length=10,
-        description="Reason for the budget refresh (minimum 10 characters).",
+        max_length=2000,
+        description=("Reason for the budget refresh (minimum 10 characters, maximum 2000). T68.6."),
     )
     new_allocated_epsilon: float | None = Field(
         default=None,

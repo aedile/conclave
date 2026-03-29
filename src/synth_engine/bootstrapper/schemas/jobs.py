@@ -41,9 +41,17 @@ class JobCreateRequest(BaseModel):
     table_name: str = Field(
         ...,
         pattern=r"^[a-zA-Z0-9_]+$",
-        description=("Database table to synthesise. Alphanumeric and underscore characters only."),
+        max_length=255,
+        description=(
+            "Database table to synthesise. Alphanumeric and underscore characters only. "
+            "Maximum 255 characters (PostgreSQL identifier limit). T68.6."
+        ),
     )
-    parquet_path: str = Field(..., description="Path to training Parquet file.")
+    parquet_path: str = Field(
+        ...,
+        max_length=1024,
+        description="Path to training Parquet file. Maximum 1024 characters. T68.6.",
+    )
     total_epochs: int = Field(..., gt=0, description="Total training epochs.")
     num_rows: int = Field(..., gt=0, description="Number of synthetic rows to generate.")
     checkpoint_every_n: int = Field(default=5, ge=1, description="Epochs between checkpoints.")
