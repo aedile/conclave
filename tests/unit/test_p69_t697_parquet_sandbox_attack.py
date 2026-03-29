@@ -18,11 +18,8 @@ Task: T69.7 — Sandbox parquet_path to Allowed Directory (ADV-P68-02)
 
 from __future__ import annotations
 
-import os
-import tempfile
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -34,7 +31,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None, None, None]:
+def _clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings before and after each test.
 
     Yields:
@@ -273,9 +270,9 @@ class TestParquetPathSandboxAttacks:
 
         get_settings.cache_clear()
 
-        with pytest.raises((pydantic.ValidationError, ValueError, SystemExit)):
-            from synth_engine.shared.settings import ConclaveSettings
+        from synth_engine.shared.settings import ConclaveSettings
 
+        with pytest.raises((pydantic.ValidationError, ValueError, SystemExit)):
             ConclaveSettings(_env_file=None)
 
     def test_parquet_path_etc_passwd_parquet_returns_422(
@@ -330,7 +327,7 @@ class TestParquetPathSandboxAttacks:
 
         get_settings.cache_clear()
 
-        with pytest.raises((pydantic.ValidationError, ValueError)):
-            from synth_engine.shared.settings import ConclaveSettings
+        from synth_engine.shared.settings import ConclaveSettings
 
+        with pytest.raises((pydantic.ValidationError, ValueError)):
             ConclaveSettings(_env_file=None)

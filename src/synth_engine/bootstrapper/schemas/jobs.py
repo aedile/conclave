@@ -77,9 +77,11 @@ class JobCreateRequest(BaseModel):
         """Validate and normalise the parquet_path field.
 
         Rejects empty strings, paths that do not end with ``.parquet``, and
-        any raw value whose resolved form differs from what an honest caller
-        would supply (i.e. path-traversal sequences are normalised away by
-        ``Path.resolve()`` and the caller receives the canonical form).
+        any raw value whose resolved form is outside CONCLAVE_DATA_DIR (the
+        configured sandbox directory, T69.7).  Path.resolve() is called on
+        both the input path and conclave_data_dir before is_relative_to()
+        so that symlinks and relative components are fully resolved and
+        cannot be used to escape the sandbox.
 
         Args:
             v: Raw string value supplied by the caller.
@@ -88,14 +90,30 @@ class JobCreateRequest(BaseModel):
             The resolved absolute path as a string.
 
         Raises:
-            ValueError: If the value is empty, contains only whitespace, or
-                does not end with ``.parquet``.
+            ValueError: If the value is empty, contains only whitespace,
+                does not end with ``.parquet``, or resolves to a path
+                outside CONCLAVE_DATA_DIR.
         """
         if not v or not v.strip():
             raise ValueError("parquet_path must not be empty")
         resolved = Path(v).resolve()
         if not str(resolved).endswith(".parquet"):
             raise ValueError("parquet_path must end with .parquet")
+
+        # T69.7: Sandbox check — resolved path must be inside CONCLAVE_DATA_DIR.
+        # Both paths are fully resolved before comparison to prevent traversal via
+        # symlinks or relative components.
+        from synth_engine.shared.settings import get_settings
+
+        settings = get_settings()
+        data_dir = Path(settings.conclave_data_dir).resolve()
+        try:
+            resolved.relative_to(data_dir)
+        except ValueError:
+            raise ValueError(
+                f"parquet_path must be inside the allowed data directory. "
+                f"Resolved path {str(resolved)!r} is outside CONCLAVE_DATA_DIR {str(data_dir)!r}."
+            ) from None
         return str(resolved)
 
 
