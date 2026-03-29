@@ -16,10 +16,17 @@ Scope-based authorization (T47.3):
   mutations change application behavior and must be restricted to operators
   that hold the write permission.
 
+Audit before mutation (T71.1):
+- PUT emits ``SETTING_UPSERTED`` BEFORE the database write.
+- DELETE emits ``SETTING_DELETED`` BEFORE the database delete.
+- If the audit write fails, the endpoint returns 500 and no mutation occurs.
+
 Task: P5-T5.1 — Task Orchestration API Core
 Task: T47.3 — Scope-based auth for settings write endpoints
 Task: T62.1 — Wrap Database Commits in Exception Handlers
 Task: T67.1 — Add max_length=255 to key path parameter (ADV-P66-01)
+Task: T71.1 — Add audit events to unaudited destructive endpoints
+Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 """
 
 from __future__ import annotations
@@ -42,6 +49,8 @@ from synth_engine.bootstrapper.schemas.settings import (
     SettingResponse,
     SettingUpsertRequest,
 )
+from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
+from synth_engine.shared.security.audit import get_audit_logger
 
 _logger = logging.getLogger(__name__)
 
@@ -99,6 +108,10 @@ def upsert_setting(
     Upsert semantics: if ``key`` exists, update its value; otherwise create
     a new entry.
 
+    Emits a ``SETTING_UPSERTED`` WORM audit event BEFORE the database write
+    (T71.1 audit-before-mutation).  If the audit write fails, the endpoint
+    returns 500 and no mutation occurs.
+
     Requires scope: ``settings:write`` (T47.3).
 
     Args:
@@ -109,8 +122,33 @@ def upsert_setting(
             the ``settings:write`` scope (injected by FastAPI DI).
 
     Returns:
-        The upserted :class:`SettingResponse`, or RFC 7807 500 on database error.
+        The upserted :class:`SettingResponse`, RFC 7807 500 on audit failure
+        (no mutation), or RFC 7807 500 on database error.
     """
+    # T71.1: Emit audit event BEFORE the database write.
+    # If the audit write fails, return 500 and do NOT write.
+    try:
+        get_audit_logger().log_event(
+            event_type="SETTING_UPSERTED",
+            actor=current_operator,
+            resource=f"setting/{key}",
+            action="upsert",
+            details={"key": key},
+        )
+    except Exception:
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key} PUT").inc()
+        _logger.exception("Audit logging failed for upsert_setting key=%s; aborting (T71.1)", key)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Setting was NOT modified.",
+            },
+        )
+
+    # Audit succeeded — now perform the upsert.
     setting = session.get(Setting, key)
     if setting is None:
         setting = Setting(key=key, value=body.value)
@@ -185,6 +223,10 @@ def delete_setting(
 ) -> Response:
     """Delete a setting by key.
 
+    Emits a ``SETTING_DELETED`` WORM audit event BEFORE the database delete
+    (T71.1 audit-before-mutation).  If the audit write fails, the endpoint
+    returns 500 and the setting is NOT deleted.
+
     Requires scope: ``settings:write`` (T47.3).
 
     Args:
@@ -194,8 +236,8 @@ def delete_setting(
             the ``settings:write`` scope (injected by FastAPI DI).
 
     Returns:
-        HTTP 204 No Content on success, RFC 7807 404 on not found, or
-        RFC 7807 500 on database errors.
+        HTTP 204 No Content on success, RFC 7807 404 on not found, RFC 7807 500
+        on audit failure (no mutation), or RFC 7807 500 on database errors.
     """
     setting = session.get(Setting, key)
     if setting is None:
@@ -207,6 +249,31 @@ def delete_setting(
                 detail=f"Setting with key='{key}' not found.",
             ),
         )
+
+    # T71.1: Emit audit event BEFORE the database delete.
+    # If the audit write fails, return 500 and do NOT delete.
+    try:
+        get_audit_logger().log_event(
+            event_type="SETTING_DELETED",
+            actor=current_operator,
+            resource=f"setting/{key}",
+            action="delete",
+            details={"key": key},
+        )
+    except Exception:
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key} DELETE").inc()
+        _logger.exception("Audit logging failed for delete_setting key=%s; aborting (T71.1)", key)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Setting was NOT deleted.",
+            },
+        )
+
+    # Audit succeeded — now perform the delete.
     session.delete(setting)
     try:
         session.commit()

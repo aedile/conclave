@@ -10,9 +10,17 @@ Authorization (T39.2):
     Accessing a resource owned by a different operator returns 404 Not Found
     (not 403 Forbidden) to prevent resource enumeration.
 
+Audit before mutation (T71.1):
+    DELETE emits a ``CONNECTION_DELETED`` WORM audit event BEFORE the database
+    delete.  If the audit write fails, the endpoint returns 500 and no deletion
+    occurs.  If the DB commit fails after a successful audit, a compensating
+    ``CONNECTION_DELETE_ABORTED`` event is emitted.
+
 Task: P5-T5.1 — Task Orchestration API Core
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 Task: T62.1 — Wrap Database Commits in Exception Handlers
+Task: T71.1 — Add audit events to unaudited destructive endpoints
+Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 """
 
 from __future__ import annotations
@@ -35,6 +43,8 @@ from synth_engine.bootstrapper.schemas.connections import (
     ConnectionListResponse,
     ConnectionResponse,
 )
+from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
+from synth_engine.shared.security.audit import get_audit_logger
 
 _logger = logging.getLogger(__name__)
 
@@ -204,6 +214,11 @@ def delete_connection(
 ) -> Response:
     """Delete a database connection by ID.
 
+    Emits a ``CONNECTION_DELETED`` WORM audit event BEFORE the database delete
+    (T71.1 audit-before-mutation).  If the audit write fails, returns 500 and
+    the connection is NOT deleted.  If the DB commit fails after a successful
+    audit, a compensating ``CONNECTION_DELETE_ABORTED`` event is emitted.
+
     Returns 404 if the connection does not exist **or** is owned by a
     different operator (IDOR protection — 404 prevents enumeration).
 
@@ -214,7 +229,8 @@ def delete_connection(
 
     Returns:
         HTTP 204 No Content on success, RFC 7807 404 on not found or
-        ownership mismatch, or RFC 7807 500 on database errors.
+        ownership mismatch, RFC 7807 500 on audit failure (no mutation), or
+        RFC 7807 500 on database errors.
     """
     conn = session.get(Connection, connection_id)
     if conn is None or conn.owner_id != current_operator:
@@ -226,6 +242,35 @@ def delete_connection(
                 detail=f"Connection with id={connection_id} not found.",
             ),
         )
+
+    # T71.1: Emit audit event BEFORE the database delete.
+    # If the audit write fails, return 500 and do NOT delete.
+    try:
+        audit = get_audit_logger()
+        audit.log_event(
+            event_type="CONNECTION_DELETED",
+            actor=current_operator,
+            resource=f"connection/{connection_id}",
+            action="delete",
+            details={"connection_id": connection_id},
+        )
+    except Exception:
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="connections", endpoint="/connections/{id}").inc()
+        _logger.exception(
+            "Audit logging failed for delete_connection id=%s; aborting (T71.1)",
+            connection_id,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Connection was NOT deleted.",
+            },
+        )
+
+    # Audit succeeded — now perform the database delete.
     session.delete(conn)
     try:
         session.commit()
@@ -237,6 +282,24 @@ def delete_connection(
             current_operator,
             exc_info=True,
         )
+        # T71.1: Emit compensating event when DB fails after successful audit.
+        try:
+            audit.log_event(
+                event_type="CONNECTION_DELETE_ABORTED",
+                actor=current_operator,
+                resource=f"connection/{connection_id}",
+                action="delete",
+                details={
+                    "connection_id": connection_id,
+                    "reason": "db_commit_failed",
+                },
+            )
+        except Exception:
+            _logger.exception(
+                "delete_connection: compensating audit event CONNECTION_DELETE_ABORTED "
+                "also failed for connection_id=%s",
+                connection_id,
+            )
         return JSONResponse(
             status_code=500,
             content={
