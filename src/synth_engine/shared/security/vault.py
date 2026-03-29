@@ -11,6 +11,10 @@ Security properties
   to a 32-byte Key Encryption Key (KEK).
 - The KEK is stored in a ``bytearray`` so its contents can be zeroed
   deterministically on seal (``bytearray`` is mutable; ``bytes`` is not).
+- KEK zeroing uses ``ctypes.memset`` instead of a memoryview loop.
+  The Python runtime may optimize away a byte-by-byte loop that writes
+  values that are never read again.  ``ctypes.memset`` goes directly to
+  the C runtime and is not subject to that optimization (T70.3).
 - ``VAULT_SEAL_SALT`` is sourced from the environment; it is *not* secret
   (it merely prevents rainbow-table attacks) but must remain consistent
   across restarts so the same passphrase always produces the same KEK.
@@ -23,6 +27,12 @@ Security properties
 - A class-level ``threading.Lock`` serialises concurrent ``unseal()``,
   ``seal()``, and ``get_kek()`` calls so that multi-worker uvicorn
   deployments cannot race on the ``_is_sealed`` / ``_kek`` state.
+- ``unseal()`` accepts ``bytes | bytearray`` (not ``str``) so the caller
+  can zero the passphrase buffer after derivation (T70.3).  When a
+  ``bytearray`` is provided, ``unseal()`` zeros it in-place after PBKDF2.
+  ``bytes`` callers must encode their own string first.
+- ``gc.collect()`` is called after zeroing to encourage prompt deallocation
+  of the old buffer objects (T70.3, defense-in-depth).
 
 :exc:`VaultSealedError` is defined in :mod:`synth_engine.shared.exceptions`
 and re-exported here for backward compatibility.
@@ -39,11 +49,14 @@ Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
 Task: T38.2 — Eliminate vault unseal timing side-channel
 Task: fix/review-critical-issues — Add threading.Lock to VaultState
 Task: P58 — Add ClassVar annotations to _is_sealed and _kek
+Task: T70.3 — Memory-safe vault operations (ctypes.memset, bytearray passphrase)
 """
 
 from __future__ import annotations
 
 import base64
+import ctypes
+import gc
 import hashlib
 import os
 import threading
@@ -66,26 +79,56 @@ __all__ = [
 ]
 
 
-def derive_kek(passphrase: str, salt: bytes) -> bytes:
+def derive_kek(passphrase: bytes | bytearray, salt: bytes) -> bytes:
     """Derive a 32-byte Key Encryption Key from *passphrase* and *salt*.
 
     Uses PBKDF2-HMAC-SHA256 with 600_000 iterations as recommended by
     OWASP for password-based key derivation in 2024+.
 
     Args:
-        passphrase: Operator-provided unseal passphrase.
+        passphrase: Operator-provided unseal passphrase as raw bytes or
+            a mutable bytearray.  Callers must encode str to bytes before
+            calling (T70.3 — passphrase must be mutable to enable zeroing).
         salt: Random 16-byte salt (sourced from ``VAULT_SEAL_SALT`` env var).
 
     Returns:
         32 bytes of key material suitable for AES-256.
+
+    Raises:
+        TypeError: If *passphrase* is a str (must be bytes or bytearray).
     """
+    if isinstance(passphrase, str):
+        raise TypeError(
+            "passphrase must be bytes or bytearray, not str. "
+            "Encode the passphrase before calling: passphrase.encode('utf-8') (T70.3)"
+        )
     return hashlib.pbkdf2_hmac(
         hash_name="sha256",
-        password=passphrase.encode(),
+        password=bytes(passphrase),
         salt=salt,
         iterations=600_000,
         dklen=32,
     )
+
+
+def _zero_buffer(buf: bytearray) -> None:
+    """Zero a mutable buffer using ctypes.memset for OS-level guarantees.
+
+    Python's optimizer may eliminate a Python-level byte-by-byte loop that
+    writes bytes never subsequently read.  ``ctypes.memset`` calls the C
+    runtime directly and is not subject to that optimization.
+
+    After zeroing, ``gc.collect()`` is called to encourage prompt
+    deallocation of the old buffer (defense-in-depth, T70.3).
+
+    Args:
+        buf: Mutable bytearray to zero in-place.
+    """
+    if not buf:
+        return
+    c_array = (ctypes.c_uint8 * len(buf)).from_buffer(buf)
+    ctypes.memset(c_array, 0, len(buf))
+    gc.collect()
 
 
 class VaultState:
@@ -109,12 +152,16 @@ class VaultState:
     _kek: ClassVar[bytearray | None] = None
 
     @classmethod
-    def unseal(cls, passphrase: str) -> None:
+    def unseal(cls, passphrase: bytes | bytearray) -> None:
         """Derive the KEK and transition the vault to the UNSEALED state.
 
         Reads ``VAULT_SEAL_SALT`` from the environment (base64url-encoded).
         The passphrase is never stored; only the derived KEK is retained
         in an in-memory ``bytearray``.
+
+        If *passphrase* is a ``bytearray``, it is zeroed in-place after
+        PBKDF2 derivation completes (T70.3).  Callers that pass ``bytes``
+        should construct from a ``bytearray`` that they can zero separately.
 
         This method is idempotent-hostile: calling ``unseal()`` while the
         vault is already unsealed raises ``VaultAlreadyUnsealedError`` to
@@ -133,9 +180,12 @@ class VaultState:
         the lock to avoid holding it for ~100 ms.
 
         Args:
-            passphrase: Operator-provided unseal passphrase.
+            passphrase: Operator-provided unseal passphrase as raw bytes or
+                a mutable bytearray.  Must not be empty.  Must not be a str
+                (encode first).
 
         Raises:
+            TypeError: If *passphrase* is a str rather than bytes/bytearray.
             VaultAlreadyUnsealedError: If the vault is already unsealed
                 (call ``seal()`` first to re-unseal).
             VaultConfigError: If ``VAULT_SEAL_SALT`` is not set or decodes
@@ -143,6 +193,13 @@ class VaultState:
             VaultEmptyPassphraseError: If *passphrase* is empty (checked
                 after PBKDF2 to prevent timing oracle).
         """
+        # Type check — must be bytes or bytearray, not str.
+        if isinstance(passphrase, str):
+            raise TypeError(
+                "passphrase must be bytes or bytearray, not str. "
+                "Encode before calling: passphrase.encode('utf-8') (T70.3)"
+            )
+
         # Read and validate the salt before acquiring the lock — no shared
         # state is accessed here, so no race is possible.
         raw_salt = os.environ.get("VAULT_SEAL_SALT")
@@ -167,8 +224,15 @@ class VaultState:
         # would serialize all unseal callers unnecessarily.
         kek_bytes = derive_kek(passphrase, salt)
 
-        # Empty-passphrase check AFTER the expensive PBKDF2 call.
-        if not passphrase:
+        # Zero the passphrase buffer in-place (T70.3).  Do this BEFORE the
+        # empty-passphrase check so the check uses len() rather than reading
+        # the (already-zeroed) content.  We need to save the length first.
+        passphrase_len = len(passphrase)
+        if isinstance(passphrase, bytearray):
+            _zero_buffer(passphrase)
+
+        # Empty-passphrase check AFTER the expensive PBKDF2 call (T38.2).
+        if not passphrase_len:
             raise VaultEmptyPassphraseError("Passphrase must not be empty.")
 
         # Acquire the lock only for the short critical section that reads and
@@ -186,17 +250,17 @@ class VaultState:
     def seal(cls) -> None:
         """Zero the KEK buffer and return the vault to the SEALED state.
 
-        Uses a ``memoryview`` write to zero each byte of the ``bytearray``
-        so that the key material is overwritten before being garbage-collected.
+        Uses ``ctypes.memset`` to zero the ``bytearray`` in-place so that
+        the key material is overwritten before being garbage-collected.
+        This is more reliable than a Python-level loop which the runtime
+        optimizer may eliminate (T70.3).
 
         Thread-safety: the mutation of ``_kek`` and ``_is_sealed`` is
         performed under ``_lock``.
         """
         with cls._lock:
             if cls._kek is not None:
-                mv = memoryview(cls._kek)
-                for i in range(len(mv)):
-                    mv[i] = 0
+                _zero_buffer(cls._kek)
                 cls._kek = None
             cls._is_sealed = True
 

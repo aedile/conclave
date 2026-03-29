@@ -97,7 +97,7 @@ def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
 
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-    VaultState.unseal("test-idor-integration-passphrase")
+    VaultState.unseal(bytearray(b"test-idor-integration-passphrase"))
     yield
     VaultState.reset()
 

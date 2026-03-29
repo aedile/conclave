@@ -86,7 +86,9 @@ def _register_routes(app: FastAPI) -> None:
             ``{"status": "unsealed"}`` HTTP 200, or RFC 7807 HTTP 400.
         """
         try:
-            await asyncio.to_thread(VaultState.unseal, body.passphrase)
+            # T70.3: convert str passphrase to bytearray so unseal() can zero it.
+            passphrase_buf = bytearray(body.passphrase.encode("utf-8"))
+            await asyncio.to_thread(VaultState.unseal, passphrase_buf)
         except VaultEmptyPassphraseError as exc:
             return operator_error_response(exc)
         except VaultAlreadyUnsealedError as exc:

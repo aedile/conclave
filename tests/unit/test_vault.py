@@ -70,7 +70,7 @@ def test_unseal_stores_kek_in_memory(vault_salt_env: str) -> None:
     """After unseal, get_kek() returns a 32-byte key."""
     from synth_engine.shared.security.vault import VaultState
 
-    VaultState.unseal("correct-horse-battery-staple")  # nosec B105 # pragma: allowlist secret
+    VaultState.unseal(bytearray(b"correct-horse-battery-staple"))  # nosec B105 # pragma: allowlist secret
     kek = VaultState.get_kek()
 
     assert isinstance(kek, bytes)
@@ -81,7 +81,7 @@ def test_seal_clears_kek(vault_salt_env: str) -> None:
     """After unseal then seal, get_kek() raises VaultSealedError again."""
     from synth_engine.shared.security.vault import VaultSealedError, VaultState
 
-    VaultState.unseal("correct-horse-battery-staple")  # nosec B105 # pragma: allowlist secret
+    VaultState.unseal(bytearray(b"correct-horse-battery-staple"))  # nosec B105 # pragma: allowlist secret
     VaultState.seal()
 
     assert VaultState.is_sealed() is True
@@ -94,7 +94,7 @@ def test_derive_kek_is_deterministic(vault_salt_env: str) -> None:
     from synth_engine.shared.security.vault import derive_kek
 
     salt = base64.urlsafe_b64decode(vault_salt_env + "==")
-    passphrase = "deterministic-passphrase"  # nosec B105 # pragma: allowlist secret
+    passphrase = b"deterministic-passphrase"  # nosec B105 # pragma: allowlist secret
 
     kek1 = derive_kek(passphrase, salt)
     kek2 = derive_kek(passphrase, salt)
@@ -108,8 +108,8 @@ def test_different_passphrase_produces_different_kek(vault_salt_env: str) -> Non
 
     salt = base64.urlsafe_b64decode(vault_salt_env + "==")
 
-    kek1 = derive_kek("passphrase-alpha", salt)  # nosec B105 # pragma: allowlist secret
-    kek2 = derive_kek("passphrase-beta", salt)  # nosec B105 # pragma: allowlist secret
+    kek1 = derive_kek(b"passphrase-alpha", salt)  # nosec B105 # pragma: allowlist secret
+    kek2 = derive_kek(b"passphrase-beta", salt)  # nosec B105 # pragma: allowlist secret
 
     assert kek1 != kek2
 
@@ -121,7 +121,7 @@ def test_missing_vault_salt_raises_vault_config_error(monkeypatch: pytest.Monkey
     from synth_engine.shared.security.vault import VaultConfigError, VaultState
 
     with pytest.raises(VaultConfigError, match="VAULT_SEAL_SALT"):
-        VaultState.unseal("any-passphrase")  # nosec B105 # pragma: allowlist secret
+        VaultState.unseal(bytearray(b"any-passphrase"))  # nosec B105 # pragma: allowlist secret
 
 
 def test_short_vault_salt_raises_vault_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -133,7 +133,7 @@ def test_short_vault_salt_raises_vault_config_error(monkeypatch: pytest.MonkeyPa
     from synth_engine.shared.security.vault import VaultConfigError, VaultState
 
     with pytest.raises(VaultConfigError, match="16 bytes"):
-        VaultState.unseal("any-passphrase")  # nosec B105 # pragma: allowlist secret
+        VaultState.unseal(bytearray(b"any-passphrase"))  # nosec B105 # pragma: allowlist secret
 
 
 # ---------------------------------------------------------------------------
@@ -142,21 +142,21 @@ def test_short_vault_salt_raises_vault_config_error(monkeypatch: pytest.MonkeyPa
 
 
 def test_empty_passphrase_raises_vault_empty_passphrase_error(vault_salt_env: str) -> None:
-    """unseal() raises VaultEmptyPassphraseError when passphrase is an empty string."""
+    """unseal() raises VaultEmptyPassphraseError when passphrase is empty bytes/bytearray."""
     from synth_engine.shared.security.vault import VaultEmptyPassphraseError, VaultState
 
     with pytest.raises(VaultEmptyPassphraseError, match="[Pp]assphrase"):
-        VaultState.unseal("")  # nosec B105 # pragma: allowlist secret
+        VaultState.unseal(bytearray(b""))  # nosec B105 # pragma: allowlist secret
 
 
 def test_re_unseal_while_unsealed_raises_vault_already_unsealed_error(vault_salt_env: str) -> None:
     """unseal() raises VaultAlreadyUnsealedError when the vault is already unsealed."""
     from synth_engine.shared.security.vault import VaultAlreadyUnsealedError, VaultState
 
-    VaultState.unseal("first-passphrase")  # nosec B105 # pragma: allowlist secret
+    VaultState.unseal(bytearray(b"first-passphrase"))  # nosec B105 # pragma: allowlist secret
 
     with pytest.raises(VaultAlreadyUnsealedError, match="already unsealed"):
-        VaultState.unseal("second-passphrase")  # nosec B105 # pragma: allowlist secret
+        VaultState.unseal(bytearray(b"second-passphrase"))  # nosec B105 # pragma: allowlist secret
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +179,7 @@ def test_unseal_with_very_long_passphrase_succeeds(vault_salt_env: str) -> None:
     from synth_engine.shared.security.vault import VaultState
 
     # 1 MB + 1 byte of ASCII 'a' — well beyond any internal buffer assumption
-    long_passphrase = "a" * (1024 * 1024 + 1)  # nosec B105 # pragma: allowlist secret
+    long_passphrase = bytearray(b"a" * (1024 * 1024 + 1))  # nosec B105 # pragma: allowlist secret
 
     VaultState.unseal(long_passphrase)
 
@@ -271,7 +271,7 @@ async def test_require_unsealed_returns_none_when_unsealed(vault_salt_env: str) 
     from synth_engine.bootstrapper.dependencies.vault import require_unsealed
     from synth_engine.shared.security.vault import VaultState
 
-    VaultState.unseal("any-valid-passphrase")  # nosec B105 # pragma: allowlist secret
+    VaultState.unseal(bytearray(b"any-valid-passphrase"))  # nosec B105 # pragma: allowlist secret
 
     # Should not raise; the return value is None
     result = await require_unsealed()
@@ -327,7 +327,7 @@ def test_derive_kek_called_even_for_empty_passphrase(
         wraps=__import__("synth_engine.shared.security.vault", fromlist=["derive_kek"]).derive_kek,
     ) as mock_derive_kek:
         with pytest.raises(VaultEmptyPassphraseError):
-            VaultState.unseal("")  # nosec B105 # pragma: allowlist secret
+            VaultState.unseal(bytearray(b""))  # nosec B105 # pragma: allowlist secret
 
     mock_derive_kek.assert_called_once()
 
@@ -345,7 +345,7 @@ def test_vault_empty_passphrase_still_raises_vault_empty_passphrase_error(
     from synth_engine.shared.security.vault import VaultEmptyPassphraseError, VaultState
 
     with pytest.raises(VaultEmptyPassphraseError, match="[Pp]assphrase"):
-        VaultState.unseal("")  # nosec B105 # pragma: allowlist secret
+        VaultState.unseal(bytearray(b""))  # nosec B105 # pragma: allowlist secret
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +373,7 @@ def test_concurrent_unseal_only_one_succeeds(vault_salt_env: str) -> None:
 
     def attempt_unseal() -> None:
         try:
-            VaultState.unseal("concurrent-passphrase")  # nosec B105 # pragma: allowlist secret
+            VaultState.unseal(bytearray(b"concurrent-passphrase"))  # nosec B105 # pragma: allowlist secret
             with lock:
                 successes.append(1)
         except VaultAlreadyUnsealedError:

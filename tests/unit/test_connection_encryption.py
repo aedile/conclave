@@ -44,7 +44,7 @@ def _reset_vault_and_settings(monkeypatch: pytest.MonkeyPatch) -> Any:
     get_settings.cache_clear()
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-    VaultState.unseal("connection-encryption-test-passphrase")
+    VaultState.unseal(bytearray(b"connection-encryption-test-passphrase"))
     yield
     _reset_fernet_cache()
     VaultState.reset()

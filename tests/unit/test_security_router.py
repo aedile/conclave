@@ -48,7 +48,7 @@ def vault_salt(monkeypatch: pytest.MonkeyPatch) -> str:
 @pytest.fixture
 def unsealed_vault(vault_salt: str) -> None:
     """Unseal the vault with a known passphrase."""
-    VaultState.unseal("shred-test-passphrase")
+    VaultState.unseal(bytearray(b"shred-test-passphrase"))
 
 
 @pytest.fixture

@@ -187,7 +187,7 @@ def test_ale_fails_after_vault_re_seals(monkeypatch: pytest.MonkeyPatch) -> None
     # Set up vault unseal
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-    VaultState.unseal("test-passphrase")
+    VaultState.unseal(bytearray(b"test-passphrase"))
 
     # ALE must work when unsealed
     fernet = get_fernet()
@@ -218,7 +218,7 @@ def test_get_fernet_works_when_vault_is_unsealed(monkeypatch: pytest.MonkeyPatch
 
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-    VaultState.unseal("test-passphrase")
+    VaultState.unseal(bytearray(b"test-passphrase"))
 
     fernet = get_fernet()
     plaintext = b"check-vault-works"

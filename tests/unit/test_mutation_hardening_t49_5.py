@@ -105,7 +105,7 @@ def test_derive_kek_hash_name_must_be_sha256(vault_salt: str) -> None:
     from synth_engine.shared.security.vault import derive_kek
 
     salt = base64.urlsafe_b64decode(vault_salt + "==")
-    kek = derive_kek("test-passphrase", salt)  # nosec B105 # pragma: allowlist secret
+    kek = derive_kek(b"test-passphrase", salt)  # nosec B105 # pragma: allowlist secret
     assert isinstance(kek, bytes), "derive_kek must return bytes"
     assert len(kek) == 32, f"derive_kek must produce exactly 32 bytes, got {len(kek)}"
 
@@ -122,7 +122,7 @@ def test_derive_kek_output_length_is_32_bytes(vault_salt: str) -> None:
     from synth_engine.shared.security.vault import derive_kek
 
     salt = base64.urlsafe_b64decode(vault_salt + "==")
-    kek = derive_kek("any-passphrase", salt)  # nosec B105 # pragma: allowlist secret
+    kek = derive_kek(b"any-passphrase", salt)  # nosec B105 # pragma: allowlist secret
     assert len(kek) == 32, f"Expected 32-byte KEK, got {len(kek)}"
 
 
@@ -136,7 +136,7 @@ def test_unseal_stores_exactly_32_byte_kek(vault_salt: str) -> None:
     """
     from synth_engine.shared.security.vault import VaultState
 
-    VaultState.unseal("secure-passphrase")  # nosec B105 # pragma: allowlist secret
+    VaultState.unseal(bytearray(b"secure-passphrase"))  # nosec B105 # pragma: allowlist secret
     kek = VaultState.get_kek()
     assert len(kek) == 32, f"KEK must be exactly 32 bytes, got {len(kek)}"
     assert isinstance(kek, bytes), "KEK must be bytes"
@@ -153,8 +153,8 @@ def test_unseal_passphrase_affects_kek_value(vault_salt: str) -> None:
     from synth_engine.shared.security.vault import derive_kek
 
     salt = base64.urlsafe_b64decode(vault_salt + "==")
-    kek_a = derive_kek("passphrase-alpha", salt)  # nosec B105 # pragma: allowlist secret
-    kek_b = derive_kek("passphrase-beta", salt)  # nosec B105 # pragma: allowlist secret
+    kek_a = derive_kek(b"passphrase-alpha", salt)  # nosec B105 # pragma: allowlist secret
+    kek_b = derive_kek(b"passphrase-beta", salt)  # nosec B105 # pragma: allowlist secret
     assert kek_a != kek_b, "Different passphrases must produce different KEKs"
 
 
@@ -174,8 +174,8 @@ def test_unseal_salt_affects_kek_value() -> None:
     while salt_b == salt_a:
         salt_b = os.urandom(16)
 
-    kek_a = derive_kek("same-passphrase", salt_a)  # nosec B105 # pragma: allowlist secret
-    kek_b = derive_kek("same-passphrase", salt_b)  # nosec B105 # pragma: allowlist secret
+    kek_a = derive_kek(b"same-passphrase", salt_a)  # nosec B105 # pragma: allowlist secret
+    kek_b = derive_kek(b"same-passphrase", salt_b)  # nosec B105 # pragma: allowlist secret
     assert kek_a != kek_b, "Different salts must produce different KEKs"
 
 

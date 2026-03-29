@@ -254,7 +254,7 @@ def test_vault_state_no_partial_kek_after_concurrent_transitions(
         """
         try:
             barrier.wait()
-            VaultState.unseal("secure-passphrase-abc")
+            VaultState.unseal(bytearray(b"secure-passphrase-abc"))
         except Exception:
             _logger.debug("unseal thread: exception suppressed (expected in race scenario)")
 

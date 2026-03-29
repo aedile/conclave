@@ -60,7 +60,7 @@ def unseal_vault_for_tests(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", salt)
     VaultState.reset()
-    VaultState.unseal("test-passphrase-for-p70-tests")
+    VaultState.unseal(bytearray(b"test-passphrase-for-p70-tests"))
     yield
     VaultState.reset()
 

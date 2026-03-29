@@ -286,7 +286,7 @@ class TestAuditBeforeDestructiveShred:
         from synth_engine.shared.security.vault import VaultState
 
         # Unseal the vault before the test
-        VaultState.unseal("test-passphrase-for-shred")
+        VaultState.unseal(bytearray(b"test-passphrase-for-shred"))
         assert not VaultState.is_sealed(), "vault must be unsealed before shred"
 
         with patch(
@@ -338,7 +338,7 @@ class TestAuditBeforeDestructiveKeyRotation:
         """
         from synth_engine.shared.security.vault import VaultState
 
-        VaultState.unseal("test-passphrase-rotation")
+        VaultState.unseal(bytearray(b"test-passphrase-rotation"))
 
         mock_task = MagicMock()
 

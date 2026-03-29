@@ -368,7 +368,7 @@ async def test_license_gate_middleware_returns_402_for_unlicensed_request(
     # Unseal the vault so the seal gate passes
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-    VaultState.unseal("any-passphrase-for-test")
+    VaultState.unseal(bytearray(b"any-passphrase-for-test"))
 
     assert LicenseState.is_licensed() is False
 
