@@ -296,6 +296,22 @@ def _suppress_third_party_deprecation_warnings() -> Generator[None]:
             category=UserWarning,
         )
 
+        # -----------------------------------------------------------------------
+        # SQLAlchemy SAWarning: duplicate class registration in mapper registry.
+        # Multiple unit tests create in-memory SQLite engines and call
+        # SQLModel.metadata.create_all() on them.  SQLAlchemy emits SAWarning
+        # when the same SQLModel class (e.g., Setting, Connection) is registered
+        # against a second engine while an earlier engine is still alive in the
+        # Python module cache.  This is benign in a test context — the classes
+        # are identical, not conflicting.  Tests that use short-lived in-memory
+        # engines cannot avoid this without restructuring all test fixtures.
+        # -----------------------------------------------------------------------
+        warnings.filterwarnings(
+            "ignore",
+            message="This declarative base already contains a class",
+            category=Warning,
+        )
+
         yield
 
         # -----------------------------------------------------------------------

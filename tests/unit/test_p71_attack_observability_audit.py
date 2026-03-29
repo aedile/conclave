@@ -209,7 +209,10 @@ def _seed_connection(app: FastAPI, connection_id: str = "conn-001") -> None:
         id=connection_id,
         owner_id="test-operator",
         name="test-conn",
-        connection_string="postgresql://localhost/test",  # pragma: allowlist secret
+        host="localhost",
+        port=5432,
+        database="testdb",
+        schema_name="public",
     )
     session.add(conn)
     session.commit()
@@ -256,6 +259,7 @@ def _seed_webhook(app: FastAPI, webhook_id: str = "wh-001") -> None:
         id=webhook_id,
         owner_id="test-operator",
         callback_url="https://example.com/hook",
+        signing_key="test-signing-key-minimum-32chars!",
         active=True,
     )
     session.add(reg)
@@ -279,10 +283,10 @@ def test_no_duplicate_prometheus_metric_names_on_import() -> None:
     singleton so repeated imports are safe.
     """
     # Import once — already imported by production code during app boot.
-    from synth_engine.shared import observability as obs1  # noqa: F401
+    from synth_engine.shared import observability as obs1
 
     # Second import must not raise.
-    from synth_engine.shared import observability as obs2  # noqa: F401
+    from synth_engine.shared import observability as obs2
 
     # Both imports reference the same module object (Python module cache).
     assert obs1 is obs2, "Module identity must be preserved across imports"
@@ -300,12 +304,8 @@ def test_unified_counter_incremented_with_router_label() -> None:
     from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
 
     # Must not raise — just increment.
-    AUDIT_WRITE_FAILURE_TOTAL.labels(
-        router="connections", endpoint="/connections/{id}"
-    ).inc()
-    AUDIT_WRITE_FAILURE_TOTAL.labels(
-        router="settings", endpoint="/settings/{key}"
-    ).inc()
+    AUDIT_WRITE_FAILURE_TOTAL.labels(router="connections", endpoint="/connections/{id}").inc()
+    AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key}").inc()
 
 
 # ---------------------------------------------------------------------------
@@ -325,9 +325,7 @@ def test_connections_delete_audit_failure_returns_500_no_mutation() -> None:
 
     with (
         _bypass_middleware(),
-        patch(
-            "synth_engine.bootstrapper.routers.connections.get_audit_logger"
-        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.routers.connections.get_audit_logger") as mock_get_audit,
     ):
         mock_logger = MagicMock()
         mock_logger.log_event.side_effect = OSError("audit write failure")
@@ -356,9 +354,7 @@ def test_settings_put_audit_failure_returns_500_no_mutation() -> None:
 
     with (
         _bypass_middleware(),
-        patch(
-            "synth_engine.bootstrapper.routers.settings.get_audit_logger"
-        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.routers.settings.get_audit_logger") as mock_get_audit,
     ):
         mock_logger = MagicMock()
         mock_logger.log_event.side_effect = OSError("audit write failure")
@@ -387,9 +383,7 @@ def test_settings_delete_audit_failure_returns_500_no_mutation() -> None:
 
     with (
         _bypass_middleware(),
-        patch(
-            "synth_engine.bootstrapper.routers.settings.get_audit_logger"
-        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.routers.settings.get_audit_logger") as mock_get_audit,
     ):
         mock_logger = MagicMock()
         mock_logger.log_event.side_effect = OSError("audit write failure")
@@ -417,9 +411,7 @@ def test_webhooks_delete_audit_failure_returns_500_no_mutation() -> None:
 
     with (
         _bypass_middleware(),
-        patch(
-            "synth_engine.bootstrapper.routers.webhooks.get_audit_logger"
-        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.routers.webhooks.get_audit_logger") as mock_get_audit,
     ):
         mock_logger = MagicMock()
         mock_logger.log_event.side_effect = OSError("audit write failure")
@@ -446,7 +438,7 @@ def test_webhooks_delete_audit_failure_returns_500_no_mutation() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_connections_delete_audit_event_type_is_CONNECTION_DELETED() -> None:
+def test_connections_delete_audit_event_type_is_CONNECTION_DELETED() -> None:  # noqa: N802
     """DELETE /connections/{id} must emit event_type='CONNECTION_DELETED'."""
     app = _make_connections_app()
     _seed_connection(app, "conn-type-check")
@@ -458,16 +450,14 @@ def test_connections_delete_audit_event_type_is_CONNECTION_DELETED() -> None:
 
     with (
         _bypass_middleware(),
-        patch(
-            "synth_engine.bootstrapper.routers.connections.get_audit_logger"
-        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.routers.connections.get_audit_logger") as mock_get_audit,
     ):
         mock_logger = MagicMock()
         mock_logger.log_event.side_effect = _capturing_log_event
         mock_get_audit.return_value = mock_logger
 
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.delete("/connections/conn-type-check")
+        client.delete("/connections/conn-type-check")
 
     # Audit write was called (even though it raised — side_effect fires first).
     assert len(captured_calls) >= 1, "log_event must have been called"
@@ -492,13 +482,9 @@ def test_settings_put_audit_event_emitted_before_commit() -> None:
     def _audit_call(**kwargs: Any) -> None:
         call_order.append("audit")
 
-    original_commit_attr = None
-
     with (
         _bypass_middleware(),
-        patch(
-            "synth_engine.bootstrapper.routers.settings.get_audit_logger"
-        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.routers.settings.get_audit_logger") as mock_get_audit,
     ):
         mock_logger = MagicMock()
         mock_logger.log_event.side_effect = _audit_call
@@ -511,7 +497,6 @@ def test_settings_put_audit_event_emitted_before_commit() -> None:
     assert "audit" in call_order, "Audit event must have been called"
     # Response must be 200 (upsert success) when audit does not fail.
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
-    assert original_commit_attr is None  # Suppress unused-variable lint.
 
 
 def test_webhook_deactivate_audit_reflects_soft_delete() -> None:
@@ -526,9 +511,7 @@ def test_webhook_deactivate_audit_reflects_soft_delete() -> None:
 
     with (
         _bypass_middleware(),
-        patch(
-            "synth_engine.bootstrapper.routers.webhooks.get_audit_logger"
-        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.routers.webhooks.get_audit_logger") as mock_get_audit,
     ):
         mock_logger = MagicMock()
         mock_logger.log_event.side_effect = _capturing_log_event
@@ -565,9 +548,7 @@ def test_db_failure_after_audit_emits_compensating_aborted_event() -> None:
 
     with (
         _bypass_middleware(),
-        patch(
-            "synth_engine.bootstrapper.routers.connections.get_audit_logger"
-        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.routers.connections.get_audit_logger") as mock_get_audit,
     ):
         mock_logger = MagicMock()
         mock_logger.log_event.side_effect = _capturing_log_event
@@ -580,7 +561,6 @@ def test_db_failure_after_audit_emits_compensating_aborted_event() -> None:
 
         def _failing_session() -> Any:
             for session in original_override():
-                original_commit = session.commit
 
                 def _patched_commit() -> None:
                     # Let commit fail only if there's a pending delete.
@@ -598,6 +578,6 @@ def test_db_failure_after_audit_emits_compensating_aborted_event() -> None:
     assert "CONNECTION_DELETED" in captured_event_types, (
         "Primary audit event 'CONNECTION_DELETED' must have been emitted"
     )
-    assert any(
-        "ABORTED" in et for et in captured_event_types
-    ), f"Compensating ABORTED event must be emitted; got {captured_event_types}"
+    assert any("ABORTED" in et for et in captured_event_types), (
+        f"Compensating ABORTED event must be emitted; got {captured_event_types}"
+    )

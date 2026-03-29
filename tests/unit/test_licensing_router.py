@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import patch
@@ -53,10 +52,14 @@ def _generate_rsa_keypair() -> tuple[str, str]:
         serialization.PrivateFormat.TraditionalOpenSSL,
         serialization.NoEncryption(),
     ).decode()
-    public_pem = private_key.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode()
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
     return private_pem, public_pem
 
 
@@ -129,7 +132,7 @@ def reset_license_state() -> Any:
     LicenseState.deactivate()
 
 
-@pytest.fixture()
+@pytest.fixture
 def licensing_app() -> FastAPI:
     """Build a minimal FastAPI app with only the licensing router.
 
@@ -144,7 +147,7 @@ def licensing_app() -> FastAPI:
     return app
 
 
-@pytest.fixture()
+@pytest.fixture
 def rsa_keypair() -> tuple[str, str]:
     """Generate a fresh RSA keypair for each test.
 
@@ -229,12 +232,6 @@ def test_get_license_challenge_qrcode_fallback(licensing_app: FastAPI) -> None:
 
     payload = {"hardware_id": "abc123", "app_version": "1.0.0", "timestamp": "2024-01-01"}
 
-    with patch("builtins.__import__", side_effect=ImportError("qrcode not installed")):
-        # Can't use __import__ patch broadly — instead mock qrcode import failure
-        # by patching the function that imports qrcode.
-        pass
-
-    # Test the actual fallback path: mock qrcode to raise ImportError.
     with patch.dict("sys.modules", {"qrcode": None, "qrcode.image.pil": None}):
         result = _render_qr_code(payload)
 
@@ -252,26 +249,29 @@ def test_get_license_challenge_qrcode_fallback(licensing_app: FastAPI) -> None:
 def test_post_license_activate_valid_token_returns_200(
     licensing_app: FastAPI,
     rsa_keypair: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /license/activate with a valid signed token activates the license."""
+    from synth_engine.shared.settings import get_settings
+
     private_pem, public_pem = rsa_keypair
 
-    # Patch get_hardware_id to return a known value so we can build a matching JWT.
+    # Use monkeypatch.setenv so the real settings reads the public key from env.
+    # This avoids replacing get_settings with a MagicMock (which breaks the
+    # rate-limit middleware's integer comparisons).
+    monkeypatch.setenv("LICENSE_PUBLIC_KEY", public_pem)
+    get_settings.cache_clear()
+
+    known_hw_id = "test-hw-id-64chars-" + "0" * 45
+    token = _sign_license_jwt(private_pem, known_hw_id)
+
     with (
         _bypass_middleware_patches(),
         patch(
             "synth_engine.shared.security.licensing.get_hardware_id",
-            return_value="test-hw-id-64chars-" + "0" * 45,
+            return_value=known_hw_id,
         ),
-        patch(
-            "synth_engine.shared.settings.get_settings",
-        ) as mock_settings,
     ):
-        mock_settings.return_value.license_public_key = public_pem
-
-        hw_id = "test-hw-id-64chars-" + "0" * 45
-        token = _sign_license_jwt(private_pem, hw_id)
-
         client = TestClient(licensing_app)
         resp = client.post("/license/activate", json={"token": token})
 
@@ -288,25 +288,26 @@ def test_post_license_activate_valid_token_returns_200(
 def test_post_license_activate_expired_returns_403(
     licensing_app: FastAPI,
     rsa_keypair: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /license/activate with an expired token returns 403."""
+    from synth_engine.shared.settings import get_settings
+
     private_pem, public_pem = rsa_keypair
+
+    monkeypatch.setenv("LICENSE_PUBLIC_KEY", public_pem)
+    get_settings.cache_clear()
+
+    known_hw_id = "test-hw-id-64chars-" + "0" * 45
+    token = _sign_license_jwt(private_pem, known_hw_id, expired=True)
 
     with (
         _bypass_middleware_patches(),
         patch(
             "synth_engine.shared.security.licensing.get_hardware_id",
-            return_value="test-hw-id-64chars-" + "0" * 45,
+            return_value=known_hw_id,
         ),
-        patch(
-            "synth_engine.shared.settings.get_settings",
-        ) as mock_settings,
     ):
-        mock_settings.return_value.license_public_key = public_pem
-
-        hw_id = "test-hw-id-64chars-" + "0" * 45
-        token = _sign_license_jwt(private_pem, hw_id, expired=True)
-
         client = TestClient(licensing_app)
         resp = client.post("/license/activate", json={"token": token})
 
@@ -319,26 +320,27 @@ def test_post_license_activate_expired_returns_403(
 def test_post_license_activate_wrong_hw_returns_403(
     licensing_app: FastAPI,
     rsa_keypair: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /license/activate with a mismatched hardware_id returns 403."""
+    from synth_engine.shared.settings import get_settings
+
     private_pem, public_pem = rsa_keypair
+
+    monkeypatch.setenv("LICENSE_PUBLIC_KEY", public_pem)
+    get_settings.cache_clear()
+
+    correct_hw_id = "correct-hw-id-64chars-" + "0" * 42
+    # Sign JWT with wrong hardware_id claim.
+    token = _sign_license_jwt(private_pem, correct_hw_id, wrong_hardware_id=True)
 
     with (
         _bypass_middleware_patches(),
         patch(
             "synth_engine.shared.security.licensing.get_hardware_id",
-            return_value="correct-hw-id-64chars-" + "0" * 42,
+            return_value=correct_hw_id,
         ),
-        patch(
-            "synth_engine.shared.settings.get_settings",
-        ) as mock_settings,
     ):
-        mock_settings.return_value.license_public_key = public_pem
-
-        hw_id = "correct-hw-id-64chars-" + "0" * 42
-        # Sign JWT with wrong hardware_id claim.
-        token = _sign_license_jwt(private_pem, hw_id, wrong_hardware_id=True)
-
         client = TestClient(licensing_app)
         resp = client.post("/license/activate", json={"token": token})
 

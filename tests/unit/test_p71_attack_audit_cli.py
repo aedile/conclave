@@ -16,7 +16,6 @@ Task: T71.2 — Wire audit CLI commands
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 from pathlib import Path
 
@@ -87,7 +86,7 @@ def test_migrate_signatures_dry_run_does_not_write_output() -> None:
         output_path = Path(tmpdir) / "audit_migrated.jsonl"
         input_path.write_text(_minimal_v3_jsonl_entry(audit_key_hex))
 
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             audit_group,
             [
@@ -102,21 +101,19 @@ def test_migrate_signatures_dry_run_does_not_write_output() -> None:
         )
 
     assert result.exit_code == 0, (
-        f"Exit code: {result.exit_code}\nOutput:\n{result.output}\n"
-        f"Exception: {result.exception}"
+        f"Exit code: {result.exit_code}\nOutput:\n{result.output}\nException: {result.exception}"
     )
-    assert not output_path.exists(), (
-        "--dry-run must NOT create the output file"
-    )
+    assert not output_path.exists(), "--dry-run must NOT create the output file"
 
 
 def test_log_event_missing_audit_key_env_exits_nonzero() -> None:
     """``conclave audit log-event`` without AUDIT_KEY env var must exit non-zero."""
     from synth_engine.bootstrapper.cli import audit_group
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     # Explicitly remove AUDIT_KEY from env.
-    env = {k: v for k, v in os.environ.items() if k not in ("AUDIT_KEY", "CONCLAVE_AUDIT_KEY")}
+    # Click's env= parameter only processes keys explicitly provided;
+    # to DELETE a key from os.environ, pass it with value=None.
     result = runner.invoke(
         audit_group,
         [
@@ -130,7 +127,7 @@ def test_log_event_missing_audit_key_env_exits_nonzero() -> None:
             "--action",
             "test",
         ],
-        env=env,
+        env={"AUDIT_KEY": None, "CONCLAVE_AUDIT_KEY": None},
         catch_exceptions=False,
     )
     assert result.exit_code != 0, (
@@ -145,7 +142,7 @@ def test_log_event_malformed_details_json_exits_nonzero() -> None:
 
     audit_key_hex = "b" * 64
 
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     result = runner.invoke(
         audit_group,
         [
@@ -179,7 +176,7 @@ def test_migrate_signatures_missing_input_exits_nonzero() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "out.jsonl"
 
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             audit_group,
             [
@@ -216,7 +213,7 @@ def test_migrate_signatures_atomic_write() -> None:
         output_path = Path(tmpdir) / "audit_migrated.jsonl"
         input_path.write_text(_minimal_v3_jsonl_entry(audit_key_hex))
 
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             audit_group,
             [
@@ -230,8 +227,7 @@ def test_migrate_signatures_atomic_write() -> None:
         )
 
         assert result.exit_code == 0, (
-            f"Exit: {result.exit_code}\nOutput:\n{result.output}\n"
-            f"Exception: {result.exception}"
+            f"Exit: {result.exit_code}\nOutput:\n{result.output}\nException: {result.exception}"
         )
         assert output_path.exists(), "Output file must exist after successful migration"
 

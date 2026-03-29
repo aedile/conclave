@@ -9,7 +9,6 @@ Task: T71.6 — Rename P68-P70 test files to module-based names
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -62,9 +61,7 @@ def test_renamed_module_based_test_files_exist() -> None:
         "test_settings_decomposition.py",
         "test_audit_path_param_attack.py",
     ]
-    missing = [
-        name for name in expected_files if not (tests_dir / name).exists()
-    ]
+    missing = [name for name in expected_files if not (tests_dir / name).exists()]
     assert len(missing) == 0, (
         f"Expected module-based test files missing after T71.6 rename: {missing}"
     )
