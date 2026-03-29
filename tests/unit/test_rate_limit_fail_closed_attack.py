@@ -5,7 +5,7 @@ Tests verify that when Redis is unavailable:
 - During the grace period, requests are served from in-memory counter (not unlimited).
 - The grace period clock does not reset on repeated Redis failure cycles.
 - When rate_limit_fail_open=True, the in-memory fallback is restored (pre-P63 behavior).
-- In production with rate_limit_fail_open=True, a security WARNING is logged.
+- In production with rate_limit_fail_open=True, startup is blocked with SystemExit (T68.7).
 
 CONSTITUTION Priority 0: Security — rate limiting must fail closed to prevent DoS bypass.
 CONSTITUTION Priority 3: TDD — attack tests before feature tests (Rule 22).
@@ -14,7 +14,6 @@ Task: T63.3 — Rate Limiter Fail-Closed on Redis Failure
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import Generator
 from typing import Any
@@ -286,18 +285,17 @@ async def test_rate_limit_fail_open_true_restores_in_memory_fallback(
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_fail_open_true_logs_warning_in_production(
-    caplog: pytest.LogCaptureFixture,
+async def test_rate_limit_fail_open_true_blocks_startup_in_production(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When rate_limit_fail_open=True in production, a security WARNING is logged at startup.
+    """When rate_limit_fail_open=True in production, startup is blocked with SystemExit (T68.7).
 
-    Operators who enable fail-open in production must receive an explicit
-    security WARNING so this misconfiguration is visible in log aggregators.
+    T68.7 upgraded this check from a warning to a blocking SystemExit.
+    The process must not reach a running state with this misconfiguration in production.
 
     Arrange: set CONCLAVE_RATE_LIMIT_FAIL_OPEN=true and CONCLAVE_ENV=production.
-    Act: call validate_config() (or equivalent startup path).
-    Assert: a WARNING log message about rate_limit_fail_open in production is emitted.
+    Act: call validate_config() (startup path).
+    Assert: SystemExit is raised (not merely a warning).
     """
     from synth_engine.shared.settings import get_settings
 
@@ -322,18 +320,13 @@ async def test_rate_limit_fail_open_true_logs_warning_in_production(
 
     from synth_engine.bootstrapper.config_validation import validate_config
 
-    with caplog.at_level(logging.WARNING):
-        try:
-            validate_config()
-        except SystemExit:
-            pass  # May raise on missing certs, vault, etc. — we only care about the log.
+    with pytest.raises(SystemExit) as exc_info:
+        validate_config()
 
-    warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-    has_fail_open_warning = any(
-        "fail_open" in msg.lower() or "fail open" in msg.lower() or "rate_limit_fail_open" in msg
-        for msg in warning_messages
+    error_message = str(exc_info.value)
+    has_setting_name = (
+        "CONCLAVE_RATE_LIMIT_FAIL_OPEN" in error_message or "rate_limit_fail_open" in error_message
     )
-    assert has_fail_open_warning, (
-        f"rate_limit_fail_open=True in production must emit a security WARNING; "
-        f"got warning messages: {warning_messages}"
+    assert has_setting_name, (
+        f"SystemExit message must name the problematic setting; got: {error_message}"
     )

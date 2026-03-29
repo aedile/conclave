@@ -921,12 +921,15 @@ class TestAdminCommitErrors:
         mock_session.rollback = MagicMock()
         mock_session.refresh = MagicMock()
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
 
         app.dependency_overrides[get_db_session] = _bad_session
+        # T68.2: Override auth so operator matches job.owner_id ("operator-1").
+        app.dependency_overrides[get_current_operator] = lambda: "operator-1"
 
         vault_p, license_p = _vault_license_patches()
         with (
@@ -975,12 +978,15 @@ class TestAdminCommitErrors:
         mock_session.rollback = MagicMock()
         mock_session.refresh = MagicMock()
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
 
         app.dependency_overrides[get_db_session] = _bad_session
+        # T68.2: Override auth so operator matches job.owner_id ("operator-1").
+        app.dependency_overrides[get_current_operator] = lambda: "operator-1"
 
         vault_p, license_p = _vault_license_patches()
         with (
@@ -996,6 +1002,7 @@ class TestAdminCommitErrors:
                     json={"enable": True},
                 )
 
+        assert response.status_code == 500
         body = response.json()
         detail = body.get("detail", "")
         assert "confidential_table_name" not in detail
