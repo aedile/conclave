@@ -74,7 +74,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, SecretStr, model_validator
+from pydantic import AliasChoices, BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _logger = logging.getLogger(__name__)
@@ -84,6 +84,105 @@ _logger = logging.getLogger(__name__)
 #: truncation without calling bcrypt.checkpw() (which is intentionally slow).
 _BCRYPT_HASH_PREFIX: str = "$2b$"
 _BCRYPT_HASH_MIN_LENGTH: int = 59
+
+
+# ---------------------------------------------------------------------------
+# Settings sub-models (T70.4) — grouped views for organized access.
+# These are plain BaseModel classes; ConclaveSettings aggregates them via
+# @property accessors to preserve all existing flat-field access patterns.
+# ---------------------------------------------------------------------------
+
+
+class TLSSettings(BaseModel):
+    """TLS and SSL connection settings.
+
+    Attributes:
+        conclave_ssl_required: Enforce sslmode=require for PostgreSQL.
+        conclave_tls_cert_path: Path to TLS certificate for health check.
+    """
+
+    conclave_ssl_required: bool
+    conclave_tls_cert_path: str | None
+
+
+class RateLimitSettings(BaseModel):
+    """Rate limiting settings for all protected endpoints.
+
+    Attributes:
+        rate_limit_unseal_per_minute: Max /unseal requests per IP/min.
+        rate_limit_auth_per_minute: Max /auth/token requests per IP/min.
+        rate_limit_general_per_minute: Max general requests per operator/min.
+        rate_limit_download_per_minute: Max download requests per operator/min.
+        conclave_rate_limit_fail_open: Fail-open on Redis failure when True.
+        conclave_trusted_proxy_count: Number of trusted reverse proxies.
+    """
+
+    rate_limit_unseal_per_minute: int
+    rate_limit_auth_per_minute: int
+    rate_limit_general_per_minute: int
+    rate_limit_download_per_minute: int
+    conclave_rate_limit_fail_open: bool
+    conclave_trusted_proxy_count: int
+
+
+class WebhookSettings(BaseModel):
+    """Webhook delivery and circuit-breaker settings.
+
+    Attributes:
+        webhook_max_registrations: Max active registrations per operator.
+        webhook_delivery_timeout_seconds: HTTP timeout per delivery attempt.
+        webhook_circuit_breaker_threshold: Consecutive failures to trip circuit.
+        webhook_circuit_breaker_cooldown_seconds: Cooldown after circuit trips.
+    """
+
+    webhook_max_registrations: int
+    webhook_delivery_timeout_seconds: int
+    webhook_circuit_breaker_threshold: int
+    webhook_circuit_breaker_cooldown_seconds: int
+
+
+class RetentionSettings(BaseModel):
+    """Data retention policy settings.
+
+    Attributes:
+        job_retention_days: Days to retain synthesis_job records.
+        audit_retention_days: Days to retain audit events (archive threshold).
+        artifact_retention_days: Days to retain Parquet artifact files.
+    """
+
+    job_retention_days: int
+    audit_retention_days: int
+    artifact_retention_days: int
+
+
+class ParquetSettings(BaseModel):
+    """Parquet memory bounds and path sandbox settings.
+
+    Attributes:
+        parquet_max_file_bytes: Maximum Parquet file size in bytes.
+        parquet_max_rows: Maximum number of rows in a loaded DataFrame.
+        conclave_data_dir: Base directory for the parquet_path sandbox.
+    """
+
+    parquet_max_file_bytes: int
+    parquet_max_rows: int
+    conclave_data_dir: str
+
+
+class AnchorSettings(BaseModel):
+    """Audit trail anchoring settings.
+
+    Attributes:
+        anchor_backend: Backend type ('local_file' or 's3_object_lock').
+        anchor_file_path: File path for local-file anchor backend.
+        anchor_every_n_events: Publish anchor every N audit events.
+        anchor_every_seconds: Maximum interval between anchors in seconds.
+    """
+
+    anchor_backend: str
+    anchor_file_path: str
+    anchor_every_n_events: int
+    anchor_every_seconds: int
 
 
 class ConclaveSettings(BaseSettings):
@@ -919,6 +1018,66 @@ class ConclaveSettings(BaseSettings):
             ``False`` otherwise.
         """
         return self.conclave_env.lower() == "production"
+
+    # --- T70.4 Sub-model property accessors ---
+
+    @property
+    def tls(self) -> TLSSettings:
+        """Return a TLSSettings view of the TLS-related fields (T70.4)."""
+        return TLSSettings(
+            conclave_ssl_required=self.conclave_ssl_required,
+            conclave_tls_cert_path=self.conclave_tls_cert_path,
+        )
+
+    @property
+    def rate_limit(self) -> RateLimitSettings:
+        """Return a RateLimitSettings view of the rate-limiting fields (T70.4)."""
+        return RateLimitSettings(
+            rate_limit_unseal_per_minute=self.rate_limit_unseal_per_minute,
+            rate_limit_auth_per_minute=self.rate_limit_auth_per_minute,
+            rate_limit_general_per_minute=self.rate_limit_general_per_minute,
+            rate_limit_download_per_minute=self.rate_limit_download_per_minute,
+            conclave_rate_limit_fail_open=self.conclave_rate_limit_fail_open,
+            conclave_trusted_proxy_count=self.conclave_trusted_proxy_count,
+        )
+
+    @property
+    def webhook(self) -> WebhookSettings:
+        """Return a WebhookSettings view of the webhook delivery fields (T70.4)."""
+        return WebhookSettings(
+            webhook_max_registrations=self.webhook_max_registrations,
+            webhook_delivery_timeout_seconds=self.webhook_delivery_timeout_seconds,
+            webhook_circuit_breaker_threshold=self.webhook_circuit_breaker_threshold,
+            webhook_circuit_breaker_cooldown_seconds=self.webhook_circuit_breaker_cooldown_seconds,
+        )
+
+    @property
+    def retention(self) -> RetentionSettings:
+        """Return a RetentionSettings view of the data-retention fields (T70.4)."""
+        return RetentionSettings(
+            job_retention_days=self.job_retention_days,
+            audit_retention_days=self.audit_retention_days,
+            artifact_retention_days=self.artifact_retention_days,
+        )
+
+    @property
+    def parquet(self) -> ParquetSettings:
+        """Return a ParquetSettings view of the Parquet-bound fields (T70.4)."""
+        return ParquetSettings(
+            parquet_max_file_bytes=self.parquet_max_file_bytes,
+            parquet_max_rows=self.parquet_max_rows,
+            conclave_data_dir=self.conclave_data_dir,
+        )
+
+    @property
+    def anchor(self) -> AnchorSettings:
+        """Return an AnchorSettings view of the audit-anchor fields (T70.4)."""
+        return AnchorSettings(
+            anchor_backend=self.anchor_backend,
+            anchor_file_path=self.anchor_file_path,
+            anchor_every_n_events=self.anchor_every_n_events,
+            anchor_every_seconds=self.anchor_every_seconds,
+        )
 
 
 @lru_cache(maxsize=1)
