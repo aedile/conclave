@@ -63,9 +63,9 @@ def migrate_audit_signatures(
         audit_key: Raw 32-byte HMAC key used both for signature verification
             and for signing migrated entries.
 
-    Raises:
-        OSError: If the input file cannot be opened for reading, or if the
-            output file cannot be opened for writing.
+    Note:
+        ``OSError`` propagates if the input file cannot be opened for reading,
+        or if the output file cannot be opened for writing.
     """
     # Build a stateless logger for verification only.
     # We do NOT use the chain (log_event) because migration re-signs without

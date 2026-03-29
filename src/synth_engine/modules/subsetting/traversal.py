@@ -109,11 +109,10 @@ class DagTraversal:
                 topological order.  Each ``rows`` element is a plain
                 ``dict[str, Any]`` mapping column name to value.
 
-        Raises:
-            ValueError: If any FK encountered has > 4 columns or a mismatch
-                between constrained and referred column counts.
-
         Note:
+            ``ValueError`` propagates from :meth:`_validate_fk` if any FK
+            encountered has > 4 columns or a mismatch between constrained
+            and referred column counts.
             If the seed query returns 0 rows, nothing is yielded.
         """
         # ------------------------------------------------------------------
@@ -183,8 +182,8 @@ class DagTraversal:
             fk: The ForeignKeyInfo to validate.
 
         Raises:
-            ValueError: If constrained/referred column counts differ.
-            ValueError: If the FK has more than :data:`_MAX_COMPOSITE_WIDTH` columns.
+            ValueError: If constrained/referred column counts differ, or if
+                the FK has more than :data:`_MAX_COMPOSITE_WIDTH` columns.
         """
         n_constrained = len(fk.constrained_columns)
         n_referred = len(fk.referred_columns)
@@ -229,8 +228,9 @@ class DagTraversal:
         Returns:
             Deduplicated list of matching row dicts, or an empty list if not reachable.
 
-        Raises:
-            ValueError: If any FK has > 4 columns or mismatched column counts.
+        Note:
+            ``ValueError`` propagates from :meth:`_validate_fk` if any FK
+            has > 4 columns or mismatched column counts.
         """
         # Use a set of frozen row dicts for deduplication
         seen: set[tuple[tuple[str, Any], ...]] = set()
@@ -285,9 +285,7 @@ class DagTraversal:
                 if not fk_values:
                     continue
 
-                new_rows = self._fetch_by_composite_fk_values(
-                    table, referred_cols, fk_values
-                )
+                new_rows = self._fetch_by_composite_fk_values(table, referred_cols, fk_values)
                 _add_rows(new_rows)
 
         return rows

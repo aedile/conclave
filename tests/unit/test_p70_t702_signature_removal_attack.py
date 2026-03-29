@@ -77,9 +77,7 @@ class TestSignAuditEntryAlwaysV3:
 class TestV1V2BackwardCompatVerification:
     """v1 and v2 entries must still verify but must emit deprecation WARNINGs."""
 
-    def test_v1_still_verifies_with_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_v1_still_verifies_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """v1 signature must verify True and emit a deprecation WARNING."""
         from synth_engine.shared.security.audit_logger import AuditEvent
         from synth_engine.shared.security.audit_signatures import sign_v1
@@ -115,14 +113,12 @@ class TestV1V2BackwardCompatVerification:
         assert result is True
         # Must emit a WARNING about deprecated v1 format
         warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("v1" in msg.lower() or "deprecated" in msg.lower() or "warn" in msg.lower()
-                   for msg in warning_msgs), (
-            f"Expected WARNING about v1, got: {warning_msgs}"
-        )
+        assert any(
+            "v1" in msg.lower() or "deprecated" in msg.lower() or "warn" in msg.lower()
+            for msg in warning_msgs
+        ), f"Expected WARNING about v1, got: {warning_msgs}"
 
-    def test_v2_still_verifies_with_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_v2_still_verifies_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """v2 signature must verify True and emit a deprecation WARNING."""
         from synth_engine.shared.security.audit_logger import AuditEvent
         from synth_engine.shared.security.audit_signatures import sign_v2
@@ -159,8 +155,7 @@ class TestV1V2BackwardCompatVerification:
         assert result is True
         # Must emit a WARNING about deprecated v2 format
         warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("v2" in msg.lower() or "deprecated" in msg.lower()
-                   for msg in warning_msgs), (
+        assert any("v2" in msg.lower() or "deprecated" in msg.lower() for msg in warning_msgs), (
             f"Expected WARNING about v2, got: {warning_msgs}"
         )
 
@@ -202,9 +197,7 @@ class TestSignV1V2NotPublicApi:
 class TestMigrationTool:
     """The migrate_audit_signatures migration tool must convert v1/v2 entries."""
 
-    def _make_jsonl_with_v1_entry(
-        self, key: bytes, tmpdir: str
-    ) -> str:
+    def _make_jsonl_with_v1_entry(self, key: bytes, tmpdir: str) -> str:
         """Create a JSONL audit log file with one v1 entry.
 
         Args:
@@ -280,9 +273,7 @@ class TestMigrationTool:
             with open(out_path) as f:
                 lines = f.readlines()
 
-            assert len(lines) == 0, (
-                "Tampered entry must not appear in migration output"
-            )
+            assert len(lines) == 0, "Tampered entry must not appear in migration output"
 
     def test_migration_skips_unrecognized_format(self) -> None:
         """Migration must skip entries with unrecognized signature format (no crash)."""

@@ -13,9 +13,6 @@ Tests verify:
 
 from __future__ import annotations
 
-import inspect
-import os
-
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -99,9 +96,7 @@ class TestExistingAccessPatternsUnchanged:
         s = ConclaveSettings()
         assert isinstance(s.conclave_ssl_required, bool)
 
-    def test_rate_limit_unseal_per_minute_accessible(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_rate_limit_unseal_per_minute_accessible(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_settings().rate_limit_unseal_per_minute must still work."""
         monkeypatch.setenv("CONCLAVE_ENV", "development")
         from synth_engine.shared.settings import ConclaveSettings
@@ -109,9 +104,7 @@ class TestExistingAccessPatternsUnchanged:
         s = ConclaveSettings()
         assert isinstance(s.rate_limit_unseal_per_minute, int)
 
-    def test_webhook_max_registrations_accessible(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_webhook_max_registrations_accessible(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_settings().webhook_max_registrations must still work."""
         monkeypatch.setenv("CONCLAVE_ENV", "development")
         from synth_engine.shared.settings import ConclaveSettings
@@ -208,7 +201,7 @@ class TestSubModelAttributeAccess:
     def test_anchor_attribute_access(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """ConclaveSettings.anchor sub-model must be accessible as attribute."""
         monkeypatch.setenv("CONCLAVE_ENV", "development")
-        from synth_engine.shared.settings import ConclaveSettings, AnchorSettings
+        from synth_engine.shared.settings import AnchorSettings, ConclaveSettings
 
         s = ConclaveSettings()
         assert hasattr(s, "anchor"), "ConclaveSettings must have an .anchor sub-model"
@@ -256,9 +249,7 @@ class TestEnvVarNamesUnchanged:
         s = ConclaveSettings()
         assert s.webhook_max_registrations == 5
 
-    def test_anchor_env_var_read_from_anchor_backend(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_anchor_env_var_read_from_anchor_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """ANCHOR_BACKEND env var must still set anchor_backend."""
         monkeypatch.setenv("CONCLAVE_ENV", "development")
         monkeypatch.setenv("ANCHOR_BACKEND", "s3_object_lock")

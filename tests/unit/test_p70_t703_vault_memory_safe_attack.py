@@ -154,8 +154,7 @@ class TestPassphraseZeroedAfterDerivation:
 
         # The bytearray must now be all zeros (zeroed by unseal() after PBKDF2)
         assert passphrase == bytearray(original_len), (
-            f"Passphrase bytearray must be zeroed after unseal(), "
-            f"got: {bytes(passphrase)!r}"
+            f"Passphrase bytearray must be zeroed after unseal(), got: {bytes(passphrase)!r}"
         )
 
 
@@ -167,18 +166,14 @@ class TestPassphraseZeroedAfterDerivation:
 class TestEmptyPassphraseBytearray:
     """Empty bytearray passphrase must raise VaultEmptyPassphraseError (same as str)."""
 
-    def test_empty_bytearray_raises_vault_empty_passphrase_error(
-        self, vault_salt_env: str
-    ) -> None:
+    def test_empty_bytearray_raises_vault_empty_passphrase_error(self, vault_salt_env: str) -> None:
         """unseal(bytearray(b'')) must raise VaultEmptyPassphraseError."""
         from synth_engine.shared.security.vault import VaultEmptyPassphraseError, VaultState
 
         with pytest.raises(VaultEmptyPassphraseError, match="[Pp]assphrase"):
             VaultState.unseal(bytearray(b""))  # nosec B105
 
-    def test_empty_bytes_raises_vault_empty_passphrase_error(
-        self, vault_salt_env: str
-    ) -> None:
+    def test_empty_bytes_raises_vault_empty_passphrase_error(self, vault_salt_env: str) -> None:
         """unseal(b'') must raise VaultEmptyPassphraseError."""
         from synth_engine.shared.security.vault import VaultEmptyPassphraseError, VaultState
 

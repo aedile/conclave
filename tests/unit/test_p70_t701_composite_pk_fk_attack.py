@@ -389,9 +389,7 @@ class TestJunctionTableNoDuplicates:
         engine.connect.return_value = mock_ctx
 
         traversal = DagTraversal(engine=engine, topology=topology)
-        results = dict(
-            traversal.traverse("categories", "SELECT * FROM categories WHERE id = 1")
-        )
+        results = dict(traversal.traverse("categories", "SELECT * FROM categories WHERE id = 1"))
 
         # Categories must appear exactly once (no duplicates)
         if "categories" in results:
@@ -407,9 +405,7 @@ class TestJunctionTableNoDuplicates:
 class TestTableWithNoPkWarning:
     """Tables with no PK must emit a WARNING and be skipped gracefully."""
 
-    def test_table_with_no_pk_emits_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_table_with_no_pk_emits_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Table with no PK columns must emit a WARNING and be skipped.
 
         The subsetting engine must not crash on no-PK tables.  It should
@@ -437,10 +433,10 @@ class TestTableWithNoPkWarning:
         assert pk_values == []
         # Must emit a WARNING
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("nopk_table" in msg or "no pk" in msg.lower() or "pk" in msg.lower()
-                   for msg in warning_messages), (
-            f"Expected WARNING about missing PK, got: {warning_messages}"
-        )
+        assert any(
+            "nopk_table" in msg or "no pk" in msg.lower() or "pk" in msg.lower()
+            for msg in warning_messages
+        ), f"Expected WARNING about missing PK, got: {warning_messages}"
 
 
 # ---------------------------------------------------------------------------

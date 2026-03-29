@@ -91,7 +91,7 @@ The following table covers every `ConfigurationError` that can prevent startup.
 
 | Error message | Required env var | Remediation |
 |---|---|---|
-| `database_url must not be empty` | `DATABASE_URL` or `CONCLAVE_DATABASE_URL` | Set to a valid PostgreSQL DSN: `postgresql://user:pass@host:5432/db` |
+| `database_url must not be empty` | `DATABASE_URL` or `CONCLAVE_DATABASE_URL` | Set to a valid PostgreSQL DSN: `postgresql://USER:PASSWORD@HOST:5432/DBNAME`  <!-- pragma: allowlist secret --> |
 | `audit_key must not be empty` | `AUDIT_KEY` or `CONCLAVE_AUDIT_KEY` | Generate: `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `artifact_signing_key ... must not be empty` | `ARTIFACT_SIGNING_KEY` | Generate as above; or use `ARTIFACT_SIGNING_KEYS` JSON map |
 | `masking_salt must not be empty` | `MASKING_SALT` or `CONCLAVE_MASKING_SALT` | Generate: `python3 -c "import secrets; print(secrets.token_hex(32))"` |

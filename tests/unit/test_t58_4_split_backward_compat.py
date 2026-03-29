@@ -232,7 +232,9 @@ class TestModelsBackwardCompat:
         assert SynthesizerModel.__name__ == "SynthesizerModel"
 
     def test_security_error_importable_from_hmac_signing(self) -> None:
-        from synth_engine.shared.security.hmac_signing import ArtifactTamperingError as SecurityError
+        from synth_engine.shared.security.hmac_signing import (
+            ArtifactTamperingError as SecurityError,
+        )
 
         # SecurityError is ArtifactTamperingError (see hmac_signing.py)
         assert SecurityError.__name__ == "ArtifactTamperingError"
