@@ -123,13 +123,15 @@ def test_shred_emits_audit_event(
     assert call_kwargs["action"] == "shred"
 
 
-def test_shred_audit_failure_does_not_block(
+def test_shred_audit_failure_blocks_and_vault_remains_unsealed(
     security_client: TestClient,
     unsealed_vault: None,
 ) -> None:
-    """POST /security/shred must complete even if audit logging raises.
+    """POST /security/shred must return 500 and NOT seal vault if audit write fails.
 
-    Audit is best-effort; a misconfigured AUDIT_KEY must not prevent shredding.
+    T68.3: Audit must succeed BEFORE any destructive side effect.
+    A misconfigured AUDIT_KEY must block the shred — no destructive
+    operation proceeds without a successful audit trail.
     """
     with patch(
         "synth_engine.bootstrapper.routers.security.get_audit_logger",
@@ -137,8 +139,8 @@ def test_shred_audit_failure_does_not_block(
     ):
         response = security_client.post("/security/shred")
 
-    assert response.status_code == 200
-    assert VaultState.is_sealed()
+    assert response.status_code == 500
+    assert not VaultState.is_sealed(), "Vault must NOT be sealed when audit write fails (T68.3)"
 
 
 # ---------------------------------------------------------------------------
@@ -229,24 +231,34 @@ def test_rotate_emits_audit_event(
     assert call_kwargs["action"] == "rotate"
 
 
-def test_rotate_audit_failure_does_not_block(
+def test_rotate_audit_failure_blocks_and_task_not_enqueued(
     security_client: TestClient,
     unsealed_vault: None,
 ) -> None:
-    """POST /security/keys/rotate must complete even if audit logging raises."""
+    """POST /security/keys/rotate must return 500 and NOT enqueue task if audit fails.
+
+    T68.3: Audit must succeed BEFORE any destructive side effect.
+    A misconfigured AUDIT_KEY must block the rotation — no Huey task is
+    enqueued without a successful audit trail.
+    """
+    mock_task = MagicMock()
     with (
         patch(
             "synth_engine.bootstrapper.routers.security.get_audit_logger",
             side_effect=ValueError("AUDIT_KEY not configured"),
         ),
-        patch("synth_engine.bootstrapper.routers.security.rotate_ale_keys_task"),
+        patch(
+            "synth_engine.bootstrapper.routers.security.rotate_ale_keys_task",
+            mock_task,
+        ),
     ):
         response = security_client.post(
             "/security/keys/rotate",
             json={"new_passphrase": "new-passphrase"},
         )
 
-    assert response.status_code == 202
+    assert response.status_code == 500
+    mock_task.assert_not_called()
 
 
 def test_rotate_empty_database_url_returns_202_and_enqueues_task(

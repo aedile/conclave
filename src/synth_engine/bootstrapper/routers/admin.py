@@ -9,18 +9,18 @@ record is.  This endpoint is the sole authoritative way to set or clear the
 flag.
 
 Security posture:
-- The endpoint is a privileged admin action.  In a multi-operator deployment
-  it SHOULD be gated behind an elevated role.  In the current single-operator
-  model, the same operator credential suffices.
-- Admin endpoints are intentionally not ownership-scoped — they operate on
-  any job by ID.  In the current single-operator model this is the correct
-  behaviour: there is exactly one operator and all jobs belong to the same
-  system context.  Multi-operator deployments MUST add role-based access
-  control (RBAC) to restrict admin operations to authorised principals only.
-  ADV-023 is resolved by this documentation; no code change is required until
-  a multi-operator deployment model is adopted.
+- The endpoint enforces ownership-scoping: only the authenticated operator who
+  owns the job may toggle its legal hold flag.  Requests from any other operator
+  return 404 (not 403) to avoid leaking the existence of resources owned by
+  other operators.  This matches the IDOR protection pattern applied to
+  /jobs and /connections (T39.2, T68.2).
+- An audit WARNING is logged when an operator attempts to access another
+  operator's job, for intrusion-detection purposes (T68.2 spec amendment).
 - The request payload contains only a boolean (``enable``); no PII is accepted
   or returned.
+- Audit events are emitted BEFORE the database commit so that no destructive
+  operation proceeds without a successful audit trail (T68.3).  If the audit
+  write fails, the request returns 500 and the database change is rolled back.
 - Every toggle emits a ``LEGAL_HOLD_SET`` or ``LEGAL_HOLD_CLEARED`` WORM audit
   event so the hold history is attributable and tamper-evident.
 
@@ -33,6 +33,8 @@ CONSTITUTION Priority 0: Security — audit every privilege operation
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T41.1 — Implement Data Retention Policy
 Task: T62.1 — Wrap Database Commits in Exception Handlers
+Task: T68.2 — RBAC Guard on Admin Endpoints (ownership-scoped)
+Task: T68.3 — Mandatory Audit Before Destructive Operations
 """
 
 from __future__ import annotations
@@ -112,15 +114,18 @@ def set_legal_hold(
     ``JOB_RETENTION_DAYS`` TTL.  Setting it to ``False`` re-enables normal
     TTL-based deletion.
 
-    Every invocation emits a WORM audit event recording the toggle so the
-    hold history is fully attributable.
+    Ownership check (T68.2): the job's ``owner_id`` must match the authenticated
+    operator's ``sub`` claim.  A mismatch returns 404 rather than 403, so
+    that the existence of other operators' resources is not leaked.
+
+    Audit before commit (T68.3): the WORM audit event is emitted before the
+    database commit.  If the audit write fails, the endpoint returns 500 and
+    the database change is rolled back.
 
     Security:
-        This endpoint is not ownership-scoped — any authenticated operator can
-        toggle legal hold on any job by ID.  This is intentional for admin
-        operations in the current single-operator model (ADV-023).  When a
-        multi-operator deployment model is adopted, RBAC restrictions MUST be
-        added here.
+        Ownership-scoped — only the authenticated operator owning the job can
+        toggle legal hold on it.  A WARNING is logged when an operator attempts
+        to access another operator's job (for intrusion-detection purposes).
 
     Args:
         job_id: Integer primary key of the job to update.
@@ -130,8 +135,8 @@ def set_legal_hold(
 
     Returns:
         :class:`LegalHoldResponse` with the updated ``legal_hold`` value on
-        success, RFC 7807 404 if the job does not exist, or RFC 7807 500 on
-        database error.
+        success, RFC 7807 404 if the job does not exist or is owned by another
+        operator, RFC 7807 500 on audit failure or database error.
     """
     job = session.get(SynthesisJob, job_id)
     if job is None:
@@ -144,7 +149,59 @@ def set_legal_hold(
             ),
         )
 
+    # T68.2: Ownership check — emit WARNING for intrusion detection, return 404 to
+    # avoid leaking the existence of other operators' resources.
+    if job.owner_id != current_operator:
+        _logger.warning(
+            "set_legal_hold: operator=%s attempted to access job id=%d owned by operator=%s "
+            "(IDOR attempt detected)",
+            current_operator,
+            job_id,
+            job.owner_id,
+        )
+        return JSONResponse(
+            status_code=404,
+            content=problem_detail(
+                status=404,
+                title="Not Found",
+                detail=f"SynthesisJob with id={job_id} not found.",
+            ),
+        )
+
     previous = job.legal_hold
+    event_type = "LEGAL_HOLD_SET" if body.enable else "LEGAL_HOLD_CLEARED"
+
+    # T68.3: Emit audit event BEFORE the database commit.
+    # If the audit write fails (any exception), return 500 and do NOT commit.
+    # This ensures no destructive operation proceeds without a successful audit trail.
+    try:
+        get_audit_logger().log_event(
+            event_type=event_type,
+            actor=current_operator,
+            resource=f"synthesis_job/{job_id}",
+            action="legal_hold",
+            details={
+                "job_id": str(job_id),
+                "enable": str(body.enable),
+                "previous": str(previous),
+            },
+        )
+    except Exception:
+        _logger.exception(
+            "Audit logging failed for legal hold toggle on job id=%d; aborting (T68.3)",
+            job_id,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Legal hold change was not applied.",
+            },
+        )
+
+    # Audit succeeded — now commit the database change.
     job.legal_hold = body.enable
     session.add(job)
     try:
@@ -168,7 +225,6 @@ def set_legal_hold(
             },
         )
 
-    event_type = "LEGAL_HOLD_SET" if body.enable else "LEGAL_HOLD_CLEARED"
     _logger.info(
         "Legal hold %s for job id=%d (was=%s, now=%s)",
         "set" if body.enable else "cleared",
@@ -176,22 +232,5 @@ def set_legal_hold(
         previous,
         job.legal_hold,
     )
-
-    try:
-        get_audit_logger().log_event(
-            event_type=event_type,
-            actor=current_operator,
-            resource=f"synthesis_job/{job_id}",
-            action="legal_hold",
-            details={
-                "job_id": str(job_id),
-                "enable": str(body.enable),
-                "previous": str(previous),
-            },
-        )
-    except Exception:
-        # Audit failure must never abort the hold toggle — the DB write
-        # succeeded; failing here would leave the operator confused.
-        _logger.exception("Audit logging failed for legal hold toggle on job id=%d", job_id)
 
     return LegalHoldResponse(job_id=job_id, legal_hold=job.legal_hold)

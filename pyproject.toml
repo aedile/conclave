@@ -197,6 +197,9 @@ external = ["DOC"]
 # S603/S607: subprocess/shellcheck invocations in validation tests (trusted static lists, not user input)
 # RUF012: ClassVar annotation on test class-level constants is an ergonomic choice, not a safety issue
 "tests/**" = ["S101", "S105", "S106", "S108", "RUF002", "S603", "S607", "RUF012"]
+# E501: bcrypt test hashes + '# pragma: allowlist secret' comment exceed 100 chars at 12-space indent.
+#       The hash value cannot be split; gitleaks requires the pragma on the same line.
+"tests/unit/test_p68_t684_t687_health_bcrypt_bounds_failopen_attack.py" = ["S101", "S105", "S106", "S108", "RUF002", "S603", "S607", "RUF012", "E501"]
 # S603/S607: subprocess without shell=True / partial path — pre-existing scripts
 # UP006/UP035: typing.List is deprecated — scripts pre-date pyproject.toml; modernise in Task 2.x
 "scripts/**" = ["S603", "S607", "UP006", "UP035"]

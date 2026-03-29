@@ -79,6 +79,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
+from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.settings import get_settings
 
 # T63.1: _ALWAYS_REQUIRED and _PRODUCTION_REQUIRED removed — these field-level
@@ -236,9 +237,10 @@ def _validate_mtls_cert_files(errors: list[str]) -> None:
             with open(path, "rb"):
                 pass
         except OSError as exc:
+            sanitized = safe_error_msg(str(exc))
             errors.append(
                 f"{env_var}={path_str!r} exists but cannot be read — "
-                f"check file permissions and ensure the process has read access: {exc}"
+                f"check file permissions and ensure the process has read access: {sanitized}"
             )
 
 
@@ -411,17 +413,19 @@ def validate_config() -> None:
             "This is a security misconfiguration for production."
         )
 
-    # T63.3: Warn when rate_limit_fail_open=True in production.
+    # T68.7: Block rate_limit_fail_open=True in production (upgraded from warning to error).
     # Fail-open disables distributed rate limiting during Redis outages, which
     # allows brute-force and DoS attacks to bypass per-IP limits.  This is a
-    # security misconfiguration that must be visible in production log aggregators.
+    # security misconfiguration that MUST be rejected at startup — not just logged.
+    # ADV-P67-02 resolution.
     if _is_production() and settings.conclave_rate_limit_fail_open:
-        _logger.warning(
-            "CONCLAVE_RATE_LIMIT_FAIL_OPEN=true in production mode — "
-            "rate limiting will fall back to in-memory counting during Redis outages "
-            "instead of rejecting requests (fail-closed). "
-            "This allows brute-force and DoS attacks to bypass distributed rate limits. "
-            "Set CONCLAVE_RATE_LIMIT_FAIL_OPEN=false (the default) for production deployments."
+        raise SystemExit(
+            "Startup configuration error: CONCLAVE_RATE_LIMIT_FAIL_OPEN=true is not allowed "
+            "in production mode (CONCLAVE_ENV=production). "
+            "This setting disables distributed rate limiting during Redis outages, "
+            "allowing brute-force and DoS attacks to bypass per-IP limits. "
+            "Set CONCLAVE_RATE_LIMIT_FAIL_OPEN=false (the default) for production deployments. "
+            "If you are testing fail-open behavior, set CONCLAVE_ENV=development first."
         )
 
     # T46.2: Warn when mTLS is enabled but CONCLAVE_SSL_REQUIRED is false.

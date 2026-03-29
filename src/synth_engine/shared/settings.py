@@ -582,6 +582,22 @@ class ConclaveSettings(BaseSettings):
     )
 
     # -----------------------------------------------------------------------
+    # Health Check Strict Mode (T68.4)
+    # -----------------------------------------------------------------------
+
+    conclave_health_strict: bool | None = Field(
+        default=None,
+        description=(
+            "When True, /ready returns 503 if any configured service (database, Redis) "
+            "is unreachable or unconfigured-but-expected in strict mode. "
+            "When False (permissive), unconfigured services are skipped (development behavior). "
+            "When None (default), auto-detected: True in production, False in development. "
+            "Set CONCLAVE_HEALTH_STRICT=true to force strict mode in any environment. "
+            "T68.4 — Health Check Strict Mode for Production."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
     # Validators
     # -----------------------------------------------------------------------
 
@@ -800,6 +816,25 @@ class ConclaveSettings(BaseSettings):
                     _redacted,
                     sorted(known_conclave_env_vars),
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _apply_health_strict_default(self) -> ConclaveSettings:
+        """Set conclave_health_strict based on deployment mode when not explicitly configured.
+
+        Per T68.4 spec amendment: the field is bool | None = None.
+        When None (not explicitly set), the value is auto-derived:
+        - True in production (fail-closed by default).
+        - False in development (permissive by default, preserving current behavior).
+
+        This gives environment-dependent defaults while allowing explicit override
+        via CONCLAVE_HEALTH_STRICT=true/false in any environment.
+
+        Returns:
+            The validated ConclaveSettings instance (self).
+        """
+        if self.conclave_health_strict is None:
+            self.conclave_health_strict = self.conclave_env.lower() == "production"
         return self
 
     # -----------------------------------------------------------------------

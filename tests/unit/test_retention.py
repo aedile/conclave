@@ -653,8 +653,14 @@ class TestLegalHoldEndpoint:
         response = client.patch("/admin/jobs/9999/legal-hold", json={"enable": True})
         assert response.status_code == 404
 
-    def test_set_legal_hold_succeeds_when_audit_fails(self) -> None:
-        """Endpoint returns 200 even if audit logging raises — graceful degradation."""
+    def test_set_legal_hold_returns_500_when_audit_fails(self) -> None:
+        """Endpoint returns 500 and does NOT commit when audit logging raises (T68.3).
+
+        T68.3 changed this from graceful degradation (200) to blocking (500).
+        No destructive operation — including toggling legal hold — may proceed
+        without a successful audit trail. If the audit write raises any exception,
+        the endpoint returns 500 and the database change is NOT applied.
+        """
         import os
         from unittest.mock import MagicMock, patch
 
@@ -666,6 +672,7 @@ class TestLegalHoldEndpoint:
         from sqlalchemy.pool import StaticPool
         from sqlmodel import Session, SQLModel, create_engine
 
+        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
         from synth_engine.bootstrapper.routers.admin import router as admin_router
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
@@ -685,6 +692,8 @@ class TestLegalHoldEndpoint:
                 yield session
 
         app.dependency_overrides[get_db_session] = _override
+        # T68.2: Override auth to match job owner_id so ownership check passes.
+        app.dependency_overrides[get_current_operator] = lambda: "operator-1"
 
         with Session(engine) as session:
             job = SynthesisJob(
@@ -692,6 +701,7 @@ class TestLegalHoldEndpoint:
                 parquet_path="/tmp/p.parquet",
                 total_epochs=1,
                 num_rows=1,
+                owner_id="operator-1",
             )
             session.add(job)
             session.commit()
@@ -708,8 +718,15 @@ class TestLegalHoldEndpoint:
         ):
             response = client.patch(f"/admin/jobs/{job_id}/legal-hold", json={"enable": True})
 
-        assert response.status_code == 200
-        assert response.json()["legal_hold"] is True
+        # T68.3: Audit failure BLOCKS the operation — must return 500, not 200.
+        assert response.status_code == 500
+        # Verify the legal_hold was NOT changed (DB not committed).
+        with Session(engine) as verify_session:
+            refreshed_job = verify_session.get(SynthesisJob, job_id)
+            assert refreshed_job is not None
+            assert refreshed_job.legal_hold is False, (
+                "legal_hold must NOT be toggled when audit write fails (T68.3)"
+            )
 
 
 # ---------------------------------------------------------------------------

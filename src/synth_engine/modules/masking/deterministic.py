@@ -1,12 +1,13 @@
 """Core deterministic masking primitives.
 
 Provides HMAC-SHA256-based hashing and a generic mask_value helper that seeds
-a module-level Faker instance deterministically so that the same (value, salt)
+a thread-local Faker instance deterministically so that the same (value, salt)
 pair always produces the same masked output.
 
-A single module-level Faker instance is reused across calls for performance;
-``seed_instance()`` resets its state fully before each use, preserving
-determinism while avoiding per-call construction overhead (~7x speedup).
+Each thread owns its own Faker instance via ``threading.local()``, eliminating
+the race condition where one thread's ``seed_instance()`` could be overwritten
+by another thread between the seed call and the ``mask_fn`` call.  The instance
+is constructed lazily on first use within each thread.
 
 HMAC key design rationale (ADV-027)
 -------------------------------------
@@ -25,37 +26,52 @@ This is intentional:
 
 Separating concerns this way keeps the masking layer stateless and testable
 without requiring secret-management infrastructure.
+
+Thread-safety (T68.1)
+---------------------
+``_local`` is a ``threading.local()`` instance used to store per-thread Faker
+instances.  Each thread gets its own Faker on first access, preventing the
+seed-race condition described in the P26-T26.3 safety note.
 """
 
 import hashlib
 import hmac
+import threading
 from collections.abc import Callable
 from typing import overload
 
 from faker import Faker
 
 # ---------------------------------------------------------------------------
-# Thread-safety note — P26-T26.3 AC3
+# Thread-local Faker storage — T68.1
 # ---------------------------------------------------------------------------
-# _FAKER is a module-level singleton Faker instance reused across mask_value()
-# calls for performance (avoids Faker() construction overhead per call).
+# Each thread gets its own Faker instance, constructed lazily on first access.
+# This eliminates the seed-race condition where seed_instance() in thread A
+# could be overwritten by thread B between A's seed call and A's mask_fn call.
 #
-# SAFETY ASSUMPTION: This module is used in a single-threaded masking pipeline.
-# The bootstrapper wires the masking layer inside a single FastAPI request
-# worker; each Celery task runs in its own process, not a shared thread.
-#
-# RISK: If this module is ever called from concurrent threads sharing the same
-# interpreter process, _FAKER.seed_instance() + mask_fn(_FAKER) would be a
-# race condition — one thread's seed can be overwritten between the seed and
-# the Faker call of another thread, breaking determinism silently.
-#
-# MITIGATION: Do not call mask_value() from multiple threads.  If concurrent
-# masking is required, instantiate a thread-local Faker per caller rather than
-# relying on this module-level instance.  Thread-local storage example:
-#   import threading; _local = threading.local()
-#   def _get_faker(): return getattr(_local, 'faker', None) or Faker()
+# Previous implementation used a module-level singleton (_FAKER: Faker = Faker())
+# which was safe only in single-threaded contexts.  The threading.local() approach
+# preserves the ~7x performance advantage of per-thread instance reuse (vs.
+# constructing a new Faker on every call) while being fully thread-safe.
 # ---------------------------------------------------------------------------
-_FAKER: Faker = Faker()
+_local: threading.local = threading.local()
+
+
+def _get_faker() -> Faker:
+    """Return the Faker instance for the current thread, creating it if needed.
+
+    Constructed lazily on first call from any given thread, then cached in
+    ``threading.local()`` storage for all subsequent calls from that thread.
+
+    Returns:
+        A ``Faker`` instance local to the calling thread.
+    """
+    faker: Faker | None = getattr(_local, "faker", None)
+    if faker is None:
+        faker = Faker()
+        _local.faker = faker
+    return faker
+
 
 _HMAC_SHA256_DIGEST_BYTES: int = 32
 """Maximum bytes available from an HMAC-SHA256 digest."""
@@ -133,8 +149,12 @@ def mask_value(
 ) -> str:
     """Apply a deterministic mask to value using a Faker-based mask function.
 
-    Seeds the module-level Faker with deterministic_hash(value, salt) for
-    reproducibility.  Truncates to max_length if provided.
+    Seeds the calling thread's Faker instance with deterministic_hash(value, salt)
+    for reproducibility.  Each thread owns its own Faker instance via
+    ``threading.local()``, so concurrent calls from different threads do not
+    interfere with each other's seed state (T68.1).
+
+    Truncates to max_length if provided.
 
     Args:
         value: Plaintext input.
@@ -147,8 +167,9 @@ def mask_value(
         Masked string, deterministic for the same (value, salt) inputs.
     """
     seed = deterministic_hash(value, salt)
-    _FAKER.seed_instance(seed)
-    result = mask_fn(_FAKER)
+    faker = _get_faker()
+    faker.seed_instance(seed)
+    result = mask_fn(faker)
     if max_length is not None:
         result = result[:max_length]
     return result

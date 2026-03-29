@@ -10,6 +10,20 @@ Both endpoints are ops-level operations for emergency security protocols
 (data spillage response, key compromise rotation).  They emit WORM audit
 events on every call.
 
+Audit-before-destructive (T68.3)
+---------------------------------
+Both endpoints emit their WORM audit event BEFORE any destructive side effect:
+
+- ``/security/shred``: audit fires before ``VaultState.seal()``.  If the
+  audit write fails (any exception), the endpoint returns 500 and the vault
+  is NOT sealed.
+- ``/security/keys/rotate``: audit fires before ``rotate_ale_keys_task()``
+  is enqueued.  If the audit write fails, the endpoint returns 500 and the
+  Huey task is NOT enqueued.
+
+This matches the ``privacy.py:321`` reference implementation — no destructive
+operation proceeds without a successful audit trail.
+
 Layered exemption model (P50 review fix)
 -----------------------------------------
 ``/security/shred`` is special — it seals the vault and must work from ANY
@@ -47,6 +61,7 @@ Task: P5-T5.5 — Cryptographic Shredding & Re-Keying API
 Task: T47.1 — Scope-based auth for security endpoints
 Task: P50 review fix — restore /security/shred vault-layer bypass (layered model)
 Task: T59.3 — OpenAPI Documentation Enrichment
+Task: T68.3 — Mandatory Audit Before Destructive Operations
 """
 
 from __future__ import annotations
@@ -123,9 +138,10 @@ async def shred_vault(
     ``RuntimeError``.  The data is permanently unrecoverable without the
     original passphrase (which must be destroyed independently by the operator).
 
-    An audit event ``CRYPTO_SHRED`` is emitted before the seal so that the
-    shred operation itself is on the audit record.  The authenticated operator's
-    JWT sub claim is used as the audit actor identity.
+    Audit before shred (T68.3): the ``CRYPTO_SHRED`` audit event is emitted
+    BEFORE the vault is sealed.  If the audit write fails (any exception),
+    the endpoint returns 500 and the vault is NOT sealed.  No destructive
+    operation proceeds without a successful audit trail.
 
     Requires scope: ``security:admin`` (T47.1).
 
@@ -135,8 +151,10 @@ async def shred_vault(
 
     Returns:
         ``{"status": "shredded"}`` with HTTP 200.
+        RFC 7807 500 if the audit write fails (shred NOT performed).
     """
-    # Emit audit event BEFORE sealing (best-effort — never block shred)
+    # T68.3: Emit audit event BEFORE sealing.
+    # If audit fails (any exception), return 500 and do NOT seal the vault.
     try:
         audit = get_audit_logger()
         audit.log_event(
@@ -146,8 +164,17 @@ async def shred_vault(
             action="shred",
             details={"note": "Master KEK zeroized — all ALE ciphertext is now unrecoverable"},
         )
-    except ValueError as exc:
-        _logger.warning("Audit logging failed during CRYPTO_SHRED; proceeding: %s", exc)
+    except Exception:
+        _logger.exception("Audit logging failed during CRYPTO_SHRED; aborting shred (T68.3)")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Cryptographic shred was NOT performed.",
+            },
+        )
 
     # Seal (zeroize KEK) — idempotent-safe
     VaultState.seal()
@@ -188,7 +215,7 @@ async def rotate_keys(
 
     This endpoint initiates an asynchronous key rotation workflow.  It:
     1. Verifies the vault is currently unsealed (rotation requires the current KEK).
-    2. Emits a ``KEY_ROTATION_REQUESTED`` audit event.
+    2. Emits a ``KEY_ROTATION_REQUESTED`` audit event (T68.3: BEFORE enqueuing).
     3. Generates a fresh Fernet key for the new ALE encryption.
     4. Wraps the new Fernet key using the current vault KEK via Fernet wrapping
        so that it is never passed to the broker in plaintext.
@@ -197,6 +224,10 @@ async def rotate_keys(
        the new key.
     6. Returns ``202 Accepted`` immediately — the actual rotation runs in the
        Huey worker background.
+
+    Audit before enqueue (T68.3): the ``KEY_ROTATION_REQUESTED`` audit event is
+    emitted BEFORE the Huey task is enqueued.  If the audit write fails (any
+    exception), the endpoint returns 500 and the task is NOT enqueued.
 
     The presence of ``new_passphrase`` in the request body is noted in the
     audit trail to document operator intent.  It is NOT used to derive the
@@ -215,6 +246,7 @@ async def rotate_keys(
     Returns:
         ``{"status": "accepted", "detail": "..."}`` with HTTP 202 on success.
         RFC 7807 423 if the vault is sealed (cannot rotate without the current KEK).
+        RFC 7807 500 if the audit write fails (task NOT enqueued).
     """
     # Gate: rotation requires an unsealed vault (need the current KEK for decryption)
     if VaultState.is_sealed():
@@ -230,7 +262,8 @@ async def rotate_keys(
             ),
         )
 
-    # Emit audit event (best-effort)
+    # T68.3: Emit audit event BEFORE enqueuing the Huey task.
+    # If audit fails (any exception), return 500 and do NOT enqueue.
     try:
         audit = get_audit_logger()
         audit.log_event(
@@ -243,8 +276,17 @@ async def rotate_keys(
                 "passphrase_provided": str(bool(body.new_passphrase)),
             },
         )
-    except ValueError as exc:
-        _logger.warning("Audit logging failed during KEY_ROTATION_REQUESTED; proceeding: %s", exc)
+    except Exception:
+        _logger.exception("Audit logging failed during KEY_ROTATION_REQUESTED; aborting (T68.3)")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Key rotation task was NOT enqueued.",
+            },
+        )
 
     # Generate a fresh Fernet key for the new ALE encryption
     from cryptography.fernet import Fernet

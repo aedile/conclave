@@ -332,6 +332,7 @@ _security_rotation  # unused import — side-effect: registers ALE key rotation 
 
 _warn_unrecognized_conclave_env_vars  # Pydantic model_validator — called at construction time
 _validate_multi_key_signing_consistency  # Pydantic model_validator — multi-key signing consistency check called at construction time (shared/settings.py T42.1, T63.1)
+_apply_health_strict_default  # Pydantic model_validator — sets conclave_health_strict default based on deployment mode (shared/settings.py T68.4)
 
 # ---------------------------------------------------------------------------
 # Category S — T62.2 WebhookCircuitBreaker test helper

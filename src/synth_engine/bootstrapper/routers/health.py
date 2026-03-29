@@ -6,6 +6,22 @@ Implements:
   Returns 503 if any check fails OR if the vault is sealed.
 - ``GET /health/vault`` — Per-worker vault seal status.  Always 200 OK.
 
+Strict mode (T68.4)
+-------------------
+When ``conclave_health_strict=True`` (default in production), the ``/ready``
+endpoint returns 503 if:
+- ``DATABASE_URL`` is configured but the database is unreachable.
+- ``DATABASE_URL`` is not configured (strict mode treats missing config as a
+  deployment error — the operator must either set the URL or disable strict mode).
+- Redis is unreachable.
+
+When ``conclave_health_strict=False`` (default in development), unconfigured
+services are skipped and the endpoint returns 200 — preserving the existing
+permissive behavior for local development.
+
+Both modes suppress error details in responses to prevent info leakage; errors
+are logged at WARNING level with ``exc_info=False``.
+
 Security properties
 -------------------
 - No information leakage: 503 body uses generic names (database, cache,
@@ -21,6 +37,7 @@ Task: T48.3 — Readiness Probe & External Dependency Health Checks
 Task: P48 review F5 — Reuse shared async engine in /ready probe
 Task: T55.1 — Vault State Health Endpoint & Multi-Worker Coordination
 Task: T60.2 — Move /health liveness probe here from lifecycle.py
+Task: T68.4 — Health Check Strict Mode for Production
 """
 
 from __future__ import annotations
@@ -57,8 +74,8 @@ async def _check_database() -> bool:
     exhausting available database connections under high probe frequency.
 
     If the database URL is not configured, the check is skipped and returns
-    ``True`` (no database configured is not a readiness failure — the startup
-    validator will catch misconfiguration independently).
+    ``True`` (no database configured is not a readiness failure for this check —
+    strict-mode enforcement happens in :func:`readiness_check`).
 
     Returns:
         ``True`` when the database responds successfully.  Propagates any
@@ -73,6 +90,8 @@ async def _check_database() -> bool:
     database_url = settings.database_url
     if not database_url:
         # No database configured — not a readiness failure for this check.
+        # Strict-mode enforcement (treating missing config as a failure) happens
+        # in readiness_check(), not here, so that _check_database() remains pure.
         return True
 
     engine = get_async_engine(database_url)
@@ -209,6 +228,11 @@ async def readiness_check() -> JSONResponse:
     even if all dependency checks pass.  The vault seal state is reported in
     the ``vault_sealed`` field of the response body.
 
+    Strict mode (T68.4): when ``conclave_health_strict=True`` (default in
+    production), any unconfigured-but-expected service also triggers 503.
+    Specifically, if ``DATABASE_URL`` is not set in strict mode, the database
+    check is treated as failed rather than skipped.
+
     Security: the response body uses generic service names only.  Internal
     hostnames, ports, connection strings, and exception messages are logged
     at WARNING level but NEVER included in the HTTP response body.
@@ -225,6 +249,15 @@ async def readiness_check() -> JSONResponse:
             }
     """
     from synth_engine.shared.security.vault import VaultState
+    from synth_engine.shared.settings import get_settings
+
+    settings = get_settings()
+    strict = settings.conclave_health_strict
+
+    # T68.4: In strict mode, an unconfigured DATABASE_URL is treated as a
+    # deployment error rather than being skipped.  Load balancers must not
+    # route traffic to an instance with missing critical configuration.
+    strict_db_missing = strict and not (settings.database_url or "").strip()
 
     # Run all checks concurrently. return_exceptions=True prevents gather from
     # short-circuiting — all checks run even if one fails.
@@ -240,9 +273,20 @@ async def readiness_check() -> JSONResponse:
     any_failed = False
 
     # --- database ---
-    if isinstance(db_result, BaseException):
+    # Determine whether DATABASE_URL was absent (permissive skip).
+    # _check_database() returns True early when the URL is absent, so we need
+    # the URL value here to distinguish "connected OK" from "skipped (no URL)".
+    db_url_absent = not (settings.database_url or "").strip()
+    if strict_db_missing:
+        # T68.4: Strict mode — DATABASE_URL is not configured; treat as failure.
         checks["database"] = "error"
         any_failed = True
+    elif isinstance(db_result, BaseException):
+        checks["database"] = "error"
+        any_failed = True
+    elif db_url_absent:
+        # Permissive mode — no DATABASE_URL configured; check was skipped.
+        checks["database"] = "skipped"
     else:
         checks["database"] = "ok"
 
