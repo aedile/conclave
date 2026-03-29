@@ -154,13 +154,18 @@ def verify_operator_credentials(passphrase: str) -> bool:
             stored_hash.encode("utf-8"),
         )
         return result
-    except Exception as exc:
-        # Broad catch: any bcrypt error (e.g. invalid hash format) → deny.
+    except (ValueError, TypeError) as exc:
+        # Narrow catch: only documented bcrypt failure modes (T68.5).
+        # - ValueError: malformed hash string (invalid bcrypt format).
+        # - TypeError: bad argument type (e.g. bytes/str mismatch).
+        # Both are treated as "auth denied" — not a system error.
         # Log at DEBUG only: exception type and message are safe (no passphrase
         # in the frame — bcrypt.checkpw args are encoded bytes, not logged).
         # NEVER log at INFO or above — that would surface errors in production
         # log aggregators and create a bcrypt error oracle via log channels.
         # CONSTITUTION Priority 0: passphrase must never appear in logs.
+        # All other exceptions (RuntimeError, MemoryError, SystemExit, etc.)
+        # propagate — they are system errors, not auth failures (T68.5).
         _logger.debug(
             "Credential verification failed due to bcrypt error: %s",
             type(exc).__name__,
