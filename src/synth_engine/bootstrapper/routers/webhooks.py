@@ -49,6 +49,9 @@ from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors.formatter import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.webhooks import (
+    WebhookDelivery,
+    WebhookDeliveryListResponse,
+    WebhookDeliveryResponse,
     WebhookRegistration,
     WebhookRegistrationListResponse,
     WebhookRegistrationRequest,
@@ -366,3 +369,72 @@ def deactivate_webhook(
         current_operator,
     )
     return Response(status_code=204)
+
+
+@router.get(
+    "/{webhook_id}/deliveries",
+    summary="List webhook deliveries",
+    description=(
+        "Return recent delivery attempts for a webhook registration. "
+        "Results are scoped to the authenticated operator (IDOR protection)."
+    ),
+    responses=COMMON_ERROR_RESPONSES,
+    response_model=WebhookDeliveryListResponse,
+)
+def list_webhook_deliveries(
+    webhook_id: str,
+    session: Annotated[Session, Depends(get_db_session)],
+    current_operator: Annotated[str, Depends(get_current_operator)],
+) -> WebhookDeliveryListResponse | JSONResponse:
+    """List delivery attempts for a webhook registration.
+
+    Returns up to 100 most recent delivery attempts, ordered by creation
+    date descending.  The endpoint enforces ownership: a 404 is returned
+    for any ``webhook_id`` not owned by the authenticated operator.
+    This prevents enumeration — callers cannot distinguish "not found"
+    from "found but forbidden" (IDOR protection, T39.2 pattern).
+
+    Args:
+        webhook_id: UUID string primary key of the parent registration.
+        session: Database session (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim (injected).
+
+    Returns:
+        :class:`WebhookDeliveryListResponse` with up to 100 delivery records,
+        or RFC 7807 404 if the registration is not found or not owned by the
+        caller.
+    """
+    import json as _json
+
+    # Ownership check: look up registration by (id, owner_id) — IDOR protection.
+    # Returning 404 (not 403) for cross-tenant IDs prevents resource enumeration.
+    reg_stmt = select(WebhookRegistration).where(
+        WebhookRegistration.id == webhook_id,
+        WebhookRegistration.owner_id == current_operator,
+    )
+    reg = session.exec(reg_stmt).first()
+    if reg is None:
+        return JSONResponse(
+            status_code=404,
+            content=_json.dumps(
+                problem_detail(
+                    status=404,
+                    title="Not Found",
+                    detail=f"Webhook registration with id={webhook_id!r} not found.",
+                )
+            ),
+            media_type="application/problem+json",
+        )
+
+    # Fetch delivery records for this registration (most recent first)
+    delivery_stmt = (
+        select(WebhookDelivery)
+        .where(WebhookDelivery.registration_id == webhook_id)
+        .order_by(WebhookDelivery.created_at.desc())  # type: ignore[attr-defined]
+        .limit(100)
+    )
+    deliveries = session.exec(delivery_stmt).all()
+
+    return WebhookDeliveryListResponse(
+        items=[WebhookDeliveryResponse.model_validate(d) for d in deliveries]
+    )
