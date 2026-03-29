@@ -122,7 +122,7 @@ class TestReadinessAllHealthy:
 
         salt = base64.urlsafe_b64encode(_os.urandom(16)).decode()
         monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-        VaultState.unseal("test-passphrase-for-readiness-probe")
+        VaultState.unseal(bytearray(b"test-passphrase-for-readiness-probe"))
         yield
         VaultState.reset()
 
@@ -439,7 +439,7 @@ class TestReadinessMinIOOptional:
 
         salt = base64.urlsafe_b64encode(_os.urandom(16)).decode()
         monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-        VaultState.unseal("test-passphrase-for-readiness-probe")
+        VaultState.unseal(bytearray(b"test-passphrase-for-readiness-probe"))
         yield
         VaultState.reset()
 

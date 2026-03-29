@@ -29,6 +29,8 @@ Task: P23-T23.4 — Cryptographic Erasure Endpoint
 Task: P26-T26.1 — Split Oversized Files (Refactor Only)
 Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 Task: T62.1 — Wrap Database Commits in Exception Handlers
+Task: T70.8 — Audit-before-mutation ordering standardisation
+Task: T70.9 — AUDIT_WRITE_FAILURE_TOTAL Prometheus counter
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from prometheus_client import Counter
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, select
 
@@ -74,6 +77,17 @@ _SHRED_ELIGIBLE_STATUS: str = "COMPLETE"
 
 #: Job status applied after successful artifact erasure.
 _SHREDDED_STATUS: str = "SHREDDED"
+
+# ---------------------------------------------------------------------------
+# T70.9 — Prometheus counter for audit-write failures.
+# Incremented whenever the WORM audit logger raises in shred_job.
+# Uses a static endpoint label to keep Prometheus cardinality bounded.
+# ---------------------------------------------------------------------------
+AUDIT_WRITE_FAILURE_TOTAL: Counter = Counter(
+    "audit_write_failure_total_jobs",
+    "Audit write failures in jobs router",
+    ["endpoint"],
+)
 
 
 @router.get(
@@ -318,11 +332,21 @@ def shred_job(
 
     Deletes the generated Parquet output, its HMAC-SHA256 signature sidecar,
     and the trained model artifact pickle from the filesystem.  Emits a WORM
-    audit event and transitions the job status to ``SHREDDED``.
+    audit event BEFORE artifact deletion (T70.8 — audit-before-mutation
+    standardisation).  Transitions the job status to ``SHREDDED``.
 
     Only jobs in ``COMPLETE`` status **owned by the authenticated operator**
     are eligible.  Jobs in any other status, owned by a different operator,
     or already-``SHREDDED`` jobs return 404 Problem Detail response.
+
+    Audit ordering (T70.8):
+        1. Ownership & eligibility check.
+        2. Audit write (ARTIFACT_SHREDDED intent) — returns 500 on failure;
+           no mutation proceeds without a successful audit trail.
+        3. ``shred_artifacts()`` — if this raises after a successful audit,
+           a compensating ``ARTIFACT_SHRED_FAILED`` event is emitted and
+           500 is returned.
+        4. Status update (SHREDDED) + database commit.
 
     CRITICAL (T62.1): The 200 SHREDDED response is only returned AFTER the
     ``session.commit()`` succeeds.  If the commit fails, the operator receives
@@ -336,7 +360,8 @@ def shred_job(
     Returns:
         ``{"status": "SHREDDED", "job_id": <id>}`` with HTTP 200 on success,
         RFC 7807 404 if the job does not exist, is not eligible, or ownership
-        mismatch, RFC 7807 500 if an ``OSError`` prevents artifact deletion,
+        mismatch, RFC 7807 500 if audit write fails (no shred performed),
+        RFC 7807 500 if an ``OSError`` prevents artifact deletion,
         or RFC 7807 500 if the database commit fails.
     """
     job = session.get(SynthesisJob, job_id)
@@ -355,24 +380,9 @@ def shred_job(
             ),
         )
 
-    # Delegate physical file deletion to the domain function.
-    # This follows the pattern from T22.4: routers delegate to domain services.
-    try:
-        shred_artifacts(job)
-    except OSError as exc:
-        # Log with basename only — never full path (security mandate T23.1/T23.2).
-        _logger.error("Job %d: artifact erasure failed: %s", job_id, exc.__class__.__name__)
-        return JSONResponse(
-            status_code=500,
-            content=problem_detail(
-                status=500,
-                title="Internal Server Error",
-                detail=("Artifact erasure failed due to an I/O error — see server logs."),
-            ),
-        )
-
-    # Emit WORM audit event (CONSTITUTION Priority 0: Security).
-    # Must be called AFTER deletion so the event records what was accomplished.
+    # T70.8: Emit audit event BEFORE artifact deletion.
+    # If the audit write fails (any exception), return 500 and do NOT shred.
+    # This ensures no destructive operation proceeds without a successful audit trail.
     try:
         audit = get_audit_logger()
         audit.log_event(
@@ -385,11 +395,52 @@ def shred_job(
                 "table_name": job.table_name,
             },
         )
-    except Exception:  # Broad catch intentional: audit failure must not block status update
-        # Audit log failure must NOT prevent the status transition --
-        # the files are already deleted; aborting here would leave the
-        # record in COMPLETE with no artifacts.
-        _logger.exception("Job %d: WORM audit log failed after artifact shredding.", job_id)
+    except Exception:
+        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/jobs/{job_id}/shred").inc()
+        _logger.exception(
+            "Job %d: WORM audit log failed before artifact shredding — aborting (T70.8)", job_id
+        )
+        return JSONResponse(
+            status_code=500,
+            content=problem_detail(
+                status=500,
+                title="Internal Server Error",
+                detail="Audit write failed. Artifact shred was NOT performed.",
+            ),
+        )
+
+    # Delegate physical file deletion to the domain function.
+    # This follows the pattern from T22.4: routers delegate to domain services.
+    # T70.8: If shred fails AFTER successful audit, emit a compensating event.
+    try:
+        shred_artifacts(job)
+    except OSError as exc:
+        # Log with basename only — never full path (security mandate T23.1/T23.2).
+        _logger.error("Job %d: artifact erasure failed: %s", job_id, exc.__class__.__name__)
+        # Emit compensating audit event so the audit chain reflects the failure.
+        try:
+            audit.log_event(
+                event_type="ARTIFACT_SHRED_FAILED",
+                actor=current_operator,
+                resource=f"synthesis_job/{job_id}",
+                action="shred",
+                details={
+                    "job_id": str(job_id),
+                    "error": exc.__class__.__name__,
+                },
+            )
+        except Exception:
+            _logger.exception(
+                "Job %d: compensating audit event ARTIFACT_SHRED_FAILED also failed", job_id
+            )
+        return JSONResponse(
+            status_code=500,
+            content=problem_detail(
+                status=500,
+                title="Internal Server Error",
+                detail="Artifact erasure failed due to an I/O error — see server logs.",
+            ),
+        )
 
     job.status = _SHREDDED_STATUS
     session.add(job)

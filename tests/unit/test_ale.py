@@ -67,7 +67,7 @@ def unsealed_vault(vault_salt_env_for_ale: None, monkeypatch: pytest.MonkeyPatch
     """Unseal VaultState with a known passphrase for ALE tests."""
     from synth_engine.shared.security.vault import VaultState
 
-    VaultState.unseal("ale-test-passphrase")
+    VaultState.unseal(bytearray(b"ale-test-passphrase"))
     yield
     VaultState.reset()
 
@@ -352,7 +352,7 @@ def test_fernet_raises_sealed_error_when_vault_is_sealed_between_calls(
     from synth_engine.shared.security.vault import VaultState
 
     # Unseal and verify ALE works — check type, not just non-null
-    VaultState.unseal("ale-test-passphrase-2")
+    VaultState.unseal(bytearray(b"ale-test-passphrase-2"))
     fernet = get_fernet()
     assert isinstance(fernet, Fernet), (
         f"get_fernet() must return a Fernet instance; got {type(fernet)!r}"

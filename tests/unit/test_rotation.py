@@ -76,7 +76,7 @@ def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", salt)
     get_settings.cache_clear()
-    VaultState.unseal("rotation-test-passphrase")
+    VaultState.unseal(bytearray(b"rotation-test-passphrase"))
     yield
     VaultState.reset()
     get_settings.cache_clear()

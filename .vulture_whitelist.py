@@ -367,3 +367,35 @@ SSRF_DELIVERY_REJECTION_TOTAL  # unused variable — Prometheus Counter auto-col
 # ---------------------------------------------------------------------------
 
 _validate_conclave_data_dir  # Pydantic model_validator — conclave_data_dir sandbox validation (shared/settings.py T69.7)
+
+# ---------------------------------------------------------------------------
+# Category V — P70 new public API
+# _synthesizer_tasks is a side-effect import in wiring.py that registers the
+# run_synthesis_job Huey task; it is unused by name. migrate_audit_signatures
+# is a CLI-facing function called from the conclave CLI (T70.2). The settings
+# sub-model properties (tls, rate_limit, webhook, retention, parquet, anchor)
+# are new public API on ConclaveSettings introduced by T70.4; they are not yet
+# called in production src code but are part of the decomposed settings API
+# consumed by callers via get_settings().tls, etc.
+# ---------------------------------------------------------------------------
+
+_synthesizer_tasks  # unused import — side-effect: registers run_synthesis_job Huey task (wiring.py T70.6)
+migrate_audit_signatures  # unused function — CLI-facing audit log migration tool (shared/security/audit_migrations.py T70.2)
+tls  # unused property — ConclaveSettings.tls sub-model accessor (shared/settings.py T70.4)
+rate_limit  # unused property — ConclaveSettings.rate_limit sub-model accessor (shared/settings.py T70.4)
+webhook  # unused property — ConclaveSettings.webhook sub-model accessor (shared/settings.py T70.4)
+retention  # unused property — ConclaveSettings.retention sub-model accessor (shared/settings.py T70.4)
+parquet  # unused property — ConclaveSettings.parquet sub-model accessor (shared/settings.py T70.4)
+anchor  # unused property — ConclaveSettings.anchor sub-model accessor (shared/settings.py T70.4)
+
+# ---------------------------------------------------------------------------
+# Category W — P70 review fix: sign_v1/sign_v2 backward-compat aliases
+# sign_v1 and sign_v2 are module-level aliases in audit_signatures.py that
+# preserve the old public names for callers (tests/unit/test_t58_4_split_backward_compat.py,
+# tests/unit/test_audit_v3_hmac_attack.py, tests/unit/test_p70_t702_signature_removal_attack.py)
+# that still import by the unprefixed names.  The real implementations are
+# _sign_v1 and _sign_v2; audit_logger.py uses the private names directly.
+# ---------------------------------------------------------------------------
+
+sign_v1  # unused variable — backward-compat alias for _sign_v1 (audit_signatures.py); consumed by test imports
+sign_v2  # unused variable — backward-compat alias for _sign_v2 (audit_signatures.py); consumed by test imports

@@ -632,7 +632,7 @@ class TestTraversalEdgeCases:
         assert "departments" not in table_names
 
     def test_fetch_by_fk_values_empty_values_returns_empty_list(self) -> None:
-        """_fetch_by_fk_values must return [] immediately when values is empty.
+        """_fetch_by_composite_fk_values must return [] immediately when values is empty.
 
         Line 257: if not values: return [].
         """
@@ -649,7 +649,7 @@ class TestTraversalEdgeCases:
         engine = MagicMock(spec=Engine)
         traversal = DagTraversal(engine=engine, topology=topology)
 
-        result = traversal._fetch_by_fk_values("parent", "id", [])  # type: ignore[attr-defined]
+        result = traversal._fetch_by_composite_fk_values("parent", ("id",), [])  # type: ignore[attr-defined]
 
         assert result == []
         # The database connection must NOT have been used

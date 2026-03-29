@@ -195,7 +195,7 @@ def rotation_db_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[Engine]:
     """Yield an Engine with the vault unsealed (HKDF path) for rotation tests."""
-    VaultState.unseal("integration-test-passphrase")
+    VaultState.unseal(bytearray(b"integration-test-passphrase"))
 
     proc = postgresql_proc
     url = (
@@ -219,7 +219,7 @@ def shred_db_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[Engine]:
     """Yield an Engine with the vault unsealed for shred tests."""
-    VaultState.unseal("shred-integration-passphrase")
+    VaultState.unseal(bytearray(b"shred-integration-passphrase"))
 
     proc = postgresql_proc
     url = (

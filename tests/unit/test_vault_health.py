@@ -192,7 +192,7 @@ async def test_ready_returns_503_again_after_reseal(app: Any, vault_salt_env: st
     from synth_engine.shared.security.vault import VaultState
 
     # Unseal first
-    VaultState.unseal("correct-horse-battery-staple")
+    VaultState.unseal(bytearray(b"correct-horse-battery-staple"))
     assert not VaultState.is_sealed(), "Pre-condition: vault must be unsealed"
 
     # Re-seal
@@ -233,7 +233,7 @@ async def test_ready_returns_200_when_vault_unsealed_and_deps_healthy(
     """After unseal, /ready MUST return 200 when all deps are healthy."""
     from synth_engine.shared.security.vault import VaultState
 
-    VaultState.unseal("correct-horse-battery-staple")
+    VaultState.unseal(bytearray(b"correct-horse-battery-staple"))
     assert not VaultState.is_sealed(), "Pre-condition: vault must be unsealed"
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -266,7 +266,7 @@ async def test_ready_response_body_contains_vault_sealed_false_when_unsealed(
     """The /ready 200 body MUST include vault_sealed: false after unseal."""
     from synth_engine.shared.security.vault import VaultState
 
-    VaultState.unseal("correct-horse-battery-staple")
+    VaultState.unseal(bytearray(b"correct-horse-battery-staple"))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with (
@@ -297,7 +297,7 @@ async def test_health_vault_returns_vault_sealed_false_after_unseal(
     """/health/vault MUST return vault_sealed: false after unseal."""
     from synth_engine.shared.security.vault import VaultState
 
-    VaultState.unseal("correct-horse-battery-staple")
+    VaultState.unseal(bytearray(b"correct-horse-battery-staple"))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/health/vault")

@@ -438,6 +438,6 @@ class TestVaultSlowPBKDF2:
 
         with patch("hashlib.pbkdf2_hmac", side_effect=_slow_pbkdf2):
             VaultState.reset()
-            VaultState.unseal("slow-kdf-test-passphrase")
+            VaultState.unseal(bytearray(b"slow-kdf-test-passphrase"))
 
         assert not VaultState.is_sealed(), "Vault must be unsealed after slow PBKDF2 derivation"

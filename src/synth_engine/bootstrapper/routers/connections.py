@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, select
@@ -159,7 +159,7 @@ def create_connection(
     response_model=ConnectionResponse,
 )
 def get_connection(
-    connection_id: str,
+    connection_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> ConnectionResponse | JSONResponse:
@@ -198,7 +198,7 @@ def get_connection(
     status_code=204,
 )
 def delete_connection(
-    connection_id: str,
+    connection_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(get_current_operator)],
 ) -> Response:

@@ -16,11 +16,18 @@ Signature format versioning
 - ``v3:<hex>`` — Current format.  Length-prefixed field encoding eliminates
   the pipe-delimiter injection vulnerability.  Used for all new events.
 
+Public API: only ``sign_v3`` and ``verify_event`` are exported from
+``synth_engine.shared.security.audit``.  The ``_sign_v1`` and ``_sign_v2``
+functions are intentionally private (underscore prefix) — they remain in this
+module solely for backward-compatible verification and the audit migration
+tool.  Do not call them from new code (T70.2).
+
 No imports from ``audit_logger.py`` or ``audit_singleton.py`` — this module
 is a pure-function leaf with no circular-import risk.
 
 CONSTITUTION Priority 0: Security
 Task: T58.4 — Split audit.py into signatures/logger/singleton
+Task: T70.2 — Rename sign_v1/sign_v2 to private (_sign_v1/_sign_v2)
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ import json
 _DETAILS_MAX_BYTES: int = 64 * 1024  # 64 KB
 
 
-def sign_v1(
+def _sign_v1(
     audit_key: bytes,
     timestamp: str,
     event_type: str,
@@ -48,6 +55,10 @@ def sign_v1(
     The v1 format does NOT include details in the signed payload.  Supported
     solely for backward-compatible verification of events written before the
     T53.2 upgrade.
+
+    Private function — not part of the public API.  Use :func:`sign_v3` for
+    all new events.  Callers outside this module should import
+    ``_sign_v1`` only for backward-compat verification or migration.
 
     Args:
         audit_key: Raw 32-byte HMAC signing key.
@@ -66,7 +77,7 @@ def sign_v1(
     return f"v1:{hex_digest}"
 
 
-def sign_v2(
+def _sign_v2(
     audit_key: bytes,
     timestamp: str,
     event_type: str,
@@ -85,6 +96,9 @@ def sign_v2(
     Supported for backward-compatible verification only.  New events use
     :func:`sign_v3` to eliminate the pipe-delimiter injection vulnerability
     (ADV-P53-01).
+
+    Private function — not part of the public API.  Use :func:`sign_v3` for
+    all new events.
 
     Args:
         audit_key: Raw 32-byte HMAC signing key.
@@ -182,3 +196,12 @@ def sign_v3(
 
     hex_digest = hmac.new(audit_key, message, hashlib.sha256).hexdigest()
     return f"v3:{hex_digest}"
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat aliases — kept to avoid breaking any external callers that
+# imported by name before T70.2.  These names are NOT in __all__ and will be
+# removed in a future cleanup phase.
+# ---------------------------------------------------------------------------
+sign_v1 = _sign_v1
+sign_v2 = _sign_v2

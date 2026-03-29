@@ -50,7 +50,7 @@ pytestmark = pytest.mark.integration
 _TEST_VAULT_SALT: str = base64.urlsafe_b64encode(b"synth-test-salt!").decode()
 
 #: Fixed test passphrase. Not a real secret — test isolation only.
-_TEST_VAULT_PASSPHRASE: str = "erasure-test-passphrase"  # nosec B105 # pragma: allowlist secret
+_TEST_VAULT_PASSPHRASE: bytes = b"erasure-test-passphrase"  # nosec B105 # pragma: allowlist secret
 
 
 def _ensure_vault_unsealed() -> None:
@@ -64,7 +64,7 @@ def _ensure_vault_unsealed() -> None:
 
     if VaultState.is_sealed():
         os.environ["VAULT_SEAL_SALT"] = _TEST_VAULT_SALT
-        VaultState.unseal(_TEST_VAULT_PASSPHRASE)
+        VaultState.unseal(bytearray(_TEST_VAULT_PASSPHRASE))
 
 
 # ---------------------------------------------------------------------------

@@ -159,7 +159,7 @@ class TestVaultUnsealRaceCondition:
 
         def _try_unseal() -> None:
             try:
-                VaultState.unseal("concurrent-test-passphrase")
+                VaultState.unseal(bytearray(b"concurrent-test-passphrase"))
                 with lock_for_lists:
                     successes.append(True)
             except VaultAlreadyUnsealedError as exc:
@@ -198,10 +198,10 @@ class TestVaultUnsealRaceCondition:
         monkeypatch.setenv("CONCLAVE_ENV", "development")
 
         VaultState.reset()
-        VaultState.unseal("first-unseal")
+        VaultState.unseal(bytearray(b"first-unseal"))
 
         VaultState.reset()  # reset seals the vault again
-        VaultState.unseal("second-unseal")  # must not raise
+        VaultState.unseal(bytearray(b"second-unseal"))  # must not raise
 
         assert not VaultState.is_sealed(), "Vault must be unsealed after second unseal"
 

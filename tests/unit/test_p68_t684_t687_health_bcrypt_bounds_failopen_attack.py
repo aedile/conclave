@@ -86,7 +86,7 @@ class TestHealthStrictMode:
         """
         from synth_engine.shared.security.vault import VaultState
 
-        VaultState.unseal("test-passphrase-health")
+        VaultState.unseal(bytearray(b"test-passphrase-health"))
         yield
         VaultState.reset()
 

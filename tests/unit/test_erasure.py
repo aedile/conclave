@@ -70,7 +70,7 @@ def _module_vault_unseal() -> Any:
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     os.environ["VAULT_SEAL_SALT"] = salt
     get_settings.cache_clear()
-    VaultState.unseal("erasure-test-module-passphrase")
+    VaultState.unseal(bytearray(b"erasure-test-module-passphrase"))
     yield
     VaultState.reset()
     os.environ.pop("VAULT_SEAL_SALT", None)

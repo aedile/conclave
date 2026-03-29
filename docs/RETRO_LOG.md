@@ -21,9 +21,18 @@ Updated after each task's review phase completes.
 |----|----------|-------|
 | ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
 | ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
-| ADV-P68-03 | Remaining unbounded path params: `connection_id` and `webhook_id` path parameters lack `max_length` — partial closure of ADV-P67-01 | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
-| ADV-P68-04 | Audit ordering inconsistency: T68.3 established audit-before-mutation in security.py/admin.py but jobs.py:shred_job and privacy.py:refresh_budget still use audit-after-mutation | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
-| ADV-P68-05 | No Prometheus counter on audit-write-failure paths in admin.py, security.py — failures only visible in logs, not metrics plane | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
+| ADV-P70-01 | `settings.py` 1096 LOC — sub-models defined inline, T70.4 AC2 (200 LOC) not met. Extract to separate files in future phase. | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
+| ADV-P70-02 | `audit migrate-signatures` CLI command not wired — library function exists but no CLI entry point. Runbook references non-existent commands. | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
+| ADV-P70-03 | Fragmented Prometheus counters — 4 separate `audit_write_failure_total_*` instead of 1 with labels. Consolidate in shared metrics module. | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
+| ADV-P70-04 | Missing composite FK integration test with real PostgreSQL (T70.1 AC7). | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
+
+**CLOSED (P70 — structural debt reduction)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P68-03 | CLOSED — `max_length=255` added to `connection_id` and `webhook_id` path params across all endpoints (T70.7) | P70 |
+| ADV-P68-04 | CLOSED — Audit-before-mutation standardized in `jobs.py:shred_job` and `privacy.py:refresh_budget` with compensating events on post-audit failure (T70.8) | P70 |
+| ADV-P68-05 | CLOSED — `AUDIT_WRITE_FAILURE_TOTAL` counters added to all audit-fail catch blocks in admin.py, security.py, jobs.py, privacy.py (T70.9) | P70 |
 
 **CLOSED (P69 — security depth & test coverage)**
 
@@ -82,11 +91,13 @@ Updated after each task's review phase completes.
 - ADV-P62-03: Circuit breaker process-local state
 - ADV-P63-01: Grace period per-process across N workers
 
-**Input Validation**
-- ADV-P67-01: Systematic unbounded field lengths project-wide
+**Maintainability**
+- ADV-P70-01: settings.py 1096 LOC (sub-models inline, not extracted)
+- ADV-P70-02: audit migrate-signatures CLI not wired
+- ADV-P70-03: Fragmented Prometheus counter names
 
-**Configuration**
-- ADV-P67-02: rate_limit_fail_open warns-only in production mode
+**Testing**
+- ADV-P70-04: Missing composite FK integration test
 
 ---
 
@@ -94,6 +105,7 @@ Updated after each task's review phase completes.
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 70 | 2026-03-29 | [Structural Debt Reduction](#2026-03-29-phase-70--structural-debt-reduction) |
 | Phase 69 | 2026-03-29 | [Security Depth & Test Coverage](#2026-03-29-phase-69--security-depth--test-coverage) |
 | Phase 68 | 2026-03-28 | [Critical Safety Hardening](#2026-03-28-phase-68--critical-safety-hardening) |
 | Phase 67 | 2026-03-28 | [Advisory Drain: Input Validation & Error Mapping Hardening](#2026-03-28-phase-67--advisory-drain-input-validation--error-mapping-hardening) |
@@ -119,6 +131,24 @@ Updated after each task's review phase completes.
 | Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
 | Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
 | Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-29] Phase 70 — Structural Debt Reduction
+
+**Tasks**: T70.1 (composite PK/FK), T70.2 (v1/v2 signature removal), T70.3 (memory-safe vault), T70.4 (settings sub-models), T70.5 (operational runbook), T70.6 (shim removal), T70.7 (path param bounds), T70.8 (audit ordering), T70.9 (audit failure counter)
+
+**Source**: Senior Architect & Security Audit (2026-03-28) — findings C6, C11, C12 + advisory drain ADV-P68-03/04/05.
+
+**Review agents**: QA ✓, DevOps ✓, Red-team ✓, Architecture ✓ — 0 BLOCKERs after fixes.
+
+**Review findings fixed**: reflection.py FK dedup upgraded to full column tuples (Architecture+QA), sign_v1/sign_v2 renamed to private (QA), cryptography CVE-2026-34073 bumped to >=46.0.6 (DevOps), total_epochs/num_rows upper bounds added (Red-team), port range validation ge=1 le=65535 (Red-team), stale reflection.py comment removed (QA).
+
+**Advisories closed**: ADV-P68-03 (path param bounds), ADV-P68-04 (audit ordering consistency), ADV-P68-05 (audit failure counter).
+
+**New advisories**: ADV-P70-01 (settings.py LOC), ADV-P70-02 (CLI not wired), ADV-P70-03 (fragmented counters), ADV-P70-04 (composite FK integration test).
+
+**Advisory count**: 6 open (ADV-P62-03, ADV-P63-01, ADV-P70-01 through ADV-P70-04). Below Rule 11 threshold.
 
 ---
 

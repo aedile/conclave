@@ -663,7 +663,12 @@ class TestBudgetRefreshEndpoint:
 
     @pytest.mark.asyncio
     async def test_refresh_budget_returns_500_when_audit_fails(self) -> None:
-        """POST /privacy/budget/refresh returns 500 if audit emission raises."""
+        """POST /privacy/budget/refresh returns 500 if audit emission raises.
+
+        T70.8: Audit-before-mutation — audit failure returns 500 and the budget
+        is NOT reset.  The ledger spent_epsilon remains at its original value
+        because the reset is blocked until audit succeeds.
+        """
         app, engine = _make_test_app()
         patches = _common_patches()
 
@@ -673,7 +678,7 @@ class TestBudgetRefreshEndpoint:
         with (
             patches[0],
             patches[1],
-            _make_reset_budget_patch(engine),
+            patch("synth_engine.bootstrapper.routers.privacy._run_reset_budget") as mock_reset,
             patch(
                 "synth_engine.bootstrapper.routers.privacy.get_audit_logger",
                 return_value=mock_audit,
@@ -688,8 +693,10 @@ class TestBudgetRefreshEndpoint:
                 )
 
         assert response.status_code == 500
+        # T70.8: budget reset must NOT have been called when audit fails
+        mock_reset.assert_not_called()
 
-        # Verify the DB write was committed: ledger spent should be 0
+        # Verify the DB was NOT reset: ledger spent should remain at original value
         from synth_engine.modules.privacy.ledger import PrivacyLedger
 
         with Session(engine) as s:
@@ -697,7 +704,8 @@ class TestBudgetRefreshEndpoint:
                 __import__("sqlmodel", fromlist=["select"]).select(PrivacyLedger)
             ).first()
             assert ledger is not None
-            assert ledger.total_spent_epsilon == Decimal("0.0")
+            # Spent was NOT reset to 0 — it retains original value (5.0 from fixture)
+            assert ledger.total_spent_epsilon > Decimal("0.0")
 
 
 # ---------------------------------------------------------------------------

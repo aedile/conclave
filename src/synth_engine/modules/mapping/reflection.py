@@ -36,6 +36,7 @@ Task: P3-T3.2 -- Relational Mapping & Topological Sort
 Task: P3.5-T3.5.2 -- Module Cohesion Refactor (moved from modules/ingestion/)
 Task: P3.5-T3.5.3 -- Virtual Foreign Key (VFK) support
 Task: P20-T20.1 -- ADV-021 FK Traversal Fix (get_pk_constraint method)
+Task: P70 -- Fix FK dedup to use full column tuples (review finding)
 ADV-023, ADV-024: Inspector caching and type-ignore justifications (T3.4).
 """
 
@@ -144,33 +145,33 @@ class SchemaReflector:
                     )
 
         # --- Build edge set from physical FKs ---
-        # Track physical FK edges as (parent, child, constrained_col, referred_col)
-        # tuples so we can deduplicate against VFKs below.
-        physical_edges: set[tuple[str, str, str, str]] = set()
+        # Track physical FK edges as (child, constrained_cols, parent, referred_cols)
+        # tuples using full column-list tuples to correctly deduplicate composite FKs.
+        # A single-column FK (a,) is distinct from a composite FK (a, b) that shares
+        # the same first column — using full tuples prevents false deduplication.
+        physical_edges: set[tuple[str, tuple[str, ...], str, tuple[str, ...]]] = set()
 
         for table in tables:
             for fk in self.get_foreign_keys(table, schema=schema):
                 parent = fk["referred_table"]
-                # constrained_columns / referred_columns are lists; we use the
-                # first element for deduplication keying (composite FK support
-                # is not in scope here).
-                constrained_col: str = (
-                    fk["constrained_columns"][0] if fk.get("constrained_columns") else ""
+                constrained_cols: tuple[str, ...] = (
+                    tuple(fk["constrained_columns"]) if fk.get("constrained_columns") else ()
                 )
-                referred_col: str = fk["referred_columns"][0] if fk.get("referred_columns") else ""
-                physical_edges.add((table, constrained_col, parent, referred_col))
+                referred_cols: tuple[str, ...] = (
+                    tuple(fk["referred_columns"]) if fk.get("referred_columns") else ()
+                )
+                physical_edges.add((table, constrained_cols, parent, referred_cols))
                 dag.add_edge(parent, table)
 
         # --- Merge VFK edges ---
         # A VFK that exactly duplicates a physical FK edge is silently skipped
         # (the DAG's add_edge is itself idempotent, but explicit deduplication
-        # here keeps the intent visible).
+        # here keeps the intent visible).  VFK config dicts carry single column
+        # names; wrap them in single-element tuples for consistent comparison.
         for vfk in self._virtual_foreign_keys:
             child = vfk["table"]
-            col = vfk["column"]
             parent = vfk["references_table"]
-            ref_col = vfk["references_column"]
-            edge_key = (child, col, parent, ref_col)
+            edge_key = (child, (vfk["column"],), parent, (vfk["references_column"],))
             if edge_key not in physical_edges:
                 dag.add_edge(parent, child)
 

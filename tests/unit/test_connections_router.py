@@ -71,7 +71,7 @@ class TestConnectionsCRUD:
 
         salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
         monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-        VaultState.unseal("test-router-passphrase")
+        VaultState.unseal(bytearray(b"test-router-passphrase"))
         yield
         VaultState.reset()
 

@@ -352,7 +352,7 @@ Note: `bootstrapper/wiring.py` also imports `jobs.tasks` as a side effect so tha
 `run_synthesis_job` is registered with the shared Huey instance when workers start.
 The setter functions (`set_dp_wrapper_factory`, `set_spend_budget_fn`) live canonically
 in `job_orchestration.py`; `jobs.tasks` re-exports them for backward compatibility only
-(shim removal planned for Phase 70).
+(shim removal completed in Phase 70 — T70.6).
 
 Three effects:
 1. **Task registration**: importing `tasks` registers `run_synthesis_job` with the shared Huey instance.

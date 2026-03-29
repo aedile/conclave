@@ -207,48 +207,56 @@ class TestNoCircularImports:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compat: models.py re-exports
+# T70.6: models.py shim removed — canonical paths tested directly
 # ---------------------------------------------------------------------------
 
 
 class TestModelsBackwardCompat:
-    """All existing 'from models import X' paths still resolve."""
+    """Canonical import paths that replaced the models.py shim (T70.6)."""
 
-    def test_model_artifact_importable_from_models(self) -> None:
-        from synth_engine.modules.synthesizer.storage.models import ModelArtifact
+    def test_model_artifact_importable_from_artifact(self) -> None:
+        from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 
         assert ModelArtifact.__name__ == "ModelArtifact"
 
-    def test_restricted_unpickler_importable_from_models(self) -> None:
-        from synth_engine.modules.synthesizer.storage.models import RestrictedUnpickler
+    def test_restricted_unpickler_importable_from_canonical(self) -> None:
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+            RestrictedUnpickler,
+        )
 
         assert RestrictedUnpickler.__name__ == "RestrictedUnpickler"
 
     def test_synthesizer_model_protocol_importable(self) -> None:
-        from synth_engine.modules.synthesizer.storage.models import SynthesizerModel
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import SynthesizerModel
 
         assert SynthesizerModel.__name__ == "SynthesizerModel"
 
-    def test_security_error_importable_from_models(self) -> None:
-        from synth_engine.modules.synthesizer.storage.models import SecurityError
+    def test_security_error_importable_from_hmac_signing(self) -> None:
+        from synth_engine.shared.security.hmac_signing import (
+            ArtifactTamperingError as SecurityError,
+        )
 
-        # SecurityError is an alias for ArtifactTamperingError (see hmac_signing.py)
+        # SecurityError is ArtifactTamperingError (see hmac_signing.py)
         assert SecurityError.__name__ == "ArtifactTamperingError"
 
     def test_allowed_module_prefixes_importable(self) -> None:
-        from synth_engine.modules.synthesizer.storage.models import _ALLOWED_MODULE_PREFIXES
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+            _ALLOWED_MODULE_PREFIXES,
+        )
 
         assert isinstance(_ALLOWED_MODULE_PREFIXES, tuple)
         assert len(_ALLOWED_MODULE_PREFIXES) > 0
 
     def test_allowed_builtin_names_importable(self) -> None:
-        from synth_engine.modules.synthesizer.storage.models import _ALLOWED_BUILTIN_NAMES
+        from synth_engine.modules.synthesizer.storage.restricted_unpickler import (
+            _ALLOWED_BUILTIN_NAMES,
+        )
 
         assert isinstance(_ALLOWED_BUILTIN_NAMES, frozenset)
         assert "dict" in _ALLOWED_BUILTIN_NAMES
 
     def test_artifact_verification_failure_total_importable(self) -> None:
-        from synth_engine.modules.synthesizer.storage.models import (
+        from synth_engine.modules.synthesizer.storage.artifact import (
             ARTIFACT_VERIFICATION_FAILURE_TOTAL,
         )
 

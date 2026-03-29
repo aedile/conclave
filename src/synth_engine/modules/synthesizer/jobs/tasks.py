@@ -19,12 +19,6 @@ across two focused sub-modules (P26-T26.1):
 - :mod:`synth_engine.modules.synthesizer.jobs.job_finalization` — Parquet artifact
   persistence and HMAC-SHA256 signing.
 
-Deprecated re-exports (use canonical paths directly)
------------------------------------------------------
-The following names are re-exported for backward compatibility only.
-All internal callers have been migrated to canonical paths (T64.1).
-Shim removal planned for Phase 70.
-
 Canonical import paths::
 
     from synth_engine.modules.synthesizer.jobs.job_orchestration import _run_synthesis_job_impl
@@ -80,26 +74,11 @@ from __future__ import annotations
 
 import logging
 
-# ---------------------------------------------------------------------------
-# Re-exports from job_orchestration — backward compatibility for external
-# callers that may import directly from this module.  All internal callers
-# have been migrated to canonical paths (T64.1).  Shim removal: Phase 70.
-#
-# Mutable globals (_dp_wrapper_factory, _spend_budget_fn) are NOT re-exported
-# as names here because Python binds them at import time; callers that need
-# the live value must access job_orchestration._dp_wrapper_factory directly.
-# The setter functions (set_dp_wrapper_factory, set_spend_budget_fn) ARE
-# re-exported because they are function objects and calling them via this
-# module's namespace correctly mutates job_orchestration's module-level globals.
-# ---------------------------------------------------------------------------
+# (T70.6) Re-exports of set_dp_wrapper_factory and set_spend_budget_fn removed.
+# Callers now import directly from synth_engine.modules.synthesizer.jobs.job_orchestration.
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-from synth_engine.modules.synthesizer.jobs.job_orchestration import (  # noqa: F401
-    _OOM_FALLBACK_COLUMNS,
-    _OOM_FALLBACK_ROWS,
-    _get_parquet_dimensions,
+from synth_engine.modules.synthesizer.jobs.job_orchestration import (
     _run_synthesis_job_impl,
-    set_dp_wrapper_factory,
-    set_spend_budget_fn,
 )
 from synth_engine.shared.protocols import DPWrapperProtocol
 from synth_engine.shared.task_queue import huey
@@ -110,8 +89,6 @@ _logger = logging.getLogger(__name__)
 __all__ = [
     "_run_synthesis_job_impl",
     "run_synthesis_job",
-    "set_dp_wrapper_factory",
-    "set_spend_budget_fn",
 ]
 
 

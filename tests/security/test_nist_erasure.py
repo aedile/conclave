@@ -232,7 +232,7 @@ def nist_db_engine(
     Yields:
         A configured Engine with schema created and vault unsealed.
     """
-    VaultState.unseal("nist-erasure-test-passphrase-fictional")
+    VaultState.unseal(bytearray(b"nist-erasure-test-passphrase-fictional"))
 
     proc = postgresql_proc
     url = (

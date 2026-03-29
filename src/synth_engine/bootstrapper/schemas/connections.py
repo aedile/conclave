@@ -115,7 +115,7 @@ class ConnectionCreateRequest(BaseModel):
 
     name: str = Field(..., max_length=255)
     host: str = Field(..., max_length=255)
-    port: int
+    port: int = Field(..., ge=1, le=65535)
     database: str = Field(..., max_length=255)
     schema_name: str = Field(default="public", max_length=255)
 

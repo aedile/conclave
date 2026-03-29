@@ -273,7 +273,7 @@ def vault_db_engine(
     Yields:
         A configured :class:`sqlalchemy.Engine` instance.
     """
-    VaultState.unseal("integration-test-passphrase")
+    VaultState.unseal(bytearray(b"integration-test-passphrase"))
 
     proc = postgresql_proc
     url = (

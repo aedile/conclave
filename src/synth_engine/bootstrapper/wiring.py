@@ -58,9 +58,19 @@ from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.factories import build_dp_wrapper, build_spend_budget_fn
 from synth_engine.bootstrapper.schemas.webhooks import WebhookDelivery, WebhookRegistration
-from synth_engine.modules.synthesizer.jobs import tasks as _synthesizer_tasks
+from synth_engine.modules.synthesizer.jobs import (
+    tasks as _synthesizer_tasks,  # noqa: F401 — side-effect: registers run_synthesis_job Huey task
+)
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-from synth_engine.modules.synthesizer.jobs.job_orchestration import set_webhook_delivery_fn
+from synth_engine.modules.synthesizer.jobs.job_orchestration import (
+    set_dp_wrapper_factory as _set_dp_wrapper_factory,
+)
+from synth_engine.modules.synthesizer.jobs.job_orchestration import (
+    set_spend_budget_fn as _set_spend_budget_fn,
+)
+from synth_engine.modules.synthesizer.jobs.job_orchestration import (
+    set_webhook_delivery_fn,
+)
 from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
 from synth_engine.modules.synthesizer.storage import (
     reaper_tasks as _reaper_tasks,  # noqa: F401 — side-effect: registers Huey task
@@ -218,7 +228,7 @@ def wire_dp_wrapper_factory() -> None:
     Calling this function multiple times is safe — each call overwrites the
     previous registration with an identical factory (idempotent).
     """
-    _synthesizer_tasks.set_dp_wrapper_factory(build_dp_wrapper)
+    _set_dp_wrapper_factory(build_dp_wrapper)
     _logger.debug("IoC: dp_wrapper_factory wired (ADR-0029).")
 
 
@@ -232,7 +242,7 @@ def wire_spend_budget_fn() -> None:
     Calling this function multiple times is safe — each call overwrites the
     previous registration with a new equivalent wrapper (idempotent in effect).
     """
-    _synthesizer_tasks.set_spend_budget_fn(build_spend_budget_fn())
+    _set_spend_budget_fn(build_spend_budget_fn())
     _logger.debug("IoC: spend_budget_fn wired (T22.3).")
 
 
