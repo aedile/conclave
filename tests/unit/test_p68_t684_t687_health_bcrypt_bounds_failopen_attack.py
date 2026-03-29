@@ -1,4 +1,5 @@
-"""Negative/attack tests for health strict mode, bcrypt narrowing, input bounds, fail-open (T68.4-T68.7).
+"""Negative/attack tests for health strict mode, bcrypt narrowing,
+input bounds, and fail-open blocking (T68.4-T68.7).
 
 Covers:
 - T68.4: Health check strict mode — configured-but-unreachable service returns 503
@@ -20,7 +21,7 @@ from __future__ import annotations
 import base64
 import os
 from collections.abc import Generator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -99,7 +100,7 @@ class TestHealthStrictMode:
         Act: GET /ready.
         Assert: 503.
         """
-        monkeypatch.setenv("CONCLAVE_ENV", "production")
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://db:5432/test")
         monkeypatch.setenv("CONCLAVE_HEALTH_STRICT", "true")
 
@@ -144,7 +145,7 @@ class TestHealthStrictMode:
         When strict=True, an unconfigured DATABASE_URL means the service is
         expected but absent — the instance is not ready.
         """
-        monkeypatch.setenv("CONCLAVE_ENV", "production")
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
         monkeypatch.delenv("DATABASE_URL", raising=False)
         monkeypatch.delenv("CONCLAVE_DATABASE_URL", raising=False)
         monkeypatch.setenv("CONCLAVE_HEALTH_STRICT", "true")
@@ -187,7 +188,7 @@ class TestHealthStrictMode:
         Act: GET /ready.
         Assert: 503.
         """
-        monkeypatch.setenv("CONCLAVE_ENV", "production")
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://db:5432/test")
         monkeypatch.setenv("CONCLAVE_HEALTH_STRICT", "true")
 
@@ -272,9 +273,20 @@ class TestHealthStrictMode:
 
         Per T68.4 spec amendment: the field uses a model_validator that sets
         strict=True when the env is production and the field was not explicitly set.
+        Sets all production-required fields to avoid unrelated startup failures.
         """
         monkeypatch.setenv("CONCLAVE_ENV", "production")
         monkeypatch.delenv("CONCLAVE_HEALTH_STRICT", raising=False)
+        # Set all production-required fields to avoid unrelated ValidationError
+        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://db:5432/test")
+        monkeypatch.setenv("AUDIT_KEY", "a" * 64)
+        monkeypatch.setenv("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-minimum!")
+        monkeypatch.setenv(
+            "OPERATOR_CREDENTIALS_HASH",
+            "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/L/Ldv5t.iifcXiJea",  # pragma: allowlist secret
+        )
+        monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "b" * 64)
+        monkeypatch.setenv("MASKING_SALT", "c" * 64)
 
         from synth_engine.shared.settings import get_settings
 
@@ -331,9 +343,7 @@ class TestBcryptExceptionNarrowing:
 
         get_settings.cache_clear()
 
-    def test_bcrypt_runtime_error_propagates(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_bcrypt_runtime_error_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """RuntimeError from bcrypt.checkpw must propagate, not be caught as auth failure.
 
         RuntimeError is a system error that should crash loudly, not silently
@@ -352,9 +362,7 @@ class TestBcryptExceptionNarrowing:
         ):
             verify_operator_credentials("any-passphrase")
 
-    def test_bcrypt_memory_error_propagates(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_bcrypt_memory_error_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """MemoryError from bcrypt.checkpw must propagate, not be caught as auth failure.
 
         MemoryError is a serious system condition — masking it as "wrong password"
@@ -373,9 +381,7 @@ class TestBcryptExceptionNarrowing:
         ):
             verify_operator_credentials("any-passphrase")
 
-    def test_bcrypt_value_error_returns_false(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_bcrypt_value_error_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """ValueError from bcrypt.checkpw (malformed hash) must still return False.
 
         ValueError is a documented bcrypt failure mode for invalid/malformed hashes —
@@ -395,9 +401,7 @@ class TestBcryptExceptionNarrowing:
             f"ValueError from bcrypt must return False (auth denied); got {result!r}"
         )
 
-    def test_bcrypt_type_error_returns_false(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_bcrypt_type_error_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """TypeError from bcrypt.checkpw (bad argument type) must still return False.
 
         TypeError is a documented bcrypt failure mode for malformed input types.
@@ -434,11 +438,12 @@ def jobs_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """
     monkeypatch.setenv("CONCLAVE_ENV", "development")
 
-    from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
-    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from sqlalchemy.pool import StaticPool
     from sqlmodel import Session, SQLModel, create_engine
+
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.routers.jobs import router as jobs_router
 
     engine = create_engine(
         "sqlite:///:memory:",
@@ -476,11 +481,12 @@ def webhooks_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """
     monkeypatch.setenv("CONCLAVE_ENV", "development")
 
-    from synth_engine.bootstrapper.routers.webhooks import router as webhooks_router
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
-    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from sqlalchemy.pool import StaticPool
     from sqlmodel import Session, SQLModel, create_engine
+
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.routers.webhooks import router as webhooks_router
 
     engine = create_engine(
         "sqlite:///:memory:",
@@ -520,11 +526,12 @@ def privacy_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """
     monkeypatch.setenv("CONCLAVE_ENV", "development")
 
-    from synth_engine.bootstrapper.routers.privacy import router as privacy_router
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
-    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from sqlalchemy.pool import StaticPool
     from sqlmodel import Session, SQLModel, create_engine
+
+    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.routers.privacy import router as privacy_router
 
     engine = create_engine(
         "sqlite:///:memory:",
@@ -552,9 +559,7 @@ def privacy_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 class TestInputBoundsValidation:
     """Oversized inputs must return 422 Unprocessable Entity."""
 
-    def test_parquet_path_oversized_returns_422(
-        self, jobs_client: TestClient
-    ) -> None:
+    def test_parquet_path_oversized_returns_422(self, jobs_client: TestClient) -> None:
         """parquet_path > 1024 chars must return 422.
 
         A path longer than 1024 characters is a DoS/log-injection vector.
@@ -576,9 +581,7 @@ class TestInputBoundsValidation:
             f"Body: {response.json()}"
         )
 
-    def test_table_name_oversized_returns_422(
-        self, jobs_client: TestClient
-    ) -> None:
+    def test_table_name_oversized_returns_422(self, jobs_client: TestClient) -> None:
         """table_name > 255 chars must return 422.
 
         PostgreSQL identifier limit is 63 bytes; 255 is a conservative upper bound.
@@ -599,9 +602,7 @@ class TestInputBoundsValidation:
             f"Body: {response.json()}"
         )
 
-    def test_callback_url_oversized_returns_422(
-        self, webhooks_client: TestClient
-    ) -> None:
+    def test_callback_url_oversized_returns_422(self, webhooks_client: TestClient) -> None:
         """callback_url > 2048 chars must return 422.
 
         A URL exceeding the HTTP practical limit is a DoS vector.
@@ -621,9 +622,7 @@ class TestInputBoundsValidation:
             f"Body: {response.json()}"
         )
 
-    def test_signing_key_oversized_returns_422(
-        self, webhooks_client: TestClient
-    ) -> None:
+    def test_signing_key_oversized_returns_422(self, webhooks_client: TestClient) -> None:
         """signing_key > 512 chars must return 422.
 
         An HMAC key exceeding 512 bytes is unnecessary and a DoS vector.
@@ -643,9 +642,7 @@ class TestInputBoundsValidation:
             f"Body: {response.json()}"
         )
 
-    def test_justification_oversized_returns_422(
-        self, privacy_client: TestClient
-    ) -> None:
+    def test_justification_oversized_returns_422(self, privacy_client: TestClient) -> None:
         """justification > 2000 chars must return 422.
 
         Oversized justification strings are a log-injection/DoS vector.

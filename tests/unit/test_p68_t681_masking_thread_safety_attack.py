@@ -12,7 +12,6 @@ Task: T68.1 — Thread-Local Faker in Masking Module
 from __future__ import annotations
 
 import concurrent.futures
-from collections.abc import Callable
 
 import pytest
 from faker import Faker
@@ -56,8 +55,8 @@ def test_mask_value_thread_pool_reuse_preserves_determinism() -> None:
         f"mask_value must be deterministic under concurrency; got {len(unique_results)} "
         f"distinct results instead of 1. First few: {list(unique_results)[:5]}"
     )
-    assert list(unique_results)[0] == expected, (
-        f"Concurrent result '{list(unique_results)[0]}' must equal single-thread "
+    assert next(iter(unique_results)) == expected, (
+        f"Concurrent result '{next(iter(unique_results))}' must equal single-thread "
         f"baseline '{expected}'"
     )
 
@@ -79,9 +78,7 @@ def test_mask_value_concurrent_different_inputs_no_cross_contamination() -> None
 
     # Compute single-threaded baseline for each of 20 unique (value, salt) pairs.
     pairs = [(f"user_{i}@example.com", f"table_{i}.email") for i in range(20)]
-    baselines = {
-        (v, s): mask_value(v, s, _mask_fn) for v, s in pairs
-    }
+    baselines = {(v, s): mask_value(v, s, _mask_fn) for v, s in pairs}
 
     results: dict[tuple[str, str], list[str]] = {p: [] for p in pairs}
 
@@ -121,9 +118,7 @@ def test_mask_value_thread_local_respects_max_length() -> None:
     max_len = 10
 
     baseline = mask_value(value, salt, _long_fn, max_length=max_len)
-    assert len(baseline) <= max_len, (
-        f"Baseline must be <= {max_len} chars; got {len(baseline)}"
-    )
+    assert len(baseline) <= max_len, f"Baseline must be <= {max_len} chars; got {len(baseline)}"
 
     def _worker(_: int) -> list[str]:
         return [mask_value(value, salt, _long_fn, max_length=max_len) for _ in range(500)]

@@ -101,7 +101,7 @@ def admin_client(
     app = FastAPI()
     app.include_router(admin_router)
 
-    def _get_session() -> Generator[Session, None, None]:
+    def _get_session() -> Generator[Session]:
         with Session(db_engine) as session:
             yield session
 
@@ -262,8 +262,8 @@ class TestAuditBeforeDestructiveShred:
         Returns:
             TestClient wrapping the security-router app.
         """
-        from synth_engine.bootstrapper.routers.security import router as security_router
         from synth_engine.bootstrapper.dependencies.auth import require_scope
+        from synth_engine.bootstrapper.routers.security import router as security_router
 
         app = FastAPI()
         app.include_router(security_router)
@@ -298,8 +298,7 @@ class TestAuditBeforeDestructiveShred:
             response = security_client.post("/security/shred")
 
         assert response.status_code == 500, (
-            f"Audit failure must return 500; got {response.status_code}. "
-            f"Body: {response.json()}"
+            f"Audit failure must return 500; got {response.status_code}. Body: {response.json()}"
         )
         assert not VaultState.is_sealed(), (
             "Vault must NOT be sealed when audit write fails — shred must not proceed"
@@ -316,8 +315,8 @@ class TestAuditBeforeDestructiveKeyRotation:
         Returns:
             TestClient wrapping the security-router app.
         """
-        from synth_engine.bootstrapper.routers.security import router as security_router
         from synth_engine.bootstrapper.dependencies.auth import require_scope
+        from synth_engine.bootstrapper.routers.security import router as security_router
 
         app = FastAPI()
         app.include_router(security_router)
@@ -365,11 +364,11 @@ class TestAuditBeforeDestructiveKeyRotation:
             )
 
         assert response.status_code == 500, (
-            f"Audit failure must return 500; got {response.status_code}. "
-            f"Body: {response.json()}"
+            f"Audit failure must return 500; got {response.status_code}. Body: {response.json()}"
         )
-        mock_task.assert_not_called(), (
-            "Huey rotation task must NOT be enqueued when audit write fails"
+        (
+            mock_task.assert_not_called(),
+            ("Huey rotation task must NOT be enqueued when audit write fails"),
         )
 
 
@@ -393,14 +392,14 @@ class TestAuditBeforeDestructiveLegalHold:
         """
         monkeypatch.setenv("CONCLAVE_ENV", "development")
 
-        from synth_engine.bootstrapper.routers.admin import router as admin_router
         from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.routers.admin import router as admin_router
 
         app = FastAPI()
         app.include_router(admin_router)
 
-        def _get_session() -> Generator[Session, None, None]:
+        def _get_session() -> Generator[Session]:
             with Session(db_engine) as session:
                 yield session
 
@@ -441,8 +440,7 @@ class TestAuditBeforeDestructiveLegalHold:
             )
 
         assert response.status_code == 500, (
-            f"Audit failure must return 500; got {response.status_code}. "
-            f"Body: {response.json()}"
+            f"Audit failure must return 500; got {response.status_code}. Body: {response.json()}"
         )
 
         # Verify DB was rolled back (legal_hold still False)
@@ -450,8 +448,7 @@ class TestAuditBeforeDestructiveLegalHold:
             job = session.get(SynthesisJob, job_id)
             assert job is not None
             assert job.legal_hold is False, (
-                f"legal_hold must remain False after audit failure; "
-                f"got {job.legal_hold}"
+                f"legal_hold must remain False after audit failure; got {job.legal_hold}"
             )
 
     def test_destructive_ops_audit_fail_catches_any_exception_type(
@@ -470,22 +467,17 @@ class TestAuditBeforeDestructiveLegalHold:
         for exc_type in (IOError, OSError, ConnectionError, ValueError):
             with patch(
                 "synth_engine.bootstrapper.routers.admin.get_audit_logger",
-                return_value=MagicMock(
-                    log_event=MagicMock(side_effect=exc_type("audit error"))
-                ),
+                return_value=MagicMock(log_event=MagicMock(side_effect=exc_type("audit error"))),
             ):
                 response = legal_hold_client.patch(
                     f"/admin/jobs/{job_id}/legal-hold",
                     json={"enable": True},
                 )
             assert response.status_code == 500, (
-                f"Audit {exc_type.__name__} must return 500; "
-                f"got {response.status_code}"
+                f"Audit {exc_type.__name__} must return 500; got {response.status_code}"
             )
 
-    def test_shred_requires_security_admin_scope(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_shred_requires_security_admin_scope(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """POST /security/shred must require security:admin scope (regression check).
 
         Verifies the scope enforcement is preserved after T68.3 refactor.
@@ -510,8 +502,7 @@ class TestAuditBeforeDestructiveLegalHold:
         response = client.post("/security/shred")
         # Must get 401 — missing Bearer token
         assert response.status_code == 401, (
-            f"POST /security/shred without auth must return 401; "
-            f"got {response.status_code}"
+            f"POST /security/shred without auth must return 401; got {response.status_code}"
         )
 
     def test_legal_hold_audit_order_audit_before_commit(
@@ -535,9 +526,7 @@ class TestAuditBeforeDestructiveLegalHold:
         # Audit raises immediately — if DB was already committed, job would be changed
         with patch(
             "synth_engine.bootstrapper.routers.admin.get_audit_logger",
-            return_value=MagicMock(
-                log_event=MagicMock(side_effect=Exception("audit failure"))
-            ),
+            return_value=MagicMock(log_event=MagicMock(side_effect=Exception("audit failure"))),
         ):
             response = legal_hold_client.patch(
                 f"/admin/jobs/{job_id}/legal-hold",
