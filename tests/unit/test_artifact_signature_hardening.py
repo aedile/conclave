@@ -321,7 +321,7 @@ def test_detect_signed_format_function_exists_with_correct_name() -> None:
     The rename from _looks_signed to _detect_signed_format clarifies that
     this is a format detector, NOT a security check.
     """
-    import synth_engine.modules.synthesizer.storage.models as models_mod
+    import synth_engine.modules.synthesizer.storage.artifact as models_mod
 
     assert hasattr(models_mod, "_detect_signed_format"), (
         "_detect_signed_format not found — rename from _looks_signed not complete"
@@ -330,7 +330,7 @@ def test_detect_signed_format_function_exists_with_correct_name() -> None:
 
 def test_looks_signed_removed() -> None:
     """The old name _looks_signed must no longer exist on the module."""
-    import synth_engine.modules.synthesizer.storage.models as models_mod
+    import synth_engine.modules.synthesizer.storage.artifact as models_mod
 
     assert not hasattr(models_mod, "_looks_signed"), (
         "_looks_signed still present — rename to _detect_signed_format incomplete"
@@ -343,7 +343,7 @@ def test_detect_signed_format_docstring_says_not_security_check() -> None:
     This prevents future developers from misusing the function as a security
     gate (it is a format detector only — for better error messages).
     """
-    import synth_engine.modules.synthesizer.storage.models as models_mod
+    import synth_engine.modules.synthesizer.storage.artifact as models_mod
 
     doc = models_mod._detect_signed_format.__doc__ or ""
     assert "NOT a security check" in doc, (
