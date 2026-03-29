@@ -342,3 +342,28 @@ _apply_health_strict_default  # Pydantic model_validator — sets conclave_healt
 # ---------------------------------------------------------------------------
 
 _set_trip_time  # unused method — WebhookCircuitBreaker test helper for simulating cooldown expiry
+
+# ---------------------------------------------------------------------------
+# Category T — T69.1 DNS Pinning & T69.5 Webhook Delivery Error Surfacing
+# list_webhook_deliveries is a FastAPI route handler for GET
+# /webhooks/{id}/deliveries. pinned_ips and delivered_at are SQLModel ORM
+# column fields consumed by the DB layer. resolve_and_pin_ips and
+# validate_delivery_ips are called from bootstrapper/routers/webhooks.py
+# and modules/synthesizer/jobs/webhook_delivery.py respectively.
+# SSRF_DELIVERY_REJECTION_TOTAL is a Prometheus Counter auto-collected.
+# ---------------------------------------------------------------------------
+
+list_webhook_deliveries  # unused function — FastAPI route handler (routers/webhooks.py)
+pinned_ips  # unused variable — SQLModel ORM column (bootstrapper/schemas/webhooks.py) + Protocol attr
+delivered_at  # unused variable — SQLModel ORM column (bootstrapper/schemas/webhooks.py)
+resolve_and_pin_ips  # unused function — shared/ssrf.py; called at registration time from webhooks router
+validate_delivery_ips  # unused function — shared/ssrf.py; called at delivery time from webhook_delivery.py
+SSRF_DELIVERY_REJECTION_TOTAL  # unused variable — Prometheus Counter auto-collected on /metrics scrape
+
+# ---------------------------------------------------------------------------
+# Category U — T69.7 conclave_data_dir sandbox validator
+# _validate_conclave_data_dir is a Pydantic @model_validator(mode="after") —
+# called by Pydantic at model construction time, never directly.
+# ---------------------------------------------------------------------------
+
+_validate_conclave_data_dir  # Pydantic model_validator — conclave_data_dir sandbox validation (shared/settings.py T69.7)
