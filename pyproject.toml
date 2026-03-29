@@ -12,6 +12,7 @@ packages = [{ include = "synth_engine", from = "src" }]
 # ---------------------------------------------------------------------------
 [tool.poetry.scripts]
 conclave-subset = "synth_engine.bootstrapper.cli:subset"
+conclave-audit = "synth_engine.bootstrapper.cli:audit_group"
 generate-ts-types = "scripts.generate_ts_types:main"
 
 [tool.poetry.dependencies]

@@ -35,6 +35,7 @@ Task: T41.1 — Implement Data Retention Policy
 Task: T62.1 — Wrap Database Commits in Exception Handlers
 Task: T68.2 — RBAC Guard on Admin Endpoints (ownership-scoped)
 Task: T68.3 — Mandatory Audit Before Destructive Operations
+Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 """
 
 from __future__ import annotations
@@ -44,7 +45,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
@@ -54,21 +54,12 @@ from synth_engine.bootstrapper.dependencies.db import get_db_session
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
 from synth_engine.shared.security.audit import get_audit_logger
 
 _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-
-# ---------------------------------------------------------------------------
-# T70.9 — Prometheus counter for audit-write failures in admin router.
-# Uses a static endpoint label to keep Prometheus cardinality bounded.
-# ---------------------------------------------------------------------------
-AUDIT_WRITE_FAILURE_TOTAL: Counter = Counter(
-    "audit_write_failure_total_admin",
-    "Audit write failures in admin router",
-    ["endpoint"],
-)
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +189,9 @@ def set_legal_hold(
             },
         )
     except Exception:
-        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/admin/jobs/{job_id}/legal-hold").inc()
+        AUDIT_WRITE_FAILURE_TOTAL.labels(
+            router="admin", endpoint="/admin/jobs/{job_id}/legal-hold"
+        ).inc()
         _logger.exception(
             "Audit logging failed for legal hold toggle on job id=%d; aborting (T68.3)",
             job_id,

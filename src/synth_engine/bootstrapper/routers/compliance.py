@@ -62,6 +62,7 @@ from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.connections import Connection
 from synth_engine.modules.synthesizer.lifecycle.erasure import DeletionManifest, ErasureService
+from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.security.vault import VaultState
 
@@ -232,6 +233,9 @@ def erasure(
                 },
             )
         except Exception:
+            AUDIT_WRITE_FAILURE_TOTAL.labels(
+                router="compliance", endpoint="/compliance/erasure"
+            ).inc()
             _logger.exception(
                 "Audit logging failed for IDOR erasure attempt (actor=%s).",
                 current_operator,

@@ -21,10 +21,16 @@ Updated after each task's review phase completes.
 |----|----------|-------|
 | ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
 | ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
-| ADV-P70-01 | `settings.py` 1096 LOC — sub-models defined inline, T70.4 AC2 (200 LOC) not met. Extract to separate files in future phase. | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
-| ADV-P70-02 | `audit migrate-signatures` CLI command not wired — library function exists but no CLI entry point. Runbook references non-existent commands. | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
-| ADV-P70-03 | Fragmented Prometheus counters — 4 separate `audit_write_failure_total_*` instead of 1 with labels. Consolidate in shared metrics module. | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
+| ADV-P70-01 | `settings.py` 1025 LOC after T71.4 extraction — still exceeds 300 LOC target. Further decomposition needed. | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
 | ADV-P70-04 | Missing composite FK integration test with real PostgreSQL (T70.1 AC7). | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
+| ADV-P71-01 | Prometheus multiprocess mode not configured — `PROMETHEUS_MULTIPROC_DIR` unset; per-worker counters invisible in multi-worker deployments. | [P71](#2026-03-29-phase-71--audit-coverage-completion--polish) |
+
+**CLOSED (P71 — audit coverage completion & polish)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P70-02 | CLOSED — `conclave-audit` CLI group wired with `migrate-signatures` and `log-event` subcommands. Entry point registered in pyproject.toml. Runbook commands now functional. (T71.2) | P71 |
+| ADV-P70-03 | CLOSED — Unified `AUDIT_WRITE_FAILURE_TOTAL` counter in `shared/observability.py` with `router` + `endpoint` labels. 4 fragmented per-router counters removed. (T71.5) | P71 |
 
 **CLOSED (P70 — structural debt reduction)**
 
@@ -92,9 +98,10 @@ Updated after each task's review phase completes.
 - ADV-P63-01: Grace period per-process across N workers
 
 **Maintainability**
-- ADV-P70-01: settings.py 1096 LOC (sub-models inline, not extracted)
-- ADV-P70-02: audit migrate-signatures CLI not wired
-- ADV-P70-03: Fragmented Prometheus counter names
+- ADV-P70-01: settings.py 1025 LOC (still exceeds 300 LOC target)
+
+**Observability**
+- ADV-P71-01: Prometheus multiprocess mode not configured
 
 **Testing**
 - ADV-P70-04: Missing composite FK integration test
@@ -105,6 +112,7 @@ Updated after each task's review phase completes.
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 71 | 2026-03-29 | [Audit Coverage Completion & Polish](#2026-03-29-phase-71--audit-coverage-completion--polish) |
 | Phase 70 | 2026-03-29 | [Structural Debt Reduction](#2026-03-29-phase-70--structural-debt-reduction) |
 | Phase 69 | 2026-03-29 | [Security Depth & Test Coverage](#2026-03-29-phase-69--security-depth--test-coverage) |
 | Phase 68 | 2026-03-28 | [Critical Safety Hardening](#2026-03-28-phase-68--critical-safety-hardening) |
@@ -131,6 +139,22 @@ Updated after each task's review phase completes.
 | Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
 | Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
 | Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-29] Phase 71 — Audit Coverage Completion & Polish
+
+**Tasks**: T71.1 (audit events on 4 endpoints), T71.2 (audit CLI wiring), T71.3 (licensing tests), T71.4 (settings extraction), T71.5 (unified counter), T71.6 (test rename)
+
+**Source**: Post-P70 retrospective (2026-03-29) — findings F1-F6 + advisories A1-A6.
+
+**Review agents**: QA ✓, DevOps ✓, Red-team ✓, Architecture ✓ — 0 BLOCKERs after fixes.
+
+**Review findings fixed**: CLI log-event unbounded strings → max_length=1024 (Red-team), compliance.py missing counter (Architecture), settings.py endpoint label method suffix removed (Architecture), invalid-signature licensing test added (QA), --audit-key omission documented (QA).
+
+**Advisories closed**: ADV-P70-02 (CLI wired), ADV-P70-03 (counters unified). ADV-P70-01 updated (1025 LOC after extraction). New: ADV-P71-01 (Prometheus multiprocess mode).
+
+**Advisory count**: 5 open (ADV-P62-03, ADV-P63-01, ADV-P70-01, ADV-P70-04, ADV-P71-01). Below Rule 11 threshold.
 
 ---
 

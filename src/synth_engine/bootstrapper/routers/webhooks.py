@@ -30,6 +30,8 @@ Task: P45 review — F2 (safe URL logging), F4 (import shared/ssrf), F11 (dead c
 Task: T55.4 — SSRF registration fail-closed on DNS failure
 Task: T59.3 — OpenAPI Documentation Enrichment
 Task: T62.1 — Wrap Database Commits in Exception Handlers
+Task: T71.1 — Add audit events to unaudited destructive endpoints
+Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 """
 
 from __future__ import annotations
@@ -57,6 +59,8 @@ from synth_engine.bootstrapper.schemas.webhooks import (
     WebhookRegistrationRequest,
     WebhookRegistrationResponse,
 )
+from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
+from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.settings import get_settings
 from synth_engine.shared.ssrf import resolve_and_pin_ips, validate_callback_url
 
@@ -341,6 +345,33 @@ def deactivate_webhook(
             media_type="application/problem+json",
         )
 
+    # T71.1: Emit audit event BEFORE the database soft-delete.
+    # If the audit write fails, return 500 and do NOT deactivate.
+    try:
+        get_audit_logger().log_event(
+            event_type="WEBHOOK_DEACTIVATED",
+            actor=current_operator,
+            resource=f"webhook/{webhook_id}",
+            action="deactivate",
+            details={"webhook_id": webhook_id},
+        )
+    except Exception:
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="webhooks", endpoint="/webhooks/{id}").inc()
+        _logger.exception(
+            "Audit logging failed for deactivate_webhook id=%s; aborting (T71.1)",
+            webhook_id,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Webhook was NOT deactivated.",
+            },
+        )
+
+    # Audit succeeded — now perform the soft delete.
     reg.active = False
     session.add(reg)
     try:

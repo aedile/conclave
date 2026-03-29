@@ -579,7 +579,7 @@ class TestAuditWriteFailureCounter:
         from synth_engine.bootstrapper.routers import admin as admin_module
 
         counter = admin_module.AUDIT_WRITE_FAILURE_TOTAL
-        labeled_counter = counter.labels(endpoint="/admin/jobs/{job_id}/legal-hold")
+        labeled_counter = counter.labels(router="admin", endpoint="/admin/jobs/{job_id}/legal-hold")
         before = labeled_counter._value.get()
 
         client = TestClient(app, raise_server_exceptions=False)
@@ -619,7 +619,7 @@ class TestAuditWriteFailureCounter:
         from synth_engine.bootstrapper.routers import security as security_module
 
         counter = security_module.AUDIT_WRITE_FAILURE_TOTAL
-        labeled_counter = counter.labels(endpoint="/security/shred")
+        labeled_counter = counter.labels(router="security", endpoint="/security/shred")
         before = labeled_counter._value.get()
 
         client = TestClient(app, raise_server_exceptions=False)
@@ -647,3 +647,4 @@ class TestAuditWriteFailureCounter:
         counter = admin_module.AUDIT_WRITE_FAILURE_TOTAL
         # The counter must have an 'endpoint' label defined in its specification
         assert "endpoint" in counter._labelnames
+        assert "router" in counter._labelnames

@@ -267,7 +267,8 @@ class TestHealthStrictMode:
         )
         body = response.json()
         assert body["checks"]["database"] == "skipped", (
-            f"Permissive mode + no DB URL must report database=skipped; got {body['checks']['database']}"
+            "Permissive mode + no DB URL must report "
+            f"database=skipped; got {body['checks']['database']}"
         )
 
     def test_ready_strict_defaults_true_in_production(
@@ -287,7 +288,7 @@ class TestHealthStrictMode:
         monkeypatch.setenv("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-minimum!")
         monkeypatch.setenv(
             "OPERATOR_CREDENTIALS_HASH",
-            "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/L/Ldv5t.iifcXiJea",  # pragma: allowlist secret
+            "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/L/Ldv5t.iifcXiJea",  # pragma: allowlist secret  # noqa: E501
         )
         monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "b" * 64)
         monkeypatch.setenv("MASKING_SALT", "c" * 64)
@@ -688,7 +689,7 @@ class TestRateLimitFailOpenProduction:
         monkeypatch.setenv("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-minimum!")
         monkeypatch.setenv(
             "OPERATOR_CREDENTIALS_HASH",
-            "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/L/Ldv5t.iifcXiJea",  # pragma: allowlist secret
+            "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/L/Ldv5t.iifcXiJea",  # pragma: allowlist secret  # noqa: E501
         )
         monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "b" * 64)
         monkeypatch.setenv("MASKING_SALT", "c" * 64)
@@ -751,7 +752,7 @@ class TestRateLimitFailOpenProduction:
         monkeypatch.setenv("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-minimum!")
         monkeypatch.setenv(
             "OPERATOR_CREDENTIALS_HASH",
-            "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/L/Ldv5t.iifcXiJea",  # pragma: allowlist secret
+            "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/L/Ldv5t.iifcXiJea",  # pragma: allowlist secret  # noqa: E501
         )
         monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "b" * 64)
         monkeypatch.setenv("MASKING_SALT", "c" * 64)
