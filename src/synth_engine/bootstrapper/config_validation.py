@@ -79,6 +79,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from synth_engine.bootstrapper.dependencies.https_enforcement import warn_if_ssl_misconfigured
+from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.settings import get_settings
 
 # T63.1: _ALWAYS_REQUIRED and _PRODUCTION_REQUIRED removed — these field-level
@@ -236,9 +237,10 @@ def _validate_mtls_cert_files(errors: list[str]) -> None:
             with open(path, "rb"):
                 pass
         except OSError as exc:
+            sanitized = safe_error_msg(str(exc))
             errors.append(
                 f"{env_var}={path_str!r} exists but cannot be read — "
-                f"check file permissions and ensure the process has read access: {exc}"
+                f"check file permissions and ensure the process has read access: {sanitized}"
             )
 
 

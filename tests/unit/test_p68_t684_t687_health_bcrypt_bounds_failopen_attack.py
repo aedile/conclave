@@ -265,6 +265,10 @@ class TestHealthStrictMode:
         assert response.status_code == 200, (
             f"Permissive mode + no DB URL must return 200; got {response.status_code}"
         )
+        body = response.json()
+        assert body["checks"]["database"] == "skipped", (
+            f"Permissive mode + no DB URL must report database=skipped; got {body['checks']['database']}"
+        )
 
     def test_ready_strict_defaults_true_in_production(
         self, monkeypatch: pytest.MonkeyPatch

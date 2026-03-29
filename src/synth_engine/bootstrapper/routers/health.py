@@ -273,6 +273,10 @@ async def readiness_check() -> JSONResponse:
     any_failed = False
 
     # --- database ---
+    # Determine whether DATABASE_URL was absent (permissive skip).
+    # _check_database() returns True early when the URL is absent, so we need
+    # the URL value here to distinguish "connected OK" from "skipped (no URL)".
+    db_url_absent = not (settings.database_url or "").strip()
     if strict_db_missing:
         # T68.4: Strict mode — DATABASE_URL is not configured; treat as failure.
         checks["database"] = "error"
@@ -280,6 +284,9 @@ async def readiness_check() -> JSONResponse:
     elif isinstance(db_result, BaseException):
         checks["database"] = "error"
         any_failed = True
+    elif db_url_absent:
+        # Permissive mode — no DATABASE_URL configured; check was skipped.
+        checks["database"] = "skipped"
     else:
         checks["database"] = "ok"
 
