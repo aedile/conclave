@@ -77,6 +77,9 @@ class WebhookRegistration(SQLModel, table=True):
     events: str = SqlField(default='["job.completed","job.failed"]')
     active: bool = SqlField(default=True)
     created_at: datetime = SqlField(default_factory=lambda: datetime.now(UTC))
+    #: JSON-encoded list of IP strings pinned at registration time (T69.1).
+    #: NULL for legacy pre-T69.1 registrations (lazy-migrated at delivery time).
+    pinned_ips: str | None = SqlField(default=None)
 
 
 class WebhookDelivery(SQLModel, table=True):

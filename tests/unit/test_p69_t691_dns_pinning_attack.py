@@ -248,10 +248,8 @@ class TestDNSPinningAttacks:
         Act: call deliver_webhook().
         Assert: SSRF_DELIVERY_REJECTION_TOTAL counter value increased by 1.
         """
-        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
-            SSRF_DELIVERY_REJECTION_TOTAL,
-            deliver_webhook,
-        )
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
+        from synth_engine.shared.ssrf import SSRF_DELIVERY_REJECTION_TOTAL
 
         registration = _FakeRegistration(
             callback_url="https://example.com/webhook",

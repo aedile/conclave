@@ -55,7 +55,7 @@ from synth_engine.bootstrapper.schemas.webhooks import (
     WebhookRegistrationResponse,
 )
 from synth_engine.shared.settings import get_settings
-from synth_engine.shared.ssrf import validate_callback_url
+from synth_engine.shared.ssrf import resolve_and_pin_ips, validate_callback_url
 
 _logger = logging.getLogger(__name__)
 
@@ -194,12 +194,38 @@ def register_webhook(
             ),
         )
 
+    # Pin resolved IPs at registration time (T69.1 — DNS pinning SSRF protection).
+    # If pinning fails (DNS changed between validate_callback_url and resolve_and_pin_ips),
+    # registration is rejected.  This is intentionally fail-closed.
+    _hostname = urlparse(body.callback_url).hostname or ""
+    try:
+        _pinned = resolve_and_pin_ips(_hostname)
+        _pinned_json: str | None = json.dumps(_pinned)
+    except ValueError as pin_exc:
+        _logger.warning(
+            "DNS pinning failed for callback URL (operator=%s): %s",
+            current_operator,
+            pin_exc,
+        )
+        return JSONResponse(
+            status_code=400,
+            content=problem_detail(
+                status=400,
+                title="Invalid Callback URL",
+                detail=(
+                    "The callback URL hostname could not be resolved or resolves to "
+                    "a private address. DNS pinning failed at registration time."
+                ),
+            ),
+        )
+
     reg = WebhookRegistration(
         owner_id=current_operator,
         callback_url=body.callback_url,
         signing_key=body.signing_key,
         events=json.dumps(body.events),
         active=True,
+        pinned_ips=_pinned_json,
     )
     session.add(reg)
     try:
