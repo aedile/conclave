@@ -12,7 +12,8 @@ This test module verifies that:
 3. The Huey instance used by tasks is the shared singleton from
    ``synth_engine.shared.task_queue``.
 4. The bootstrapper DI factories (``set_dp_wrapper_factory``,
-   ``set_spend_budget_fn``) can be called without error after module import.
+   ``set_spend_budget_fn``) live in ``job_orchestration`` (post-T70.6 shim
+   removal) and can be called without error after module import.
 
 Failure mode prevention
 -----------------------
@@ -127,10 +128,11 @@ def test_huey_instance_is_shared_singleton() -> None:
 def test_bootstrapper_di_factories_can_be_called_after_import() -> None:
     """Bootstrapper DI injection helpers are callable after module import.
 
-    ``set_dp_wrapper_factory`` and ``set_spend_budget_fn`` are called at
-    application startup by ``bootstrapper/main.py`` (Rule 8 — operational
-    wiring).  This test verifies they accept a callable argument without
-    raising, confirming the DI injection contract is intact.
+    ``set_dp_wrapper_factory`` and ``set_spend_budget_fn`` live in
+    ``job_orchestration`` (T70.6 removed re-exports from tasks.py) and are
+    called at application startup by ``bootstrapper/wiring.py`` (Rule 8 —
+    operational wiring).  This test verifies they accept a callable argument
+    without raising, confirming the DI injection contract is intact.
 
     Uses cast() to satisfy the typed signatures without importing heavy
     DP/Privacy modules that require optional dependencies (torch, opacus).
@@ -139,7 +141,7 @@ def test_bootstrapper_di_factories_can_be_called_after_import() -> None:
     """
     from collections.abc import Callable
 
-    import synth_engine.modules.synthesizer.jobs.tasks as tasks_module
+    import synth_engine.modules.synthesizer.jobs.job_orchestration as tasks_module
 
     # Provide a no-op function typed as Callable[[float, float], DPWrapperProtocol].
     # Cast is required because a plain no-op cannot structurally satisfy
