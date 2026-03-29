@@ -397,7 +397,12 @@ class AuditLogger:
             except ValueError:
                 return False
             is_valid_v2 = hmac.compare_digest(expected, sig)
-            if not is_valid_v2:
+            if is_valid_v2:
+                self._log.warning(
+                    "Audit event uses deprecated v2 signature format (pipe-delimiter "
+                    "injection vulnerability ADV-P53-01). Migrate to v3 (T70.2)."
+                )
+            else:
                 self._log.warning(
                     "Audit HMAC verification failed (v2): event_type=%s timestamp=%s actor=%s",
                     event.event_type,
