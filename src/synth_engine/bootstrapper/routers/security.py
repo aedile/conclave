@@ -71,12 +71,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter
 from pydantic import BaseModel, Field
 
 from synth_engine.bootstrapper.dependencies.auth import require_scope
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
+from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
 from synth_engine.shared.security.ale import get_fernet
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.security.rotation import rotate_ale_keys_task
@@ -86,14 +86,7 @@ _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/security", tags=["security"])
 
-# ---------------------------------------------------------------------------
-# T70.9 — Prometheus counter for audit-write failures in security router.
-# ---------------------------------------------------------------------------
-AUDIT_WRITE_FAILURE_TOTAL: Counter = Counter(
-    "audit_write_failure_total_security",
-    "Audit write failures in security router",
-    ["endpoint"],
-)
+# T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter from shared/observability.py.
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +168,7 @@ async def shred_vault(
             details={"note": "Master KEK zeroized — all ALE ciphertext is now unrecoverable"},
         )
     except Exception:
-        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/security/shred").inc()
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="security", endpoint="/security/shred").inc()
         _logger.exception("Audit logging failed during CRYPTO_SHRED; aborting shred (T68.3)")
         return JSONResponse(
             status_code=500,
@@ -288,7 +281,7 @@ async def rotate_keys(
             },
         )
     except Exception:
-        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/security/keys/rotate").inc()
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="security", endpoint="/security/keys/rotate").inc()
         _logger.exception("Audit logging failed during KEY_ROTATION_REQUESTED; aborting (T68.3)")
         return JSONResponse(
             status_code=500,

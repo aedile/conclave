@@ -31,6 +31,7 @@ Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 Task: T62.1 — Wrap Database Commits in Exception Handlers
 Task: T70.8 — Audit-before-mutation ordering standardisation
 Task: T70.9 — AUDIT_WRITE_FAILURE_TOTAL Prometheus counter
+Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 """
 
 from __future__ import annotations
@@ -40,7 +41,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, select
 
@@ -59,6 +59,7 @@ from synth_engine.bootstrapper.schemas.jobs import (
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 from synth_engine.modules.synthesizer.jobs.tasks import run_synthesis_job
 from synth_engine.modules.synthesizer.lifecycle.shred import shred_artifacts
+from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.telemetry import inject_trace_context
 
@@ -78,16 +79,7 @@ _SHRED_ELIGIBLE_STATUS: str = "COMPLETE"
 #: Job status applied after successful artifact erasure.
 _SHREDDED_STATUS: str = "SHREDDED"
 
-# ---------------------------------------------------------------------------
-# T70.9 — Prometheus counter for audit-write failures.
-# Incremented whenever the WORM audit logger raises in shred_job.
-# Uses a static endpoint label to keep Prometheus cardinality bounded.
-# ---------------------------------------------------------------------------
-AUDIT_WRITE_FAILURE_TOTAL: Counter = Counter(
-    "audit_write_failure_total_jobs",
-    "Audit write failures in jobs router",
-    ["endpoint"],
-)
+# T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter from shared/observability.py.
 
 
 @router.get(
@@ -396,7 +388,7 @@ def shred_job(
             },
         )
     except Exception:
-        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/jobs/{job_id}/shred").inc()
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="jobs", endpoint="/jobs/{job_id}/shred").inc()
         _logger.exception(
             "Job %d: WORM audit log failed before artifact shredding — aborting (T70.8)", job_id
         )

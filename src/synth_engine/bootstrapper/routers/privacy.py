@@ -61,7 +61,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter
 from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.dependencies.auth import get_current_operator
@@ -74,20 +73,14 @@ from synth_engine.bootstrapper.openapi_metadata import (
 from synth_engine.bootstrapper.schemas.privacy import BudgetRefreshRequest, BudgetResponse
 from synth_engine.modules.privacy.accountant import reset_budget
 from synth_engine.modules.privacy.ledger import PrivacyLedger
+from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
 from synth_engine.shared.security.audit import get_audit_logger
 
 _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
 
-# ---------------------------------------------------------------------------
-# T70.9 — Prometheus counter for audit-write failures in privacy router.
-# ---------------------------------------------------------------------------
-AUDIT_WRITE_FAILURE_TOTAL: Counter = Counter(
-    "audit_write_failure_total_privacy",
-    "Audit write failures in privacy router",
-    ["endpoint"],
-)
+# T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter from shared/observability.py.
 
 
 def _ledger_to_budget_response(ledger: PrivacyLedger) -> BudgetResponse:
@@ -292,7 +285,7 @@ def refresh_budget(
             },
         )
     except Exception:
-        AUDIT_WRITE_FAILURE_TOTAL.labels(endpoint="/privacy/budget/refresh").inc()
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="privacy", endpoint="/privacy/budget/refresh").inc()
         _logger.exception("WORM audit emission failed BEFORE budget reset — aborting (T70.8)")
         return JSONResponse(
             status_code=500,
