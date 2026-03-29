@@ -13,7 +13,8 @@ Updated after each task's review phase completes.
 
 | ID | Advisory | Phase |
 |----|----------|-------|
-| (none) | All security advisories resolved as of P66. | — |
+| ADV-P68-01 | Compliance erasure IDOR: any operator can delete another operator's data (TTL: P70) | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
+| ADV-P68-02 | parquet_path not sandboxed to allowed directory (TTL: P70) | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
 
 **ADVISORY**
 
@@ -21,8 +22,16 @@ Updated after each task's review phase completes.
 |----|----------|-------|
 | ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
 | ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
-| ADV-P67-01 | Systematic input validation gap: unbounded max_length on `table_name`, `parquet_path`, `callback_url`, `signing_key`, `justification`, `connection_id`, `webhook_id` fields — same class as T67.1 fix but not yet applied project-wide | [P67](#2026-03-28-phase-67--advisory-drain-input-validation--error-mapping-hardening) |
-| ADV-P67-02 | `rate_limit_fail_open=True` in production mode only emits warning, does not block startup — should be ConfigurationError | [P67](#2026-03-28-phase-67--advisory-drain-input-validation--error-mapping-hardening) |
+| ADV-P68-03 | Remaining unbounded path params: `connection_id` and `webhook_id` path parameters lack `max_length` — partial closure of ADV-P67-01 | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
+| ADV-P68-04 | Audit ordering inconsistency: T68.3 established audit-before-mutation in security.py/admin.py but jobs.py:shred_job and privacy.py:refresh_budget still use audit-after-mutation | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
+| ADV-P68-05 | No Prometheus counter on audit-write-failure paths in admin.py, security.py — failures only visible in logs, not metrics plane | [P68](#2026-03-28-phase-68--critical-safety-hardening) |
+
+**CLOSED (P68 — critical safety hardening)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P67-01 | PARTIALLY CLOSED — `max_length` added to `table_name`(255), `parquet_path`(1024), `callback_url`(2048), `signing_key`(512), `justification`(2000) in T68.6. Remaining: `connection_id`, `webhook_id` path params — tracked as ADV-P68-03. | P68 |
+| ADV-P67-02 | CLOSED — `validate_config()` now raises `SystemExit` when `rate_limit_fail_open=True` in production mode (T68.7) | P68 |
 
 **CLOSED (P67 — input validation & error mapping hardening)**
 
@@ -79,6 +88,7 @@ Updated after each task's review phase completes.
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 68 | 2026-03-28 | [Critical Safety Hardening](#2026-03-28-phase-68--critical-safety-hardening) |
 | Phase 67 | 2026-03-28 | [Advisory Drain: Input Validation & Error Mapping Hardening](#2026-03-28-phase-67--advisory-drain-input-validation--error-mapping-hardening) |
 | Phase 66 | 2026-03-28 | [Expired Security Advisory Resolution](#2026-03-28-phase-66--expired-security-advisory-resolution) |
 | Phase 65 | 2026-03-27 | [Advisory Drain & Polish](#2026-03-27-phase-65--advisory-drain--polish) |
@@ -102,6 +112,24 @@ Updated after each task's review phase completes.
 | Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
 | Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
 | Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-28] Phase 68 — Critical Safety Hardening
+
+**Tasks**: T68.1 (thread-safe Faker), T68.2 (admin IDOR), T68.3 (audit-before-destructive), T68.4 (health strict mode), T68.5 (bcrypt narrowing), T68.6 (input bounds), T68.7 (fail-open block)
+
+**Source**: Senior Architect & Security Audit (2026-03-28) — findings C1, C2, C3, C7, C9 + ADV-P67-01, ADV-P67-02.
+
+**Review agents**: QA ✓, DevOps ✓, Red-team ✓, Architecture ✓ — 0 BLOCKERs.
+
+**Review findings fixed**: `.env.example` missing `CONCLAVE_HEALTH_STRICT` (arch+devops), health check "skipped" vs "ok" status mismatch (QA), OSError sanitization in config_validation.py (devops).
+
+**Pre-existing findings logged as advisories**: compliance erasure IDOR (ADV-P68-01), parquet_path directory sandbox (ADV-P68-02), remaining unbounded path params (ADV-P68-03), audit ordering inconsistency (ADV-P68-04), missing Prometheus counter on audit-fail (ADV-P68-05).
+
+**Judgment call**: Red-team found two pre-existing IDOR/sandbox issues (compliance erasure, parquet_path). These are not P68 regressions — they predate this phase. Logged as advisories for Phase 69 rather than blocking P68 merge. ADV-P68-01 (compliance erasure IDOR) is SECURITY-tagged per Rule 26 (TTL: Phase 70).
+
+**Advisory count**: 7 open (ADV-P62-03, ADV-P63-01, ADV-P68-01 through ADV-P68-05). Below Rule 11 threshold of 8.
 
 ---
 
