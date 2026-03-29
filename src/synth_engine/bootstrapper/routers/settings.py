@@ -136,7 +136,7 @@ def upsert_setting(
             details={"key": key},
         )
     except Exception:
-        AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key} PUT").inc()
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key}").inc()
         _logger.exception("Audit logging failed for upsert_setting key=%s; aborting (T71.1)", key)
         return JSONResponse(
             status_code=500,
@@ -261,7 +261,7 @@ def delete_setting(
             details={"key": key},
         )
     except Exception:
-        AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key} DELETE").inc()
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key}").inc()
         _logger.exception("Audit logging failed for delete_setting key=%s; aborting (T71.1)", key)
         return JSONResponse(
             status_code=500,

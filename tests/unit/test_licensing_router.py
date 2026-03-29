@@ -374,6 +374,34 @@ def test_post_license_activate_empty_token_returns_422(
     )
 
 
+def test_post_license_activate_invalid_signature_returns_403(
+    licensing_app: FastAPI,
+) -> None:
+    """Token signed with wrong private key returns 403."""
+    from unittest.mock import patch
+
+    from synth_engine.shared.security.licensing import LicenseError
+
+    with (
+        _bypass_middleware_patches(),
+        patch(
+            "synth_engine.bootstrapper.routers.licensing.verify_license_jwt",
+            side_effect=LicenseError("Invalid signature"),
+        ),
+    ):
+        client = TestClient(licensing_app)
+        resp = client.post("/license/activate", json={"token": "header.payload.bad_sig"})
+
+    assert resp.status_code == 403, (
+        f"Expected 403 for invalid signature, got {resp.status_code}\n{resp.text}"
+    )
+    body = resp.json()
+    assert body.get("status") == 403, "RFC 7807 body must have status=403"
+    assert "Invalid signature" in body.get("detail", ""), (
+        f"Expected detail to contain 'Invalid signature', got: {body.get('detail')!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Middleware exemption tests
 # ---------------------------------------------------------------------------

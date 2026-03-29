@@ -62,6 +62,35 @@ from synth_engine.shared.schema_topology import ColumnInfo, ForeignKeyInfo, Sche
 
 _logger = logging.getLogger(__name__)
 
+
+def _max_length_1024_callback(ctx: click.Context, param: click.Parameter, value: str) -> str:
+    """Validate that a CLI string option does not exceed 1024 characters.
+
+    Click callback used for the ``--type``, ``--actor``, ``--resource``, and
+    ``--action`` options of ``conclave audit log-event`` to prevent unbounded
+    string values reaching the audit logger or log files.
+
+    Args:
+        ctx: The current Click context (unused; required by Click callback signature).
+        param: The Click parameter descriptor (used for the error message).
+        value: The raw string value provided by the user.
+
+    Returns:
+        The original value unchanged if it is within the length limit.
+
+    Raises:
+        click.BadParameter: If ``value`` exceeds 1024 characters.
+    """
+    if len(value) > 1024:
+        raise click.BadParameter(
+            f"Value exceeds maximum allowed length of 1024 characters "
+            f"(got {len(value)} characters).",
+            ctx=ctx,
+            param=param,
+        )
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Masking transformer factory
 # ---------------------------------------------------------------------------
@@ -398,6 +427,10 @@ def audit_group() -> None:
     """
 
 
+# Security note: --audit-key CLI option intentionally omitted.
+# Passing secrets as CLI arguments exposes them in `ps aux` and shell history.
+# The audit key is read exclusively from the AUDIT_KEY environment variable.
+# See spec-challenger P71 CONFIG-1 for rationale.
 @audit_group.command(name="migrate-signatures")
 @click.option(
     "--input",
@@ -507,10 +540,35 @@ def migrate_signatures(
 
 
 @audit_group.command(name="log-event")
-@click.option("--type", "event_type", required=True, help="Audit event type (e.g. MANUAL_ENTRY).")
-@click.option("--actor", required=True, help="Actor identifier (operator or system).")
-@click.option("--resource", required=True, help="Resource identifier (e.g. system/config).")
-@click.option("--action", required=True, help="Action performed (e.g. update).")
+@click.option(
+    "--type",
+    "event_type",
+    required=True,
+    callback=_max_length_1024_callback,
+    is_eager=False,
+    help="Audit event type (e.g. MANUAL_ENTRY). Max 1024 characters.",
+)
+@click.option(
+    "--actor",
+    required=True,
+    callback=_max_length_1024_callback,
+    is_eager=False,
+    help="Actor identifier (operator or system). Max 1024 characters.",
+)
+@click.option(
+    "--resource",
+    required=True,
+    callback=_max_length_1024_callback,
+    is_eager=False,
+    help="Resource identifier (e.g. system/config). Max 1024 characters.",
+)
+@click.option(
+    "--action",
+    required=True,
+    callback=_max_length_1024_callback,
+    is_eager=False,
+    help="Action performed (e.g. update). Max 1024 characters.",
+)
 @click.option(
     "--details",
     default="{}",
