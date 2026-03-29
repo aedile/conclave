@@ -334,3 +334,240 @@ def subset(
     for table in result.tables_written:
         count = result.row_counts.get(table, 0)
         click.echo(f"  {table}: {count} rows")
+
+
+# ---------------------------------------------------------------------------
+# Audit CLI group — T71.2
+# Provides `conclave audit` with `migrate-signatures` and `log-event` subcommands.
+#
+# Security notes:
+# - AUDIT_KEY is read EXCLUSIVELY from the environment variable (not from CLI
+#   args), so it is never visible in process argv or shell history.
+# - --details must be valid JSON; rejected with exit 1 if unparseable.
+# - --input is validated: must exist, be a regular file, and be non-empty.
+# - --output uses atomic write (temp file + os.rename) to prevent partial output.
+# - This group loads ONLY AUDIT_KEY from env — NOT the full ConclaveSettings —
+#   so it works on audit workstations without a database connection.
+#
+# Task: T71.2 — Wire audit CLI commands (ADV-P70-02)
+# ---------------------------------------------------------------------------
+
+
+def _load_audit_key_from_env() -> bytes:
+    """Load the AUDIT_KEY from the environment — NOT from CLI args.
+
+    Checks ``AUDIT_KEY`` and ``CONCLAVE_AUDIT_KEY`` (preferred alias, T63.2).
+    Exits non-zero with a user-friendly message if neither is set.
+
+    Returns:
+        Raw 32-byte HMAC key decoded from the hex-encoded env var.
+
+    Raises:
+        SystemExit: If AUDIT_KEY is absent, empty, or not valid hex.
+    """
+    import os
+
+    key_hex = os.environ.get("CONCLAVE_AUDIT_KEY") or os.environ.get("AUDIT_KEY")
+    if not key_hex or not key_hex.strip():
+        click.echo(
+            "Error: AUDIT_KEY environment variable is required but not set. "
+            "Set AUDIT_KEY=<hex-encoded-32-byte-key> before running this command.",
+            err=True,
+        )
+        raise SystemExit(1)
+    try:
+        return bytes.fromhex(key_hex.strip())
+    except ValueError as exc:
+        click.echo(
+            "Error: AUDIT_KEY is not valid hexadecimal. "
+            "It must be a hex-encoded 32-byte (64-character) key.",
+            err=True,
+        )
+        raise SystemExit(1) from exc
+
+
+@click.group(name="audit")
+def audit_group() -> None:
+    """Audit log management commands for the Conclave Engine.
+
+    Subcommands for migrating audit log signatures and manually emitting
+    audit events for operational and forensic purposes.
+
+    AUDIT_KEY is read exclusively from the AUDIT_KEY environment variable.
+    It must never be passed as a CLI argument.
+    """
+
+
+@audit_group.command(name="migrate-signatures")
+@click.option(
+    "--input",
+    "input_path",
+    required=True,
+    help="Path to the source JSONL audit log file.",
+)
+@click.option(
+    "--output",
+    "output_path",
+    required=True,
+    help="Path to write the migrated JSONL audit log file.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help=(
+        "Read and verify input, count what would be migrated, print summary — "
+        "do NOT write any output file."
+    ),
+)
+def migrate_signatures(
+    input_path: str,
+    output_path: str,
+    dry_run: bool,
+) -> None:
+    """Re-sign v1/v2 audit log entries as v3 format.
+
+    Reads INPUT line-by-line, verifies each entry's existing signature, and
+    writes a v3-signed copy to OUTPUT.  Entries with tampered v1/v2 signatures
+    are skipped (not written).
+
+    Use --dry-run to inspect the input and count what would be migrated without
+    writing anything to disk.
+
+    AUDIT_KEY is read from the AUDIT_KEY environment variable.
+    """
+    import json
+    import os
+    import tempfile
+    from pathlib import Path
+
+    from synth_engine.shared.security.audit_migrations import migrate_audit_signatures
+
+    # --- Validate input file ---
+    input_file = Path(input_path)
+    if not input_file.exists():
+        click.echo(f"Error: input file not found: {input_path}", err=True)
+        raise SystemExit(1)
+    if not input_file.is_file():
+        click.echo(f"Error: input path is not a regular file: {input_path}", err=True)
+        raise SystemExit(1)
+    if input_file.stat().st_size == 0:
+        click.echo(f"Error: input file is empty: {input_path}", err=True)
+        raise SystemExit(1)
+
+    # --- Load audit key from environment only ---
+    audit_key = _load_audit_key_from_env()
+
+    if dry_run:
+        # Parse and count without writing output.
+        lines = input_file.read_text().splitlines()
+        total = len(lines)
+        parseable = 0
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                json.loads(line)
+                parseable += 1
+            except json.JSONDecodeError:
+                pass
+        click.echo("Dry-run summary:")
+        click.echo(f"  Input file:    {input_path}")
+        click.echo(f"  Total lines:   {total}")
+        click.echo(f"  Valid JSON:    {parseable}")
+        click.echo("  Output:        (skipped — dry-run mode)")
+        return
+
+    # --- Atomic write: write to temp file, then rename to output_path ---
+    output_file = Path(output_path)
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=str(output_file.parent),
+        prefix=".conclave-migrate-tmp-",
+        suffix=".jsonl",
+    )
+    os.close(tmp_fd)
+    try:
+        migrate_audit_signatures(
+            input_path=input_path,
+            output_path=tmp_path,
+            audit_key=audit_key,
+        )
+        os.rename(tmp_path, output_path)
+    except Exception as exc:
+        # Clean up temp file on failure.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        click.echo(f"Error: migration failed: {exc}", err=True)
+        raise SystemExit(1) from exc
+
+    click.echo(f"Migration complete. Output written to: {output_path}")
+
+
+@audit_group.command(name="log-event")
+@click.option("--type", "event_type", required=True, help="Audit event type (e.g. MANUAL_ENTRY).")
+@click.option("--actor", required=True, help="Actor identifier (operator or system).")
+@click.option("--resource", required=True, help="Resource identifier (e.g. system/config).")
+@click.option("--action", required=True, help="Action performed (e.g. update).")
+@click.option(
+    "--details",
+    default="{}",
+    help="JSON object with additional event details (default: {}).",
+)
+def log_event(
+    event_type: str,
+    actor: str,
+    resource: str,
+    action: str,
+    details: str,
+) -> None:
+    """Manually emit a WORM audit event.
+
+    Use this command for operational annotations, forensic notes, or to record
+    manual administrative actions that are not captured by the API.
+
+    AUDIT_KEY is read from the AUDIT_KEY environment variable.
+
+    --details must be a valid JSON object string.  Use ``'{}'`` for no details.
+    """
+    import json
+
+    from synth_engine.shared.security.audit_logger import AuditLogger
+
+    # --- Validate --details is parseable JSON ---
+    try:
+        details_dict = json.loads(details)
+        if not isinstance(details_dict, dict):
+            click.echo(
+                'Error: --details must be a JSON object (e.g. \'{"key": "value"}\'), '
+                f"got {type(details_dict).__name__}.",
+                err=True,
+            )
+            raise SystemExit(1)
+    except json.JSONDecodeError as exc:
+        click.echo(
+            f"Error: --details is not valid JSON: {exc}",
+            err=True,
+        )
+        raise SystemExit(1) from exc
+
+    # --- Load audit key from environment only ---
+    audit_key = _load_audit_key_from_env()
+
+    # --- Emit the audit event ---
+    try:
+        audit_logger = AuditLogger(audit_key=audit_key)
+        audit_logger.log_event(
+            event_type=event_type,
+            actor=actor,
+            resource=resource,
+            action=action,
+            details=details_dict,
+        )
+    except Exception as exc:
+        click.echo(f"Error: failed to emit audit event: {exc}", err=True)
+        raise SystemExit(1) from exc
+
+    click.echo(f"Audit event emitted: type={event_type} actor={actor} resource={resource}")
