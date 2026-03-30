@@ -180,6 +180,7 @@ class TestQueuedJobsIgnored:
         reaper.reap()
 
         repo.get_stale_in_progress.assert_called_once()
+        assert repo.get_stale_in_progress.call_count == 1
         repo.mark_failed.assert_not_called()
 
     def test_task_with_queued_status_is_not_reaped(self) -> None:
@@ -439,6 +440,7 @@ class TestLegalHoldIsOnStaleTask:
             legal_hold=True,
         )
         assert task.legal_hold is True
+        assert task.legal_hold
 
     def test_stale_task_default_legal_hold_is_false(self) -> None:
         """StaleTask must default legal_hold to False."""
@@ -448,6 +450,7 @@ class TestLegalHoldIsOnStaleTask:
             created_at=datetime.now(UTC),
         )
         assert task.legal_hold is False
+        assert not task.legal_hold
 
 
 # ---------------------------------------------------------------------------
@@ -733,7 +736,7 @@ class TestSQLAlchemyTaskRepository:
         repo = SQLAlchemyTaskRepository(engine=engine)
         result = repo.mark_failed(job_id, "Reaped: test")
 
-        assert result is True
+        assert result == True
         with Session(engine) as session:
             job = session.get(SynthesisJob, job_id)
             assert job is not None
@@ -758,6 +761,7 @@ class TestSQLAlchemyTaskRepository:
         result = repo.mark_failed(job_id, "Reaped: test")
 
         assert result is False
+        assert not result
 
 
 # ---------------------------------------------------------------------------

@@ -208,6 +208,7 @@ class TestModelArtifactMutabilityDocumented:
         assert class_line_idx is not None, (
             "ModelArtifact class not found in artifact.py (T58.4: moved from models.py)"
         )
+        assert class_line_idx != None  # noqa: E711 — specific check
 
         # Look for mutability documentation in the 15 lines before the class definition
         # (comment block above) plus the 60 lines of the class body (docstring)
@@ -219,12 +220,13 @@ class TestModelArtifactMutabilityDocumented:
             keyword in all_relevant.lower()
             for keyword in ["mutable", "mutability", "frozen", "incremental", "finalization"]
         )
-        assert mutability_documented, (
+        assert mutability_documented == True, (
             "ModelArtifact class does not document its mutability rationale. "
             "Add a comment above the @dataclass decorator or a note in the class docstring "
             "explaining why frozen=True is not used "
             "(e.g. fields are set incrementally during job finalization)."
         )
+        assert mutability_documented
 
 
 # ---------------------------------------------------------------------------

@@ -44,7 +44,10 @@ def test_app_is_fastapi_instance() -> None:
     """
     from synth_engine.bootstrapper.main import create_app
 
-    assert isinstance(create_app(), FastAPI)
+    app = create_app()
+    assert isinstance(app, FastAPI)
+    # FastAPI app must have a title attribute (non-empty string)
+    assert len(app.title) > 0
 
 
 def test_create_app_returns_new_instance_each_call() -> None:
@@ -209,6 +212,8 @@ class TestBuildSynthesisEngine:
 
         engine = build_synthesis_engine()
         assert isinstance(engine, SynthesisEngine)
+        # SynthesisEngine must default to 300 epochs
+        assert engine._epochs == 300
 
     def test_default_epochs_is_300(self) -> None:
         """build_synthesis_engine() default produces an engine with 300 epochs."""
@@ -270,6 +275,8 @@ class TestBuildEphemeralStorageClient:
                 result = build_ephemeral_storage_client()
 
         assert isinstance(result, EphemeralStorageClient)
+        # EphemeralStorageClient must expose a backend with a put() callable
+        assert callable(result._backend.put)
 
     def test_reads_credentials_from_docker_secrets(self) -> None:
         """build_ephemeral_storage_client() must pass secrets to MinioStorageBackend.
@@ -303,6 +310,7 @@ class TestBuildEphemeralStorageClient:
                 aws_access_key_id="myaccesskey",
                 aws_secret_access_key="mysecretkey",  # pragma: allowlist secret
             )
+            assert mock_boto3_client.call_count == 1
 
     def test_raises_runtime_error_when_secrets_missing(self) -> None:
         """build_ephemeral_storage_client() must raise RuntimeError if secrets absent."""

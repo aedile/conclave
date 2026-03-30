@@ -381,6 +381,7 @@ class TestConnectionsCommitErrors:
 
         # Rollback MUST have been called to avoid poisoning the connection pool
         mock_session.rollback.assert_called_once()
+        assert mock_session.rollback.call_count == 1
 
     @pytest.mark.asyncio
     async def test_integrity_error_detail_does_not_leak_sql(self) -> None:

@@ -203,6 +203,7 @@ class TestRequestBodyLimitMiddleware:
         await middleware(scope, receive, send)
 
         inner.assert_awaited_once_with(scope, receive, send)
+        assert inner.await_count == 1, "non-HTTP scope must forward to inner app exactly once"
 
     @pytest.mark.asyncio
     async def test_content_length_over_limit_returns_413(self) -> None:
@@ -252,6 +253,7 @@ class TestRequestBodyLimitMiddleware:
 
         # Inner app must be called (warning, not rejection)
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_streaming_body_over_limit_returns_413(self) -> None:
@@ -291,6 +293,7 @@ class TestRequestBodyLimitMiddleware:
 
         # Inner app is called with empty body after disconnect
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_valid_json_body_forwarded_to_inner_app(self) -> None:
@@ -365,6 +368,7 @@ class TestRequestBodyLimitMiddleware:
         await middleware(scope, receive, send)
 
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_non_json_content_type_skips_depth_check(self) -> None:
@@ -386,6 +390,7 @@ class TestRequestBodyLimitMiddleware:
 
         # Inner app must be called — depth check is skipped for non-JSON
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_replay_receive_fallback_called_after_body_sent(self) -> None:
@@ -444,6 +449,7 @@ class TestRequestBodyLimitMiddleware:
 
         # Inner app must be called — no body to check
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_valid_json_body_under_depth_limit_forwarded(self) -> None:
@@ -465,6 +471,9 @@ class TestRequestBodyLimitMiddleware:
         await middleware(scope, receive, send)
 
         inner.assert_awaited_once()
+        assert inner.await_count == 1, (
+            "valid JSON under depth limit must be forwarded to inner app once"
+        )
 
     @pytest.mark.asyncio
     async def test_depth_check_regression_after_dead_branch_removal(self) -> None:

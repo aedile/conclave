@@ -68,6 +68,8 @@ class TestCommonInfraExemptPaths:
         )
 
         assert isinstance(COMMON_INFRA_EXEMPT_PATHS, frozenset)
+        # frozenset must contain the health endpoint (structural safety check)
+        assert "/health" in COMMON_INFRA_EXEMPT_PATHS
 
     def test_common_infra_exempt_paths_contains_expected_paths(self) -> None:
         """COMMON_INFRA_EXEMPT_PATHS must contain exactly the 7 expected paths.
@@ -156,6 +158,8 @@ class TestSealExemptPaths:
         )
 
         assert isinstance(SEAL_EXEMPT_PATHS, frozenset)
+        # SEAL_EXEMPT_PATHS must include the emergency shred path
+        assert "/security/shred" in SEAL_EXEMPT_PATHS
 
     def test_seal_exempt_paths_has_exactly_eight_paths(self) -> None:
         """SEAL_EXEMPT_PATHS must have exactly 8 paths (7 common + /security/shred).
@@ -287,6 +291,8 @@ class TestVaultExemptPaths:
         from synth_engine.bootstrapper.dependencies.vault import EXEMPT_PATHS
 
         assert isinstance(EXEMPT_PATHS, frozenset)
+        # frozenset must include /unseal (the primary vault path)
+        assert "/unseal" in EXEMPT_PATHS
 
     def test_vault_exempt_paths_contains_ready(self) -> None:
         """/ready must be in vault EXEMPT_PATHS (T48.3 -- readiness probe)."""
@@ -336,6 +342,8 @@ class TestLicenseExemptPaths:
         )
 
         assert isinstance(LICENSE_EXEMPT_PATHS, frozenset)
+        # frozenset must include the license activation endpoint
+        assert "/license/activate" in LICENSE_EXEMPT_PATHS
 
     def test_license_exempt_paths_contains_ready(self) -> None:
         """/ready must be in LICENSE_EXEMPT_PATHS (T48.3 -- readiness probe)."""

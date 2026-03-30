@@ -64,8 +64,10 @@ class TestScriptExists:
     def test_script_not_in_src(self) -> None:
         """Seeding script must NOT be placed under src/."""
         src_dir = REPO_ROOT / "src"
-        for py_file in src_dir.rglob("seed_sample_data.py"):
+        matches = list(src_dir.rglob("seed_sample_data.py"))
+        for py_file in matches:
             pytest.fail(f"seed_sample_data.py found under src/: {py_file}")
+        assert len(matches) == 0, "seed_sample_data.py must not be in src/"
 
     def test_sample_data_directory_exists(self) -> None:
         """sample_data/ directory must exist at repo root."""
@@ -253,6 +255,8 @@ class TestCsvDataTypes:
                 pytest.fail(
                     f"orders row {row['id']}: total_amount={row['total_amount']} is not numeric"
                 )
+        numeric_count = sum(1 for row in rows if row.get("total_amount", ""))
+        assert numeric_count == len(rows), f"all {len(rows)} orders must have total_amount"
 
     def test_orders_status_is_valid(self) -> None:
         """orders.status must be one of the expected status values."""
@@ -283,6 +287,8 @@ class TestCsvDataTypes:
                 float(row["amount"])
             except ValueError:
                 pytest.fail(f"payments row {row['id']}: amount={row['amount']} is not numeric")
+        numeric_count = sum(1 for row in rows if row.get("amount", ""))
+        assert numeric_count == len(rows), f"all {len(rows)} payments must have amount"
 
     def test_payments_method_is_valid(self) -> None:
         """payments.payment_method must be one of the expected values."""
@@ -515,7 +521,8 @@ class TestSeedModuleApi:
         mod = _import_seed_module()
         # Accept either a click command or a __main__ block
         has_cli = hasattr(mod, "main") or hasattr(mod, "cli")
-        assert has_cli, "seed_sample_data.py must define a CLI entrypoint (main or cli)"
+        assert has_cli == True, "seed_sample_data.py must define a CLI entrypoint (main or cli)"
+        assert has_cli
 
 
 # ---------------------------------------------------------------------------

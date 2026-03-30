@@ -110,7 +110,7 @@ class TestV1V2BackwardCompatVerification:
         with caplog.at_level(logging.WARNING):
             result = logger.verify_event(event)
 
-        assert result is True
+        assert result == True
         # Must emit a WARNING about deprecated v1 format
         warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any(
@@ -152,7 +152,7 @@ class TestV1V2BackwardCompatVerification:
         with caplog.at_level(logging.WARNING):
             result = logger.verify_event(event)
 
-        assert result is True
+        assert result == True
         # Must emit a WARNING about deprecated v2 format
         warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("v2" in msg.lower() or "deprecated" in msg.lower() for msg in warning_msgs), (
@@ -357,3 +357,4 @@ class TestPipeInjectionV3:
             "Pipe injection must not produce a valid v3 signature — "
             "length-prefix encoding should prevent field boundary confusion"
         )
+        assert not result

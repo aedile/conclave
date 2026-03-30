@@ -158,7 +158,8 @@ class TestVerifyArtifactSignatureUnit:
         with patch.dict(os.environ, {"ARTIFACT_SIGNING_KEY": signing_key.hex()}):
             result = _verify_artifact_signature(str(parquet_path))
 
-        assert result is True
+        assert result == True
+        assert result
 
     def test_oserror_on_artifact_read_returns_none(self, tmp_path: Path) -> None:
         """_verify_artifact_signature returns None when the artifact file raises OSError on read."""
@@ -179,3 +180,4 @@ class TestVerifyArtifactSignatureUnit:
             result = _verify_artifact_signature(str(parquet_path))
 
         assert result is None
+        assert str(result) == "None"

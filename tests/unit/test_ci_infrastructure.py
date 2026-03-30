@@ -168,6 +168,7 @@ class TestSynthesizerMarkerNegative:
             "pytest.mark.integration, not pytest.mark.synthesizer. "
             "The marker detection logic has a false-positive bug."
         )
+        assert not result
 
     def test_returns_false_for_empty_file(self, tmp_path: Path) -> None:
         """_has_synthesizer_marker must return False for a file with no markers at all."""
@@ -179,6 +180,7 @@ class TestSynthesizerMarkerNegative:
             "_has_synthesizer_marker returned True for a file with no markers. "
             "The marker detection logic has a false-positive bug."
         )
+        assert not result
 
 
 # ---------------------------------------------------------------------------

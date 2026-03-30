@@ -127,6 +127,8 @@ class TestDPCompatibleCTGANInit:
         assert isinstance(instance, DPCompatibleCTGAN), (
             f"Expected DPCompatibleCTGAN instance, got {type(instance)}"
         )
+        # Verify epochs parameter was stored correctly
+        assert instance._epochs == 5
 
     def test_init_dp_wrapper_defaults_to_none(self) -> None:
         """dp_wrapper must default to None — vanilla mode."""
@@ -170,6 +172,7 @@ class TestDPCompatibleCTGANInit:
         mock_metadata = MagicMock()
         instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2, dp_wrapper=None)
         assert instance._dp_wrapper is None
+        assert str(instance._dp_wrapper) == "None"
 
     def test_init_not_fitted_initially(self) -> None:
         """A freshly created instance must not be marked as fitted."""
@@ -178,6 +181,7 @@ class TestDPCompatibleCTGANInit:
         mock_metadata = MagicMock()
         instance = DPCompatibleCTGAN(metadata=mock_metadata, epochs=2)
         assert instance._fitted is False
+        assert not instance._fitted
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +258,7 @@ class TestDPCompatibleCTGANFitWiring:
             instance.fit(_make_training_df())
 
         assert instance._fitted is True
+        assert instance._fitted
 
     def test_fit_calls_sdv_preprocess(self) -> None:
         """fit() must call CTGANSynthesizer.preprocess() to transform the input DataFrame."""
@@ -282,6 +287,7 @@ class TestDPCompatibleCTGANFitWiring:
             instance.fit(df)
 
         mock_sdv_synth.preprocess.assert_called_once_with(df)
+        assert mock_sdv_synth.preprocess.call_count == 1
 
     def test_fit_stores_data_processor(self) -> None:
         """fit() must store _data_processor from the SDV synth for later reverse_transform."""
@@ -336,6 +342,7 @@ class TestDPCompatibleCTGANFitWiring:
             instance.fit(_make_training_df())
 
         mock_ctgan_instance.fit.assert_called_once()
+        assert mock_ctgan_instance.fit.call_count == 1
 
     def test_fit_passes_discrete_columns_to_ctgan(self) -> None:
         """fit() must pass the discrete_columns detected by SDV to CTGAN.fit()."""

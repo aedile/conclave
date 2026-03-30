@@ -271,6 +271,7 @@ class TestMigration007EmptyTable:
             mock_op.get_bind.return_value = bind
             with patch.object(module, "op", mock_op):
                 module.upgrade()  # Must not raise — no rows, no ALE key needed.
+                assert mock_op.get_bind.call_count >= 1, "op.get_bind must be called by upgrade"
 
     def test_downgrade_empty_table_is_noop(self) -> None:
         """downgrade() on an empty connection table must succeed without ALE key."""
@@ -282,6 +283,7 @@ class TestMigration007EmptyTable:
             mock_op.get_bind.return_value = bind
             with patch.object(module, "op", mock_op):
                 module.downgrade()  # Must not raise — no rows, no ALE key needed.
+                assert mock_op.get_bind.call_count >= 1, "op.get_bind must be called by downgrade"
 
 
 # ---------------------------------------------------------------------------
@@ -591,13 +593,17 @@ class TestMigration007NullGuard:
             row = _fetch_row(conn, null_id)
 
         assert row is not None
+        assert row != None  # noqa: E711 — specific check
         assert row.host is None, f"upgrade() must leave NULL host untouched, got: {row.host!r}"
+        assert str(row.host) == "None"
         assert row.database is None, (
             f"upgrade() must leave NULL database untouched, got: {row.database!r}"
         )
+        assert str(row.database) == "None"
         assert row.schema_name is None, (
             f"upgrade() must leave NULL schema_name untouched, got: {row.schema_name!r}"
         )
+        assert str(row.schema_name) == "None"
 
     def test_downgrade_skips_null_row_without_raising(self, fernet_instance: Fernet) -> None:
         """downgrade() must not raise when a row has NULL host/database/schema_name."""
@@ -622,13 +628,17 @@ class TestMigration007NullGuard:
             row = _fetch_row(conn, null_id)
 
         assert row is not None
+        assert row != None  # noqa: E711 — specific check
         assert row.host is None, f"downgrade() must leave NULL host untouched, got: {row.host!r}"
+        assert str(row.host) == "None"
         assert row.database is None, (
             f"downgrade() must leave NULL database untouched, got: {row.database!r}"
         )
+        assert str(row.database) == "None"
         assert row.schema_name is None, (
             f"downgrade() must leave NULL schema_name untouched, got: {row.schema_name!r}"
         )
+        assert str(row.schema_name) == "None"
 
     def test_upgrade_encrypts_non_null_row_alongside_null_row(
         self, fernet_instance: Fernet

@@ -70,6 +70,7 @@ class TestDpAccountingStepIsolation:
 
         assert isinstance(result, StepResult)
         assert result.success is True
+        assert result.success
 
     def test_dp_accounting_step_skipped_when_no_dp_wrapper(self) -> None:
         """DpAccountingStep.execute() must return success immediately when dp_wrapper is None."""
@@ -82,6 +83,7 @@ class TestDpAccountingStepIsolation:
         result = step.execute(ctx)
 
         assert result.success is True
+        assert result.success
 
     def test_dp_accounting_step_returns_failure_on_budget_exhaustion(self) -> None:
         """DpAccountingStep.execute() must return StepResult(success=False) on exhaustion."""
@@ -241,6 +243,7 @@ class TestDpAccountingStepEpsilonFailure:
 
         job = _make_synthesis_job(id=1)
         assert job.actual_epsilon is None  # pre-condition
+        assert str(job.actual_epsilon) == "None"
 
         ctx = _make_job_context(job=job, dp_wrapper=mock_wrapper)
 
@@ -255,7 +258,9 @@ class TestDpAccountingStepEpsilonFailure:
 
         # epsilon stays None AND the step reports failure (not silent success)
         assert job.actual_epsilon is None
+        assert str(job.actual_epsilon) == "None"
         assert result.success is False
+        assert not result.success
 
     def test_orchestrator_marks_job_failed_when_epsilon_spent_raises(self) -> None:
         """_run_synthesis_job_impl must set job.status=FAILED when epsilon_spent() raises.
@@ -370,6 +375,7 @@ class TestGenerationStepIsolation:
 
         assert isinstance(result, StepResult)
         assert result.success is True
+        assert result.success
 
     def test_generation_step_returns_failure_on_runtime_error(self) -> None:
         """GenerationStep.execute() must return StepResult(success=False) on RuntimeError."""
@@ -386,7 +392,9 @@ class TestGenerationStepIsolation:
         result = GenerationStep().execute(ctx)
 
         assert result.success is False
+        assert not result.success
         assert result.error_msg is not None
+        assert result.error_msg != None  # noqa: E711 — specific check
 
     def test_generation_step_does_not_set_job_status(self) -> None:
         """GenerationStep must NOT mutate job.status — the orchestrator owns status.

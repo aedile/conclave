@@ -31,7 +31,9 @@ class TestWiringModuleStructure:
 
     def test_wiring_module_is_importable(self) -> None:
         """synth_engine.bootstrapper.wiring must be importable without error."""
-        import synth_engine.bootstrapper.wiring as wiring  # noqa: F401 — importability check
+        import synth_engine.bootstrapper.wiring as wiring
+
+        assert wiring.__name__ == "synth_engine.bootstrapper.wiring"
 
     def test_wire_all_registers_all_ioc_callbacks(self) -> None:
         """wire_all() must register all three IoC callbacks in the synthesizer modules.
@@ -129,7 +131,7 @@ class TestWiringModuleStructure:
             isinstance(node, ast.FunctionDef) and node.name == "_build_webhook_delivery_fn"
             for node in ast.walk(tree)
         )
-        assert found, (
+        assert found == True, (
             "_build_webhook_delivery_fn must be defined in bootstrapper/wiring.py (T56.2). "
             "It was moved there from main.py to eliminate the side-effect import block."
         )
@@ -156,6 +158,8 @@ class TestWiringModuleStructure:
                     "_build_webhook_delivery_fn still has `-> Any` return type. "
                     "Replace with `Callable[[int, str], None]` (T56.2)."
                 )
+        wiring_text = WIRING_PY.read_text()
+        assert "_build_webhook_delivery_fn" in wiring_text, "Function must exist in wiring.py"
 
 
 class TestWireAllIdempotency:
@@ -172,6 +176,12 @@ class TestWireAllIdempotency:
         # Should not raise
         wire_all()
         wire_all()
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as _orch_check
+
+        assert _orch_check._dp_wrapper_factory is not None, (
+            "Factory must remain set after double wire_all"
+        )
+        assert callable(_orch_check._dp_wrapper_factory)
 
     def test_wire_dp_wrapper_factory_twice_does_not_raise(self) -> None:
         """Calling wire_dp_wrapper_factory() twice must not raise."""
@@ -179,6 +189,10 @@ class TestWireAllIdempotency:
 
         wire_dp_wrapper_factory()
         wire_dp_wrapper_factory()
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as _orch_check2
+
+        assert _orch_check2._dp_wrapper_factory is not None
+        assert callable(_orch_check2._dp_wrapper_factory)
 
     def test_wire_spend_budget_fn_twice_does_not_raise(self) -> None:
         """Calling wire_spend_budget_fn() twice must not raise."""
@@ -186,6 +200,10 @@ class TestWireAllIdempotency:
 
         wire_spend_budget_fn()
         wire_spend_budget_fn()
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as _orch_check3
+
+        assert _orch_check3._spend_budget_fn is not None
+        assert callable(_orch_check3._spend_budget_fn)
 
     def test_wire_dp_wrapper_factory_registers_build_dp_wrapper(self) -> None:
         """wire_dp_wrapper_factory must call set_dp_wrapper_factory with build_dp_wrapper.

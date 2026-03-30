@@ -236,6 +236,7 @@ class TestDPTrainingLoopInvoked:
 
         # vanilla CTGAN.fit() must not have been called
         instance._mock_ctgan_instance.fit.assert_not_called()  # type: ignore[attr-defined]
+        assert instance._mock_ctgan_instance.fit.call_count == 0
 
     def test_fit_dp_mode_constructs_opacus_discriminator(self) -> None:
         """_train_dp_discriminator must construct an OpacusCompatibleDiscriminator.
@@ -308,6 +309,7 @@ class TestDPTrainingLoopInvoked:
                 instance._train_dp_discriminator(processed_df, model_kwargs)
 
         mock_disc_cls.assert_called_once()
+        assert mock_disc_cls.call_count == 1
 
     def test_fit_dp_mode_wraps_discriminator_optimizer(self) -> None:
         """_train_dp_discriminator must call dp_wrapper.wrap() with the discriminator optimizer."""
@@ -575,6 +577,7 @@ class TestVanillaPathUnchanged:
         instance = _fit_with_mocked_train_dp(epochs=1, dp_wrapper=None)
 
         instance._mock_ctgan_instance.fit.assert_called_once()  # type: ignore[attr-defined]
+        assert instance._mock_ctgan_instance.fit.call_count == 1
 
     def test_vanilla_fit_does_not_call_wrap(self) -> None:
         """fit() with dp_wrapper=None must never call dp_wrapper.wrap()."""
@@ -608,6 +611,7 @@ class TestVanillaPathUnchanged:
             instance.fit(_make_training_df())
 
         mock_dp_wrapper.wrap.assert_not_called()
+        assert mock_dp_wrapper.wrap.call_count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -663,6 +667,7 @@ class TestFittedStateAfterDPTraining:
         instance = _fit_with_mocked_train_dp(epochs=1, dp_wrapper=mock_dp_wrapper)
 
         assert instance._fitted is True
+        assert instance._fitted
 
 
 # ---------------------------------------------------------------------------
@@ -776,6 +781,7 @@ class TestFallbackToProxyModel:
         assert instance._fitted is True, (
             "_fitted must be True after fallback-to-proxy completes successfully."
         )
+        assert instance._fitted
 
 
 # ---------------------------------------------------------------------------
@@ -812,10 +818,11 @@ class TestNewImportBoundaryT303:
                     found_discriminator_import = True
                     break
 
-        assert found_discriminator_import, (
+        assert found_discriminator_import == True, (
             "dp_training.py must import OpacusCompatibleDiscriminator from "
             "synth_engine.modules.synthesizer.training.dp_discriminator (T30.3)."
         )
+        assert found_discriminator_import
 
     def test_dp_training_new_imports_not_from_privacy(self) -> None:
         """T30.3 new import (Generator) must not import from privacy/."""

@@ -279,9 +279,10 @@ async def test_graceful_degradation_logs_warning_on_redis_error(
     has_redis_warning = any(
         "redis" in msg.lower() or "fallback" in msg.lower() for msg in logged_messages
     )
-    assert has_redis_warning, (
+    assert has_redis_warning == True, (
         f"WARNING about Redis degradation must be logged; got: {logged_messages}"
     )
+    assert has_redis_warning
 
 
 @pytest.mark.asyncio
@@ -431,6 +432,7 @@ def test_ratelimit_middleware_no_new_redis_import_called_when_client_injected() 
         )
         # get_redis_client should NOT be called when client is explicitly injected
         mock_get_client.assert_not_called()
+        assert mock_get_client.call_count == 0
 
 
 # ---------------------------------------------------------------------------

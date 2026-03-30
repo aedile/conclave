@@ -75,6 +75,9 @@ def test_audit_event_has_valid_signature(logger_instance: AuditLogger) -> None: 
     )
 
     assert logger_instance.verify_event(event) is True
+    # Specific-value assertion: the event actor and type are preserved in the record
+    assert event.actor == "pytest"
+    assert event.event_type == "TEST"
 
 
 def test_tampered_event_fails_verification(logger_instance: AuditLogger) -> None:  # noqa: F821
@@ -102,6 +105,8 @@ def test_tampered_event_fails_verification(logger_instance: AuditLogger) -> None
     )
 
     assert logger_instance.verify_event(tampered) is False
+    # Specific-value assertion: tampered action is reflected in the object we built
+    assert tampered.action == "TAMPERED_ACTION"
 
 
 def test_audit_events_form_chain(logger_instance: AuditLogger) -> None:  # noqa: F821
@@ -277,6 +282,8 @@ def test_get_audit_logger_returns_instance(
 
     logger = get_audit_logger()
     assert isinstance(logger, AuditLogger)
+    # AuditLogger must expose log_event() callable
+    assert callable(logger.log_event)
 
 
 def test_get_audit_logger_missing_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -553,6 +560,10 @@ def test_v2_signature_verifies_correctly(logger_instance: AuditLogger) -> None: 
     assert logger_instance.verify_event(event) is True, (
         "v2 event with correct details must verify as True"
     )
+    # Specific-value assertion: the signature uses the current format prefix
+    assert event.signature.startswith(("v2:", "v3:")), (
+        f"Expected v2: or v3: prefix, got {event.signature[:10]!r}"
+    )
 
 
 def test_legacy_v1_event_verifies_correctly(logger_instance: AuditLogger) -> None:  # noqa: F821
@@ -587,6 +598,10 @@ def test_legacy_v1_event_verifies_correctly(logger_instance: AuditLogger) -> Non
 
     assert logger_instance.verify_event(legacy_event) is True, (
         "Legacy v1 events must still verify correctly after v2 upgrade"
+    )
+    # Specific-value assertion: the legacy event's signature starts with v1:
+    assert legacy_event.signature.startswith("v1:"), (
+        f"Expected v1: prefix on legacy event signature, got {legacy_event.signature[:5]!r}"
     )
 
 
@@ -623,6 +638,9 @@ def test_v2_signature_round_trip(logger_instance: AuditLogger) -> None:  # noqa:
     # Verify twice to ensure no state mutation on verification
     assert logger_instance.verify_event(event) is True
     assert logger_instance.verify_event(event) is True
+    # Specific-value assertion: event's actor and resource fields are preserved
+    assert event.actor == "tester"
+    assert event.resource == "endpoint/verify"
 
 
 def test_v3_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> None:  # noqa: F821

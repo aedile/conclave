@@ -302,6 +302,7 @@ class TestHealthStrictMode:
             f"conclave_health_strict must default to True in production; "
             f"got {settings.conclave_health_strict}"
         )
+        assert settings.conclave_health_strict
 
     def test_ready_strict_defaults_false_in_development(
         self, monkeypatch: pytest.MonkeyPatch
@@ -322,6 +323,7 @@ class TestHealthStrictMode:
             f"conclave_health_strict must default to False in development; "
             f"got {settings.conclave_health_strict}"
         )
+        assert not settings.conclave_health_strict
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +407,7 @@ class TestBcryptExceptionNarrowing:
         assert result is False, (
             f"ValueError from bcrypt must return False (auth denied); got {result!r}"
         )
+        assert not result
 
     def test_bcrypt_type_error_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """TypeError from bcrypt.checkpw (bad argument type) must still return False.
@@ -424,6 +427,7 @@ class TestBcryptExceptionNarrowing:
         assert result is False, (
             f"TypeError from bcrypt must return False (auth denied); got {result!r}"
         )
+        assert not result
 
 
 # ---------------------------------------------------------------------------

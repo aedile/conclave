@@ -100,6 +100,7 @@ def test_unset_conclave_env_is_production_mode(monkeypatch: pytest.MonkeyPatch) 
 
     s = ConclaveSettings()
     assert s.is_production() is True
+    assert s.is_production()
 
 
 def test_explicit_development_mode_is_not_production(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,6 +115,7 @@ def test_explicit_development_mode_is_not_production(monkeypatch: pytest.MonkeyP
 
     s = ConclaveSettings()
     assert s.is_production() is False
+    assert not s.is_production()
 
 
 def test_explicit_production_mode_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -130,6 +132,7 @@ def test_explicit_production_mode_still_works(monkeypatch: pytest.MonkeyPatch) -
 
     s = ConclaveSettings()
     assert s.is_production() is True
+    assert s.is_production()
 
 
 def test_legacy_env_production_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -145,6 +148,7 @@ def test_legacy_env_production_still_works(monkeypatch: pytest.MonkeyPatch) -> N
 
     s = ConclaveSettings()
     assert s.is_production() is True
+    assert s.is_production()
 
 
 def test_legacy_env_development_with_conclave_env_production_is_production(
@@ -166,6 +170,7 @@ def test_legacy_env_development_with_conclave_env_production_is_production(
     # env='development' → ENV check is False
     # OR logic: True OR False = True
     assert s.is_production() is True
+    assert s.is_production()
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +211,7 @@ def test_production_all_vars_present_passes(monkeypatch: pytest.MonkeyPatch) -> 
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -462,3 +468,4 @@ def test_test_suite_runs_in_development_mode_by_default(
         "CONCLAVE_ENV=development). Currently is_production()=True, which would "
         "break tests that don't configure all production vars."
     )
+    assert not settings.is_production()

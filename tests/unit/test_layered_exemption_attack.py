@@ -179,6 +179,8 @@ class TestSealExemptPathsComposition:
         )
 
         assert isinstance(SEAL_EXEMPT_PATHS, frozenset)
+        # must include /security/shred (the only path beyond COMMON_INFRA)
+        assert "/security/shred" in SEAL_EXEMPT_PATHS
 
     def test_seal_exempt_paths_difference_is_exactly_shred(self) -> None:
         """SEAL_EXEMPT_PATHS - COMMON_INFRA_EXEMPT_PATHS must be exactly {/security/shred}.

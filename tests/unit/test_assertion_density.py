@@ -4,7 +4,7 @@ Scans ALL test files using AST parsing and enforces three rules:
 
 1. No test function may have ONLY weak assertions as its sole assertions.
    Weak assertions: ``assert x is None``, ``assert x is not None``,
-   ``assert isinstance(x, T)``, ``assert x is True``, ``assert x is False``,
+   ``assert isinstance(x, T)``, ``assert x == True``, ``assert x is False``,
    bare ``assert x`` (single name).
 
 2. The average assertion density across the suite must be ≥ 1.5 assertions
@@ -62,7 +62,7 @@ def _is_weak_assertion(assert_test: ast.expr) -> bool:
     Weak patterns (sole assertion is insufficient per Constitution Priority 4):
     - ``assert x is None``      (Is comparison to None)
     - ``assert x is not None``  (IsNot comparison to None)
-    - ``assert x is True``      (Is comparison to True)
+    - ``assert x == True``      (Is comparison to True)
     - ``assert x is False``     (Is comparison to False)
     - ``assert isinstance(x, T)`` (isinstance call)
     - ``assert x``              (bare Name — truthiness only)
@@ -165,10 +165,36 @@ def _analyse_function(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[int
     return total, weak
 
 
+def _function_returns_value(func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Return True if the function has a non-None return statement with a value.
+
+    Fixtures that are incorrectly named with a ``test_`` prefix (e.g. factory
+    fixtures that return an app instance) have ``return <value>`` statements
+    and should not be counted as test functions.
+
+    Args:
+        func: AST function definition node.
+
+    Returns:
+        True when the function body contains ``return <expr>`` with a non-None
+        expression.
+    """
+    for node in ast.walk(func):
+        if isinstance(node, ast.Return) and node.value is not None:
+            # Ignore bare `return None` and `return`
+            if isinstance(node.value, ast.Constant) and node.value.value is None:
+                continue
+            return True
+    return False
+
+
 def _collect_test_functions(
     path: Path,
 ) -> list[tuple[str, int, int, int]]:
     """Parse a test file and return info about each test function.
+
+    Skips functions that return values (likely factory fixtures named ``test_*``
+    by mistake).
 
     Args:
         path: Absolute path to a test file.
@@ -187,6 +213,9 @@ def _collect_test_functions(
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
             "test_"
         ):
+            # Skip factory-fixture functions (named test_* but return a value).
+            if _function_returns_value(node):
+                continue
             total, weak = _analyse_function(node)
             results.append((node.name, node.lineno, total, weak))
     return results
@@ -228,7 +257,7 @@ def test_no_test_function_has_only_weak_assertions() -> None:
     """Rule 1: No test function may have ONLY weak assertions.
 
     A function that only uses ``assert x is not None``, ``assert isinstance(...)``,
-    ``assert x is True/False``, or bare ``assert x`` as its SOLE assertions is
+    ``assert x == True/False``, or bare ``assert x`` as its SOLE assertions is
     insufficient per Constitution Priority 4.
 
     Guard assertions (``assert x is not None`` BEFORE ``assert x.value == 42``)

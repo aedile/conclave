@@ -184,33 +184,39 @@ class TestBudgetExhaustionCatchByType:
                 total_allocated=Decimal("1.0"),
             )
 
-        caught = False
+        exc_captured: BudgetExhaustionError | None = None
         try:
             _fake_spend_budget()
-        except BudgetExhaustionError:
-            caught = True
+        except BudgetExhaustionError as exc:
+            exc_captured = exc
 
-        assert caught, "BudgetExhaustionError must be catchable by type"
+        assert exc_captured is not None, "BudgetExhaustionError must be catchable by type"
+        # Verify the exception carries the expected epsilon attributes
+        assert exc_captured.requested_epsilon == Decimal("0.5")
+        assert exc_captured.remaining_epsilon == Decimal("0.1")
 
     def test_privacy_module_budget_exhaustion_catchable_as_shared_type(self) -> None:
         """Raising from modules/privacy must be catchable via shared.exceptions type."""
         from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError as DpBee
         from synth_engine.shared.exceptions import BudgetExhaustionError as SharedBee
 
-        caught_as_shared = False
+        exc_captured: SharedBee | None = None
         try:
             raise DpBee(
                 requested_epsilon=Decimal("0.5"),
                 total_spent=Decimal("0.9"),
                 total_allocated=Decimal("1.0"),
             )
-        except SharedBee:
-            caught_as_shared = True
+        except SharedBee as exc:
+            exc_captured = exc
 
-        assert caught_as_shared, (
+        assert exc_captured is not None, (
             "dp_engine.BudgetExhaustionError raised must be catchable as "
             "shared BudgetExhaustionError"
         )
+        # Verify the exception carries the expected epsilon attributes
+        assert exc_captured.requested_epsilon == Decimal("0.5")
+        assert exc_captured.total_allocated == Decimal("1.0")
 
 
 class TestSafeErrorMsgModulePaths:
@@ -281,6 +287,7 @@ class TestVaultExceptionHierarchyT34:
 
         exc = VaultEmptyPassphraseError("Passphrase must not be empty.")
         assert isinstance(exc, SynthEngineError)
+        assert str(exc) == "Passphrase must not be empty."
 
     def test_vault_already_unsealed_error_is_synth_engine_error(self) -> None:
         """VaultAlreadyUnsealedError instance must satisfy isinstance(exc, SynthEngineError)."""
@@ -288,6 +295,7 @@ class TestVaultExceptionHierarchyT34:
 
         exc = VaultAlreadyUnsealedError("Vault is already unsealed.")
         assert isinstance(exc, SynthEngineError)
+        assert str(exc) == "Vault is already unsealed."
 
     def test_vault_config_error_is_synth_engine_error(self) -> None:
         """VaultConfigError instance must satisfy isinstance(exc, SynthEngineError)."""
@@ -295,6 +303,7 @@ class TestVaultExceptionHierarchyT34:
 
         exc = VaultConfigError("VAULT_SEAL_SALT is not set.")
         assert isinstance(exc, SynthEngineError)
+        assert str(exc) == "VAULT_SEAL_SALT is not set."
 
     def test_vault_empty_passphrase_error_not_value_error(self) -> None:
         """VaultEmptyPassphraseError must NOT inherit ValueError after T34.1.
@@ -320,11 +329,15 @@ class TestVaultExceptionHierarchyT34:
 
     def test_vault_exceptions_importable_from_shared_exceptions(self) -> None:
         """All three vault exceptions must be importable from shared.exceptions directly."""
-        from synth_engine.shared.exceptions import (  # noqa: F401
+        from synth_engine.shared.exceptions import (
             VaultAlreadyUnsealedError,
             VaultConfigError,
             VaultEmptyPassphraseError,
         )
+
+        assert VaultAlreadyUnsealedError.__name__ == "VaultAlreadyUnsealedError"
+        assert VaultConfigError.__name__ == "VaultConfigError"
+        assert VaultEmptyPassphraseError.__name__ == "VaultEmptyPassphraseError"
 
     def test_vault_exceptions_re_exported_from_vault_module(self) -> None:
         """vault.py must still export the three exceptions for backward compatibility."""
@@ -333,6 +346,8 @@ class TestVaultExceptionHierarchyT34:
             VaultConfigError,
             VaultEmptyPassphraseError,
         )
+
+        assert VaultAlreadyUnsealedError.__name__ == "VaultAlreadyUnsealedError"
 
 
 class TestLicenseExceptionHierarchyT34:
@@ -348,6 +363,7 @@ class TestLicenseExceptionHierarchyT34:
 
         exc = LicenseError("License token has expired.")
         assert isinstance(exc, SynthEngineError)
+        assert str(exc) == "License token has expired."
 
     def test_license_error_not_bare_exception(self) -> None:
         """LicenseError must not directly inherit bare Exception after T34.1.
@@ -369,8 +385,12 @@ class TestLicenseExceptionHierarchyT34:
 
     def test_license_error_importable_from_shared_exceptions(self) -> None:
         """LicenseError must be importable directly from shared.exceptions."""
-        from synth_engine.shared.exceptions import LicenseError  # noqa: F401
+        from synth_engine.shared.exceptions import LicenseError
+
+        assert LicenseError.__name__ == "LicenseError"
 
     def test_license_error_re_exported_from_licensing_module(self) -> None:
         """licensing.py must still export LicenseError for backward compatibility."""
-        from synth_engine.shared.security.licensing import LicenseError  # noqa: F401
+        from synth_engine.shared.security.licensing import LicenseError
+
+        assert LicenseError.__name__ == "LicenseError"

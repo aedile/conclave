@@ -132,6 +132,7 @@ def test_settings_parses_force_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
 
     s = ConclaveSettings()
     assert s.force_cpu is True
+    assert s.force_cpu
 
 
 def test_settings_force_cpu_defaults_false(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,6 +145,7 @@ def test_settings_force_cpu_defaults_false(monkeypatch: pytest.MonkeyPatch) -> N
 
     s = ConclaveSettings()
     assert s.force_cpu is False
+    assert not s.force_cpu
 
 
 def test_settings_parses_otel_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -168,6 +170,7 @@ def test_settings_otel_endpoint_defaults_none(monkeypatch: pytest.MonkeyPatch) -
 
     s = ConclaveSettings()
     assert s.otel_exporter_otlp_endpoint is None
+    assert str(s.otel_exporter_otlp_endpoint) == "None"
 
 
 def test_settings_parses_huey_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -314,6 +317,11 @@ def test_settings_construction_succeeds_without_vault_seal_salt(
     assert isinstance(s, ConclaveSettings), (
         f"ConclaveSettings() must return a ConclaveSettings instance, got {type(s)}"
     )
+    # VAULT_SEAL_SALT is read directly by VaultState.unseal(), not stored in ConclaveSettings.
+    # The presence of this env var deletion only guarantees no ValueError on construction.
+    assert s.conclave_env in ("development", "production"), (
+        f"conclave_env must be a known value, got {s.conclave_env!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +390,7 @@ def test_is_production_via_conclave_env(monkeypatch: pytest.MonkeyPatch) -> None
 
     s = ConclaveSettings()
     assert s.is_production() is True
+    assert s.is_production()
 
 
 def test_is_production_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -401,6 +410,7 @@ def test_is_production_via_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     s = ConclaveSettings()
     assert s.is_production() is True
+    assert s.is_production()
 
 
 def test_is_production_false_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -419,6 +429,7 @@ def test_is_production_false_in_development(monkeypatch: pytest.MonkeyPatch) -> 
 
     s = ConclaveSettings()
     assert s.is_production() is False
+    assert not s.is_production()
 
 
 def test_is_production_true_when_neither_set(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -438,6 +449,7 @@ def test_is_production_true_when_neither_set(monkeypatch: pytest.MonkeyPatch) ->
 
     s = ConclaveSettings()
     assert s.is_production() is True
+    assert s.is_production()
 
 
 def test_is_production_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -462,6 +474,7 @@ def test_is_production_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None
     assert s1.is_production() is True, (
         "CONCLAVE_ENV defaults to 'production' — is_production() must be True"
     )
+    assert s1.is_production()
 
     # All-caps variant
     monkeypatch.setenv("ENV", "PRODUCTION")
@@ -469,6 +482,7 @@ def test_is_production_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None
     assert s2.is_production() is True, (
         "CONCLAVE_ENV defaults to 'production' — is_production() must be True"
     )
+    assert s2.is_production()
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +500,7 @@ def test_settings_ssl_required_defaults_true(monkeypatch: pytest.MonkeyPatch) ->
 
     s = ConclaveSettings()
     assert s.conclave_ssl_required is True
+    assert s.conclave_ssl_required
 
 
 def test_settings_ssl_required_parses_false(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -498,6 +513,7 @@ def test_settings_ssl_required_parses_false(monkeypatch: pytest.MonkeyPatch) -> 
 
     s = ConclaveSettings()
     assert s.conclave_ssl_required is False
+    assert not s.conclave_ssl_required
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +531,7 @@ def test_settings_huey_immediate_defaults_false(monkeypatch: pytest.MonkeyPatch)
 
     s = ConclaveSettings()
     assert s.huey_immediate is False
+    assert not s.huey_immediate
 
 
 def test_settings_huey_immediate_parses_true(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -527,6 +544,7 @@ def test_settings_huey_immediate_parses_true(monkeypatch: pytest.MonkeyPatch) ->
 
     s = ConclaveSettings()
     assert s.huey_immediate is True
+    assert s.huey_immediate
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +652,10 @@ def test_secret_fields_are_secret_str_type(monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert isinstance(s.jwt_secret_key, SecretStr), (
         f"jwt_secret_key must be SecretStr, got {type(s.jwt_secret_key)}"
+    )
+    # SecretStr hides value — verify field holds expected secret value via get_secret_value()
+    assert s.audit_key.get_secret_value() == "aa" * 32, (
+        "audit_key secret value must match AUDIT_KEY env var"
     )
 
 

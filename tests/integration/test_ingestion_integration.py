@@ -228,6 +228,9 @@ def test_preflight_passes_for_readonly_user(
 
     # Must not raise — this is the required read-only path.
     adapter.preflight_check()
+    # Specific: the adapter was created with the read-only user URL
+    assert _READONLY_USER in url, f"Expected readonly user in URL, got: {url!r}"
+    assert str(proc.port) in url, f"Expected port in URL, got: {url!r}"
 
 
 @pytest.mark.integration

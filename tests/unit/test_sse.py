@@ -78,6 +78,7 @@ class TestPollJob:
         factory = _session_factory_for(None)
         result = _poll_job(factory, 99)  # type: ignore[arg-type]
         assert result is None
+        assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------

@@ -434,7 +434,9 @@ class TestNFeatureZeroGuardWiring:
 
             instance._train_dp_discriminator(all_cat_df, model_kwargs)
 
-        assert build_called, "_build_dp_dataloader must be called even for all-categorical data"
+        assert build_called == [True], (
+            "_build_dp_dataloader must be called even for all-categorical data"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +532,7 @@ class TestRealDataPaddingGuardWiring:
             instance._train_dp_discriminator(processed_df, model_kwargs)
 
         # The padding path calls torch.cat — verify it was invoked for the padding
-        assert cat_calls, (
+        assert len(cat_calls) > 0, (
             "torch.cat must be called in the padding guard branch (real_data.shape[1] < data_dim)"
         )
 
@@ -768,3 +770,4 @@ class TestNSamplesZeroSkipGuardWiring:
 
         # If we get here without an exception, the guard worked correctly
         mock_dp_wrapper.check_budget.assert_called_once()
+        assert mock_dp_wrapper.check_budget.call_count == 1

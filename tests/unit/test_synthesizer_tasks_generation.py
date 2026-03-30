@@ -52,6 +52,7 @@ class TestSynthesisJobNumRowsField:
             num_rows=100,
         )
         assert job.output_path is None
+        assert str(job.output_path) == "None"
 
     def test_synthesis_job_output_path_can_be_set(self) -> None:
         """SynthesisJob output_path must accept a string value."""

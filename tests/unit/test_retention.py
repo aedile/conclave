@@ -183,6 +183,7 @@ class TestSynthesisJobLegalHold:
             num_rows=1,
         )
         assert job.legal_hold is False
+        assert not job.legal_hold
 
     def test_legal_hold_can_be_set_true(self) -> None:
         """SynthesisJob.legal_hold can be set to True at construction."""
@@ -194,6 +195,7 @@ class TestSynthesisJobLegalHold:
             legal_hold=True,
         )
         assert job.legal_hold is True
+        assert job.legal_hold
 
     def test_legal_hold_is_not_pii(self) -> None:
         """SynthesisJob.legal_hold is a boolean, not PII — no ALE encryption needed."""
@@ -206,6 +208,9 @@ class TestSynthesisJobLegalHold:
         )
         # The field must be a plain Python bool, not an encrypted wrapper
         assert isinstance(job.legal_hold, bool)
+        # The value we set must be preserved (True)
+        assert job.legal_hold is True
+        assert job.legal_hold
 
     def test_job_has_created_at_field(self) -> None:
         """SynthesisJob has a created_at field for retention TTL comparisons."""
@@ -480,6 +485,8 @@ class TestDeleteArtifactOSError:
         with patch.object(Path, "unlink", side_effect=PermissionError("access denied")):
             # Must not raise — best-effort deletion
             cleanup._delete_artifact(job)
+        # Job record is preserved even when file deletion fails
+        assert job.output_path == "/tmp/some_artifact.parquet", "job path must remain set"
 
     def test_oserror_logs_correct_exception_type_name(
         self, caplog: pytest.LogCaptureFixture

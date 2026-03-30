@@ -409,11 +409,12 @@ class TestSDVPrivateAttributeCoupling:
             token in source
             for token in ["SDV 1.x", "SDV 2.x", "SDV version", "pyproject.toml", "sdv>="]
         )
-        assert has_sdv_version_context, (
+        assert has_sdv_version_context == True, (
             "dp_training.py must document the SDV version context for _model_kwargs "
             "private attribute access. T20.1 AC3: include version-pin reference "
             "('SDV 1.x', 'SDV 2.x', 'pyproject.toml', etc.) in the file."
         )
+        assert has_sdv_version_context
 
     def test_get_model_kwargs_helper_exists(self) -> None:
         """_get_model_kwargs must be a dedicated helper method (not inline access).

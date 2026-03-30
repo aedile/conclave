@@ -336,6 +336,7 @@ def test_model_artifact_load_rejects_malicious_signed_payload(tmp_path: object) 
     import pathlib
 
     assert isinstance(tmp_path, pathlib.Path)
+    assert tmp_path.is_dir(), "tmp_path fixture must provide a writable directory"
     signing_key = os.urandom(32)
     artifact_path = str(tmp_path / "evil_artifact.pkl")
 
@@ -361,6 +362,7 @@ def test_hmac_still_verified_before_unpickling(tmp_path: object) -> None:
     import pathlib
 
     assert isinstance(tmp_path, pathlib.Path)
+    assert tmp_path.is_dir(), "tmp_path fixture must provide a writable directory"
     signing_key = os.urandom(32)
     artifact_path = str(tmp_path / "tampered_artifact.pkl")
 

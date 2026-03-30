@@ -277,6 +277,10 @@ class TestSSEProgressStreaming:
                 except json.JSONDecodeError:
                     continue
         assert has_percent, "No SSE event contained a 'percent' field"
+        # Specific: the response status is 200 (streaming completed)
+        assert response.status_code == 200, (
+            f"Expected 200 status from SSE stream, got {response.status_code}"
+        )
 
 
 class TestRFC7807UnhandledExceptions:

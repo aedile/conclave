@@ -131,6 +131,7 @@ class TestDPCompatibleCTGANFitWithDPWrapper:
             instance.fit(_make_training_df())
 
         mock_dp_wrapper.wrap.assert_not_called()
+        assert mock_dp_wrapper.wrap.call_count == 0
 
     def test_fit_with_dp_wrapper_calls_wrap_before_training(self) -> None:
         """fit() with dp_wrapper must call dp_wrapper.wrap() during DP training.
@@ -282,6 +283,7 @@ class TestDPCompatibleCTGANSample:
 
         result = instance.sample(num_rows=20)
         assert isinstance(result, pd.DataFrame)
+        assert len(result) == 20, f"sample(20) must return 20 rows, got {len(result)}"
 
     def test_sample_returns_correct_row_count(self) -> None:
         """sample(num_rows=N) must return exactly N rows."""
@@ -313,6 +315,7 @@ class TestDPCompatibleCTGANSample:
         instance.sample(num_rows=10)
 
         mock_ctgan_instance.sample.assert_called_once_with(10)
+        assert mock_ctgan_instance.sample.call_count == 1
 
     def test_sample_calls_reverse_transform(self) -> None:
         """sample() must call data_processor.reverse_transform() on CTGAN output."""
@@ -330,6 +333,7 @@ class TestDPCompatibleCTGANSample:
         instance.sample(num_rows=15)
 
         mock_sdv_synth._data_processor.reverse_transform.assert_called_once()
+        assert mock_sdv_synth._data_processor.reverse_transform.call_count == 1
 
     def test_sample_before_fit_raises_runtime_error(self) -> None:
         """sample() before fit() must raise RuntimeError with a clear message."""

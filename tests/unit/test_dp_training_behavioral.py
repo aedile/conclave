@@ -184,6 +184,9 @@ class TestParseGanHyparamsBehavioral:
         assert isinstance(result.generator_dim, tuple), (
             f"generator_dim must be tuple, got {type(result.generator_dim)}"
         )
+        assert result.generator_dim == (256, 256), (
+            f"generator_dim must be (256, 256), got {result.generator_dim}"
+        )
 
     def test_discriminator_dim_is_tuple(self) -> None:
         """parse_gan_hyperparams must return discriminator_dim as a tuple."""
@@ -192,6 +195,9 @@ class TestParseGanHyparamsBehavioral:
         result = parse_gan_hyperparams(self._make_model_kwargs())
         assert isinstance(result.discriminator_dim, tuple), (
             f"discriminator_dim must be tuple, got {type(result.discriminator_dim)}"
+        )
+        assert result.discriminator_dim == (256, 256), (
+            f"discriminator_dim must be (256, 256), got {result.discriminator_dim}"
         )
 
 
@@ -448,6 +454,7 @@ class TestDPCompatibleCTGANFitBehavioral:
         """fit() must produce an instance with _fitted=True."""
         instance = self._make_fitted_vanilla_instance()
         assert instance._fitted is True
+        assert instance._fitted
 
     def test_sample_returns_dataframe(self) -> None:
         """sample(N) on a fitted instance must return a pd.DataFrame."""
@@ -456,6 +463,7 @@ class TestDPCompatibleCTGANFitBehavioral:
         assert isinstance(result, pd.DataFrame), (
             f"sample() must return pd.DataFrame, got {type(result)}"
         )
+        assert len(result) == 5, f"sample(5) must return 5 rows, got {len(result)}"
 
     def test_sample_result_has_correct_columns(self) -> None:
         """sample() result must have the same columns as the mock's reverse_transform output."""
@@ -889,6 +897,7 @@ def test_vanilla_ctgan_strategy_trains_real_small_dataframe() -> None:
     assert sampled is not None, (
         "CTGAN.sample() must return data after VanillaCtganStrategy training."
     )
+    assert len(sampled) == 5, f"CTGAN.sample(5) must return 5 rows, got {len(sampled)}"
 
 
 # ---------------------------------------------------------------------------

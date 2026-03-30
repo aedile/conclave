@@ -75,6 +75,8 @@ class TestProfileKnownNumericColumns:
 
     def test_returns_table_profile(self) -> None:
         assert isinstance(self.result, TableProfile)
+        # TableProfile must reference the table name passed to profile()
+        assert self.result.table_name == "test_table"
 
     def test_table_name_stored(self) -> None:
         assert self.result.table_name == "test_table"
@@ -187,10 +189,12 @@ class TestProfileKnownCategoricalColumns:
     def test_numeric_columns_have_no_value_counts(self) -> None:
         col = self.result.columns["age"]
         assert col.value_counts is None
+        assert str(col.value_counts) == "None"
 
     def test_numeric_columns_have_no_cardinality(self) -> None:
         col = self.result.columns["age"]
         assert col.cardinality is None
+        assert str(col.cardinality) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +214,8 @@ class TestProfileCovarianceMatrix:
         assert isinstance(self.result.covariance_matrix, dict), (
             "covariance_matrix must be a dict, not just truthy"
         )
+        # covariance matrix must have at least one numeric column entry
+        assert len(self.result.covariance_matrix) > 0
 
     def test_covariance_matrix_contains_numeric_columns(self) -> None:
         assert set(self.result.covariance_matrix.keys()) == {"age", "score", "weight"}
@@ -295,9 +301,13 @@ class TestAllNullColumn:
         result = self.profiler.profile("t", df)
         col = result.columns["x"]
         assert col.mean is None
+        assert str(col.mean) == "None"
         assert col.stddev is None
+        assert str(col.stddev) == "None"
         assert col.min is None
+        assert str(col.min) == "None"
         assert col.max is None
+        assert str(col.max) == "None"
 
     def test_all_null_categorical_column_no_error(self) -> None:
         df = pd.DataFrame({"cat": pd.Series([None, None], dtype=object)})
@@ -325,6 +335,8 @@ class TestCompareIdenticalProfiles:
     def test_compare_returns_profile_delta(self) -> None:
         delta = self.profiler.compare(self.baseline, self.synthetic)
         assert isinstance(delta, ProfileDelta)
+        # delta must contain entries for columns in the profiled table
+        assert len(delta.column_deltas) > 0
 
     def test_compare_identical_zero_mean_drift_age(self) -> None:
         delta = self.profiler.compare(self.baseline, self.synthetic)
@@ -421,6 +433,8 @@ class TestSerialisation:
     def test_table_profile_to_dict_is_dict(self) -> None:
         d = self.profile.to_dict()
         assert isinstance(d, dict)
+        # dict must contain the table_name key
+        assert "table_name" in d
 
     def test_table_profile_to_dict_contains_table_name(self) -> None:
         d = self.profile.to_dict()
@@ -534,6 +548,7 @@ class TestCompareAllNullNumericColumns:
 
         # The column must be classified as numeric (is_numeric=True).
         assert baseline.columns["score"].is_numeric is True
+        assert baseline.columns["score"].is_numeric
 
         delta = profiler.compare(baseline, synthetic)
         col_delta = delta.column_deltas["score"]
@@ -543,8 +558,11 @@ class TestCompareAllNullNumericColumns:
         assert col_delta.cardinality_drift is None, (
             "All-null numeric column was misclassified as categorical by compare()"
         )
+        assert str(col_delta.cardinality_drift) == "None"
         assert col_delta.mean_drift is None
+        assert str(col_delta.mean_drift) == "None"
         assert col_delta.stddev_drift is None
+        assert str(col_delta.stddev_drift) == "None"
 
 
 # ---------------------------------------------------------------------------

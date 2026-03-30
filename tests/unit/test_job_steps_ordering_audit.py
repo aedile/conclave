@@ -147,6 +147,7 @@ class TestStepOrdering:
 
         # dp_wrapper.epsilon_spent should never be called if training failed
         mock_wrapper.epsilon_spent.assert_not_called()
+        assert mock_wrapper.epsilon_spent.call_count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +252,7 @@ class TestDpAccountingStepAuditFailure:
 
         assert isinstance(result, StepResult)
         assert result.success is False
+        assert not result.success
 
     def test_dp_accounting_step_audit_failure_error_msg_contains_reconciliation_text(
         self,
@@ -383,7 +385,9 @@ class TestDpAccountingStepAuditFailure:
 
         AC5 (T38.1): AuditWriteError must be present in the shared exception hierarchy.
         """
-        from synth_engine.shared.exceptions import AuditWriteError  # noqa: F401
+        from synth_engine.shared.exceptions import AuditWriteError
+
+        assert AuditWriteError.__name__ == "AuditWriteError"
 
     def test_audit_write_error_is_in_all_list(self) -> None:
         """AuditWriteError must be in shared/exceptions.py __all__.
@@ -452,6 +456,7 @@ class TestDpAccountingStepNonBudgetError:
         assert result.success is False, (
             "DpAccountingStep must return failure when _spend_budget_fn raises ConnectionError"
         )
+        assert not result.success
 
     def test_connection_error_does_not_set_job_status(self) -> None:
         """DpAccountingStep must NOT mutate job.status on ConnectionError.

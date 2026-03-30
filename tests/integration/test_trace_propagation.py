@@ -227,6 +227,10 @@ def test_worker_task_carrier_defaults_to_none() -> None:
                     assert default.value is None, (
                         "trace_carrier must default to None (AC2 backward compatibility)"
                     )
+                    # Specific: arg name is "trace_carrier"
+                    assert arg.arg == "trace_carrier", (
+                        f"Expected 'trace_carrier' arg, got {arg.arg!r}"
+                    )
                     return
 
             # Check regular args with defaults (last N args match last N defaults)

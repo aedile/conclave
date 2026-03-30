@@ -53,6 +53,9 @@ class TestTaskQueueMemoryBackend:
 
         result = task_queue._build_huey()  # type: ignore[attr-defined]
         assert isinstance(result, MemoryHuey)
+        # MemoryHuey must have an immediate execution mode flag
+        assert result.immediate is False
+        assert not result.immediate
 
     def test_build_huey_memory_backend_logs_info(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -90,6 +93,7 @@ class TestTaskQueueMemoryBackend:
         result = task_queue._build_huey()  # type: ignore[attr-defined]
         assert isinstance(result, MemoryHuey)
         assert result.immediate is True
+        assert result.immediate
 
 
 # ===========================================================================
@@ -146,6 +150,7 @@ class TestMinioStorageBackendCoverage:
             Key="test.parquet",
             Body=data,
         )
+        assert backend._client.put_object.call_count == 1
 
     def test_minio_backend_get_returns_response_body(self) -> None:
         """MinioStorageBackend.get() must return the bytes from the response Body.
@@ -260,6 +265,7 @@ class TestRunSynthesisJobEnableDpFalsePath:
 
         # _run_synthesis_job_impl must have been called
         mock_impl.assert_called_once()
+        assert mock_impl.call_count == 1
 
     def test_run_synthesis_job_job_not_found_does_not_raise(self) -> None:
         """run_synthesis_job.call_local() with job=None (preflight) must not raise.
@@ -288,6 +294,7 @@ class TestRunSynthesisJobEnableDpFalsePath:
             tasks_mod.run_synthesis_job.call_local(999)
 
         mock_impl.assert_called_once()
+        assert mock_impl.call_count == 1
 
 
 # ===========================================================================
@@ -308,6 +315,7 @@ class TestProfilerSafeFloatEdgeCases:
         # An object that float() cannot convert raises TypeError
         result = _profiler_mod._safe_float(object())  # type: ignore[attr-defined]
         assert result is None
+        assert str(result) == "None"
 
     def test_safe_float_value_error_returns_none(self) -> None:
         """_safe_float must return None when float() raises ValueError.
@@ -318,6 +326,7 @@ class TestProfilerSafeFloatEdgeCases:
 
         result = _profiler_mod._safe_float("not-a-number")  # type: ignore[attr-defined]
         assert result is None
+        assert str(result) == "None"
 
     def test_safe_float_infinite_returns_none(self) -> None:
         """_safe_float must return None for infinite floats.
@@ -330,6 +339,7 @@ class TestProfilerSafeFloatEdgeCases:
 
         result = _profiler_mod._safe_float(math.inf)  # type: ignore[attr-defined]
         assert result is None
+        assert str(result) == "None"
 
     def test_safe_float_negative_infinite_returns_none(self) -> None:
         """_safe_float must return None for negative infinite floats.
@@ -342,6 +352,7 @@ class TestProfilerSafeFloatEdgeCases:
 
         result = _profiler_mod._safe_float(-math.inf)  # type: ignore[attr-defined]
         assert result is None
+        assert str(result) == "None"
 
 
 class TestProfilerDeltaColumnOnlyInOneProfile:

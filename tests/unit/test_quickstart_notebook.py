@@ -214,17 +214,19 @@ def test_quickstart_uses_env_vars_for_credentials(
         re.search(r"\bos\.environ\b", full_code) is not None
         or re.search(r"\bos\.getenv\b", full_code) is not None
     )
-    assert uses_env, (
+    assert uses_env == True, (
         "No os.environ or os.getenv usage found in notebook code cells. "
         "Credentials (ARTIFACT_SIGNING_KEY, DATABASE_URL) must be read "
         "from environment variables."
     )
+    assert uses_env
     # ARTIFACT_SIGNING_KEY must specifically be fetched from the environment
     signing_key_env = re.search(r"ARTIFACT_SIGNING_KEY", full_code) is not None
-    assert signing_key_env, (
+    assert signing_key_env == True, (
         "ARTIFACT_SIGNING_KEY is not referenced in notebook code cells. "
         "The signing key must be read from os.environ['ARTIFACT_SIGNING_KEY']."
     )
+    assert signing_key_env
 
 
 def test_quickstart_sql_table_name_validation(
@@ -249,28 +251,31 @@ def test_quickstart_sql_table_name_validation(
 
     # The validation guard must exist — check for re.match with the expected pattern
     guard_present = bool(re.search(r"re\.match\(r['\"][^'\"]*\^.*\$.*['\"]", full_code))
-    assert guard_present, (
+    assert guard_present == True, (
         "No re.match table-name validation guard found in notebook code cells. "
         "Add a guard matching r'^[a-zA-Z0-9_]+$' before the SELECT COUNT(*) "
         "f-string interpolation, following scripts/benchmark_epsilon_curves.py:275."
     )
+    assert guard_present
 
     # The guard must specifically use the canonical alphanumeric pattern
     canonical_guard = bool(
         re.search(r"re\.match\(r['\"][^'\"]*\^.*a-zA-Z0-9_.*\$.*['\"]", full_code)
     )
-    assert canonical_guard, (
+    assert canonical_guard == True, (
         "Table name validation guard does not use the canonical pattern "
         "r'^[a-zA-Z0-9_]+$'. Use the same pattern as "
         "scripts/benchmark_epsilon_curves.py:275."
     )
+    assert canonical_guard
 
     # The notebook must import re in code cells
     imports_re = bool(re.search(r"^\s*import re\s*$", full_code, re.MULTILINE))
-    assert imports_re, (
+    assert imports_re == True, (
         "No 'import re' found in notebook code cells. "
         "The table name validation guard requires the re module."
     )
+    assert imports_re
 
 
 # ===========================================================================

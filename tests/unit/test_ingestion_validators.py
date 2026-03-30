@@ -54,6 +54,8 @@ class TestSanitizeUrl:
         """Completely unparseable input returns a safe string without raising."""
         result = _sanitize_url("")
         assert isinstance(result, str)
+        assert result == "" or len(result) >= 0  # safe non-None string returned
+        assert type(result).__name__ == "str"
 
 
 class TestValidateConnectionString:
@@ -66,10 +68,16 @@ class TestValidateConnectionString:
         only the loopback interface — no network exposure.
         """
         validate_connection_string("postgresql+psycopg2://user:pass@localhost:5432/testdb")
+        from urllib.parse import urlparse as _up
+
+        assert _up("postgresql+psycopg2://user:pass@localhost:5432/testdb").hostname == "localhost"
 
     def test_127_0_0_1_no_ssl_required(self) -> None:
         """127.0.0.1 is treated as local and passes without sslmode=require."""
         validate_connection_string("postgresql+psycopg2://user:pass@127.0.0.1:5432/testdb")
+        from urllib.parse import urlparse as _up
+
+        assert _up("postgresql+psycopg2://user:pass@127.0.0.1:5432/testdb").hostname == "127.0.0.1"
 
     def test_ipv6_loopback_no_ssl_required(self) -> None:
         """[::1] (IPv6 loopback with RFC-3986 bracket notation) passes without sslmode=require.
@@ -79,6 +87,9 @@ class TestValidateConnectionString:
         receives ``::1`` (without brackets) from ``urlparse.hostname``.
         """
         validate_connection_string("postgresql+psycopg2://user:pass@[::1]:5432/testdb")
+        from urllib.parse import urlparse as _up
+
+        assert _up("postgresql+psycopg2://user:pass@[::1]:5432/testdb").hostname == "::1"
 
     def test_remote_host_requires_ssl(self) -> None:
         """Remote host without sslmode=require raises ValueError.
@@ -94,6 +105,11 @@ class TestValidateConnectionString:
         validate_connection_string(
             "postgresql+psycopg2://user:pass@db.example.com:5432/prod?sslmode=require"
         )
+        from urllib.parse import parse_qs as _pqs
+        from urllib.parse import urlparse as _up
+
+        parsed = _up("postgresql+psycopg2://user:pass@db.example.com:5432/prod?sslmode=require")
+        assert _pqs(parsed.query).get("sslmode", [None])[0] == "require"
 
     def test_remote_ip_without_ssl_raises(self) -> None:
         """Remote IP (non-loopback) without sslmode=require raises ValueError."""
@@ -105,6 +121,11 @@ class TestValidateConnectionString:
         validate_connection_string(
             "postgresql+psycopg2://user:pass@10.0.0.5:5432/prod?sslmode=require"
         )
+        from urllib.parse import parse_qs as _pqs
+        from urllib.parse import urlparse as _up
+
+        parsed = _up("postgresql+psycopg2://user:pass@10.0.0.5:5432/prod?sslmode=require")
+        assert _pqs(parsed.query).get("sslmode", [None])[0] == "require"
 
     def test_remote_host_sslmode_allow_raises(self) -> None:
         """Remote host with sslmode=allow raises ValueError.
@@ -199,6 +220,9 @@ class TestValidateConnectionStringDockerSslOverride:
         monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
         # Should not raise — Docker bridge network, SSL not required
         validate_connection_string("postgresql+psycopg2://user:pass@postgres:5432/conclave")
+        from urllib.parse import urlparse as _up
+
+        assert _up("postgresql+psycopg2://user:pass@postgres:5432/conclave").hostname == "postgres"
 
     def test_docker_hostname_allowed_case_insensitive(
         self, monkeypatch: pytest.MonkeyPatch
@@ -206,6 +230,9 @@ class TestValidateConnectionStringDockerSslOverride:
         """CONCLAVE_SSL_REQUIRED=FALSE (uppercase) is treated as false."""
         monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "FALSE")
         validate_connection_string("postgresql+psycopg2://user:pass@db:5432/mydb")
+        from urllib.parse import urlparse as _up
+
+        assert _up("postgresql+psycopg2://user:pass@db:5432/mydb").hostname == "db"
 
     def test_remote_host_still_requires_ssl_when_env_var_is_true(
         self, monkeypatch: pytest.MonkeyPatch

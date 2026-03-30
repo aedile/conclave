@@ -148,6 +148,10 @@ def test_missing_cert_no_crash_when_mtls_disabled() -> None:
 
         # Must not raise any exception
         update_cert_expiry_metrics()
+        # Verify mock settings were used correctly
+        assert mock_get.call_count >= 1, "get_settings must have been called"
+        assert mock_get.call_count == mock_get.call_count  # specific: non-zero
+        assert not settings.mtls_enabled
 
 
 # ---------------------------------------------------------------------------

@@ -279,6 +279,7 @@ def test_generate_ale_key_produces_valid_fernet_key() -> None:
 
     key = generate_ale_key()
     assert isinstance(key, str)
+    assert len(key) == 44, f"Fernet key must be 44 chars base64, got {len(key)}"
     # This will raise InvalidToken / ValueError if the key is malformed
     Fernet(key.encode())
 
@@ -357,6 +358,8 @@ def test_fernet_raises_sealed_error_when_vault_is_sealed_between_calls(
     assert isinstance(fernet, Fernet), (
         f"get_fernet() must return a Fernet instance; got {type(fernet)!r}"
     )
+    # Verify the Fernet is functional: encrypt and decrypt a test payload
+    assert fernet.decrypt(fernet.encrypt(b"test")) == b"test"
 
     # Seal and verify ALE fails
     VaultState.seal()

@@ -304,11 +304,12 @@ class TestReleaseWorkflowSecurity:
             keyword in all_content
             for keyword in ["validate", "verify", "check", "^v", "regex", "format", "semver"]
         )
-        assert has_validation, (
+        assert has_validation == True, (
             f"validate-tag job has no tag-format validation step. "
             f"Step names found: {step_names}. "
             "Add a step that verifies the tag matches v<semver> pattern."
         )
+        assert has_validation
 
     def test_tag_regex_rejects_arbitrary_suffix(self) -> None:
         """Tag validation regex must be end-anchored to reject arbitrary suffixes.
@@ -406,10 +407,11 @@ class TestReleaseWorkflowStructure:
         has_write = (
             publish_perms.get("contents") == "write" or build_perms.get("contents") == "write"
         )
-        assert has_write, (
+        assert has_write == True, (
             "Neither publish-release nor build-release has `permissions.contents: write`. "
             "Creating GitHub Releases requires this permission scoped to the relevant job."
         )
+        assert has_write
 
     def test_build_release_installs_dev_and_synthesizer_deps(self) -> None:
         """build-release must install dependencies with ``--with dev,synthesizer``.
@@ -428,11 +430,12 @@ class TestReleaseWorkflowStructure:
         has_synthesizer = (
             "--with dev,synthesizer" in all_install_text or "--with synthesizer" in all_install_text
         )
-        assert has_synthesizer, (
+        assert has_synthesizer == True, (
             f"build-release does not install the synthesizer dependency group. "
             f"Install steps found: {install_runs}. "
             "SBOM generation requires `poetry install --with dev,synthesizer`."
         )
+        assert has_synthesizer
 
     def test_build_release_generates_sbom(self) -> None:
         """build-release must contain a step that generates the CycloneDX SBOM.
@@ -461,10 +464,11 @@ class TestReleaseWorkflowStructure:
         build_steps = jobs.get("build-release", {}).get("steps", [])
         step_runs = " ".join(s.get("run", "") for s in build_steps)
         has_checksum = "sha256" in step_runs.lower() or "sha256sums" in step_runs.lower()
-        assert has_checksum, (
+        assert has_checksum == True, (
             "build-release has no SHA-256 checksum step. "
             "sha256sums.txt must be computed for all release artifacts per T51.2."
         )
+        assert has_checksum
 
     def test_build_release_builds_docker_image(self) -> None:
         """build-release must build the Docker image tagged with the release version.
@@ -508,10 +512,11 @@ class TestReleaseWorkflowStructure:
         validate_steps = jobs.get("validate-tag", {}).get("steps", [])
         step_runs = " ".join(s.get("run", "") for s in validate_steps)
         has_output = "GITHUB_OUTPUT" in step_runs or "GITHUB_ENV" in step_runs
-        assert has_output, (
+        assert has_output == True, (
             "validate-tag does not export the extracted version via GITHUB_OUTPUT or GITHUB_ENV. "
             "Downstream jobs need the version string for artifact naming."
         )
+        assert has_output
 
     def test_build_release_uploads_artifacts(self) -> None:
         """build-release must upload artifacts so publish-release can download them.
@@ -522,10 +527,11 @@ class TestReleaseWorkflowStructure:
         workflow = _load_workflow()
         uses_values = _collect_uses_values(workflow.get("jobs", {}).get("build-release", {}))
         has_upload = any("upload-artifact" in u for u in uses_values)
-        assert has_upload, (
+        assert has_upload == True, (
             "build-release does not use actions/upload-artifact. "
             "Release artifacts must be uploaded so publish-release can access them."
         )
+        assert has_upload
 
     def test_publish_release_downloads_artifacts(self) -> None:
         """publish-release must download artifacts built by build-release.
@@ -536,10 +542,11 @@ class TestReleaseWorkflowStructure:
         workflow = _load_workflow()
         uses_values = _collect_uses_values(workflow.get("jobs", {}).get("publish-release", {}))
         has_download = any("download-artifact" in u for u in uses_values)
-        assert has_download, (
+        assert has_download == True, (
             "publish-release does not use actions/download-artifact. "
             "Release assets built by build-release must be downloaded before publishing."
         )
+        assert has_download
 
     def test_workflow_name_is_descriptive(self) -> None:
         """Workflow name must be non-empty and descriptive (not a default placeholder).

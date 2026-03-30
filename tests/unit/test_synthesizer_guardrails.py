@@ -81,6 +81,7 @@ def test_feasibility_passes_at_75_percent() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
 
 
 def test_feasibility_passes_at_80_percent() -> None:
@@ -95,6 +96,7 @@ def test_feasibility_passes_at_80_percent() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +213,8 @@ def test_billion_row_dataset_is_rejected() -> None:
             )
     # Verify the error is clean -- no unhandled arithmetic overflow or TypeError
     assert isinstance(exc_info.value, OOMGuardrailError)
+    # Error message must mention memory estimate so operators know why it failed
+    assert "estimated" in str(exc_info.value).lower() or "available" in str(exc_info.value).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +234,7 @@ def test_psutil_is_mockable() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
     mock_psutil.virtual_memory.assert_called_once()
 
 
@@ -261,6 +266,7 @@ def test_torch_vram_path_used_when_cuda_is_available() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
     torch_mock.cuda.is_available.assert_called_once()
 
 
@@ -293,6 +299,7 @@ def test_torch_falls_back_to_ram_when_cuda_unavailable() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
     mock_psutil.virtual_memory.assert_called_once()
     # VRAM path must NOT have been reached when cuda is unavailable
     torch_mock.cuda.memory_reserved.assert_not_called()
@@ -339,6 +346,7 @@ def test_feasibility_passes_at_threshold_floor() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +430,7 @@ def test_falls_back_to_ram_when_torch_not_installed() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
     mock_psutil.virtual_memory.assert_called_once()
 
 
@@ -444,6 +453,7 @@ def test_importlib_util_find_spec_is_used_for_torch_detection() -> None:
     # Verifies the spec-check is observable and not a direct import.
     # When find_spec returns None, torch is treated as absent.
     assert importlib.util.find_spec("torch") is None  # torch not installed in CI
+    assert str(importlib.util.find_spec("torch")) == "None"
 
 
 # ---------------------------------------------------------------------------

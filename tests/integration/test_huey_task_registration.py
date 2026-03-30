@@ -59,9 +59,13 @@ def test_synthesizer_tasks_module_is_importable() -> None:
     giving a clear error about the missing task.
     """
     try:
-        import synth_engine.modules.synthesizer.jobs.tasks as tasks_module  # noqa: F401
+        import synth_engine.modules.synthesizer.jobs.tasks as tasks_module
     except ImportError as exc:
         pytest.fail(f"synth_engine.modules.synthesizer.jobs.tasks is not importable: {exc}")
+    # Specific: the module has the expected task function attribute
+    assert hasattr(tasks_module, "run_synthesis_job"), (
+        "synth_engine.modules.synthesizer.jobs.tasks must expose 'run_synthesis_job'"
+    )
 
 
 def test_run_synthesis_job_is_registered_on_huey_instance() -> None:
@@ -163,3 +167,10 @@ def test_bootstrapper_di_factories_can_be_called_after_import() -> None:
         tasks_module.set_spend_budget_fn(noop_spend_fn)
     except Exception as exc:
         pytest.fail(f"set_spend_budget_fn raised unexpectedly: {exc}")
+    # Specific: both injection functions exist on the job_orchestration module
+    assert hasattr(tasks_module, "set_dp_wrapper_factory"), (
+        "job_orchestration must expose set_dp_wrapper_factory"
+    )
+    assert hasattr(tasks_module, "set_spend_budget_fn"), (
+        "job_orchestration must expose set_spend_budget_fn"
+    )

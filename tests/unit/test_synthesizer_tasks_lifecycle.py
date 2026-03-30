@@ -84,6 +84,7 @@ class TestSynthesisJobModel:
         assert getattr(job, field) is None, (
             f"SynthesisJob.{field} must accept None, got {getattr(job, field)!r}"
         )
+        assert str(getattr(job, field)) == "None"
 
     @pytest.mark.parametrize(
         "status",
@@ -145,11 +146,13 @@ class TestSynthesisJobModel:
             parquet_path="/data/persons.parquet",
         )
         assert job.enable_dp is True
+        assert job.enable_dp
 
     def test_synthesis_job_enable_dp_can_be_set_false(self) -> None:
         """SynthesisJob must accept enable_dp=False for non-DP training."""
         job = _make_synthesis_job(enable_dp=False)
         assert job.enable_dp is False
+        assert not job.enable_dp
 
     def test_synthesis_job_noise_multiplier_defaults_to_1_1(self) -> None:
         """SynthesisJob must default noise_multiplier to 1.1 (ADR-0025 calibration)."""
@@ -241,6 +244,7 @@ class TestSynthesisJobModel:
             parquet_path="/data/persons.parquet",
         )
         assert job.actual_epsilon is None
+        assert str(job.actual_epsilon) == "None"
 
     def test_synthesis_job_actual_epsilon_can_be_set(self) -> None:
         """SynthesisJob must accept a float actual_epsilon value."""

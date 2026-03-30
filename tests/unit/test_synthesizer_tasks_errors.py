@@ -98,6 +98,7 @@ class TestSynthesisTaskOOMRejection:
             )
 
         mock_engine.train.assert_not_called()
+        assert mock_engine.train.call_count == 0
 
     def test_oom_guardrail_rejection_commits_failed_status(self) -> None:
         """OOM rejection must commit the FAILED status to the database."""

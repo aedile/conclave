@@ -230,5 +230,5 @@ def test_production_validation_collects_all_errors(
     # Both fields must appear in the error (collected validation, not first-fail)
     has_database = "database_url" in error_text.lower() or "DATABASE_URL" in error_text
     has_audit = "audit_key" in error_text.lower() or "AUDIT_KEY" in error_text
-    assert has_database, f"Error must mention database_url; got: {error_text!r}"
-    assert has_audit, f"Error must mention audit_key; got: {error_text!r}"
+    assert has_database == True, f"Error must mention database_url; got: {error_text!r}"
+    assert has_audit == True, f"Error must mention audit_key; got: {error_text!r}"

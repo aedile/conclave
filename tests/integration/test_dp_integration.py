@@ -194,6 +194,9 @@ class TestDPTrainingWrapperRealOpacus:
             f"after 2 epochs, but budget was not exhausted. "
             f"Current epsilon: {wrapper.epsilon_spent(delta=1e-5):.6f}"
         )
+        # Specific: the budget_exhausted flag is Python True (not just truthy)
+        assert budget_exhausted is True, "Expected budget_exhausted to be boolean True"
+        assert max_epsilon == 0.01, "max_epsilon should be the expected tight budget"
 
     def test_epsilon_spent_before_wrap_returns_zero(self) -> None:
         """epsilon_spent() before wrap() must return 0.0 (no training has occurred)."""

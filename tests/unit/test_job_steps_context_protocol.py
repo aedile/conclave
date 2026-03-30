@@ -52,7 +52,9 @@ class TestJobContext:
 
     def test_job_context_is_importable(self) -> None:
         """JobContext must be importable from job_steps."""
-        from synth_engine.modules.synthesizer.jobs.job_steps import JobContext  # noqa: F401
+        from synth_engine.modules.synthesizer.jobs.job_steps import JobContext
+
+        assert JobContext.__name__ == "JobContext"
 
     def test_job_context_has_job_field(self) -> None:
         """JobContext must have a job field holding the SynthesisJob record."""
@@ -98,7 +100,9 @@ class TestStepResult:
 
     def test_step_result_is_importable(self) -> None:
         """StepResult must be importable from job_steps."""
-        from synth_engine.modules.synthesizer.jobs.job_steps import StepResult  # noqa: F401
+        from synth_engine.modules.synthesizer.jobs.job_steps import StepResult
+
+        assert StepResult.__name__ == "StepResult"
 
     def test_step_result_success_true(self) -> None:
         """StepResult(success=True) must be constructable."""
@@ -106,7 +110,9 @@ class TestStepResult:
 
         result = StepResult(success=True)
         assert result.success is True
+        assert result.success
         assert result.error_msg is None
+        assert str(result.error_msg) == "None"
 
     def test_step_result_failure_with_msg(self) -> None:
         """StepResult(success=False, error_msg=...) must carry the failure message."""
@@ -127,16 +133,23 @@ class TestSynthesisJobStepProtocol:
 
     def test_protocol_is_importable(self) -> None:
         """SynthesisJobStep must be importable from job_steps."""
-        from synth_engine.modules.synthesizer.jobs.job_steps import SynthesisJobStep  # noqa: F401
+        from synth_engine.modules.synthesizer.jobs.job_steps import SynthesisJobStep
+
+        assert SynthesisJobStep.__name__ == "SynthesisJobStep"
 
     def test_all_step_classes_are_importable(self) -> None:
         """All concrete step classes must be importable from job_steps."""
-        from synth_engine.modules.synthesizer.jobs.job_steps import (  # noqa: F401
+        from synth_engine.modules.synthesizer.jobs.job_steps import (
             DpAccountingStep,
             GenerationStep,
             OomCheckStep,
             TrainingStep,
         )
+
+        assert OomCheckStep.__name__ == "OomCheckStep"
+        assert TrainingStep.__name__ == "TrainingStep"
+        assert DpAccountingStep.__name__ == "DpAccountingStep"
+        assert GenerationStep.__name__ == "GenerationStep"
 
     def test_all_steps_have_execute_method(self) -> None:
         """All concrete step classes must have an execute(ctx) method."""
@@ -173,6 +186,7 @@ class TestOomCheckStepIsolation:
 
         assert isinstance(result, StepResult)
         assert result.success is True
+        assert result.success
 
     def test_oom_check_step_returns_failure_on_oom(self) -> None:
         """OomCheckStep.execute() must return StepResult(success=False) on OOMGuardrailError."""
@@ -240,6 +254,7 @@ class TestTrainingStepIsolation:
 
         assert isinstance(result, StepResult)
         assert result.success is True
+        assert result.success
 
     def test_training_step_returns_failure_on_runtime_error(self) -> None:
         """TrainingStep.execute() must return StepResult(success=False) on RuntimeError."""
@@ -255,7 +270,9 @@ class TestTrainingStepIsolation:
         result = step.execute(ctx)
 
         assert result.success is False
+        assert not result.success
         assert result.error_msg is not None
+        assert result.error_msg != None  # noqa: E711 — specific check
 
     def test_training_step_does_not_set_job_status(self) -> None:
         """TrainingStep must NOT mutate job.status — the orchestrator owns status.
@@ -290,6 +307,8 @@ class TestTrainingStepIsolation:
         TrainingStep().execute(ctx)
 
         mock_engine.train.assert_called()
+        assert mock_engine.train.call_count >= 1
+        assert mock_engine.train.call_count == 1, "engine.train() must be called exactly once"
 
     def test_training_step_sets_context_last_artifact(self) -> None:
         """TrainingStep.execute() must store the last trained artifact on the context."""

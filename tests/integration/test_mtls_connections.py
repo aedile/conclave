@@ -100,7 +100,12 @@ def test_redis_connection_uses_tls_when_mtls_enabled() -> None:
     client = redis_dep.get_redis_client()
 
     # Ping verifies the TLS connection is functional
-    assert client.ping() is True
+    ping_result = client.ping()
+    assert ping_result is True
+    # Specific: the client is a Redis instance (not a mock)
+    assert type(client).__name__ in {"Redis", "StrictRedis"}, (
+        f"Expected Redis client type, got {type(client).__name__}"
+    )
 
     # Clean up
     redis_dep._client = None

@@ -446,11 +446,13 @@ def test_luhn_check_valid_number() -> None:
     """luhn_check returns True for a known valid LUHN number."""
     # Visa test card — well-known valid LUHN number
     assert luhn_check("4111111111111111") is True
+    assert luhn_check("4111111111111111")
 
 
 def test_luhn_check_invalid_number() -> None:
     """luhn_check returns False for an invalid LUHN number."""
     assert luhn_check("1234567890123456") is False
+    assert not luhn_check("1234567890123456")
 
 
 def test_luhn_check_with_spaces() -> None:
@@ -461,16 +463,19 @@ def test_luhn_check_with_spaces() -> None:
     """
     # Pass the raw spaced string — luhn_check must handle spaces itself.
     assert luhn_check("4111 1111 1111 1111") is True
+    assert luhn_check("4111 1111 1111 1111")
 
 
 def test_luhn_check_empty_string() -> None:
     """luhn_check returns False for an empty string (no digits to validate)."""
     assert luhn_check("") is False
+    assert not luhn_check("")
 
 
 def test_luhn_check_non_digit_input() -> None:
     """luhn_check returns False when input contains no digits at all."""
     assert luhn_check("abcdefghijk") is False
+    assert not luhn_check("abcdefghijk")
 
 
 # ---------------------------------------------------------------------------
@@ -547,6 +552,8 @@ def test_deterministic_hash_max_length_none_no_truncation() -> None:
     """deterministic_hash with max_length=None (default) returns an int, no truncation."""
     result = deterministic_hash("x", "y", max_length=None)
     assert isinstance(result, int), "Without max_length, return type must be int"
+    # The int result must be positive (hash of non-empty inputs)
+    assert result > 0
 
 
 def test_deterministic_hash_length_zero_raises_value_error() -> None:

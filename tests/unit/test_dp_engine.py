@@ -180,6 +180,7 @@ class TestDPTrainingWrapperWrap:
             max_grad_norm=1.2,
             noise_multiplier=0.8,
         )
+        assert mock_engine_instance.make_private.call_count == 1
 
     def test_wrap_stores_privacy_engine(self) -> None:
         """wrap() must store the PrivacyEngine instance for later epsilon queries."""
@@ -207,6 +208,7 @@ class TestDPTrainingWrapperWrap:
 
         # PrivacyEngine was constructed once
         mock_privacy_engine_cls.assert_called_once()
+        assert mock_privacy_engine_cls.call_count == 1
 
     def test_wrap_second_call_raises_runtime_error(self) -> None:
         """wrap() called twice on the same wrapper must raise RuntimeError.
@@ -484,6 +486,7 @@ class TestDPTrainingWrapperCheckBudget:
         # Must not raise — returns None
         result = wrapper.check_budget(allocated_epsilon=1.0, delta=1e-5)  # type: ignore[union-attr]
         assert result is None
+        assert str(result) == "None"
 
     def test_check_budget_returns_none_on_success(self) -> None:
         """check_budget must return None when budget is not exhausted."""
@@ -491,6 +494,7 @@ class TestDPTrainingWrapperCheckBudget:
 
         result = wrapper.check_budget(allocated_epsilon=1.0, delta=1e-5)  # type: ignore[union-attr]
         assert result is None
+        assert str(result) == "None"
 
     def test_check_budget_error_message_is_generic(self) -> None:
         """BudgetExhaustionError from check_budget must use the generic scrubbed message.

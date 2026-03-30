@@ -295,6 +295,8 @@ class TestDryRunMode:
             )
             mock_client.assert_not_called()
             mock_get.assert_not_called()
+            assert mock_client.call_count == 0
+            assert mock_get.call_count == 0
 
     def test_build_dry_run_plan_shows_api_url(self, mod: Any) -> None:
         """build_dry_run_plan echoes the configured API base URL."""
@@ -441,6 +443,8 @@ class TestStepActivateLicense:
                 api_base_url="http://localhost:8000",
                 license_key_path=key_file,
             )
+            # 409 is handled gracefully — verify no SystemExit was raised
+            assert mock_activate_resp.status_code == 409, "Mock should have returned 409"
 
     def test_activate_license_jwt_contains_hardware_id_claim(
         self,

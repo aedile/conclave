@@ -306,6 +306,9 @@ def test_unified_counter_incremented_with_router_label() -> None:
     # Must not raise — just increment.
     AUDIT_WRITE_FAILURE_TOTAL.labels(router="connections", endpoint="/connections/{id}").inc()
     AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key}").inc()
+    # Counter must be incremented (non-negative value)
+    sample = AUDIT_WRITE_FAILURE_TOTAL.labels(router="connections", endpoint="/connections/{id}")
+    assert sample._value.get() >= 1.0, "counter must be >= 1 after increment"
 
 
 # ---------------------------------------------------------------------------

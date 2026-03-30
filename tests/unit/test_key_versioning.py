@@ -116,6 +116,7 @@ class TestVerifyVersioned:
         signature = sign_versioned(key=key_bytes, key_id=key_id, data=data)
         key_map = {b"\x00\x00\x00\x01": key_bytes}
         assert verify_versioned(key_map=key_map, data=data, signature=signature) is True
+        assert verify_versioned(key_map=key_map, data=data, signature=signature)
 
     def test_verify_versioned_false_with_wrong_key(self) -> None:
         """verify_versioned returns False when the stored key is wrong for the embedded key ID."""
@@ -126,6 +127,7 @@ class TestVerifyVersioned:
         signature = sign_versioned(key=key_bytes, key_id=key_id, data=data)
         key_map = {b"\x00\x00\x00\x01": wrong_key}
         assert verify_versioned(key_map=key_map, data=data, signature=signature) is False
+        assert not verify_versioned(key_map=key_map, data=data, signature=signature)
 
     def test_verify_versioned_false_with_tampered_data(self) -> None:
         """verify_versioned returns False when the artifact data was modified."""
@@ -136,6 +138,7 @@ class TestVerifyVersioned:
         signature = sign_versioned(key=key_bytes, key_id=key_id, data=original_data)
         key_map = {b"\x00\x00\x00\x01": key_bytes}
         assert verify_versioned(key_map=key_map, data=tampered_data, signature=signature) is False
+        assert not verify_versioned(key_map=key_map, data=tampered_data, signature=signature)
 
     def test_verify_versioned_false_with_unknown_key_id(self) -> None:
         """verify_versioned returns False when the embedded key ID is absent from key_map."""
@@ -146,6 +149,7 @@ class TestVerifyVersioned:
         # Key map does NOT contain key ID 0x00000001
         key_map = {b"\x00\x00\x00\x02": key_bytes}
         assert verify_versioned(key_map=key_map, data=data, signature=signature) is False
+        assert not verify_versioned(key_map=key_map, data=data, signature=signature)
 
     def test_verify_versioned_key_map_with_multiple_keys(self) -> None:
         """verify_versioned with a multi-key map verifies signatures from any known key."""
@@ -158,7 +162,9 @@ class TestVerifyVersioned:
         sig_b = sign_versioned(key=key_b, key_id=key_id_b, data=data)
         key_map = {key_id_a: key_a, key_id_b: key_b}
         assert verify_versioned(key_map=key_map, data=data, signature=sig_a) is True
+        assert verify_versioned(key_map=key_map, data=data, signature=sig_a)
         assert verify_versioned(key_map=key_map, data=data, signature=sig_b) is True
+        assert verify_versioned(key_map=key_map, data=data, signature=sig_b)
 
     def test_verify_versioned_returns_false_for_empty_key_map(self) -> None:
         """verify_versioned returns False when the key_map dict is empty."""
@@ -167,6 +173,7 @@ class TestVerifyVersioned:
         data = b"artifact bytes"
         signature = sign_versioned(key=key_bytes, key_id=key_id, data=data)
         assert verify_versioned(key_map={}, data=data, signature=signature) is False
+        assert not verify_versioned(key_map={}, data=data, signature=signature)
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +211,7 @@ class TestLegacyBackwardCompatibility:
 
         key_map = {LEGACY_KEY_ID: wrong_key}
         assert verify_versioned(key_map=key_map, data=data, signature=legacy_sig) is False
+        assert not verify_versioned(key_map=key_map, data=data, signature=legacy_sig)
 
     def test_verify_versioned_rejects_malformed_signature(self) -> None:
         """A signature that is neither 32 bytes nor KEY_ID_SIZE+HMAC_DIGEST_SIZE returns False."""
@@ -211,6 +219,7 @@ class TestLegacyBackwardCompatibility:
         bad_sig = b"\x00" * 10  # too short, neither legacy nor versioned
         data = b"some data"
         assert verify_versioned(key_map=key_map, data=data, signature=bad_sig) is False
+        assert not verify_versioned(key_map=key_map, data=data, signature=bad_sig)
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +266,7 @@ class TestKeyRotationRoundTrip:
         sig = sign_versioned(key=key_a, key_id=key_id_a, data=data)
         key_map = {key_id_a: key_a}
         assert verify_versioned(key_map=key_map, data=data, signature=sig) is True
+        assert verify_versioned(key_map=key_map, data=data, signature=sig)
 
     def test_rotate_to_key_b_old_artifact_still_verifiable(self) -> None:
         """After rotating to key B, an artifact signed with key A remains verifiable.
@@ -273,6 +283,7 @@ class TestKeyRotationRoundTrip:
         # After rotation: both keys are in the map
         key_map = {key_id_a: key_a, key_id_b: key_b}
         assert verify_versioned(key_map=key_map, data=data, signature=old_sig) is True
+        assert verify_versioned(key_map=key_map, data=data, signature=old_sig)
 
     def test_rotate_to_key_b_new_artifact_signed_with_key_b(self) -> None:
         """New artifacts after rotation are signed with key B and verify with key B."""
@@ -512,7 +523,8 @@ class TestJobsStreamingVersionedVerification:
             get_settings.cache_clear()
             result = _verify_artifact_signature(str(parquet_path))
 
-        assert result is True
+        assert result == True
+        assert result
         get_settings.cache_clear()
 
     def test_verify_accepts_legacy_signature(self, tmp_path: Path) -> None:
@@ -543,7 +555,8 @@ class TestJobsStreamingVersionedVerification:
             get_settings.cache_clear()
             result = _verify_artifact_signature(str(parquet_path))
 
-        assert result is True
+        assert result == True
+        assert result
         get_settings.cache_clear()
 
     def test_verify_returns_false_for_tampered_versioned_artifact(self, tmp_path: Path) -> None:
@@ -577,6 +590,7 @@ class TestJobsStreamingVersionedVerification:
             result = _verify_artifact_signature(str(parquet_path))
 
         assert result is False
+        assert not result
         get_settings.cache_clear()
 
 
@@ -643,3 +657,4 @@ class TestBuildKeyMapFromSettings:
         get_settings.cache_clear()
 
         assert result is None, "Should return None when all entries malformed"
+        assert str(result) == "None"

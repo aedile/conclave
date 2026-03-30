@@ -101,10 +101,17 @@ def test_host_column_uses_encrypted_string_type() -> None:
 
     mapper = sa_inspect(Connection)
     col = mapper.columns["host"]
+    assert col.key == "host", f"Expected column key 'host', got {col.key!r}"
     assert isinstance(
         col.type,
         EncryptedString,
     ), f"Expected EncryptedString on 'host', got {type(col.type)}"
+    # EncryptedString must declare String as its underlying implementation type
+    from sqlalchemy import String as _String
+
+    assert isinstance(col.type.impl, _String), (
+        f"EncryptedString.impl must be a sqlalchemy.String instance, got {type(col.type.impl)}"
+    )
 
 
 def test_database_column_uses_encrypted_string_type() -> None:
@@ -116,10 +123,17 @@ def test_database_column_uses_encrypted_string_type() -> None:
 
     mapper = sa_inspect(Connection)
     col = mapper.columns["database"]
+    assert col.key == "database", f"Expected column key 'database', got {col.key!r}"
     assert isinstance(
         col.type,
         EncryptedString,
     ), f"Expected EncryptedString on 'database', got {type(col.type)}"
+    # EncryptedString must declare String as its underlying implementation type
+    from sqlalchemy import String as _String
+
+    assert isinstance(col.type.impl, _String), (
+        f"EncryptedString.impl must be a sqlalchemy.String instance, got {type(col.type.impl)}"
+    )
 
 
 def test_schema_name_column_uses_encrypted_string_type() -> None:
@@ -131,10 +145,17 @@ def test_schema_name_column_uses_encrypted_string_type() -> None:
 
     mapper = sa_inspect(Connection)
     col = mapper.columns["schema_name"]
+    assert col.key == "schema_name", f"Expected column key 'schema_name', got {col.key!r}"
     assert isinstance(
         col.type,
         EncryptedString,
     ), f"Expected EncryptedString on 'schema_name', got {type(col.type)}"
+    # EncryptedString must declare String as its underlying implementation type
+    from sqlalchemy import String as _String
+
+    assert isinstance(col.type.impl, _String), (
+        f"EncryptedString.impl must be a sqlalchemy.String instance, got {type(col.type.impl)}"
+    )
 
 
 def test_port_column_is_not_encrypted() -> None:

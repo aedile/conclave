@@ -173,6 +173,7 @@ def test_non_production_mode_without_artifact_signing_key_passes(
     # Must not raise — development mode does not require ARTIFACT_SIGNING_KEY or MASKING_SALT
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 def test_all_vars_present_non_production_passes(
@@ -195,6 +196,7 @@ def test_all_vars_present_non_production_passes(
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 def test_all_vars_present_production_passes(
@@ -217,6 +219,7 @@ def test_all_vars_present_production_passes(
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +349,7 @@ def test_non_production_mode_without_masking_salt_passes(
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 def test_production_missing_both_signing_key_and_masking_salt_lists_both(
@@ -632,6 +636,7 @@ def test_signing_keys_active_present_in_map_passes(
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 def test_empty_signing_keys_without_active_passes(
@@ -655,6 +660,7 @@ def test_empty_signing_keys_without_active_passes(
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------

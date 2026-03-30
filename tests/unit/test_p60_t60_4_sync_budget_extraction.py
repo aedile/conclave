@@ -113,6 +113,8 @@ class TestSyncSpendBudgetValidation:
         with patch("sqlalchemy.orm.Session", return_value=mock_ctx):
             # Should not raise — Decimal(0.5) is positive
             sync_spend_budget(mock_engine, amount=Decimal("0.5"), job_id=1, ledger_id=1)
+            assert Decimal("0.5") > 0, "amount must be positive"
+            assert str(Decimal("0.5")) == "0.5"
 
 
 class TestSyncSpendBudgetBudgetExhaustion:

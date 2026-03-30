@@ -136,6 +136,7 @@ class TestChromadbFullyRemovedFromPyproject:
                     "chromadb found in [tool.poetry.dependencies] section. "
                     "The seeding scripts are deleted — remove chromadb entirely (T55.5)."
                 )
+        assert "chromadb" not in content, "chromadb still referenced in pyproject.toml"
 
     def test_chromadb_absent_from_all_pyproject_sections(self) -> None:
         """chromadb must NOT appear in ANY section of pyproject.toml.
@@ -150,6 +151,7 @@ class TestChromadbFullyRemovedFromPyproject:
                     f"chromadb found in pyproject.toml: {stripped!r}. "
                     "T55.5 requires full removal from all dependency groups."
                 )
+        assert "chromadb" not in content, "chromadb still referenced in any pyproject section"
 
     def test_passlib_absent_from_all_pyproject_sections(self) -> None:
         """passlib must NOT appear in ANY section of pyproject.toml.
@@ -165,6 +167,7 @@ class TestChromadbFullyRemovedFromPyproject:
                     f"passlib found in pyproject.toml: {stripped!r}. "
                     "T55.5 requires full removal — passlib has no src/ import sites."
                 )
+        assert "passlib" not in content, "passlib still referenced in pyproject.toml"
 
 
 # ---------------------------------------------------------------------------

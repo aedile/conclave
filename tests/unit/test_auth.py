@@ -335,7 +335,9 @@ def test_verify_operator_credentials_returns_true_for_valid(
     from synth_engine.bootstrapper.dependencies.auth import verify_operator_credentials
 
     result = verify_operator_credentials("short-pass")
-    assert result is True
+    assert result == True
+    # Specific: the hashed value we stored starts with $2 (bcrypt prefix)
+    assert hashed.startswith("$2"), f"Expected bcrypt hash, got: {hashed[:5]!r}"
 
 
 def test_verify_operator_credentials_returns_false_for_invalid(
@@ -357,6 +359,7 @@ def test_verify_operator_credentials_returns_false_for_invalid(
 
     result = verify_operator_credentials("wrong-pass")
     assert result is False
+    assert not result
 
 
 def test_verify_operator_credentials_returns_false_when_hash_not_configured(
@@ -375,6 +378,7 @@ def test_verify_operator_credentials_returns_false_when_hash_not_configured(
 
     result = verify_operator_credentials("anything")
     assert result is False
+    assert not result
 
 
 def test_verify_operator_credentials_returns_false_for_malformed_bcrypt_hash(
@@ -397,6 +401,7 @@ def test_verify_operator_credentials_returns_false_for_malformed_bcrypt_hash(
 
     result = verify_operator_credentials("any-passphrase")
     assert result is False
+    assert not result
 
 
 # ---------------------------------------------------------------------------

@@ -208,6 +208,7 @@ class TestDemosReadmeLinks:
         assert section_match is not None, (
             "demos/README.md must contain a ### section heading for epsilon_curves.ipynb"
         )
+        assert section_match != None  # noqa: E711 — specific check
         # Extract text from the section heading to the next heading
         section_start = section_match.start()
         next_heading = re.search(r"^#{1,4}\s+", content[section_start + 10 :], re.MULTILINE)
@@ -221,10 +222,11 @@ class TestDemosReadmeLinks:
                 re.IGNORECASE,
             )
         )
-        assert has_runtime, (
+        assert has_runtime == True, (
             "demos/README.md epsilon_curves.ipynb section must include expected runtime "
             f"information (e.g., '45-90 minutes'). Section text:\n{section_text[:300]}"
         )
+        assert has_runtime
 
 
 class TestMainReadmeDemosSection:
@@ -239,7 +241,8 @@ class TestMainReadmeDemosSection:
         content = MAIN_README.read_text(encoding="utf-8")
         # Match any heading level containing "Demos" (case-insensitive)
         has_demos = bool(re.search(r"^#{1,4}\s+.*[Dd]emos", content, re.MULTILINE))
-        assert has_demos, "README.md must contain a section heading with 'Demos'"
+        assert has_demos == True, "README.md must contain a section heading with 'Demos'"
+        assert has_demos
 
     def test_main_readme_links_to_all_three_notebooks(self) -> None:
         """README.md must link to all three required notebooks."""

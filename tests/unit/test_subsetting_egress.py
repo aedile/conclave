@@ -76,6 +76,7 @@ class TestEgressWriterWrite:
         writer.write("departments", [])
 
         conn.execute.assert_not_called()
+        assert conn.execute.call_count == 0
 
     def test_write_tracks_written_tables(self) -> None:
         """write() records which tables have been written for rollback tracking."""
@@ -278,6 +279,7 @@ class TestEgressWriterRollback:
         writer.rollback()  # Must not raise or connect
 
         engine.connect.assert_not_called()
+        assert engine.connect.call_count == 0
 
     def test_rollback_logs_warning_with_table_names_and_row_counts(self) -> None:
         """rollback() logs at WARNING level including table names AND row counts.
@@ -346,6 +348,7 @@ class TestEgressWriterContextManager:
             pass
 
         writer.rollback.assert_not_called()
+        assert writer.rollback.call_count == 0
 
     def test_context_manager_calls_rollback_on_exception(self) -> None:
         """Exception raised inside 'with EgressWriter()' triggers rollback."""

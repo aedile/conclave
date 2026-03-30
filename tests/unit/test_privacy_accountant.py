@@ -127,6 +127,7 @@ def test_privacy_transaction_note_is_optional() -> None:
     """PrivacyTransaction.note must accept None without error."""
     tx = PrivacyTransaction(ledger_id=1, job_id=1, epsilon_spent=Decimal("0.1"))
     assert tx.note is None
+    assert str(tx.note) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +445,8 @@ def test_get_async_engine_returns_async_engine() -> None:
     """get_async_engine() must return an AsyncEngine instance."""
     engine = get_async_engine("sqlite+aiosqlite:///:memory:")
     assert isinstance(engine, AsyncEngine)
+    # Engine URL must reflect the database driver we requested
+    assert "aiosqlite" in str(engine.url)
 
 
 @pytest.mark.asyncio
@@ -452,6 +455,9 @@ async def test_get_async_session_yields_async_session() -> None:
     engine = get_async_engine("sqlite+aiosqlite:///:memory:")
     async with get_async_session(engine) as session:
         assert isinstance(session, AsyncSession)
+        # Session must be in an active state when first entered
+        assert session.is_active is True
+        assert session.is_active
 
 
 # ---------------------------------------------------------------------------
@@ -791,6 +797,8 @@ def test_epsilon_spent_total_is_counter_instance() -> None:
     from synth_engine.modules.privacy.accountant import EPSILON_SPENT_TOTAL
 
     assert isinstance(EPSILON_SPENT_TOTAL, Counter)
+    # Counter must be named to identify the metric in Prometheus scrapes
+    assert EPSILON_SPENT_TOTAL._name == "epsilon_spent"
 
 
 @pytest.mark.asyncio

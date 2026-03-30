@@ -104,6 +104,10 @@ class TestSynthesisEngineCTGANIntegration:
         engine = SynthesisEngine(epochs=2)
         result = engine.train(table_name="persons", parquet_path=persons_parquet)
         assert isinstance(result, ModelArtifact)
+        # Specific: the artifact was created for the "persons" table
+        assert result.table_name == "persons", (
+            f"Expected table_name='persons', got {result.table_name!r}"
+        )
 
     def test_generated_schema_matches_source_column_names(self, persons_parquet: str) -> None:
         """Generated output column names must exactly match the source schema."""

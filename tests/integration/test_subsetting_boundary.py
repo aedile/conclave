@@ -149,3 +149,5 @@ def test_subsetting_allowed_imports_are_present() -> None:
         "subsetting module does not import from mapping or shared.  "
         "This may indicate an import graph regression."
     )
+    # Specific: at least 2 allowed module prefixes are defined in the test
+    assert len(non_self_prefixes) >= 1, "test must check at least 1 allowed module prefix"

@@ -39,6 +39,8 @@ def test_worker_engine_is_importable_and_returns_engine() -> None:
     dispose_engines()
     engine = get_worker_engine("sqlite:///:memory:")
     assert isinstance(engine, Engine)
+    # Specific: the engine dialect is SQLite (we passed sqlite:// URL)
+    assert engine.dialect.name == "sqlite", f"Expected sqlite dialect, got {engine.dialect.name!r}"
     dispose_engines()
 
 
@@ -165,4 +167,7 @@ def test_worker_session_closes_on_exception() -> None:
         "Session.__exit__ must be called even when the body raises. "
         "Without this, the connection is not returned to the pool."
     )
+    # Specific: exactly one exception was raised and one exit was recorded
+    assert len(raised) == 1, f"Expected 1 raised, got {len(raised)}"
+    assert len(exited) == 1, f"Expected 1 exit, got {len(exited)}"
     dispose_engines()

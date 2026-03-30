@@ -142,7 +142,10 @@ def test_find_encrypted_columns_detects_encrypted_string(
 
     assert isinstance(results, list)
     encrypted_table_cols = [(table, col) for table, col in results]
-    assert ("test_rotation_encrypted", "secret") in encrypted_table_cols
+    # Must find the EncryptedString column (test_rotation_encrypted.secret)
+    assert ("test_rotation_encrypted", "secret") in encrypted_table_cols, (
+        f"Expected ('test_rotation_encrypted', 'secret') in results, got: {encrypted_table_cols}"
+    )
     assert ("test_rotation_plain", "name") not in encrypted_table_cols
 
 
@@ -152,7 +155,11 @@ def test_find_encrypted_columns_returns_list() -> None:
 
     engine = create_engine("sqlite:///:memory:")
     results = find_encrypted_columns(engine)
+    # Result must be a list (never None), with each item as a 2-tuple
     assert isinstance(results, list)
+    assert all(len(item) == 2 for item in results), (
+        f"Each result item must be a (table, column) 2-tuple, got: {results}"
+    )
 
 
 # ---------------------------------------------------------------------------

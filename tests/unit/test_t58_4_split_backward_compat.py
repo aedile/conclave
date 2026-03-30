@@ -163,6 +163,7 @@ class TestAuditLoggerModule:
         )
         result = logger.verify_event(event)
         assert result is False, "unknown version prefix must return False (fail-closed)"
+        assert not result
 
 
 class TestAuditSingletonModule:
@@ -372,6 +373,7 @@ class TestArtifactModule:
         artifact = ModelArtifact(table_name="t", model=None)
         unsigned_payload = pickle.dumps(artifact, protocol=pickle.HIGHEST_PROTOCOL)
         assert _detect_signed_format(unsigned_payload) is False
+        assert not _detect_signed_format(unsigned_payload)
 
     def test_model_artifact_pickled_with_artifact_module_path(self) -> None:
         from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact

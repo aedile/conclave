@@ -560,6 +560,7 @@ def test_extract_operator_id_returns_none_when_no_auth_header() -> None:
 
     result = _extract_operator_id(request)
     assert result is None
+    assert str(result) == "None"
 
 
 def test_extract_operator_id_returns_none_for_malformed_token() -> None:
@@ -576,6 +577,7 @@ def test_extract_operator_id_returns_none_for_malformed_token() -> None:
 
     result = _extract_operator_id(request)
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------

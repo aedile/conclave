@@ -85,6 +85,8 @@ def test_tampered_details_fails_v2_verification(attack_logger: object) -> None:
     assert logger.verify_event(tampered) is False, (
         "verify_event must return False when details field is tampered"
     )
+    # Specific: the tampered amount is what we set it to
+    assert tampered.details.get("amount") == "9999999"
 
 
 def test_version_downgrade_attack_fails(attack_logger: object) -> None:
@@ -166,6 +168,8 @@ def test_unknown_version_prefix_fails_closed(attack_logger: object) -> None:
     assert logger.verify_event(unknown_version_event) is False, (
         "Unknown version prefix must fail-closed, not fall through"
     )
+    # Specific: the fabricated signature starts with "v99:"
+    assert unknown_version_event.signature.startswith("v99:")
 
 
 def test_details_with_nan_raises_error(attack_logger: object) -> None:

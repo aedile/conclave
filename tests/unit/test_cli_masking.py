@@ -177,11 +177,17 @@ class TestBuildMaskingTransformer:
         }
         result = transformer("customers", row)
         assert result["first_name"] is None
+        assert str(result["first_name"]) == "None"
         assert result["last_name"] is None
+        assert str(result["last_name"]) == "None"
         assert result["email"] is None
+        assert str(result["email"]) == "None"
         assert result["ssn"] is None
+        assert str(result["ssn"]) == "None"
         assert result["phone"] is None
+        assert str(result["phone"]) == "None"
         assert result["address"] is None
+        assert str(result["address"]) == "None"
 
     def test_masking_transformer_persons_row_missing_configured_column(self) -> None:
         """Transformer does not crash when a configured PII column is absent from row.
@@ -416,6 +422,7 @@ class TestColumnMasksConfig:
 
         for col in ("first_name", "last_name", "email", "ssn", "phone", "address"):
             assert result[col] is None, f"None value for '{col}' must pass through unchanged"
+            assert str(result[col]) == "None"
 
     def test_masking_transformer_does_not_mutate_customers_row(self) -> None:
         """Transformer must not mutate the customers row input dict."""

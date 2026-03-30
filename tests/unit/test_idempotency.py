@@ -813,3 +813,4 @@ class TestFeature:
             assert isinstance(client, redis_lib.Redis), (
                 f"get_redis_client() must return a redis.Redis instance, got {type(client)}"
             )
+            assert mock_from_url.call_count == 1, "from_url must be called exactly once"

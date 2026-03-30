@@ -116,7 +116,7 @@ def _collect_violations(test_dir: Path) -> list[tuple[str, str, int]]:
             continue
 
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             if not node.name.startswith("test_"):
                 continue
@@ -161,7 +161,7 @@ class TestConstitutionPriority4AssertionQuality:
 
         if violations:
             lines = [
-                f"Constitution Priority 4 violation — shallow-only assertions found:",
+                "Constitution Priority 4 violation — shallow-only assertions found:",
                 f"  {len(violations)} function(s) have no specific-value assertion.\n",
             ]
             for rel_path, fn_name, lineno in violations:
@@ -189,9 +189,7 @@ def test_example_shallow():
     assert result is not None
 """
         tree = ast.parse(source)
-        fn_node = next(
-            n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
-        )
+        fn_node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
         asserts = [c for c in ast.walk(fn_node) if isinstance(c, ast.Assert)]
         assert len(asserts) == 1
         assert _is_shallow_assert(asserts[0]) is True
@@ -210,9 +208,7 @@ def test_example_guard_plus_value():
     assert result.count == 3
 """
         tree = ast.parse(source)
-        fn_node = next(
-            n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
-        )
+        fn_node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
         asserts = [c for c in ast.walk(fn_node) if isinstance(c, ast.Assert)]
         # Two assertions: first is shallow (guard), second is specific value
         assert len(asserts) == 2
@@ -230,9 +226,7 @@ def test_example_isinstance():
     assert isinstance(result, list)
 """
         tree = ast.parse(source)
-        fn_node = next(
-            n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
-        )
+        fn_node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
         asserts = [c for c in ast.walk(fn_node) if isinstance(c, ast.Assert)]
         assert len(asserts) == 1
         assert _is_shallow_assert(asserts[0]) is True
@@ -245,9 +239,7 @@ def test_example_equality():
     assert result == 42
 """
         tree = ast.parse(source)
-        fn_node = next(
-            n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
-        )
+        fn_node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
         asserts = [c for c in ast.walk(fn_node) if isinstance(c, ast.Assert)]
         assert len(asserts) == 1
         assert _is_shallow_assert(asserts[0]) is False

@@ -155,6 +155,7 @@ class TestSubsettingEngineOrchestration:
         mock_traversal.traverse.assert_called_once_with(
             "departments", "SELECT * FROM departments LIMIT 1"
         )
+        assert mock_traversal.traverse.call_count == 1
 
     def test_subset_calls_egress_with_rows(self) -> None:
         """run() calls egress.write() for each (table, rows) pair from traversal."""
@@ -464,6 +465,7 @@ class TestSchemaTopologyImmutability:
 
         topology = _make_topology(["users"])
         assert isinstance(topology.columns, types.MappingProxyType)
+        assert "users" in topology.columns, "topology.columns must include the 'users' table"
 
     def test_foreign_keys_is_mapping_proxy(self) -> None:
         """SchemaTopology.foreign_keys is a MappingProxyType — not a plain dict."""
@@ -471,6 +473,9 @@ class TestSchemaTopologyImmutability:
 
         topology = _make_topology(["users"])
         assert isinstance(topology.foreign_keys, types.MappingProxyType)
+        assert "users" in topology.foreign_keys, (
+            "topology.foreign_keys must include the 'users' table key"
+        )
 
     def test_columns_append_raises_type_error(self) -> None:
         """Assigning a new outer key to topology.columns raises TypeError.

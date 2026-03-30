@@ -196,7 +196,7 @@ class TestADR0030Exists:
     def test_adr_0030_file_exists(self) -> None:
         """ADR-0030 file must exist in docs/adr/."""
         adr_files = list(ADR_DIR.glob("ADR-0030*.md"))
-        assert adr_files, (
+        assert len(adr_files) >= 1, (
             f"No ADR-0030 file found under {ADR_DIR}. "
             "CLAUDE.md Rule 6 requires an ADR for the Float → Numeric "
             "technology substitution (ADV-050)."

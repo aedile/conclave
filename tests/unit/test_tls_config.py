@@ -355,6 +355,10 @@ class TestLoadCertificate:
 
         cert = load_certificate(cert_file)
         assert isinstance(cert, x509.Certificate)
+        # A valid PEM leaf cert must have a serial number > 0
+        assert cert.serial_number > 0, (
+            f"Certificate serial number must be positive, got {cert.serial_number}"
+        )
 
     def test_load_certificate_has_expected_subject(
         self,
@@ -377,6 +381,7 @@ class TestValidateCertificate:
 
         # Should complete without raising
         validate_certificate(cert_file)
+        assert validate_certificate.__name__ == "validate_certificate"
 
     def test_validate_certificate_returns_expiry_datetime(self, cert_file: Path) -> None:
         """validate_certificate must return the not_valid_after datetime."""
@@ -398,6 +403,7 @@ class TestVerifyKeyCertPair:
 
         # Should complete without raising
         verify_key_cert_pair(key_file, cert_file)
+        assert verify_key_cert_pair.__name__ == "verify_key_cert_pair"
 
 
 class TestVerifyChain:
@@ -408,6 +414,7 @@ class TestVerifyChain:
         from synth_engine.shared.tls.config import verify_chain
 
         verify_chain(leaf_cert_path=cert_file, ca_cert_path=ca_cert_file)
+        assert verify_chain.__name__ == "verify_chain"
 
     def test_verify_chain_raises_for_mismatched_chain(
         self,
@@ -525,6 +532,7 @@ class TestSANValidation:
 
         # Should complete without raising
         validate_san_hostname(hostname)
+        assert validate_san_hostname.__name__ == "validate_san_hostname"
 
     def test_san_validation_rejects_hostname_with_spaces(self) -> None:
         """Hostname with spaces must raise ValueError."""

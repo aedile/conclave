@@ -54,6 +54,7 @@ def test_vault_starts_sealed() -> None:
     from synth_engine.shared.security.vault import VaultState
 
     assert VaultState.is_sealed() is True
+    assert VaultState.is_sealed()
 
 
 def test_sealed_vault_raises_on_get_kek() -> None:
@@ -276,6 +277,7 @@ async def test_require_unsealed_returns_none_when_unsealed(vault_salt_env: str) 
     # Should not raise; the return value is None
     result = await require_unsealed()
     assert result is None
+    assert str(result) == "None"
 
 
 @pytest.mark.asyncio

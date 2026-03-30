@@ -309,6 +309,12 @@ async def test_spend_budget_very_large_epsilon_accepted() -> None:
                 ledger_id=ledger_id,
                 session=spend_session,
             )
+        # Verify: read back and check spent amount
+        async with get_async_session(engine) as verify_session:
+            verify_result = await verify_session.execute(sa_select(PrivacyLedger))
+            updated_ledger = verify_result.scalar_one()
+            assert updated_ledger.total_spent_epsilon >= Decimal("1000000000")
+            assert updated_ledger.total_allocated_epsilon == Decimal("2000000000")
     finally:
         await engine.dispose()
 

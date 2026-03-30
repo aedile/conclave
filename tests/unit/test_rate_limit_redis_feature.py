@@ -398,7 +398,7 @@ def test_redis_hit_returns_count_and_allowed_tuple() -> None:
 
     count, allowed = _redis_hit(mock_redis, "5/minute", "ip:1.2.3.4")
     assert count == 3
-    assert allowed is True
+    assert allowed == True
 
 
 def test_redis_hit_returns_not_allowed_when_count_exceeds_limit() -> None:

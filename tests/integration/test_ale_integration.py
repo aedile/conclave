@@ -509,6 +509,8 @@ def test_null_roundtrip_returns_none(db_engine: Engine) -> None:
     assert loaded.pii_value is None, (
         "NULL pii_value must round-trip as None, not empty string or any other value"
     )
+    # Specific: the loaded record's ID matches what we inserted
+    assert loaded.id == record_id, f"Expected id={record_id}, got {loaded.id}"
 
 
 @pytest.mark.integration

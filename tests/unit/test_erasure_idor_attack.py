@@ -265,6 +265,9 @@ class TestErasureIDORProtection:
         call_kwargs = audit_mock.log_event.call_args
         # The audit event should exist — specific shape tested in next test
         assert call_kwargs is not None, "Audit logger must be called on IDOR attempt"
+        assert len(call_kwargs.args) + len(call_kwargs.kwargs) > 0, (
+            "Audit log_event must receive at least one argument"
+        )
 
     def test_erasure_cross_operator_audit_event_does_not_contain_target_subject_id(
         self,

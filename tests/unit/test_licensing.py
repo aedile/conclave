@@ -176,7 +176,8 @@ def test_generate_challenge_timestamp_is_iso_format() -> None:
 
     challenge = generate_challenge()
     # Should parse without raising
-    datetime.fromisoformat(challenge["timestamp"])
+    parsed_ts = datetime.fromisoformat(challenge["timestamp"])
+    assert parsed_ts.isoformat() == challenge["timestamp"], "timestamp must be ISO format"
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,7 @@ def test_license_state_starts_unlicensed() -> None:
     from synth_engine.shared.security.licensing import LicenseState
 
     assert LicenseState.is_licensed() is False
+    assert not LicenseState.is_licensed()
 
 
 def test_license_state_activate_sets_licensed() -> None:
@@ -198,6 +200,7 @@ def test_license_state_activate_sets_licensed() -> None:
     claims: dict[str, Any] = {"hardware_id": "abc123", "tier": "enterprise"}
     LicenseState.activate(claims)
     assert LicenseState.is_licensed() is True
+    assert LicenseState.is_licensed()
 
 
 def test_license_state_get_claims_returns_claims_after_activation() -> None:
@@ -216,6 +219,7 @@ def test_license_state_deactivate_clears_state() -> None:
     LicenseState.activate({"hardware_id": "abc"})
     LicenseState.deactivate()
     assert LicenseState.is_licensed() is False
+    assert not LicenseState.is_licensed()
 
 
 def test_license_state_get_claims_raises_when_unlicensed() -> None:
@@ -791,6 +795,7 @@ async def test_license_state_not_licensed_after_activate_endpoint_rejects(
         lic_mod._EMBEDDED_PUBLIC_KEY = original_key
 
     assert LicenseState.is_licensed() is False
+    assert not LicenseState.is_licensed()
 
 
 # ---------------------------------------------------------------------------
