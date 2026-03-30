@@ -75,46 +75,29 @@ def _run_bump(
 class TestBumpVersionRejectsInvalidInput:
     """bump_version.sh must reject malformed or empty version strings."""
 
-    def test_rejects_empty_string(self) -> None:
-        """Empty argument must be rejected with non-zero exit code."""
-        result = _run_bump([""])
-        assert result.returncode != 0, "Expected non-zero exit for empty version string"
-        assert result.stderr or result.stdout, "Expected error output for empty version string"
+    @pytest.mark.parametrize(
+        "args",
+        [
+            pytest.param([""], id="empty_string"),
+            pytest.param([], id="no_arguments"),
+            pytest.param(["1.0.0-rc.1"], id="semver_hyphen"),
+            pytest.param(["v1.0.0"], id="v_prefix"),
+            pytest.param(["1.0.0.dev1"], id="invalid_prerelease_separator"),
+            pytest.param(["1.x.0"], id="non_numeric_components"),
+            pytest.param(["1.0.0.0"], id="too_many_components"),
+            pytest.param(["1.0"], id="partial_version"),
+        ],
+    )
+    def test_rejects_invalid_version_input(self, args: list[str]) -> None:
+        """bump_version.sh must exit non-zero for any malformed or empty version argument.
 
-    def test_rejects_no_arguments(self) -> None:
-        """No arguments must be rejected with non-zero exit code."""
-        result = _run_bump([])
-        assert result.returncode != 0, "Expected non-zero exit when no arguments provided"
+        Only strict PEP 440 versions (X.Y.Z or X.Y.ZaN / bN / rcN) are accepted.
 
-    def test_rejects_semver_with_hyphen(self) -> None:
-        """SemVer format with hyphen (1.0.0-rc.1) must be rejected — PEP 440 only."""
-        result = _run_bump(["1.0.0-rc.1"])
-        assert result.returncode != 0, "Expected non-zero exit for SemVer hyphen format"
-
-    def test_rejects_version_with_v_prefix(self) -> None:
-        """Version string starting with 'v' (v1.0.0) must be rejected."""
-        result = _run_bump(["v1.0.0"])
-        assert result.returncode != 0, "Expected non-zero exit for v-prefixed version"
-
-    def test_rejects_invalid_prerelease_separator(self) -> None:
-        """Version like 1.0.0.dev1 (invalid PEP 440 format) must be rejected."""
-        result = _run_bump(["1.0.0.dev1"])
-        assert result.returncode != 0, "Expected non-zero exit for .dev suffix"
-
-    def test_rejects_non_numeric_components(self) -> None:
-        """Version like 1.x.0 must be rejected."""
-        result = _run_bump(["1.x.0"])
-        assert result.returncode != 0, "Expected non-zero exit for non-numeric version components"
-
-    def test_rejects_too_many_components(self) -> None:
-        """Version like 1.0.0.0 must be rejected."""
-        result = _run_bump(["1.0.0.0"])
-        assert result.returncode != 0, "Expected non-zero exit for 4-component version"
-
-    def test_rejects_partial_version(self) -> None:
-        """Version like 1.0 (missing patch component) must be rejected."""
-        result = _run_bump(["1.0"])
-        assert result.returncode != 0, "Expected non-zero exit for partial version (1.0)"
+        Args:
+            args: Argument list to pass to the bump script.
+        """
+        result = _run_bump(args)
+        assert result.returncode != 0, f"Expected non-zero exit for args={args!r}, got returncode=0"
 
 
 class TestBumpVersionHandlesMissingFiles:
@@ -278,28 +261,25 @@ class TestVersionConsistency:
             "Second bump run changed file content — not idempotent"
         )
 
-    def test_valid_alpha_prerelease_accepted(self, tmp_path: Path) -> None:
-        """PEP 440 alpha release (1.0.0a1) must be accepted by the script."""
-        _build_fake_repo(tmp_path, current_version="0.1.0")
-        result = _run_bump(["1.0.0a1"], env={"BUMP_ROOT": str(tmp_path)})
-        assert result.returncode == 0, (
-            f"bump_version.sh rejected valid alpha version: {result.stderr}"
-        )
+    @pytest.mark.parametrize(
+        "version",
+        [
+            pytest.param("1.0.0a1", id="alpha"),
+            pytest.param("1.0.0b2", id="beta"),
+            pytest.param("1.0.0", id="stable"),
+        ],
+    )
+    def test_valid_pep440_version_accepted(self, tmp_path: Path, version: str) -> None:
+        """All valid PEP 440 version formats must be accepted by bump_version.sh.
 
-    def test_valid_beta_prerelease_accepted(self, tmp_path: Path) -> None:
-        """PEP 440 beta release (1.0.0b2) must be accepted by the script."""
+        Args:
+            tmp_path: pytest tmp_path fixture providing an isolated directory.
+            version: PEP 440 version string to pass to the script.
+        """
         _build_fake_repo(tmp_path, current_version="0.1.0")
-        result = _run_bump(["1.0.0b2"], env={"BUMP_ROOT": str(tmp_path)})
+        result = _run_bump([version], env={"BUMP_ROOT": str(tmp_path)})
         assert result.returncode == 0, (
-            f"bump_version.sh rejected valid beta version: {result.stderr}"
-        )
-
-    def test_valid_stable_release_accepted(self, tmp_path: Path) -> None:
-        """Stable release version (1.0.0) must be accepted by the script."""
-        _build_fake_repo(tmp_path, current_version="0.1.0")
-        result = _run_bump(["1.0.0"], env={"BUMP_ROOT": str(tmp_path)})
-        assert result.returncode == 0, (
-            f"bump_version.sh rejected valid stable version: {result.stderr}"
+            f"bump_version.sh rejected valid PEP 440 version {version!r}: {result.stderr}"
         )
 
 

@@ -558,8 +558,28 @@ class TestJobCreateEndpoint:
         assert body["max_grad_norm"] == 0.5
 
     @pytest.mark.asyncio
-    async def test_create_job_rejects_noise_multiplier_zero(self) -> None:
-        """POST /jobs must return 422 when noise_multiplier=0 (P22-T22.1)."""
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            pytest.param("noise_multiplier", 0.0, id="noise_multiplier_zero"),
+            pytest.param("noise_multiplier", -1.0, id="noise_multiplier_negative"),
+            pytest.param("noise_multiplier", 101, id="noise_multiplier_above_100"),
+            pytest.param("max_grad_norm", 0.0, id="max_grad_norm_zero"),
+            pytest.param("max_grad_norm", -0.1, id="max_grad_norm_negative"),
+            pytest.param("max_grad_norm", 101, id="max_grad_norm_above_100"),
+        ],
+    )
+    async def test_create_job_rejects_invalid_dp_param(self, field: str, value: float) -> None:
+        """POST /jobs must return 422 for any degenerate DP parameter value.
+
+        Zero and negative bounds make DP training mathematically invalid.
+        Above-maximum values (> 100) are rejected as impractical configurations.
+        All six cases must produce HTTP 422 Unprocessable Entity.
+
+        Args:
+            field: DP parameter field name (noise_multiplier or max_grad_norm).
+            value: Invalid value for that field.
+        """
         app, engine = _make_test_app()
 
         with (
@@ -582,166 +602,13 @@ class TestJobCreateEndpoint:
                         "parquet_path": "/tmp/orders.parquet",
                         "total_epochs": 5,
                         "num_rows": 100,
-                        "noise_multiplier": 0.0,
+                        field: value,
                     },
                 )
 
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_create_job_rejects_noise_multiplier_negative(self) -> None:
-        """POST /jobs must return 422 when noise_multiplier is negative (P22-T22.1)."""
-        app, engine = _make_test_app()
-
-        with (
-            patch(
-                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-                return_value=False,
-            ),
-            patch(
-                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
-                return_value=True,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/api/v1/jobs",
-                    json={
-                        "table_name": "orders",
-                        "parquet_path": "/tmp/orders.parquet",
-                        "total_epochs": 5,
-                        "num_rows": 100,
-                        "noise_multiplier": -1.0,
-                    },
-                )
-
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_create_job_rejects_max_grad_norm_zero(self) -> None:
-        """POST /jobs must return 422 when max_grad_norm=0 (P22-T22.1)."""
-        app, engine = _make_test_app()
-
-        with (
-            patch(
-                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-                return_value=False,
-            ),
-            patch(
-                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
-                return_value=True,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/api/v1/jobs",
-                    json={
-                        "table_name": "orders",
-                        "parquet_path": "/tmp/orders.parquet",
-                        "total_epochs": 5,
-                        "num_rows": 100,
-                        "max_grad_norm": 0.0,
-                    },
-                )
-
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_create_job_rejects_max_grad_norm_negative(self) -> None:
-        """POST /jobs must return 422 when max_grad_norm is negative (P22-T22.1)."""
-        app, engine = _make_test_app()
-
-        with (
-            patch(
-                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-                return_value=False,
-            ),
-            patch(
-                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
-                return_value=True,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/api/v1/jobs",
-                    json={
-                        "table_name": "orders",
-                        "parquet_path": "/tmp/orders.parquet",
-                        "total_epochs": 5,
-                        "num_rows": 100,
-                        "max_grad_norm": -0.1,
-                    },
-                )
-
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_create_job_rejects_noise_multiplier_above_100(self) -> None:
-        """POST /jobs must return 422 when noise_multiplier=101 (P22-T22.1)."""
-        app, engine = _make_test_app()
-
-        with (
-            patch(
-                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-                return_value=False,
-            ),
-            patch(
-                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
-                return_value=True,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/api/v1/jobs",
-                    json={
-                        "table_name": "orders",
-                        "parquet_path": "/tmp/orders.parquet",
-                        "total_epochs": 5,
-                        "num_rows": 100,
-                        "noise_multiplier": 101,
-                    },
-                )
-
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_create_job_rejects_max_grad_norm_above_100(self) -> None:
-        """POST /jobs must return 422 when max_grad_norm=101 (P22-T22.1)."""
-        app, engine = _make_test_app()
-
-        with (
-            patch(
-                "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed",
-                return_value=False,
-            ),
-            patch(
-                "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed",
-                return_value=True,
-            ),
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/api/v1/jobs",
-                    json={
-                        "table_name": "orders",
-                        "parquet_path": "/tmp/orders.parquet",
-                        "total_epochs": 5,
-                        "num_rows": 100,
-                        "max_grad_norm": 101,
-                    },
-                )
-
-        assert response.status_code == 422
+        assert response.status_code == 422, (
+            f"POST /jobs with {field}={value} expected 422, got {response.status_code}"
+        )
 
 
 class TestJobStartEndpoint:

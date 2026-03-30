@@ -245,94 +245,96 @@ def test_registry_handles_all_column_types() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_column_type_first_name_exists() -> None:
-    """ColumnType.FIRST_NAME enum member is defined with value 'first_name'."""
-    assert ColumnType.FIRST_NAME == "first_name"
-    assert ColumnType("first_name") is ColumnType.FIRST_NAME
+@pytest.mark.parametrize(
+    ("member", "value"),
+    [
+        pytest.param(ColumnType.FIRST_NAME, "first_name", id="first_name"),
+        pytest.param(ColumnType.LAST_NAME, "last_name", id="last_name"),
+        pytest.param(ColumnType.ADDRESS, "address", id="address"),
+    ],
+)
+def test_column_type_new_member_has_correct_value(member: ColumnType, value: str) -> None:
+    """Each new ColumnType enum member must equal and be constructible from its string value.
+
+    Args:
+        member: The ColumnType enum member under test.
+        value: The expected string value for that member.
+    """
+    assert member == value
+    assert ColumnType(value) is member
 
 
-def test_column_type_last_name_exists() -> None:
-    """ColumnType.LAST_NAME enum member is defined with value 'last_name'."""
-    assert ColumnType.LAST_NAME == "last_name"
-    assert ColumnType("last_name") is ColumnType.LAST_NAME
+@pytest.mark.parametrize(
+    ("input_val", "column_type", "salt"),
+    [
+        pytest.param("Alice", ColumnType.FIRST_NAME, "t.first_name", id="first_name"),
+        pytest.param("Smith", ColumnType.LAST_NAME, "t.last_name", id="last_name"),
+        pytest.param("123 Main St", ColumnType.ADDRESS, "t.address", id="address"),
+    ],
+)
+def test_registry_mask_new_type_is_deterministic(
+    input_val: str, column_type: ColumnType, salt: str
+) -> None:
+    """Registry must produce identical output for the same (value, column_type, salt) pair.
 
-
-def test_column_type_address_exists() -> None:
-    """ColumnType.ADDRESS enum member is defined with value 'address'."""
-    assert ColumnType.ADDRESS == "address"
-    assert ColumnType("address") is ColumnType.ADDRESS
-
-
-def test_registry_mask_first_name_is_deterministic() -> None:
-    """Registry produces the same masked first name for the same (value, salt) pair."""
+    Args:
+        input_val: The plaintext value to mask.
+        column_type: The ColumnType enum member identifying the masking strategy.
+        salt: The column-qualified salt string.
+    """
     registry = MaskingRegistry()
-    result_a = registry.mask("Alice", ColumnType.FIRST_NAME, "t.first_name")
+    result_a = registry.mask(input_val, column_type, salt)
     registry.reset()
-    result_b = registry.mask("Alice", ColumnType.FIRST_NAME, "t.first_name")
+    result_b = registry.mask(input_val, column_type, salt)
     assert result_a == result_b
 
 
-def test_registry_mask_last_name_is_deterministic() -> None:
-    """Registry produces the same masked last name for the same (value, salt) pair."""
+@pytest.mark.parametrize(
+    ("input_val", "column_type", "salt"),
+    [
+        pytest.param("Bob", ColumnType.FIRST_NAME, "customers.first_name", id="first_name"),
+        pytest.param("Jones", ColumnType.LAST_NAME, "customers.last_name", id="last_name"),
+        pytest.param("456 Elm Ave", ColumnType.ADDRESS, "customers.address", id="address"),
+    ],
+)
+def test_registry_new_type_produces_non_empty_string(
+    input_val: str, column_type: ColumnType, salt: str
+) -> None:
+    """Registry must return a non-empty str for FIRST_NAME, LAST_NAME, and ADDRESS.
+
+    Args:
+        input_val: The plaintext value to mask.
+        column_type: The ColumnType enum member identifying the masking strategy.
+        salt: The column-qualified salt string.
+    """
     registry = MaskingRegistry()
-    result_a = registry.mask("Smith", ColumnType.LAST_NAME, "t.last_name")
-    registry.reset()
-    result_b = registry.mask("Smith", ColumnType.LAST_NAME, "t.last_name")
-    assert result_a == result_b
-
-
-def test_registry_mask_address_is_deterministic() -> None:
-    """Registry produces the same masked address for the same (value, salt) pair."""
-    registry = MaskingRegistry()
-    result_a = registry.mask("123 Main St", ColumnType.ADDRESS, "t.address")
-    registry.reset()
-    result_b = registry.mask("123 Main St", ColumnType.ADDRESS, "t.address")
-    assert result_a == result_b
-
-
-def test_registry_first_name_produces_non_empty_string() -> None:
-    """Registry dispatches FIRST_NAME to mask_first_name and returns a non-empty string."""
-    registry = MaskingRegistry()
-    result = registry.mask("Bob", ColumnType.FIRST_NAME, "customers.first_name")
+    result = registry.mask(input_val, column_type, salt)
     assert isinstance(result, str)
     assert len(result) > 0
 
 
-def test_registry_last_name_produces_non_empty_string() -> None:
-    """Registry dispatches LAST_NAME to mask_last_name and returns a non-empty string."""
+@pytest.mark.parametrize(
+    ("input_val", "column_type", "salt", "max_length"),
+    [
+        pytest.param("Alice", ColumnType.FIRST_NAME, "t.first_name", 3, id="first_name"),
+        pytest.param("Smith", ColumnType.LAST_NAME, "t.last_name", 3, id="last_name"),
+        pytest.param("123 Main St", ColumnType.ADDRESS, "t.address", 10, id="address"),
+    ],
+)
+def test_registry_new_type_max_length_respected(
+    input_val: str, column_type: ColumnType, salt: str, max_length: int
+) -> None:
+    """Registry must forward max_length to the masking function for all new column types.
+
+    Args:
+        input_val: The plaintext value to mask.
+        column_type: The ColumnType enum member identifying the masking strategy.
+        salt: The column-qualified salt string.
+        max_length: Maximum allowed character length for the masked output.
+    """
     registry = MaskingRegistry()
-    result = registry.mask("Jones", ColumnType.LAST_NAME, "customers.last_name")
-    assert isinstance(result, str)
-    assert len(result) > 0
-
-
-def test_registry_address_produces_non_empty_string() -> None:
-    """Registry dispatches ADDRESS to mask_address and returns a non-empty string."""
-    registry = MaskingRegistry()
-    result = registry.mask("456 Elm Ave", ColumnType.ADDRESS, "customers.address")
-    assert isinstance(result, str)
-    assert len(result) > 0
-
-
-def test_registry_first_name_max_length_respected() -> None:
-    """Registry forwards max_length to mask_first_name."""
-    registry = MaskingRegistry()
-    result = registry.mask("Alice", ColumnType.FIRST_NAME, "t.first_name", max_length=3)
-    assert len(result) <= 3
-
-
-def test_registry_last_name_max_length_respected() -> None:
-    """Registry forwards max_length to mask_last_name."""
-    registry = MaskingRegistry()
-    result = registry.mask("Smith", ColumnType.LAST_NAME, "t.last_name", max_length=3)
-    assert len(result) <= 3
-
-
-def test_registry_address_max_length_respected() -> None:
-    """Registry forwards max_length to mask_address."""
-    registry = MaskingRegistry()
-    result = registry.mask("123 Main St", ColumnType.ADDRESS, "t.address", max_length=10)
-    assert len(result) <= 10
+    result = registry.mask(input_val, column_type, salt, max_length=max_length)
+    assert len(result) <= max_length
 
 
 def test_registry_handles_all_column_types_including_new() -> None:

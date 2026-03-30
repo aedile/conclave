@@ -145,26 +145,31 @@ class TestParseGanHyparamsBehavioral:
             "batch_size": batch_size,
         }
 
-    def test_returned_object_has_correct_embedding_dim(self) -> None:
-        """parse_gan_hyperparams must extract embedding_dim from kwargs."""
+    @pytest.mark.parametrize(
+        ("kwarg", "kwarg_value", "attr", "expected"),
+        [
+            pytest.param("embedding_dim", 64, "embedding_dim", 64, id="embedding_dim_64"),
+            pytest.param("pac", 4, "pac", 4, id="pac_4"),
+            pytest.param(
+                "discriminator_steps", 3, "discriminator_steps", 3, id="discriminator_steps_3"
+            ),
+        ],
+    )
+    def test_returned_object_has_correct_hyperparam(
+        self, kwarg: str, kwarg_value: int, attr: str, expected: int
+    ) -> None:
+        """parse_gan_hyperparams must extract each scalar hyperparameter from kwargs.
+
+        Args:
+            kwarg: Keyword argument name passed to _make_model_kwargs.
+            kwarg_value: Value to pass for the kwarg.
+            attr: Attribute name to check on the returned object.
+            expected: Expected value of that attribute.
+        """
         from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
-        result = parse_gan_hyperparams(self._make_model_kwargs(embedding_dim=64))
-        assert result.embedding_dim == 64
-
-    def test_returned_object_has_correct_pac(self) -> None:
-        """parse_gan_hyperparams must extract pac from kwargs."""
-        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
-
-        result = parse_gan_hyperparams(self._make_model_kwargs(pac=4))
-        assert result.pac == 4
-
-    def test_returned_object_has_correct_discriminator_steps(self) -> None:
-        """parse_gan_hyperparams must extract discriminator_steps from kwargs."""
-        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
-
-        result = parse_gan_hyperparams(self._make_model_kwargs(discriminator_steps=3))
-        assert result.discriminator_steps == 3
+        result = parse_gan_hyperparams(self._make_model_kwargs(**{kwarg: kwarg_value}))
+        assert getattr(result, attr) == expected
 
     def test_default_values_applied_when_keys_missing(self) -> None:
         """parse_gan_hyperparams must apply sane defaults for missing keys."""
@@ -176,29 +181,25 @@ class TestParseGanHyparamsBehavioral:
         assert result.discriminator_steps == 1
         assert result.batch_size == 500
 
-    def test_generator_dim_is_tuple(self) -> None:
-        """parse_gan_hyperparams must return generator_dim as a tuple."""
+    @pytest.mark.parametrize(
+        "dim_attr",
+        [
+            pytest.param("generator_dim", id="generator_dim"),
+            pytest.param("discriminator_dim", id="discriminator_dim"),
+        ],
+    )
+    def test_dim_attribute_is_tuple_of_correct_value(self, dim_attr: str) -> None:
+        """parse_gan_hyperparams must return both dim attributes as tuples equal to (256, 256).
+
+        Args:
+            dim_attr: Name of the dimension attribute to check (generator_dim or discriminator_dim).
+        """
         from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
         result = parse_gan_hyperparams(self._make_model_kwargs())
-        assert isinstance(result.generator_dim, tuple), (
-            f"generator_dim must be tuple, got {type(result.generator_dim)}"
-        )
-        assert result.generator_dim == (256, 256), (
-            f"generator_dim must be (256, 256), got {result.generator_dim}"
-        )
-
-    def test_discriminator_dim_is_tuple(self) -> None:
-        """parse_gan_hyperparams must return discriminator_dim as a tuple."""
-        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
-
-        result = parse_gan_hyperparams(self._make_model_kwargs())
-        assert isinstance(result.discriminator_dim, tuple), (
-            f"discriminator_dim must be tuple, got {type(result.discriminator_dim)}"
-        )
-        assert result.discriminator_dim == (256, 256), (
-            f"discriminator_dim must be (256, 256), got {result.discriminator_dim}"
-        )
+        value = getattr(result, dim_attr)
+        assert isinstance(value, tuple), f"{dim_attr} must be tuple, got {type(value)}"
+        assert value == (256, 256), f"{dim_attr} must be (256, 256), got {value}"
 
 
 # ---------------------------------------------------------------------------

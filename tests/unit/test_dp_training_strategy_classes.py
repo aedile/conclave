@@ -227,37 +227,27 @@ class TestNoFunctionExceedsFiftyLines:
 class TestStrategyClassesExist:
     """AC4 — VanillaCtganStrategy and DpCtganStrategy must exist in training_strategies.py."""
 
-    def test_vanilla_ctgan_strategy_is_importable(self) -> None:
-        """VanillaCtganStrategy must be importable from training_strategies."""
-        from synth_engine.modules.synthesizer.training.training_strategies import (
-            VanillaCtganStrategy,
+    @pytest.mark.parametrize(
+        "class_name",
+        [
+            pytest.param("VanillaCtganStrategy", id="vanilla"),
+            pytest.param("DpCtganStrategy", id="dp"),
+        ],
+    )
+    def test_ctgan_strategy_is_importable_and_has_run_method(self, class_name: str) -> None:
+        """Both strategy classes must be importable and must expose a run() method.
+
+        Args:
+            class_name: Name of the strategy class to import and inspect.
+        """
+        import importlib
+
+        mod = importlib.import_module(
+            "synth_engine.modules.synthesizer.training.training_strategies"
         )
-
-        assert VanillaCtganStrategy.__name__ == "VanillaCtganStrategy"
-
-    def test_dp_ctgan_strategy_is_importable(self) -> None:
-        """DpCtganStrategy must be importable from training_strategies."""
-        from synth_engine.modules.synthesizer.training.training_strategies import (
-            DpCtganStrategy,
-        )
-
-        assert DpCtganStrategy.__name__ == "DpCtganStrategy"
-
-    def test_vanilla_strategy_has_run_method(self) -> None:
-        """VanillaCtganStrategy must have a run() method."""
-        from synth_engine.modules.synthesizer.training.training_strategies import (
-            VanillaCtganStrategy,
-        )
-
-        assert hasattr(VanillaCtganStrategy, "run"), (
-            "VanillaCtganStrategy must have a run() method."
-        )
-
-    def test_dp_strategy_has_run_method(self) -> None:
-        """DpCtganStrategy must have a run() method."""
-        from synth_engine.modules.synthesizer.training.training_strategies import DpCtganStrategy
-
-        assert hasattr(DpCtganStrategy, "run"), "DpCtganStrategy must have a run() method."
+        cls = getattr(mod, class_name)
+        assert cls.__name__ == class_name, f"{class_name} must be importable"
+        assert hasattr(cls, "run"), f"{class_name} must have a run() method"
 
 
 # ---------------------------------------------------------------------------

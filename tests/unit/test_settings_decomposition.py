@@ -139,54 +139,62 @@ class TestExistingAccessPatternsUnchanged:
         assert s.conclave_ssl_required is True
         assert s.conclave_ssl_required
 
-    def test_rate_limit_unseal_default_is_five(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """get_settings().rate_limit_unseal_per_minute must default to 5."""
-        monkeypatch.setenv("CONCLAVE_ENV", "development")
-        monkeypatch.delenv("RATE_LIMIT_UNSEAL_PER_MINUTE", raising=False)
-        from synth_engine.shared.settings import ConclaveSettings
-
-        s = ConclaveSettings()
-        assert s.rate_limit_unseal_per_minute == 5
-
-    def test_webhook_max_registrations_default_is_ten(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("env_var", "attr", "expected"),
+        [
+            pytest.param(
+                "RATE_LIMIT_UNSEAL_PER_MINUTE",
+                "rate_limit_unseal_per_minute",
+                5,
+                id="rate_limit_unseal_5",
+            ),
+            pytest.param(
+                "WEBHOOK_MAX_REGISTRATIONS",
+                "webhook_max_registrations",
+                10,
+                id="webhook_max_10",
+            ),
+            pytest.param(
+                "JOB_RETENTION_DAYS",
+                "job_retention_days",
+                90,
+                id="job_retention_90",
+            ),
+            pytest.param(
+                "PARQUET_MAX_FILE_BYTES",
+                "parquet_max_file_bytes",
+                2 * 1024**3,
+                id="parquet_2gib",
+            ),
+            pytest.param(
+                "ANCHOR_BACKEND",
+                "anchor_backend",
+                "local_file",
+                id="anchor_backend_local_file",
+            ),
+        ],
+    )
+    def test_settings_field_has_correct_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_var: str,
+        attr: str,
+        expected: object,
     ) -> None:
-        """get_settings().webhook_max_registrations must default to 10."""
+        """Each ConclaveSettings field must have the correct default when its env var is absent.
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+            env_var: Environment variable name to delete before constructing settings.
+            attr: ConclaveSettings attribute name to inspect.
+            expected: Expected default value.
+        """
         monkeypatch.setenv("CONCLAVE_ENV", "development")
-        monkeypatch.delenv("WEBHOOK_MAX_REGISTRATIONS", raising=False)
+        monkeypatch.delenv(env_var, raising=False)
         from synth_engine.shared.settings import ConclaveSettings
 
         s = ConclaveSettings()
-        assert s.webhook_max_registrations == 10
-
-    def test_job_retention_days_default_is_90(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """get_settings().job_retention_days must default to 90."""
-        monkeypatch.setenv("CONCLAVE_ENV", "development")
-        monkeypatch.delenv("JOB_RETENTION_DAYS", raising=False)
-        from synth_engine.shared.settings import ConclaveSettings
-
-        s = ConclaveSettings()
-        assert s.job_retention_days == 90
-
-    def test_parquet_max_file_bytes_default_is_two_gib(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """get_settings().parquet_max_file_bytes must default to 2 GiB (2,147,483,648 bytes)."""
-        monkeypatch.setenv("CONCLAVE_ENV", "development")
-        monkeypatch.delenv("PARQUET_MAX_FILE_BYTES", raising=False)
-        from synth_engine.shared.settings import ConclaveSettings
-
-        s = ConclaveSettings()
-        assert s.parquet_max_file_bytes == 2 * 1024**3
-
-    def test_anchor_backend_default_is_local_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """get_settings().anchor_backend must default to 'local_file'."""
-        monkeypatch.setenv("CONCLAVE_ENV", "development")
-        monkeypatch.delenv("ANCHOR_BACKEND", raising=False)
-        from synth_engine.shared.settings import ConclaveSettings
-
-        s = ConclaveSettings()
-        assert s.anchor_backend == "local_file"
+        assert getattr(s, attr) == expected
 
     def test_anchor_file_path_default_is_expected_path(
         self, monkeypatch: pytest.MonkeyPatch
