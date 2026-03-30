@@ -29,9 +29,6 @@ class TestSyncBudgetCanonicalLocation:
 
         assert sync_spend_budget.__name__ == "sync_spend_budget"
 
-    def test_function_is_callable(self) -> None:
-        """sync_spend_budget must be callable."""
-        from synth_engine.modules.privacy.sync_budget import sync_spend_budget
 
         assert callable(sync_spend_budget)
 

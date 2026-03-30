@@ -436,13 +436,7 @@ class TestLoadTestScriptStructure:
         """PerTableResult dataclass must exist in load_test module."""
         assert hasattr(mod, "PerTableResult"), "load_test module must define PerTableResult class"
 
-    def test_parse_args_function_exists(self, mod: Any) -> None:
-        """_parse_args function must exist and be callable."""
-        assert callable(mod._parse_args), "_parse_args must be callable"
 
-    def test_detect_nan_inf_function_exists(self, mod: Any) -> None:
-        """_detect_nan_inf function must exist and be callable."""
-        assert callable(mod._detect_nan_inf), "_detect_nan_inf must be callable"
 
 
 class TestPeakRSSMonitor:

@@ -21,9 +21,6 @@ class TestEphemeralStorageClientCanonicalLocation:
 
         assert build_ephemeral_storage_client.__name__ == "build_ephemeral_storage_client"
 
-    def test_function_is_callable(self) -> None:
-        """build_ephemeral_storage_client must be a callable."""
-        from synth_engine.bootstrapper.factories import build_ephemeral_storage_client
 
         assert callable(build_ephemeral_storage_client)
 
