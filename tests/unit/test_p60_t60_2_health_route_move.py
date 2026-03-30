@@ -105,5 +105,4 @@ class TestUnsealRemainsInLifecycle:
         routes = {r.path for r in app.routes}  # type: ignore[attr-defined]
         assert "/unseal" in routes, f"/unseal not in routes: {routes}"
 
-
         assert callable(_register_routes)

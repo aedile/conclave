@@ -437,8 +437,6 @@ class TestLoadTestScriptStructure:
         assert hasattr(mod, "PerTableResult"), "load_test module must define PerTableResult class"
 
 
-
-
 class TestPeakRSSMonitor:
     """PeakRSSMonitor must capture peak RSS via resource.getrusage."""
 

@@ -309,31 +309,26 @@ class TestCsvDataTypes:
 class TestSeedModuleApi:
     """Test the public API of seed_sample_data module."""
 
-    def test_module_has_generate_customers_function(self) -> None:
-        """Module must expose a generate_customers function."""
-        mod = _import_seed_module()
-        assert hasattr(mod, "generate_customers"), (
-            "seed_sample_data.py must define generate_customers()"
-        )
+    @pytest.mark.parametrize(
+        "fn_name",
+        [
+            pytest.param("generate_customers", id="customers"),
+            pytest.param("generate_orders", id="orders"),
+            pytest.param("generate_order_items", id="order_items"),
+            pytest.param("generate_payments", id="payments"),
+        ],
+    )
+    def test_module_has_generate_function(self, fn_name: str) -> None:
+        """Module must expose each generate_* function for the four data tables.
 
-    def test_module_has_generate_orders_function(self) -> None:
-        """Module must expose a generate_orders function."""
-        mod = _import_seed_module()
-        assert hasattr(mod, "generate_orders"), "seed_sample_data.py must define generate_orders()"
+        All four generator functions are mandatory public API — their absence
+        would silently produce empty sample data for the affected table.
 
-    def test_module_has_generate_order_items_function(self) -> None:
-        """Module must expose a generate_order_items function."""
+        Args:
+            fn_name: Name of the generator function that must be present.
+        """
         mod = _import_seed_module()
-        assert hasattr(mod, "generate_order_items"), (
-            "seed_sample_data.py must define generate_order_items()"
-        )
-
-    def test_module_has_generate_payments_function(self) -> None:
-        """Module must expose a generate_payments function."""
-        mod = _import_seed_module()
-        assert hasattr(mod, "generate_payments"), (
-            "seed_sample_data.py must define generate_payments()"
-        )
+        assert hasattr(mod, fn_name), f"seed_sample_data.py must define {fn_name}()"
 
     def test_generate_customers_returns_list_of_dicts(self) -> None:
         """generate_customers(n) must return a list of dicts with expected keys."""

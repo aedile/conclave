@@ -562,7 +562,6 @@ async def test_middleware_passes_valid_token(monkeypatch: pytest.MonkeyPatch) ->
     assert response is expected_response
 
 
-
 # ---------------------------------------------------------------------------
 # Unit tests: AUTH_EXEMPT_PATHS completeness
 # ---------------------------------------------------------------------------

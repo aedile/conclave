@@ -29,7 +29,6 @@ class TestSyncBudgetCanonicalLocation:
 
         assert sync_spend_budget.__name__ == "sync_spend_budget"
 
-
         assert callable(sync_spend_budget)
 
     def test_no_module_scope_sqlalchemy_imports(self) -> None:

@@ -286,50 +286,40 @@ def test_get_audit_logger_returns_instance(
     assert callable(logger.log_event)
 
 
-def test_get_audit_logger_missing_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_audit_logger() raises ValueError when AUDIT_KEY is not set."""
-    monkeypatch.delenv("AUDIT_KEY", raising=False)
+@pytest.mark.parametrize(
+    ("audit_key_value", "setup"),
+    [
+        pytest.param(None, "delete", id="missing_key"),
+        pytest.param("deadbeef12", "set", id="wrong_length"),
+        pytest.param("z" * 32 + "g" * 32, "set", id="malformed_non_hex"),
+    ],
+)
+def test_get_audit_logger_invalid_key_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    audit_key_value: str | None,
+    setup: str,
+) -> None:
+    """get_audit_logger() raises ValueError for any invalid AUDIT_KEY configuration.
 
-    from synth_engine.shared.security.audit import reset_audit_logger
+    Tests three invalid configurations:
+    - Missing: AUDIT_KEY env var not set at all.
+    - Wrong length: key string is too short (10 hex chars instead of 64).
+    - Malformed: 64-char string with non-hex characters (bytes.fromhex() fails).
 
-    reset_audit_logger()
-
-    from synth_engine.shared.security.audit import get_audit_logger
-
-    with pytest.raises(ValueError, match="AUDIT_KEY"):
-        get_audit_logger()
-
-
-def test_get_audit_logger_wrong_length_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_audit_logger() raises ValueError when AUDIT_KEY length is not 64 chars."""
-    # 10 hex chars = 5 bytes (too short)
-    monkeypatch.setenv("AUDIT_KEY", "deadbeef12")
-
-    from synth_engine.shared.security.audit import reset_audit_logger
-
-    reset_audit_logger()
-
-    from synth_engine.shared.security.audit import get_audit_logger
-
-    with pytest.raises(ValueError, match="AUDIT_KEY"):
-        get_audit_logger()
-
-
-def test_get_audit_logger_malformed_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_audit_logger() raises ValueError when AUDIT_KEY has non-hex chars.
-
-    Uses a 64-character string that contains characters outside [0-9a-f]
-    to exercise the bytes.fromhex() error path.
+    Args:
+        monkeypatch: pytest fixture for environment manipulation.
+        audit_key_value: Value to set (or None when deleting the var).
+        setup: "delete" to remove the env var, "set" to assign audit_key_value.
     """
-    # 64 chars, correct length, but 'z' and 'g' are not valid hex digits
-    bad_key = "z" * 32 + "g" * 32
-    monkeypatch.setenv("AUDIT_KEY", bad_key)
+    if setup == "delete":
+        monkeypatch.delenv("AUDIT_KEY", raising=False)
+    else:
+        assert audit_key_value is not None
+        monkeypatch.setenv("AUDIT_KEY", audit_key_value)
 
-    from synth_engine.shared.security.audit import reset_audit_logger
+    from synth_engine.shared.security.audit import get_audit_logger, reset_audit_logger
 
     reset_audit_logger()
-
-    from synth_engine.shared.security.audit import get_audit_logger
 
     with pytest.raises(ValueError, match="AUDIT_KEY"):
         get_audit_logger()

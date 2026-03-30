@@ -187,9 +187,7 @@ async def test_privacy_endpoint_unauthenticated_returns_401(
     patches = _common_patches()
 
     with patches[0], patches[1]:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             kwargs = {"json": body} if body is not None else {}
             response = await getattr(client, method.lower())(path, **kwargs)
 
@@ -217,9 +215,7 @@ async def test_privacy_endpoint_expired_token_returns_401(
     patches = _common_patches()
 
     with patches[0], patches[1]:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await getattr(client, method.lower())(
                 path,
                 **({"json": body} if body is not None else {}),
@@ -250,9 +246,7 @@ async def test_privacy_endpoint_empty_sub_returns_401(
     patches = _common_patches()
 
     with patches[0], patches[1]:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await getattr(client, method.lower())(
                 path,
                 **({"json": body} if body is not None else {}),
@@ -283,9 +277,7 @@ async def test_privacy_endpoint_wrong_key_returns_401(
     patches = _common_patches()
 
     with patches[0], patches[1]:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await getattr(client, method.lower())(
                 path,
                 **({"json": body} if body is not None else {}),

@@ -495,23 +495,28 @@ class TestSynthesisEngineGenerate:
         result = engine.generate(artifact=artifact, n_rows=3)
         assert set(result.columns) == {"id", "age", "salary"}
 
-    def test_generate_zero_rows_raises_value_error(self) -> None:
-        """generate() with n_rows=0 must raise ValueError."""
+    @pytest.mark.parametrize(
+        "n_rows",
+        [
+            pytest.param(0, id="zero"),
+            pytest.param(-5, id="negative"),
+        ],
+    )
+    def test_generate_invalid_n_rows_raises_value_error(self, n_rows: int) -> None:
+        """generate() must raise ValueError for n_rows ≤ 0.
+
+        Zero and negative row counts produce empty or meaningless DataFrames
+        and must be caught at call time rather than propagated to the model.
+
+        Args:
+            n_rows: Invalid row count (zero or negative).
+        """
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
         with pytest.raises(ValueError, match="n_rows"):
-            engine.generate(artifact=artifact, n_rows=0)
-
-    def test_generate_negative_rows_raises_value_error(self) -> None:
-        """generate() with n_rows<0 must raise ValueError."""
-        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
-
-        engine = SynthesisEngine()
-        artifact = self._make_artifact()
-        with pytest.raises(ValueError, match="n_rows"):
-            engine.generate(artifact=artifact, n_rows=-5)
+            engine.generate(artifact=artifact, n_rows=n_rows)
 
     def test_generate_model_none_raises_value_error(self) -> None:
         """generate() with artifact.model=None MUST raise ValueError.

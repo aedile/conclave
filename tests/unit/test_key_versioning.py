@@ -85,19 +85,32 @@ class TestSignVersionedFormat:
         # The key IDs differ, so the full signature bytes differ
         assert sig_a != sig_b
 
-    def test_sign_versioned_raises_for_short_key_id(self) -> None:
-        """sign_versioned raises ValueError when key_id is fewer than 4 bytes."""
-        key = b"\xab" * 32
-        data = b"some payload"
-        with pytest.raises(ValueError, match="key_id must be exactly 4 bytes"):
-            sign_versioned(key=key, key_id=b"\x00\x00\x01", data=data)  # 3 bytes
+    @pytest.mark.parametrize(
+        ("key_id", "length_desc"),
+        [
+            pytest.param(b"\x00\x00\x01", "3 bytes (short)", id="short_key_id"),
+            pytest.param(b"\x00\x00\x00\x00\x01", "5 bytes (long)", id="long_key_id"),
+        ],
+    )
+    def test_sign_versioned_raises_for_wrong_length_key_id(
+        self, key_id: bytes, length_desc: str
+    ) -> None:
+        """sign_versioned raises ValueError when key_id is not exactly 4 bytes.
 
-    def test_sign_versioned_raises_for_long_key_id(self) -> None:
-        """sign_versioned raises ValueError when key_id is more than 4 bytes."""
+        Key IDs shorter or longer than 4 bytes cannot be embedded in the
+        signature prefix without corrupting the versioned signature format.
+
+        Args:
+            key_id: Malformed key ID bytes (too short or too long).
+            length_desc: Human-readable description of the length error (diagnostics only).
+        """
         key = b"\xab" * 32
         data = b"some payload"
         with pytest.raises(ValueError, match="key_id must be exactly 4 bytes"):
-            sign_versioned(key=key, key_id=b"\x00\x00\x00\x00\x01", data=data)  # 5 bytes
+            sign_versioned(key=key, key_id=key_id, data=data)
+        assert len(key_id) != 4, (
+            f"Test case {length_desc!r} has key_id with valid length — test is misconfigured"
+        )
 
 
 # ---------------------------------------------------------------------------

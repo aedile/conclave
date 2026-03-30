@@ -9,6 +9,11 @@ Verifies that:
 6. Negative: sign_v3 with oversized details raises ValueError.
 7. Negative: RestrictedUnpickler blocks disallowed modules.
 
+T73: Parametrize 3 groups in TestAuditSignaturesModule:
+  - sign_v* importable (3 → 1 parametrized)
+  - sign_v* returns version prefix (3 → 1 parametrized)
+  - sign_v*/v2 oversized-details raises (2 → 1 parametrized)
+
 Task: T58.4
 """
 
@@ -54,65 +59,70 @@ class TestAuditBackwardCompat:
 
 
 # ---------------------------------------------------------------------------
-# New split modules: direct imports
+# New split modules: sign_v1/v2/v3 parametrized tests (T73)
 # ---------------------------------------------------------------------------
 
+# v1 takes 7 positional args; v2 and v3 take 8 (adds details dict)
+_SIGN_V1_ARGS = (b"\x00" * 32, "ts", "TYPE", "actor", "res", "act", "prevhash")
+_SIGN_V2V3_ARGS = (b"\x00" * 32, "ts", "TYPE", "actor", "res", "act", "prevhash", {})
 
-class TestAuditSignaturesModule:
-    """audit_signatures.py exports sign_v1, sign_v2, sign_v3 as standalone functions."""
+_SIGN_VERSION_CASES = [
+    pytest.param("sign_v1", _SIGN_V1_ARGS, "v1:", id="v1"),
+    pytest.param("sign_v2", _SIGN_V2V3_ARGS, "v2:", id="v2"),
+    pytest.param("sign_v3", _SIGN_V2V3_ARGS, "v3:", id="v3"),
+]
 
-    def test_sign_v1_importable(self) -> None:
-        from synth_engine.shared.security.audit_signatures import sign_v1
+_SIGN_OVERSIZED_CASES = [
+    pytest.param("sign_v2", id="v2"),
+    pytest.param("sign_v3", id="v3"),
+]
 
-        assert callable(sign_v1)
 
-    def test_sign_v2_importable(self) -> None:
-        from synth_engine.shared.security.audit_signatures import sign_v2
+@pytest.mark.parametrize(("fn_name", "call_args", "expected_prefix"), _SIGN_VERSION_CASES)
+def test_sign_function_is_importable_and_returns_version_prefix(
+    fn_name: str,
+    call_args: tuple[object, ...],
+    expected_prefix: str,
+) -> None:
+    """sign_v* must be importable and must return a result prefixed with its version tag.
 
-        assert callable(sign_v2)
+    Each signing function must produce a signature string whose leading bytes
+    identify the version, so that verify_event can dispatch to the correct verifier.
 
-    def test_sign_v3_importable(self) -> None:
-        from synth_engine.shared.security.audit_signatures import sign_v3
+    Args:
+        fn_name: Name of the signing function (sign_v1, sign_v2, or sign_v3).
+        call_args: Positional arguments to pass to the function.
+        expected_prefix: Version prefix the result must start with (e.g. "v1:").
+    """
+    import synth_engine.shared.security.audit_signatures as mod
 
-        assert callable(sign_v3)
+    fn = getattr(mod, fn_name)
+    assert callable(fn), f"{fn_name} must be callable"
+    result = fn(*call_args)
+    assert isinstance(result, str), f"{fn_name}() must return str, got {type(result).__name__!r}"
+    assert result.startswith(expected_prefix), (
+        f"{fn_name}() must start with {expected_prefix!r}, got {result[:10]!r}"
+    )
 
-    def test_sign_v1_returns_v1_prefix(self) -> None:
-        from synth_engine.shared.security.audit_signatures import sign_v1
 
-        key = b"\x00" * 32
-        result = sign_v1(key, "ts", "TYPE", "actor", "res", "act", "prevhash")
-        assert result.startswith("v1:"), f"expected 'v1:' prefix, got {result[:10]!r}"
+@pytest.mark.parametrize("fn_name", _SIGN_OVERSIZED_CASES)
+def test_sign_function_rejects_oversized_details(fn_name: str) -> None:
+    """sign_v2 and sign_v3 must raise ValueError when the details dict exceeds 64 KB.
 
-    def test_sign_v2_returns_v2_prefix(self) -> None:
-        from synth_engine.shared.security.audit_signatures import sign_v2
+    The details dict is serialized to JSON and embedded in the HMAC input.
+    An unbounded details size could allow HMAC-length-extension attacks and
+    creates oversized audit records that fail storage constraints.
 
-        key = b"\x00" * 32
-        result = sign_v2(key, "ts", "TYPE", "actor", "res", "act", "prevhash", {})
-        assert result.startswith("v2:"), f"expected 'v2:' prefix, got {result[:10]!r}"
+    Args:
+        fn_name: Name of the signing function to test (sign_v2 or sign_v3).
+    """
+    import synth_engine.shared.security.audit_signatures as mod
 
-    def test_sign_v3_returns_v3_prefix(self) -> None:
-        from synth_engine.shared.security.audit_signatures import sign_v3
-
-        key = b"\x00" * 32
-        result = sign_v3(key, "ts", "TYPE", "actor", "res", "act", "prevhash", {})
-        assert result.startswith("v3:"), f"expected 'v3:' prefix, got {result[:10]!r}"
-
-    def test_sign_v3_oversized_details_raises_value_error(self) -> None:
-        from synth_engine.shared.security.audit_signatures import sign_v3
-
-        key = b"\x00" * 32
-        # Create a details dict whose JSON exceeds 64 KB
-        big_details = {"k": "x" * (65 * 1024)}
-        with pytest.raises(ValueError, match="exceed"):
-            sign_v3(key, "ts", "TYPE", "actor", "res", "act", "prevhash", big_details)
-
-    def test_sign_v2_oversized_details_raises_value_error(self) -> None:
-        from synth_engine.shared.security.audit_signatures import sign_v2
-
-        key = b"\x00" * 32
-        big_details = {"k": "x" * (65 * 1024)}
-        with pytest.raises(ValueError, match="exceed"):
-            sign_v2(key, "ts", "TYPE", "actor", "res", "act", "prevhash", big_details)
+    fn = getattr(mod, fn_name)
+    key = b"\x00" * 32
+    big_details = {"k": "x" * (65 * 1024)}
+    with pytest.raises(ValueError, match="exceed"):
+        fn(key, "ts", "TYPE", "actor", "res", "act", "prevhash", big_details)
 
 
 class TestAuditLoggerModule:

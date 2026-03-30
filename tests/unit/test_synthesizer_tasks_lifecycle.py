@@ -170,28 +170,35 @@ class TestSynthesisJobModel:
         job = _make_synthesis_job(noise_multiplier=2.5)
         assert job.noise_multiplier == 2.5
 
-    def test_synthesis_job_noise_multiplier_zero_raises(self) -> None:
-        """SynthesisJob must reject noise_multiplier=0 with ValueError."""
+    @pytest.mark.parametrize(
+        ("noise_multiplier", "match"),
+        [
+            pytest.param(0.0, "noise_multiplier must be > 0", id="zero"),
+            pytest.param(-0.5, "noise_multiplier must be > 0", id="negative"),
+            pytest.param(101, "noise_multiplier must be <= 100.0", id="above_100"),
+        ],
+    )
+    def test_synthesis_job_invalid_noise_multiplier_raises(
+        self, noise_multiplier: float, match: str
+    ) -> None:
+        """SynthesisJob must raise ValueError for degenerate noise_multiplier values.
+
+        Guards against zero (no training signal), negative (invalid), and
+        above-maximum (100.0) values. All three cases breach the privacy
+        guarantee and must be rejected at construction time.
+
+        Args:
+            noise_multiplier: The invalid value to test.
+            match: Expected fragment of the ValueError message.
+        """
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
-        with pytest.raises(ValueError, match="noise_multiplier must be > 0"):
+        with pytest.raises(ValueError, match=match):
             SynthesisJob(
                 total_epochs=10,
                 table_name="persons",
                 parquet_path="/data/persons.parquet",
-                noise_multiplier=0.0,
-            )
-
-    def test_synthesis_job_noise_multiplier_negative_raises(self) -> None:
-        """SynthesisJob must reject negative noise_multiplier with ValueError."""
-        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-
-        with pytest.raises(ValueError, match="noise_multiplier must be > 0"):
-            SynthesisJob(
-                total_epochs=10,
-                table_name="persons",
-                parquet_path="/data/persons.parquet",
-                noise_multiplier=-0.5,
+                noise_multiplier=noise_multiplier,
             )
 
     def test_synthesis_job_max_grad_norm_defaults_to_1_0(self) -> None:
@@ -210,28 +217,34 @@ class TestSynthesisJobModel:
         job = _make_synthesis_job(max_grad_norm=0.5)
         assert job.max_grad_norm == 0.5
 
-    def test_synthesis_job_max_grad_norm_zero_raises(self) -> None:
-        """SynthesisJob must reject max_grad_norm=0 with ValueError."""
+    @pytest.mark.parametrize(
+        ("max_grad_norm", "match"),
+        [
+            pytest.param(0.0, "max_grad_norm must be > 0", id="zero"),
+            pytest.param(-1.0, "max_grad_norm must be > 0", id="negative"),
+            pytest.param(101, "max_grad_norm must be <= 100.0", id="above_100"),
+        ],
+    )
+    def test_synthesis_job_invalid_max_grad_norm_raises(
+        self, max_grad_norm: float, match: str
+    ) -> None:
+        """SynthesisJob must raise ValueError for degenerate max_grad_norm values.
+
+        Guards against zero (all gradients clipped to zero), negative (invalid),
+        and above-maximum (100.0) values. These protect the DP training guarantee.
+
+        Args:
+            max_grad_norm: The invalid value to test.
+            match: Expected fragment of the ValueError message.
+        """
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
-        with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
+        with pytest.raises(ValueError, match=match):
             SynthesisJob(
                 total_epochs=10,
                 table_name="persons",
                 parquet_path="/data/persons.parquet",
-                max_grad_norm=0.0,
-            )
-
-    def test_synthesis_job_max_grad_norm_negative_raises(self) -> None:
-        """SynthesisJob must reject negative max_grad_norm with ValueError."""
-        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-
-        with pytest.raises(ValueError, match="max_grad_norm must be > 0"):
-            SynthesisJob(
-                total_epochs=10,
-                table_name="persons",
-                parquet_path="/data/persons.parquet",
-                max_grad_norm=-1.0,
+                max_grad_norm=max_grad_norm,
             )
 
     def test_synthesis_job_actual_epsilon_defaults_to_none(self) -> None:
@@ -250,30 +263,6 @@ class TestSynthesisJobModel:
         """SynthesisJob must accept a float actual_epsilon value."""
         job = _make_synthesis_job(actual_epsilon=3.14)
         assert job.actual_epsilon == 3.14
-
-    def test_synthesis_job_noise_multiplier_above_100_raises(self) -> None:
-        """SynthesisJob must reject noise_multiplier=101 with ValueError."""
-        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-
-        with pytest.raises(ValueError, match="noise_multiplier must be <= 100.0"):
-            SynthesisJob(
-                total_epochs=10,
-                table_name="persons",
-                parquet_path="/data/persons.parquet",
-                noise_multiplier=101,
-            )
-
-    def test_synthesis_job_max_grad_norm_above_100_raises(self) -> None:
-        """SynthesisJob must reject max_grad_norm=101 with ValueError."""
-        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-
-        with pytest.raises(ValueError, match="max_grad_norm must be <= 100.0"):
-            SynthesisJob(
-                total_epochs=10,
-                table_name="persons",
-                parquet_path="/data/persons.parquet",
-                max_grad_norm=101,
-            )
 
 
 # ---------------------------------------------------------------------------

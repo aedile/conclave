@@ -21,7 +21,6 @@ class TestEphemeralStorageClientCanonicalLocation:
 
         assert build_ephemeral_storage_client.__name__ == "build_ephemeral_storage_client"
 
-
         assert callable(build_ephemeral_storage_client)
 
 

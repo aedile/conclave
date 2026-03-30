@@ -534,19 +534,29 @@ class TestSANValidation:
         validate_san_hostname(hostname)
         assert validate_san_hostname.__name__ == "validate_san_hostname"
 
-    def test_san_validation_rejects_hostname_with_spaces(self) -> None:
-        """Hostname with spaces must raise ValueError."""
+    @pytest.mark.parametrize(
+        ("invalid_hostname", "match"),
+        [
+            pytest.param("host name with spaces", "invalid", id="spaces"),
+            pytest.param("host\x00name", "invalid", id="null_byte"),
+        ],
+    )
+    def test_san_validation_rejects_invalid_hostname(
+        self, invalid_hostname: str, match: str
+    ) -> None:
+        """validate_san_hostname must raise ValueError for invalid hostname patterns.
+
+        Hostnames with spaces or null bytes are common injection vectors and must
+        be rejected at the SAN validation layer before they reach TLS libraries.
+
+        Args:
+            invalid_hostname: The malformed hostname input.
+            match: Expected fragment of the ValueError message.
+        """
         from synth_engine.shared.tls.config import validate_san_hostname
 
-        with pytest.raises(ValueError, match="invalid"):
-            validate_san_hostname("host name with spaces")
-
-    def test_san_validation_rejects_null_byte(self) -> None:
-        """Hostname with null byte must raise ValueError."""
-        from synth_engine.shared.tls.config import validate_san_hostname
-
-        with pytest.raises(ValueError, match="invalid"):
-            validate_san_hostname("host\x00name")
+        with pytest.raises(ValueError, match=match):
+            validate_san_hostname(invalid_hostname)
 
 
 class TestServiceHostnames:
