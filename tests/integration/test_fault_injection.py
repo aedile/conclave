@@ -268,9 +268,7 @@ def test_redis_hit_raises_on_connection_refused() -> None:
     mock_pipeline = MagicMock()
     mock_pipeline.__enter__ = MagicMock(return_value=mock_pipeline)
     mock_pipeline.__exit__ = MagicMock(return_value=False)
-    mock_pipeline.execute.side_effect = redis_lib.exceptions.ConnectionError(
-        "Connection refused"
-    )
+    mock_pipeline.execute.side_effect = redis_lib.exceptions.ConnectionError("Connection refused")
     mock_redis = MagicMock(spec=redis_lib.Redis)
     mock_redis.pipeline.return_value = mock_pipeline
 
@@ -292,13 +290,16 @@ def test_memory_hit_allows_first_request() -> None:
     limiter = FixedWindowRateLimiter(storage)
     limit = parse_limit("100/minute")
 
-    _count, allowed = __import__(
-        "synth_engine.bootstrapper.dependencies.rate_limit_backend",
-        fromlist=["_memory_hit"],
-    )._memory_hit(limiter, limit, "ip:10.0.0.1")
+    from synth_engine.bootstrapper.dependencies.rate_limit_backend import _memory_hit
 
-    # First request must be allowed
+    _count, allowed = _memory_hit(limiter, limit, "ip:10.0.0.1")
+
+    # First request must be allowed — count must be 0 (allowed=True path)
     assert allowed is True, f"Expected first request to be allowed, got allowed={allowed}"
+    # In-memory limiter returns count=0 when allowed (not denied)
+    assert _count == 0, f"Expected count=0 for allowed request, got count={_count}"
+    # Verify the limit object was correctly parsed (100 requests per minute)
+    assert limit.amount == 100, f"Expected limit.amount=100, got {limit.amount}"
 
 
 def test_redis_fallback_counter_has_tier_labels() -> None:
