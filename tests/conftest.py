@@ -8,6 +8,8 @@ Task: T39.2 — Add logger-re-enable fixture to counter alembic fileConfig side-
 Fix: P47 — Document that .env file suppression is handled by tests/unit/conftest.py
 Fix: P48 — Add SDV FutureWarning suppression to conftest autouse fixture
 Fix: T50.3 — Inject CONCLAVE_ENV=development as test-safe default
+Gate 1 (P73): Attack-test enforcement plugin — fails CI if production modules lack
+              attack tests.  Enforces CLAUDE.md Rule 22 programmatically.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import logging
 import os
 import warnings
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 
@@ -36,6 +39,153 @@ _TEST_CONCLAVE_ENV: str = "development"
 #: so /tmp is the correct test-safe default for both unit and integration tests.
 _TEST_CONCLAVE_DATA_DIR: str = "/tmp"
 
+# ---------------------------------------------------------------------------
+# Gate 1 — Attack-test enforcement plugin (P73)
+# ---------------------------------------------------------------------------
+#
+# Rule 22 (CLAUDE.md): The software-developer MUST write negative/attack tests
+# before feature tests.  Convention alone (naming) is insufficient.  This plugin
+# enforces the invariant programmatically at pytest collection time:
+#
+#   For every production module under src/synth_engine/ that has test files,
+#   at least one test file named *_attack.py or *attack*.py must exist.
+#
+# "Production module" means a top-level subdirectory under src/synth_engine/
+# (bootstrapper, modules/*, shared).  The check is directory-level, not
+# per-file, because attack tests often span several modules.
+#
+# IMPORTANT: This check fires during pytest_collection_finish (after all items
+# are collected) so it never prevents collection from completing.  Raising
+# pytest.UsageError produces a clean CI failure with a human-readable message.
+
+#: Subdirectory names inside src/synth_engine/ that are treated as modules.
+#: Update this list when new top-level subdirectories are added.
+_PRODUCTION_MODULE_DIRS: tuple[str, ...] = (
+    "bootstrapper",
+    "modules/ingestion",
+    "modules/mapping",
+    "modules/masking",
+    "modules/privacy",
+    "modules/profiler",
+    "modules/subsetting",
+    "modules/synthesizer",
+    "shared",
+)
+
+#: Relative path from the repository root to the test directory.
+_TESTS_ROOT: Path = Path(__file__).parent
+#: Relative path from the repository root to the source directory.
+_SRC_ROOT: Path = Path(__file__).parent.parent / "src" / "synth_engine"
+
+
+def _module_has_test_files(module_slug: str, tests_root: Path) -> bool:
+    """Return True if any test file exists for the given module slug.
+
+    Args:
+        module_slug: e.g. ``"bootstrapper"`` or ``"modules/ingestion"``.
+        tests_root: Absolute path to the ``tests/`` directory.
+
+    Returns:
+        True when at least one ``test_*.py`` file exists that plausibly
+        belongs to this module (heuristic: filename contains the leaf name).
+    """
+    leaf = module_slug.split("/")[-1]
+    return bool(list(tests_root.rglob(f"*{leaf}*.py")))
+
+
+def _module_has_attack_test(module_slug: str, tests_root: Path) -> bool:
+    """Return True if any attack test file covers the given module slug.
+
+    Detection uses two strategies (either is sufficient):
+
+    1. **Name-based**: any ``*attack*.py`` whose filename contains the module's
+       leaf name (e.g. ``test_masking_thread_safety_attack.py`` for ``masking``).
+
+    2. **Content-based**: any ``*attack*.py`` that imports from the module's
+       dotted Python path (e.g. ``synth_engine.bootstrapper`` for
+       ``"bootstrapper"``).  This handles attack files whose names describe the
+       feature under attack rather than the module (e.g.
+       ``test_admin_audit_attack.py`` covers ``bootstrapper`` via its imports).
+
+    Args:
+        module_slug: e.g. ``"bootstrapper"`` or ``"modules/masking"``.
+        tests_root: Absolute path to the ``tests/`` directory.
+
+    Returns:
+        True when at least one qualifying ``*attack*.py`` file exists.
+    """
+    leaf = module_slug.split("/")[-1]
+    # The import prefix we look for in file contents.
+    # "modules/ingestion" -> "synth_engine.modules.ingestion"
+    import_prefix = "synth_engine." + module_slug.replace("/", ".")
+
+    for attack_file in tests_root.rglob("*attack*.py"):
+        # Strategy 1: leaf name appears in file name
+        if leaf in attack_file.name:
+            return True
+        # Strategy 2: file imports from this module's namespace
+        try:
+            file_text = attack_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if import_prefix in file_text:
+            return True
+
+    return False
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Gate 1: fail CI if any module has tests but no attack test file.
+
+    This hook runs after all test items are collected, so it never blocks
+    collection.  It raises ``pytest.UsageError`` (which exits with code 4)
+    when a violation is detected.  The check is SKIPPED in ``--co`` / dry-run
+    mode so that listing tests works without the gate firing.
+
+    Args:
+        session: The active pytest session with all collected items.
+    """
+    # Skip when only collecting (--co / --collect-only).
+    if session.config.option.collectonly:
+        return
+
+    # Skip when explicitly disabled via marker (e.g. in CI shards that only
+    # run a single file).
+    if session.config.getoption("--no-attack-gate", default=False):
+        return
+
+    missing: list[str] = []
+    for module_slug in _PRODUCTION_MODULE_DIRS:
+        # Only enforce for modules that actually have test files.
+        if not _module_has_test_files(module_slug, _TESTS_ROOT):
+            continue
+        if not _module_has_attack_test(module_slug, _TESTS_ROOT):
+            missing.append(module_slug)
+
+    if missing:
+        module_list = "\n  ".join(missing)
+        raise pytest.UsageError(
+            f"[Gate 1 — Attack-test enforcement (P73 / Rule 22)]\n"
+            f"The following production modules have test files but NO *_attack.py "
+            f"test file:\n\n  {module_list}\n\n"
+            f"Add an attack test file (named *<module>*attack*.py) for each "
+            f"module listed above before merging."
+        )
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register the --no-attack-gate option so it can be used in CI shards.
+
+    Args:
+        parser: The pytest argument parser.
+    """
+    parser.addoption(
+        "--no-attack-gate",
+        action="store_true",
+        default=False,
+        help="Disable Gate 1 attack-test enforcement (for targeted CI shards).",
+    )
+
 
 def pytest_configure(config: pytest.Config) -> None:
     """Register custom pytest markers.
@@ -50,6 +200,11 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         "integration: Tests requiring live databases or external services (Task 2.2)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "attack: Negative/adversarial tests proving the system REJECTS bad inputs "
+        "(Rule 22 — written before feature tests)",
     )
 
 
