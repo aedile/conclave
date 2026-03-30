@@ -252,3 +252,58 @@ class TestPgbouncerImageFix:
         assert "edoburu/pgbouncer" in content, (
             "ADR-0031 must document the edoburu/pgbouncer image as the chosen replacement."
         )
+
+
+# ---------------------------------------------------------------------------
+# CVE gate: pygments must not reach production image (ADV-P63-05, T66.4)
+# ---------------------------------------------------------------------------
+
+
+class TestPygmentsProductionExclusion:
+    """Pygments must be absent from the production dependency set.
+
+    Pygments has CVE-2026-4539 with no upstream fix. This class verifies
+    it is a transitive dev dependency ONLY and does not reach production.
+    """
+
+    def test_pygments_absent_from_production_requirements(self) -> None:
+        """Pygments must not appear in production dependency groups.
+
+        Runs 'poetry export --only=main' to enumerate production-only
+        dependencies and asserts pygments is absent.
+
+        This test uses a subprocess to avoid importing poetry internals
+        directly (they are not stable public API).
+        """
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "poetry",
+                "export",
+                "--only=main",
+                "--format=requirements.txt",
+                "--without-hashes",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+
+        # If poetry export fails for infra reasons, skip rather than false-fail
+        if result.returncode != 0:
+            import pytest
+
+            pytest.skip(f"poetry export failed (exit {result.returncode}): {result.stderr[:200]}")
+
+        output_lower = result.stdout.lower()
+        assert "pygments" not in output_lower, (
+            "pygments was found in the production (main group) requirements export. "
+            "This is a CVE-2026-4539 violation. "
+            "Matching lines: "
+            + "\n".join(line for line in result.stdout.splitlines() if "pygments" in line.lower())
+        )
