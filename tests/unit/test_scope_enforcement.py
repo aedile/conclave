@@ -171,158 +171,94 @@ def settings_client(jwt_env: None) -> TestClient:
 # Attack tests: require_scope() — security and settings endpoints
 # ---------------------------------------------------------------------------
 
+# scope values that must all return 403 on /security/shred (admin-only endpoint)
+_INSUFFICIENT_SCOPE_CASES = [
+    pytest.param(None, False, id="missing_scope_claim"),
+    pytest.param([], True, id="empty_scope_list"),
+    pytest.param(["read"], True, id="wrong_scope"),
+    pytest.param("security:admin", True, id="string_not_list"),
+    pytest.param(["security:admin_extra"], True, id="substring_no_match"),
+]
 
-class TestScopeAttacks:
-    """Negative/attack tests asserting scope enforcement rejects unauthorized callers."""
 
-    def test_scope_rejects_unauthenticated(self, security_client: TestClient) -> None:
-        """POST /security/shred with no Authorization header must return 401.
+@pytest.mark.parametrize(("scope_value", "include_scope"), _INSUFFICIENT_SCOPE_CASES)
+def test_shred_rejects_insufficient_scope(
+    scope_value: Any,
+    include_scope: bool,
+    security_client: TestClient,
+) -> None:
+    """POST /security/shred must return 403 for tokens lacking security:admin scope.
 
-        No token at all is an authentication failure, not an authorization
-        failure.  The middleware (or dependency) must reject before reaching
-        scope evaluation.
+    Args:
+        scope_value: The scope claim value to embed in the token.
+        include_scope: When False, omit the scope key from the token entirely.
+        security_client: TestClient for a minimal security app with JWT configured.
+    """
+    token = _make_token(scope=scope_value, include_scope=include_scope)
+    response = security_client.post("/security/shred", headers=_auth_header(token))
+    assert response.status_code == 403
 
-        Arrange: security_client has JWT configured; no Authorization header.
-        Act: POST /security/shred without any token.
-        Assert: HTTP 401.
-        """
-        response = security_client.post("/security/shred")
-        assert response.status_code == 401
 
-    def test_scope_rejects_missing_scope_claim(self, security_client: TestClient) -> None:
-        """POST /security/shred with a valid token but no ``scope`` key → 403.
+def test_scope_rejects_unauthenticated(security_client: TestClient) -> None:
+    """POST /security/shred with no Authorization header must return 401.
 
-        An attacker who obtains a token without a scope claim (perhaps issued
-        by an older version of the system) must not gain access to guarded
-        endpoints.
+    No token at all is an authentication failure, not an authorization
+    failure.  The middleware (or dependency) must reject before reaching
+    scope evaluation.
+    """
+    response = security_client.post("/security/shred")
+    assert response.status_code == 401
 
-        Arrange: token signed with correct secret, ``scope`` key absent.
-        Act: POST /security/shred.
-        Assert: HTTP 403.
-        """
-        token = _make_token(scope=None, include_scope=False)
-        response = security_client.post("/security/shred", headers=_auth_header(token))
-        assert response.status_code == 403
 
-    def test_scope_rejects_empty_scope_list(self, security_client: TestClient) -> None:
-        """POST /security/shred with scope=[] must return 403.
+# settings endpoints scope attack cases: (method, path, body, expected_status)
+_SETTINGS_SCOPE_ATTACK_CASES = [
+    pytest.param("GET", "/settings", None, 200, id="read_no_scope_required"),
+    pytest.param("PUT", "/settings/max_epochs", {"value": "100"}, 403, id="write_missing_scope"),
+    pytest.param("DELETE", "/settings/some_key", None, 403, id="delete_missing_scope"),
+]
 
-        An empty scope list grants no permissions — the endpoint must not
-        match a missing scope against an empty list.
 
-        Arrange: token with ``scope: []``.
-        Act: POST /security/shred.
-        Assert: HTTP 403.
-        """
-        token = _make_token(scope=[])
-        response = security_client.post("/security/shred", headers=_auth_header(token))
-        assert response.status_code == 403
+@pytest.mark.parametrize(
+    ("method", "path", "body", "expected_status"), _SETTINGS_SCOPE_ATTACK_CASES
+)
+def test_settings_scope_enforcement(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    expected_status: int,
+    settings_client: TestClient,
+) -> None:
+    """Settings endpoints must enforce scope:write for mutation operations.
 
-    def test_scope_rejects_wrong_scope(self, security_client: TestClient) -> None:
-        """POST /security/shred with scope=["read"] must return 403.
+    GET is not scope-gated; PUT/DELETE require settings:write scope.
 
-        ``read`` is not ``security:admin``; any scope not in the required set
-        must be treated as unauthorized.
+    Args:
+        method: HTTP method.
+        path: URL path.
+        body: Optional JSON body.
+        expected_status: Expected HTTP status code.
+        settings_client: TestClient for a minimal settings app with JWT configured.
+    """
+    token = _make_token(scope=["read"])
+    kwargs: dict[str, Any] = {"headers": _auth_header(token)}
+    if body is not None:
+        kwargs["json"] = body
+    response = getattr(settings_client, method.lower())(path, **kwargs)
+    assert response.status_code == expected_status
 
-        Arrange: token with ``scope: ["read"]``.
-        Act: POST /security/shred.
-        Assert: HTTP 403.
-        """
-        token = _make_token(scope=["read"])
-        response = security_client.post("/security/shred", headers=_auth_header(token))
-        assert response.status_code == 403
 
-    def test_scope_array_injection_string(self, security_client: TestClient) -> None:
-        """Scope claim as a bare string (not list) must be rejected with 403.
+def test_rotate_rejects_wrong_scope(security_client: TestClient) -> None:
+    """POST /security/keys/rotate with scope=["read"] must return 403.
 
-        Attack vector: an adversary crafts a token where ``scope`` is the
-        string ``"security:admin"`` rather than the list ``["security:admin"]``.
-        A naive ``in`` check would pass (``"security:admin" in "security:admin"``
-        is True for string substring checks).  The implementation must validate
-        that the scope claim is always a ``list`` before any membership test.
-
-        Arrange: token with ``scope: "security:admin"`` (string, not list).
-        Act: POST /security/shred.
-        Assert: HTTP 403.
-        """
-        token = _make_token(scope="security:admin")
-        response = security_client.post("/security/shred", headers=_auth_header(token))
-        assert response.status_code == 403
-
-    def test_scope_substring_no_match(self, security_client: TestClient) -> None:
-        """Scope ``"security:admin_extra"`` must NOT match ``"security:admin"``.
-
-        Substring/prefix attacks: ``"security:admin" in "security:admin_extra"``
-        is False for list membership, but an incorrect implementation using
-        string ``in`` on a concatenated scope string could be tricked.
-
-        Arrange: token with ``scope: ["security:admin_extra"]``.
-        Act: POST /security/shred.
-        Assert: HTTP 403 — exact list membership only.
-        """
-        token = _make_token(scope=["security:admin_extra"])
-        response = security_client.post("/security/shred", headers=_auth_header(token))
-        assert response.status_code == 403
-
-    def test_settings_get_no_scope_required(self, settings_client: TestClient) -> None:
-        """GET /settings with any valid token (scope=["read"]) must return 200.
-
-        Read endpoints are not scope-gated — any authenticated operator can
-        list settings.
-
-        Arrange: token with ``scope: ["read"]``.
-        Act: GET /settings.
-        Assert: HTTP 200.
-        """
-        token = _make_token(scope=["read"])
-        response = settings_client.get("/settings", headers=_auth_header(token))
-        assert response.status_code == 200
-
-    def test_settings_write_without_scope(self, settings_client: TestClient) -> None:
-        """PUT /settings/{key} without ``settings:write`` scope must return 403.
-
-        Arrange: token with ``scope: ["read"]`` — no write scope.
-        Act: PUT /settings/max_epochs with a valid body.
-        Assert: HTTP 403.
-        """
-        token = _make_token(scope=["read"])
-        response = settings_client.put(
-            "/settings/max_epochs",
-            json={"value": "100"},
-            headers=_auth_header(token),
-        )
-        assert response.status_code == 403
-
-    def test_settings_delete_without_scope(self, settings_client: TestClient) -> None:
-        """DELETE /settings/{key} without ``settings:write`` scope must return 403.
-
-        Arrange: token with ``scope: ["read"]`` — no write scope.
-        Act: DELETE /settings/some_key.
-        Assert: HTTP 403.
-        """
-        token = _make_token(scope=["read"])
-        response = settings_client.delete(
-            "/settings/some_key",
-            headers=_auth_header(token),
-        )
-        assert response.status_code == 403
-
-    def test_rotate_rejects_wrong_scope(self, security_client: TestClient) -> None:
-        """POST /security/keys/rotate with scope=["read"] must return 403.
-
-        The keys/rotate endpoint is also guarded by ``security:admin``.
-
-        Arrange: token with ``scope: ["read"]``.
-        Act: POST /security/keys/rotate with valid body.
-        Assert: HTTP 403.
-        """
-        token = _make_token(scope=["read"])
-        response = security_client.post(
-            "/security/keys/rotate",
-            json={"new_passphrase": "some-passphrase"},
-            headers=_auth_header(token),
-        )
-        assert response.status_code == 403
+    The keys/rotate endpoint is also guarded by security:admin.
+    """
+    token = _make_token(scope=["read"])
+    response = security_client.post(
+        "/security/keys/rotate",
+        json={"new_passphrase": "some-passphrase"},
+        headers=_auth_header(token),
+    )
+    assert response.status_code == 403
 
 
 # ---------------------------------------------------------------------------

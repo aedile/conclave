@@ -408,16 +408,25 @@ def test_verify_operator_credentials_returns_false_for_malformed_bcrypt_hash(
 # Unit tests: AuthenticationGateMiddleware dispatch logic
 # ---------------------------------------------------------------------------
 
+# Exempt paths that must pass through without a token (no Authorization header needed)
+_MIDDLEWARE_EXEMPT_PATHS = [
+    pytest.param("/health", id="health"),
+    pytest.param("/auth/token", id="auth_token"),
+    pytest.param("/metrics", id="metrics"),
+]
 
+
+@pytest.mark.parametrize("exempt_path", _MIDDLEWARE_EXEMPT_PATHS)
 @pytest.mark.asyncio
 async def test_middleware_allows_exempt_path_without_token(
+    exempt_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AuthenticationGateMiddleware must pass exempt paths without any token.
 
-    Arrange: mock a request to /health (exempt path) with no Authorization header.
-    Act: call dispatch() with a mocked call_next.
-    Assert: call_next is called (request passes through).
+    Args:
+        exempt_path: URL path known to be in COMMON_INFRA_EXEMPT_PATHS.
+        monkeypatch: pytest monkeypatch fixture.
     """
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
@@ -428,40 +437,7 @@ async def test_middleware_allows_exempt_path_without_token(
     middleware = AuthenticationGateMiddleware(mock_app)
 
     mock_request = MagicMock()
-    mock_request.url.path = "/health"
-    mock_request.headers = {}
-
-    expected_response = MagicMock()
-    mock_call_next = AsyncMock(return_value=expected_response)
-
-    response = await middleware.dispatch(mock_request, mock_call_next)
-
-    mock_call_next.assert_called_once_with(mock_request)
-    assert response is expected_response
-
-
-@pytest.mark.asyncio
-async def test_middleware_allows_auth_token_path_without_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AuthenticationGateMiddleware must pass /auth/token without authentication.
-
-    /auth/token is the token issuance endpoint — it must be pre-auth exempt.
-
-    Arrange: mock a request to /auth/token with no Authorization header.
-    Act: call dispatch() with a mocked call_next.
-    Assert: call_next is called (request passes through).
-    """
-    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
-    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
-
-    from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
-
-    mock_app = MagicMock()
-    middleware = AuthenticationGateMiddleware(mock_app)
-
-    mock_request = MagicMock()
-    mock_request.url.path = "/auth/token"
+    mock_request.url.path = exempt_path
     mock_request.headers = {}
 
     expected_response = MagicMock()
@@ -509,15 +485,26 @@ async def test_middleware_pass_through_when_jwt_secret_not_configured(
     assert response is expected_response
 
 
+# Authorization header values that must be rejected with 401 on protected paths
+_MIDDLEWARE_REJECTED_HEADERS = [
+    pytest.param(None, id="missing_token"),
+    pytest.param("Token not-bearer-scheme", id="wrong_scheme"),
+    pytest.param("Bearer ", id="empty_bearer"),
+    pytest.param("Bearer this-is-not-a-valid-jwt-token", id="invalid_jwt"),
+]
+
+
+@pytest.mark.parametrize("auth_header_value", _MIDDLEWARE_REJECTED_HEADERS)
 @pytest.mark.asyncio
-async def test_middleware_returns_401_for_missing_token(
+async def test_middleware_returns_401_for_bad_auth_header(
+    auth_header_value: str | None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AuthenticationGateMiddleware must return 401 when Authorization header is absent.
+    """AuthenticationGateMiddleware must return 401 for missing or malformed tokens.
 
-    Arrange: mock a request to /jobs (protected path) with no Authorization header.
-    Act: call dispatch().
-    Assert: returns a 401 JSONResponse (RFC 7807 format).
+    Args:
+        auth_header_value: Value of the Authorization header (None = absent).
+        monkeypatch: pytest monkeypatch fixture.
     """
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
@@ -530,109 +517,7 @@ async def test_middleware_returns_401_for_missing_token(
     mock_request = MagicMock()
     mock_request.url.path = "/api/v1/jobs"
     mock_request.headers = MagicMock()
-    mock_request.headers.get = MagicMock(return_value=None)
-
-    mock_call_next = AsyncMock()
-
-    response = await middleware.dispatch(mock_request, mock_call_next)
-
-    assert response.status_code == 401
-    mock_call_next.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_middleware_returns_401_for_invalid_bearer_format(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AuthenticationGateMiddleware must return 401 for malformed Authorization headers.
-
-    Arrange: set Authorization header to "Token abc" (not Bearer scheme).
-    Act: call dispatch() on a protected path.
-    Assert: returns 401.
-    """
-    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
-    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
-
-    from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
-
-    mock_app = MagicMock()
-    middleware = AuthenticationGateMiddleware(mock_app)
-
-    mock_request = MagicMock()
-    mock_request.url.path = "/api/v1/jobs"
-    mock_request.headers = MagicMock()
-    mock_request.headers.get = MagicMock(return_value="Token not-bearer-scheme")
-
-    mock_call_next = AsyncMock()
-
-    response = await middleware.dispatch(mock_request, mock_call_next)
-
-    assert response.status_code == 401
-    mock_call_next.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_middleware_returns_401_for_empty_bearer_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AuthenticationGateMiddleware must return 401 for 'Authorization: Bearer ' with empty token.
-
-    A header value of "Bearer " (with trailing space but no token) presents an
-    empty string to verify_token(), which must be rejected with 401.
-
-    Arrange: JWT_SECRET_KEY is set; Authorization header is "Bearer " (empty token).
-    Act: call dispatch() on a protected path.
-    Assert: returns 401 — empty token string is not a valid JWT.
-    """
-    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
-    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
-
-    from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
-
-    mock_app = MagicMock()
-    middleware = AuthenticationGateMiddleware(mock_app)
-
-    mock_request = MagicMock()
-    mock_request.url.path = "/api/v1/jobs"
-    mock_request.headers = MagicMock()
-    # "Bearer " with a trailing space but no token — token string is ""
-    mock_request.headers.get = MagicMock(return_value="Bearer ")
-
-    mock_call_next = AsyncMock()
-
-    response = await middleware.dispatch(mock_request, mock_call_next)
-
-    assert response.status_code == 401
-    mock_call_next.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_middleware_returns_401_for_invalid_token_string(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AuthenticationGateMiddleware must return 401 when Bearer token is invalid.
-
-    This covers the dispatch error path in auth.py lines 296-300: when a
-    syntactically-structured Bearer header is present but the token is not
-    a valid JWT, verify_token() raises AuthenticationError which the
-    middleware catches and converts to a 401.
-
-    Arrange: JWT_SECRET_KEY is set to a valid value; token is "invalid-token".
-    Act: call dispatch() on a protected path.
-    Assert: returns 401; call_next is not invoked.
-    """
-    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key-that-is-long-enough-for-hs256")
-    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
-
-    from synth_engine.bootstrapper.dependencies.auth import AuthenticationGateMiddleware
-
-    mock_app = MagicMock()
-    middleware = AuthenticationGateMiddleware(mock_app)
-
-    mock_request = MagicMock()
-    mock_request.url.path = "/api/v1/jobs"
-    mock_request.headers = MagicMock()
-    mock_request.headers.get = MagicMock(return_value="Bearer this-is-not-a-valid-jwt-token")
+    mock_request.headers.get = MagicMock(return_value=auth_header_value)
 
     mock_call_next = AsyncMock()
 
@@ -675,6 +560,7 @@ async def test_middleware_passes_valid_token(monkeypatch: pytest.MonkeyPatch) ->
 
     mock_call_next.assert_called_once_with(mock_request)
     assert response is expected_response
+
 
 
 # ---------------------------------------------------------------------------
