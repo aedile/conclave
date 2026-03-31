@@ -4,7 +4,7 @@ Scans ALL test files using AST parsing and enforces three rules:
 
 1. No test function may have ONLY weak assertions as its sole assertions.
    Weak assertions: ``assert x is None``, ``assert x is not None``,
-   ``assert isinstance(x, T)``, ``assert x == True``, ``assert x is False``,
+   ``assert isinstance(x, T)``, ``assert x is True``, ``assert x is False``,
    bare ``assert x`` (single name).
 
 2. The average assertion density across the suite must be ≥ 1.5 assertions
@@ -60,12 +60,18 @@ def _is_weak_assertion(assert_test: ast.expr) -> bool:
     """Return True if the assertion test expression is a weak/shallow check.
 
     Weak patterns (sole assertion is insufficient per Constitution Priority 4):
-    - ``assert x is None``      (Is comparison to None)
-    - ``assert x is not None``  (IsNot comparison to None)
-    - ``assert x == True``      (Is comparison to True)
-    - ``assert x is False``     (Is comparison to False)
+    - ``assert x is None``        (Is comparison to None)
+    - ``assert x is not None``    (IsNot comparison to None)
+    - ``assert x is True``        (Is comparison to True)
+    - ``assert x is False``       (Is comparison to False)
     - ``assert isinstance(x, T)`` (isinstance call)
-    - ``assert x``              (bare Name — truthiness only)
+    - ``assert x``                (bare Name — truthiness only)
+
+    Note: equality comparisons to sentinel values (``assert x == True``,
+    ``assert x == None``) use ``ast.Eq`` which is NOT detected here.
+    These patterns share the same weakness but are excluded to avoid
+    over-flagging the existing test suite during incremental adoption.
+    Extend detection to ``ast.Eq``/``ast.NotEq`` in a future gate pass.
 
     Args:
         assert_test: The ``.test`` attribute of an ``ast.Assert`` node.
@@ -82,7 +88,7 @@ def _is_weak_assertion(assert_test: ast.expr) -> bool:
     if isinstance(assert_test, ast.Name):
         return True
 
-    # Is / IsNot comparisons
+    # Is / IsNot comparisons to sentinel values
     if isinstance(assert_test, ast.Compare):
         for op in assert_test.ops:
             if isinstance(op, ast.Is | ast.IsNot):
@@ -257,8 +263,8 @@ def test_no_test_function_has_only_weak_assertions() -> None:
     """Rule 1: No test function may have ONLY weak assertions.
 
     A function that only uses ``assert x is not None``, ``assert isinstance(...)``,
-    ``assert x == True/False``, or bare ``assert x`` as its SOLE assertions is
-    insufficient per Constitution Priority 4.
+    ``assert x is True/False``, ``assert not result``, or bare ``assert x`` as
+    its SOLE assertions is insufficient per Constitution Priority 4.
 
     Guard assertions (``assert x is not None`` BEFORE ``assert x.value == 42``)
     are NOT violations — the function must have at least one specific-value
@@ -322,8 +328,8 @@ def test_weak_assertion_ratio_within_limit() -> None:
 
     Weak assertions include ``is None``, ``is not None``, ``isinstance``,
     ``is True``, ``is False``, and bare truthiness checks.  When used as guard
-    assertions before specific-value checks they are fine; a high ratio suite-
-    wide indicates systematic shallow testing.
+    assertions before specific-value checks they are fine; a high ratio
+    suite-wide indicates systematic shallow testing.
     """
     all_functions, _ = _gather_all_test_data()
 

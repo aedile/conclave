@@ -10,6 +10,10 @@ Fix: P48 — Add SDV FutureWarning suppression to conftest autouse fixture
 Fix: T50.3 — Inject CONCLAVE_ENV=development as test-safe default
 Gate 1 (P73): Attack-test enforcement plugin — fails CI if production modules lack
               attack tests.  Enforces CLAUDE.md Rule 22 programmatically.
+Fix: P73 review — _module_has_test_files() uses dual name+content strategy so modules
+              whose test files do not contain the module leaf name in the filename
+              (e.g. modules/mapping -> test_graph.py, test_reflection.py) are still
+              detected correctly.
 """
 
 from __future__ import annotations
@@ -81,16 +85,44 @@ _SRC_ROOT: Path = Path(__file__).parent.parent / "src" / "synth_engine"
 def _module_has_test_files(module_slug: str, tests_root: Path) -> bool:
     """Return True if any test file exists for the given module slug.
 
+    Detection uses two strategies (either is sufficient):
+
+    1. **Name-based**: any ``test_*.py`` whose filename contains the module's
+       leaf name (e.g. ``test_ingestion_*.py`` for ``modules/ingestion``).
+
+    2. **Content-based**: any ``test_*.py`` that imports from the module's
+       dotted Python path (e.g. ``synth_engine.modules.mapping`` for
+       ``"modules/mapping"``).  This handles test files whose names describe the
+       feature under test rather than the module (e.g. ``test_graph.py``
+       and ``test_reflection.py`` both import from
+       ``synth_engine.modules.mapping`` but contain no "mapping" in the filename).
+
     Args:
         module_slug: e.g. ``"bootstrapper"`` or ``"modules/ingestion"``.
         tests_root: Absolute path to the ``tests/`` directory.
 
     Returns:
-        True when at least one ``test_*.py`` file exists that plausibly
-        belongs to this module (heuristic: filename contains the leaf name).
+        True when at least one ``test_*.py`` file plausibly belongs to this
+        module via filename heuristic or import content.
     """
     leaf = module_slug.split("/")[-1]
-    return bool(list(tests_root.rglob(f"*{leaf}*.py")))
+    # The import prefix we look for in file contents.
+    # "modules/mapping" -> "synth_engine.modules.mapping"
+    import_prefix = "synth_engine." + module_slug.replace("/", ".")
+
+    for test_file in tests_root.rglob("test_*.py"):
+        # Strategy 1: leaf name appears in file name
+        if leaf in test_file.name:
+            return True
+        # Strategy 2: file imports from this module's namespace
+        try:
+            file_text = test_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if import_prefix in file_text:
+            return True
+
+    return False
 
 
 def _module_has_attack_test(module_slug: str, tests_root: Path) -> bool:
