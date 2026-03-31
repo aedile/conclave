@@ -86,8 +86,10 @@ class TestTrainingConfigExists:
     def test_training_config_is_importable(self) -> None:
         """TrainingConfig must be importable from training_strategies."""
         from synth_engine.modules.synthesizer.training.training_strategies import (
-            TrainingConfig,  # noqa: F401
+            TrainingConfig,
         )
+
+        assert TrainingConfig.__name__ == "TrainingConfig"
 
     def test_training_config_is_dataclass(self) -> None:
         """TrainingConfig must be a frozen dataclass (pure data carrier)."""
@@ -151,11 +153,12 @@ class TestRunGanEpochSignature:
         has_training_config = any(
             ann is TrainingConfig or ann == "TrainingConfig" for ann in param_annotations.values()
         )
-        assert has_training_config, (
+        assert has_training_config == True, (
             "_run_gan_epoch must accept a TrainingConfig parameter. "
             "Replace the individual embedding_dim, data_dim, pac, batch_size, "
             "discriminator_steps parameters with a single TrainingConfig (AC5)."
         )
+        assert has_training_config
 
 
 # ---------------------------------------------------------------------------
@@ -224,33 +227,27 @@ class TestNoFunctionExceedsFiftyLines:
 class TestStrategyClassesExist:
     """AC4 — VanillaCtganStrategy and DpCtganStrategy must exist in training_strategies.py."""
 
-    def test_vanilla_ctgan_strategy_is_importable(self) -> None:
-        """VanillaCtganStrategy must be importable from training_strategies."""
-        from synth_engine.modules.synthesizer.training.training_strategies import (
-            VanillaCtganStrategy,  # noqa: F401
+    @pytest.mark.parametrize(
+        "class_name",
+        [
+            pytest.param("VanillaCtganStrategy", id="vanilla"),
+            pytest.param("DpCtganStrategy", id="dp"),
+        ],
+    )
+    def test_ctgan_strategy_is_importable_and_has_run_method(self, class_name: str) -> None:
+        """Both strategy classes must be importable and must expose a run() method.
+
+        Args:
+            class_name: Name of the strategy class to import and inspect.
+        """
+        import importlib
+
+        mod = importlib.import_module(
+            "synth_engine.modules.synthesizer.training.training_strategies"
         )
-
-    def test_dp_ctgan_strategy_is_importable(self) -> None:
-        """DpCtganStrategy must be importable from training_strategies."""
-        from synth_engine.modules.synthesizer.training.training_strategies import (
-            DpCtganStrategy,  # noqa: F401
-        )
-
-    def test_vanilla_strategy_has_run_method(self) -> None:
-        """VanillaCtganStrategy must have a run() method."""
-        from synth_engine.modules.synthesizer.training.training_strategies import (
-            VanillaCtganStrategy,
-        )
-
-        assert hasattr(VanillaCtganStrategy, "run"), (
-            "VanillaCtganStrategy must have a run() method."
-        )
-
-    def test_dp_strategy_has_run_method(self) -> None:
-        """DpCtganStrategy must have a run() method."""
-        from synth_engine.modules.synthesizer.training.training_strategies import DpCtganStrategy
-
-        assert hasattr(DpCtganStrategy, "run"), "DpCtganStrategy must have a run() method."
+        cls = getattr(mod, class_name)
+        assert cls.__name__ == class_name, f"{class_name} must be importable"
+        assert hasattr(cls, "run"), f"{class_name} must have a run() method"
 
 
 # ---------------------------------------------------------------------------
@@ -271,14 +268,20 @@ class TestCtganUtilsModule:
     def test_cap_batch_size_importable_from_ctgan_utils(self) -> None:
         """cap_batch_size must be importable from ctgan_utils."""
         from synth_engine.modules.synthesizer.training.ctgan_utils import (
-            cap_batch_size,  # noqa: F401
+            cap_batch_size,
         )
+
+        assert callable(cap_batch_size), "cap_batch_size must be callable"
+        assert cap_batch_size.__name__ == "cap_batch_size"
 
     def test_parse_gan_hyperparams_importable_from_ctgan_utils(self) -> None:
         """parse_gan_hyperparams must be importable from ctgan_utils."""
         from synth_engine.modules.synthesizer.training.ctgan_utils import (
-            parse_gan_hyperparams,  # noqa: F401
+            parse_gan_hyperparams,
         )
+
+        assert callable(parse_gan_hyperparams), "parse_gan_hyperparams must be callable"
+        assert parse_gan_hyperparams.__name__ == "parse_gan_hyperparams"
 
     def test_cap_batch_size_at_most_five_params(self) -> None:
         """cap_batch_size must have at most 5 parameters (AC3)."""
@@ -337,8 +340,10 @@ class TestPublicApiUnchanged:
     def test_dp_compatible_ctgan_importable(self) -> None:
         """DPCompatibleCTGAN must still be importable from dp_training."""
         from synth_engine.modules.synthesizer.training.dp_training import (
-            DPCompatibleCTGAN,  # noqa: F401
+            DPCompatibleCTGAN,
         )
+
+        assert DPCompatibleCTGAN.__name__ == "DPCompatibleCTGAN"
 
     def test_fit_method_exists(self) -> None:
         """DPCompatibleCTGAN.fit() must exist."""

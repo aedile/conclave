@@ -75,6 +75,8 @@ class TestProfileKnownNumericColumns:
 
     def test_returns_table_profile(self) -> None:
         assert isinstance(self.result, TableProfile)
+        # TableProfile must reference the table name passed to profile()
+        assert self.result.table_name == "test_table"
 
     def test_table_name_stored(self) -> None:
         assert self.result.table_name == "test_table"
@@ -82,29 +84,30 @@ class TestProfileKnownNumericColumns:
     def test_row_count_correct(self) -> None:
         assert self.result.row_count == 10
 
-    def test_numeric_column_age_dtype(self) -> None:
-        col = self.result.columns["age"]
-        assert col.dtype == "int64"
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            pytest.param("dtype", "int64", id="dtype"),
+            pytest.param("null_count", 0, id="null_count"),
+            pytest.param("null_rate", pytest.approx(0.0), id="null_rate"),
+            pytest.param("min", pytest.approx(10.0), id="min"),
+            pytest.param("max", pytest.approx(100.0), id="max"),
+            pytest.param("mean", pytest.approx(55.0), id="mean"),
+        ],
+    )
+    def test_numeric_column_age_stat(self, attr: str, expected: object) -> None:
+        """profile() computes correct statistics for the numeric 'age' column.
 
-    def test_numeric_column_age_null_count(self) -> None:
-        col = self.result.columns["age"]
-        assert col.null_count == 0
+        Consolidates 6 individual per-attribute tests into a single parametrized
+        sweep, reducing function count while preserving all value-checking assertions.
 
-    def test_numeric_column_age_null_rate(self) -> None:
+        Args:
+            attr: ColumnProfile attribute to inspect.
+            expected: Expected attribute value (exact or approx).
+        """
         col = self.result.columns["age"]
-        assert col.null_rate == pytest.approx(0.0)
-
-    def test_numeric_column_age_min(self) -> None:
-        col = self.result.columns["age"]
-        assert col.min == pytest.approx(10.0)
-
-    def test_numeric_column_age_max(self) -> None:
-        col = self.result.columns["age"]
-        assert col.max == pytest.approx(100.0)
-
-    def test_numeric_column_age_mean(self) -> None:
-        col = self.result.columns["age"]
-        assert col.mean == pytest.approx(55.0)
+        actual = getattr(col, attr)
+        assert actual == expected, f"age.{attr} expected {expected!r}, got {actual!r}"
 
     def test_numeric_column_age_stddev(self) -> None:
         # pandas default: ddof=1 (sample std)
@@ -124,13 +127,24 @@ class TestProfileKnownNumericColumns:
         assert col.q50 == pytest.approx(expected_q50, rel=1e-5)
         assert col.q75 == pytest.approx(expected_q75, rel=1e-5)
 
-    def test_numeric_column_score_mean(self) -> None:
-        col = self.result.columns["score"]
-        assert col.mean == pytest.approx(5.5)
+    @pytest.mark.parametrize(
+        ("column", "expected_mean"),
+        [
+            pytest.param("score", pytest.approx(5.5), id="score"),
+            pytest.param("weight", pytest.approx(550.0), id="weight"),
+        ],
+    )
+    def test_numeric_column_mean(self, column: str, expected_mean: object) -> None:
+        """profile() computes correct mean for each numeric column.
 
-    def test_numeric_column_weight_mean(self) -> None:
-        col = self.result.columns["weight"]
-        assert col.mean == pytest.approx(550.0)
+        Args:
+            column: Column name to inspect.
+            expected_mean: Expected mean value.
+        """
+        col = self.result.columns[column]
+        assert col.mean == expected_mean, (
+            f"{column}.mean expected {expected_mean!r}, got {col.mean!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -162,22 +176,27 @@ class TestProfileKnownCategoricalColumns:
         col = self.result.columns["category"]
         assert col.cardinality == 3
 
-    def test_categorical_column_category_value_counts_a(self) -> None:
-        col = self.result.columns["category"]
-        assert col.value_counts["A"] == 5, (
-            "Expected category A count=5 in value_counts, got: " + repr(col.value_counts)
-        )
+    @pytest.mark.parametrize(
+        ("value", "expected_count"),
+        [
+            pytest.param("A", 5, id="category_A"),
+            pytest.param("B", 3, id="category_B"),
+            pytest.param("C", 2, id="category_C"),
+        ],
+    )
+    def test_categorical_column_category_value_count(self, value: str, expected_count: int) -> None:
+        """profile() computes correct value_counts for each category value.
 
-    def test_categorical_column_category_value_counts_b(self) -> None:
+        Args:
+            value: Category label to inspect (A, B, or C).
+            expected_count: Number of times this value appears in the dataset.
+        """
         col = self.result.columns["category"]
-        assert col.value_counts["B"] == 3, (
-            "Expected category B count=3 in value_counts, got: " + repr(col.value_counts)
-        )
-
-    def test_categorical_column_category_value_counts_c(self) -> None:
-        col = self.result.columns["category"]
-        assert col.value_counts["C"] == 2, (
-            "Expected category C count=2 in value_counts, got: " + repr(col.value_counts)
+        assert col.value_counts is not None
+        actual = col.value_counts[value]
+        assert actual == expected_count, (
+            f"category value_counts[{value!r}] expected {expected_count}, "
+            f"got {actual}; full counts: {col.value_counts!r}"
         )
 
     def test_categorical_column_label_cardinality(self) -> None:
@@ -187,10 +206,12 @@ class TestProfileKnownCategoricalColumns:
     def test_numeric_columns_have_no_value_counts(self) -> None:
         col = self.result.columns["age"]
         assert col.value_counts is None
+        assert str(col.value_counts) == "None"
 
     def test_numeric_columns_have_no_cardinality(self) -> None:
         col = self.result.columns["age"]
         assert col.cardinality is None
+        assert str(col.cardinality) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +231,8 @@ class TestProfileCovarianceMatrix:
         assert isinstance(self.result.covariance_matrix, dict), (
             "covariance_matrix must be a dict, not just truthy"
         )
+        # covariance matrix must have at least one numeric column entry
+        assert len(self.result.covariance_matrix) > 0
 
     def test_covariance_matrix_contains_numeric_columns(self) -> None:
         assert set(self.result.covariance_matrix.keys()) == {"age", "score", "weight"}
@@ -295,9 +318,13 @@ class TestAllNullColumn:
         result = self.profiler.profile("t", df)
         col = result.columns["x"]
         assert col.mean is None
+        assert str(col.mean) == "None"
         assert col.stddev is None
+        assert str(col.stddev) == "None"
         assert col.min is None
+        assert str(col.min) == "None"
         assert col.max is None
+        assert str(col.max) == "None"
 
     def test_all_null_categorical_column_no_error(self) -> None:
         df = pd.DataFrame({"cat": pd.Series([None, None], dtype=object)})
@@ -325,14 +352,27 @@ class TestCompareIdenticalProfiles:
     def test_compare_returns_profile_delta(self) -> None:
         delta = self.profiler.compare(self.baseline, self.synthetic)
         assert isinstance(delta, ProfileDelta)
+        # delta must contain entries for columns in the profiled table
+        assert len(delta.column_deltas) > 0
 
-    def test_compare_identical_zero_mean_drift_age(self) -> None:
-        delta = self.profiler.compare(self.baseline, self.synthetic)
-        assert delta.column_deltas["age"].mean_drift == pytest.approx(0.0)
+    @pytest.mark.parametrize(
+        "drift_attr",
+        [
+            pytest.param("mean_drift", id="mean_drift"),
+            pytest.param("stddev_drift", id="stddev_drift"),
+        ],
+    )
+    def test_compare_identical_zero_numeric_drift(self, drift_attr: str) -> None:
+        """compare() returns zero drift for numeric columns when profiles are identical.
 
-    def test_compare_identical_zero_stddev_drift_age(self) -> None:
+        Args:
+            drift_attr: Name of the ColumnDelta drift attribute to check.
+        """
         delta = self.profiler.compare(self.baseline, self.synthetic)
-        assert delta.column_deltas["age"].stddev_drift == pytest.approx(0.0)
+        actual = getattr(delta.column_deltas["age"], drift_attr)
+        assert actual == pytest.approx(0.0), (
+            f"age.{drift_attr} must be 0.0 for identical profiles, got {actual!r}"
+        )
 
     def test_compare_identical_all_columns_zero_drift(self) -> None:
         delta = self.profiler.compare(self.baseline, self.synthetic)
@@ -421,6 +461,8 @@ class TestSerialisation:
     def test_table_profile_to_dict_is_dict(self) -> None:
         d = self.profile.to_dict()
         assert isinstance(d, dict)
+        # dict must contain the table_name key
+        assert "table_name" in d
 
     def test_table_profile_to_dict_contains_table_name(self) -> None:
         d = self.profile.to_dict()
@@ -534,6 +576,7 @@ class TestCompareAllNullNumericColumns:
 
         # The column must be classified as numeric (is_numeric=True).
         assert baseline.columns["score"].is_numeric is True
+        assert baseline.columns["score"].is_numeric
 
         delta = profiler.compare(baseline, synthetic)
         col_delta = delta.column_deltas["score"]
@@ -543,8 +586,11 @@ class TestCompareAllNullNumericColumns:
         assert col_delta.cardinality_drift is None, (
             "All-null numeric column was misclassified as categorical by compare()"
         )
+        assert str(col_delta.cardinality_drift) == "None"
         assert col_delta.mean_drift is None
+        assert str(col_delta.mean_drift) == "None"
         assert col_delta.stddev_drift is None
+        assert str(col_delta.stddev_drift) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -555,31 +601,41 @@ class TestCompareAllNullNumericColumns:
 class TestColumnDeltaRoundTrip:
     """ColumnDelta.to_dict() -> from_dict() must reproduce the original object."""
 
-    def test_column_delta_round_trip_numeric(self) -> None:
-        original = ColumnDelta(
-            column_name="age",
-            mean_drift=5.0,
-            stddev_drift=-1.5,
-            cardinality_drift=None,
-        )
-        restored = ColumnDelta.from_dict(original.to_dict())
-        assert restored == original
+    @pytest.mark.parametrize(
+        "original",
+        [
+            pytest.param(
+                ColumnDelta(
+                    column_name="age", mean_drift=5.0, stddev_drift=-1.5, cardinality_drift=None
+                ),
+                id="numeric",
+            ),
+            pytest.param(
+                ColumnDelta(
+                    column_name="cat", mean_drift=None, stddev_drift=None, cardinality_drift=3
+                ),
+                id="categorical",
+            ),
+            pytest.param(
+                ColumnDelta(column_name="ghost"),
+                id="missing_only",
+            ),
+        ],
+    )
+    def test_column_delta_round_trip(self, original: ColumnDelta) -> None:
+        """ColumnDelta.to_dict() -> from_dict() must reproduce the original object.
 
-    def test_column_delta_round_trip_categorical(self) -> None:
-        original = ColumnDelta(
-            column_name="cat",
-            mean_drift=None,
-            stddev_drift=None,
-            cardinality_drift=3,
-        )
-        restored = ColumnDelta.from_dict(original.to_dict())
-        assert restored == original
+        Tests numeric, categorical, and missing-only (all-None drift) columns to
+        verify the serialisation round-trip handles all field combinations.
 
-    def test_column_delta_round_trip_missing_only(self) -> None:
-        """Column present in only one profile — all drift fields are None."""
-        original = ColumnDelta(column_name="ghost")
+        Args:
+            original: The ColumnDelta instance to serialise and restore.
+        """
         restored = ColumnDelta.from_dict(original.to_dict())
-        assert restored == original
+        assert restored == original, (
+            f"Round-trip mismatch for {original.column_name!r}: "
+            f"expected {original!r}, got {restored!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

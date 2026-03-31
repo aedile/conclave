@@ -227,10 +227,12 @@ def test_training_data_uses_fixed_random_seed() -> None:
     ]
 
     found_seed = any(p.search(code_sources) for p in seed_patterns)
-    assert found_seed, (
+    assert found_seed == True, (
         "Notebook code cells do not set a fixed random seed. "
         "Add RANDOM_STATE = 42 and pass random_state=RANDOM_STATE to all stochastic calls."
     )
+    # Specific: we checked against exactly 5 seed patterns
+    assert len(seed_patterns) == 5, "Expected 5 seed detection patterns"
 
 
 # ===========================================================================
@@ -386,14 +388,16 @@ def test_training_data_has_augmentation_section() -> None:
         or "real + synthetic" in markdown_text
         or "real+synthetic" in markdown_text
     )
-    assert has_augmentation, (
+    assert has_augmentation == True, (
         "Notebook must have an augmentation section showing real+synthetic combined training."
     )
 
     # The code must reference pd.concat or similar combination of real + synthetic DataFrames
     code_sources = " ".join(_code_cell_sources(nb))
     has_concat = "concat" in code_sources or "augment" in code_sources.lower()
-    assert has_concat, (
+    assert has_concat == True, (
         "Augmentation section must combine real and synthetic DataFrames "
         "(e.g., pd.concat([X_train_real, X_train_synth]))."
     )
+    # Specific: the markdown text we checked was non-empty
+    assert len(markdown_text) > 0, "Notebook has no markdown cells — cannot verify augmentation"

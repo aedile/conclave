@@ -6,6 +6,7 @@ Tests cover:
 - Authenticated security requests succeed.
 
 Split from test_auth_gap_remediation.py (T56.3).
+Parametrized in T73.1 to reduce repetition.
 
 CONSTITUTION Priority 0: Security
 Task: ADR-D1 — Add Authentication to Settings, Security & Privacy Routers
@@ -121,170 +122,139 @@ def _common_patches() -> list[Any]:
     ]
 
 
-class TestSecurityUnauthenticatedReturns401:
-    """Unauthenticated requests to security endpoints must return 401."""
+# ---------------------------------------------------------------------------
+# ATTACK: Security endpoints — unauthenticated, expired, empty-sub, wrong-key
+# Each parametrize value: (method, path, body)
+# ---------------------------------------------------------------------------
 
-    @pytest.mark.asyncio
-    async def test_shred_vault_unauthenticated_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """POST /security/shred without token must return 401 when JWT is configured."""
-        app = _make_security_app(monkeypatch)
-        patches = _common_patches()
+_SECURITY_ENDPOINT_CASES = [
+    pytest.param("POST", "/security/shred", None, id="shred"),
+    pytest.param("POST", "/security/keys/rotate", {"new_passphrase": "new-pass"}, id="rotate"),
+]
 
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post("/security/shred")
 
-        assert response.status_code == 401
+@pytest.mark.parametrize(("method", "path", "body"), _SECURITY_ENDPOINT_CASES)
+@pytest.mark.asyncio
+async def test_security_endpoint_unauthenticated_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Security endpoints without token must return 401 when JWT is configured.
 
-    @pytest.mark.asyncio
-    async def test_rotate_keys_unauthenticated_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """POST /security/keys/rotate without token must return 401 when JWT is configured."""
-        app = _make_security_app(monkeypatch)
-        patches = _common_patches()
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app = _make_security_app(monkeypatch)
+    patches = _common_patches()
 
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/security/keys/rotate",
-                    json={"new_passphrase": "new-pass"},
-                )
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            kwargs = {"json": body} if body is not None else {}
+            response = await getattr(client, method.lower())(path, **kwargs)
 
-        assert response.status_code == 401
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize(("method", "path", "body"), _SECURITY_ENDPOINT_CASES)
+@pytest.mark.asyncio
+async def test_security_endpoint_expired_token_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Security endpoints with expired JWT must return 401.
+
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app = _make_security_app(monkeypatch)
+    token = _make_token(exp_offset=-3600)
+    patches = _common_patches()
+
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize(("method", "path", "body"), _SECURITY_ENDPOINT_CASES)
+@pytest.mark.asyncio
+async def test_security_endpoint_empty_sub_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Security endpoints with empty-sub token must return 401.
+
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app = _make_security_app(monkeypatch)
+    token = _make_token(sub="")
+    patches = _common_patches()
+
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize(("method", "path", "body"), _SECURITY_ENDPOINT_CASES)
+@pytest.mark.asyncio
+async def test_security_endpoint_wrong_key_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Security endpoints with wrong-key token must return 401.
+
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app = _make_security_app(monkeypatch)
+    token = _make_token(secret=_WRONG_SECRET)
+    patches = _common_patches()
+
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
-# ATTACK RED: Security endpoints — expired JWT → 401
-# ---------------------------------------------------------------------------
-
-
-class TestSecurityExpiredTokenReturns401:
-    """Expired JWT tokens must return 401 on security endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_shred_vault_expired_token_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """POST /security/shred with expired JWT must return 401."""
-        app = _make_security_app(monkeypatch)
-        token = _make_token(exp_offset=-3600)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/security/shred",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_rotate_keys_expired_token_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """POST /security/keys/rotate with expired JWT must return 401."""
-        app = _make_security_app(monkeypatch)
-        token = _make_token(exp_offset=-3600)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/security/keys/rotate",
-                    json={"new_passphrase": "new-pass"},
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
-
-
-# ---------------------------------------------------------------------------
-# ATTACK RED: Security endpoints — empty sub → 401
-# ---------------------------------------------------------------------------
-
-
-class TestSecurityEmptySubReturns401:
-    """Tokens with empty sub must return 401 on security endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_shred_vault_empty_sub_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """POST /security/shred with token sub="" must return 401."""
-        app = _make_security_app(monkeypatch)
-        token = _make_token(sub="")
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/security/shred",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_rotate_keys_empty_sub_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """POST /security/keys/rotate with token sub="" must return 401."""
-        app = _make_security_app(monkeypatch)
-        token = _make_token(sub="")
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/security/keys/rotate",
-                    json={"new_passphrase": "new-pass"},
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
-
-
-# ---------------------------------------------------------------------------
-# ATTACK RED: Security endpoints — wrong signing key → 401
-# ---------------------------------------------------------------------------
-
-
-class TestSecurityWrongKeyReturns401:
-    """Tokens signed with wrong key must return 401 on security endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_shred_vault_wrong_key_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """POST /security/shred with token signed by wrong key must return 401."""
-        app = _make_security_app(monkeypatch)
-        token = _make_token(secret=_WRONG_SECRET)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/security/shred",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
-
-
-# ---------------------------------------------------------------------------
-# ATTACK RED: Privacy endpoints — unauthenticated → 401
+# Pass-through mode
 # ---------------------------------------------------------------------------
 
 

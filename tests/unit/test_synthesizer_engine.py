@@ -237,7 +237,7 @@ class TestFkPostProcessing:
             )
 
     def test_returns_dataframe(self) -> None:
-        """apply_fk_post_processing must return a pd.DataFrame."""
+        """apply_fk_post_processing must return a pd.DataFrame with original columns."""
         from synth_engine.modules.synthesizer.training.engine import apply_fk_post_processing
 
         parent_pks = {1, 2}
@@ -249,6 +249,8 @@ class TestFkPostProcessing:
             rng_seed=42,
         )
         assert isinstance(result, pd.DataFrame)
+        # Result must preserve the original column structure
+        assert list(result.columns) == ["id", "parent_id"]
 
     def test_missing_fk_column_raises_key_error(self) -> None:
         """apply_fk_post_processing must raise KeyError if fk_column is absent."""
@@ -348,6 +350,7 @@ class TestSynthesisEngineTrain:
             engine.train(table_name="persons", parquet_path=parquet_path)
 
             mock_instance.fit.assert_called_once()
+            assert mock_instance.fit.call_count == 1
 
     def test_train_artifact_has_correct_table_name(self) -> None:
         """train() must set the table_name on the returned ModelArtifact."""
@@ -452,13 +455,15 @@ class TestSynthesisEngineGenerate:
         )
 
     def test_generate_returns_dataframe(self) -> None:
-        """generate() must return a pd.DataFrame."""
+        """generate() must return a pd.DataFrame with exactly n_rows rows."""
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
         result = engine.generate(artifact=artifact, n_rows=3)
         assert isinstance(result, pd.DataFrame)
+        # generate(n_rows=3) must return exactly 3 rows
+        assert len(result) == 3
 
     def test_generate_calls_sample_with_n_rows(self) -> None:
         """generate() must call artifact.model.sample() with the requested row count."""
@@ -470,6 +475,7 @@ class TestSynthesisEngineGenerate:
         # artifact.model is MagicMock in this test; cast for assertion access
         mock_model = cast(MagicMock, artifact.model)
         mock_model.sample.assert_called_once_with(num_rows=50)
+        assert mock_model.sample.call_count == 1
 
     def test_generate_returns_correct_row_count(self) -> None:
         """generate() must return a DataFrame with n_rows rows."""
@@ -489,23 +495,28 @@ class TestSynthesisEngineGenerate:
         result = engine.generate(artifact=artifact, n_rows=3)
         assert set(result.columns) == {"id", "age", "salary"}
 
-    def test_generate_zero_rows_raises_value_error(self) -> None:
-        """generate() with n_rows=0 must raise ValueError."""
+    @pytest.mark.parametrize(
+        "n_rows",
+        [
+            pytest.param(0, id="zero"),
+            pytest.param(-5, id="negative"),
+        ],
+    )
+    def test_generate_invalid_n_rows_raises_value_error(self, n_rows: int) -> None:
+        """generate() must raise ValueError for n_rows ≤ 0.
+
+        Zero and negative row counts produce empty or meaningless DataFrames
+        and must be caught at call time rather than propagated to the model.
+
+        Args:
+            n_rows: Invalid row count (zero or negative).
+        """
         from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
 
         engine = SynthesisEngine()
         artifact = self._make_artifact()
         with pytest.raises(ValueError, match="n_rows"):
-            engine.generate(artifact=artifact, n_rows=0)
-
-    def test_generate_negative_rows_raises_value_error(self) -> None:
-        """generate() with n_rows<0 must raise ValueError."""
-        from synth_engine.modules.synthesizer.training.engine import SynthesisEngine
-
-        engine = SynthesisEngine()
-        artifact = self._make_artifact()
-        with pytest.raises(ValueError, match="n_rows"):
-            engine.generate(artifact=artifact, n_rows=-5)
+            engine.generate(artifact=artifact, n_rows=n_rows)
 
     def test_generate_model_none_raises_value_error(self) -> None:
         """generate() with artifact.model=None MUST raise ValueError.
@@ -779,6 +790,8 @@ class TestSynthesisMsPerRowHistogram:
         from synth_engine.modules.synthesizer.training.engine import SYNTHESIS_MS_PER_ROW
 
         assert isinstance(SYNTHESIS_MS_PER_ROW, Histogram)
+        # Histogram must be named for Prometheus scraping
+        assert SYNTHESIS_MS_PER_ROW._name == "synthesis_ms_per_row"
 
     def test_train_increments_histogram_for_vanilla_model(self) -> None:
         """train() must observe a value in the histogram after vanilla CTGAN fit."""

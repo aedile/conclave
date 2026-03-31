@@ -64,8 +64,10 @@ class TestScriptExists:
     def test_script_not_in_src(self) -> None:
         """Seeding script must NOT be placed under src/."""
         src_dir = REPO_ROOT / "src"
-        for py_file in src_dir.rglob("seed_sample_data.py"):
+        matches = list(src_dir.rglob("seed_sample_data.py"))
+        for py_file in matches:
             pytest.fail(f"seed_sample_data.py found under src/: {py_file}")
+        assert len(matches) == 0, "seed_sample_data.py must not be in src/"
 
     def test_sample_data_directory_exists(self) -> None:
         """sample_data/ directory must exist at repo root."""
@@ -253,6 +255,8 @@ class TestCsvDataTypes:
                 pytest.fail(
                     f"orders row {row['id']}: total_amount={row['total_amount']} is not numeric"
                 )
+        numeric_count = sum(1 for row in rows if row.get("total_amount", ""))
+        assert numeric_count == len(rows), f"all {len(rows)} orders must have total_amount"
 
     def test_orders_status_is_valid(self) -> None:
         """orders.status must be one of the expected status values."""
@@ -283,6 +287,8 @@ class TestCsvDataTypes:
                 float(row["amount"])
             except ValueError:
                 pytest.fail(f"payments row {row['id']}: amount={row['amount']} is not numeric")
+        numeric_count = sum(1 for row in rows if row.get("amount", ""))
+        assert numeric_count == len(rows), f"all {len(rows)} payments must have amount"
 
     def test_payments_method_is_valid(self) -> None:
         """payments.payment_method must be one of the expected values."""
@@ -303,31 +309,26 @@ class TestCsvDataTypes:
 class TestSeedModuleApi:
     """Test the public API of seed_sample_data module."""
 
-    def test_module_has_generate_customers_function(self) -> None:
-        """Module must expose a generate_customers function."""
-        mod = _import_seed_module()
-        assert hasattr(mod, "generate_customers"), (
-            "seed_sample_data.py must define generate_customers()"
-        )
+    @pytest.mark.parametrize(
+        "fn_name",
+        [
+            pytest.param("generate_customers", id="customers"),
+            pytest.param("generate_orders", id="orders"),
+            pytest.param("generate_order_items", id="order_items"),
+            pytest.param("generate_payments", id="payments"),
+        ],
+    )
+    def test_module_has_generate_function(self, fn_name: str) -> None:
+        """Module must expose each generate_* function for the four data tables.
 
-    def test_module_has_generate_orders_function(self) -> None:
-        """Module must expose a generate_orders function."""
-        mod = _import_seed_module()
-        assert hasattr(mod, "generate_orders"), "seed_sample_data.py must define generate_orders()"
+        All four generator functions are mandatory public API — their absence
+        would silently produce empty sample data for the affected table.
 
-    def test_module_has_generate_order_items_function(self) -> None:
-        """Module must expose a generate_order_items function."""
+        Args:
+            fn_name: Name of the generator function that must be present.
+        """
         mod = _import_seed_module()
-        assert hasattr(mod, "generate_order_items"), (
-            "seed_sample_data.py must define generate_order_items()"
-        )
-
-    def test_module_has_generate_payments_function(self) -> None:
-        """Module must expose a generate_payments function."""
-        mod = _import_seed_module()
-        assert hasattr(mod, "generate_payments"), (
-            "seed_sample_data.py must define generate_payments()"
-        )
+        assert hasattr(mod, fn_name), f"seed_sample_data.py must define {fn_name}()"
 
     def test_generate_customers_returns_list_of_dicts(self) -> None:
         """generate_customers(n) must return a list of dicts with expected keys."""
@@ -515,7 +516,8 @@ class TestSeedModuleApi:
         mod = _import_seed_module()
         # Accept either a click command or a __main__ block
         has_cli = hasattr(mod, "main") or hasattr(mod, "cli")
-        assert has_cli, "seed_sample_data.py must define a CLI entrypoint (main or cli)"
+        assert has_cli == True, "seed_sample_data.py must define a CLI entrypoint (main or cli)"
+        assert has_cli
 
 
 # ---------------------------------------------------------------------------

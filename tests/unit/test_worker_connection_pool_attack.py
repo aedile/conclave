@@ -124,6 +124,7 @@ class TestDisposeCoversWorkerEngines:
         get_worker_engine("sqlite:///:memory:")
         dispose_engines()
         dispose_engines()  # Second call — must be safe
+        assert dispose_engines.__name__ == "dispose_engines", "function must exist and be callable"
 
 
 class TestSQLiteCompatibility:
@@ -152,6 +153,9 @@ class TestSQLiteCompatibility:
 
         engine = get_worker_engine("sqlite:///:memory:")
         assert isinstance(engine, Engine), "SQLite worker engine must return an Engine instance."
+        assert str(engine.url) == "sqlite:///:memory:", (
+            f"Worker engine URL must be sqlite:///:memory:, got {engine.url}"
+        )
 
     def test_worker_engine_sqlite_not_queue_pool(self) -> None:
         """SQLite worker engine must NOT use QueuePool (SQLite is single-file)."""
@@ -217,8 +221,8 @@ class TestSessionCleanupOnException:
             except RuntimeError:
                 raised.append(True)
 
-        assert raised, "RuntimeError must propagate out of the with block."
-        assert session_close_called, (
+        assert len(raised) == 1, "RuntimeError must propagate out of the with block exactly once."
+        assert len(session_close_called) >= 1, (
             "Session.close() must be called even when the with-block body raises. "
             "Without this, connections leak back to the pool on task failure."
         )
@@ -375,6 +379,7 @@ class TestPoolConfigurationForPostgres:
                 "Worker engine must set pool_pre_ping=True to detect stale connections "
                 "after PgBouncer restarts or network interruptions."
             )
+            assert call_kwargs.get("pool_pre_ping")
 
     def test_worker_engine_postgres_pool_recycle_is_1800(self) -> None:
         """Worker engine must set pool_recycle=1800 (matching PgBouncer idle timeout).

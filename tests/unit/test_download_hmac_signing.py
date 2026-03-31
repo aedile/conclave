@@ -332,6 +332,7 @@ class TestHMACPrimitiveSecurity:
         forged_digest = b"\x00" * 32  # attacker's guess
 
         assert verify_hmac(key, data, forged_digest) is False
+        assert not verify_hmac(key, data, forged_digest)
 
     def test_tampered_payload_rejected(self) -> None:
         """A signature valid for original data must fail when the payload is modified.
@@ -347,6 +348,7 @@ class TestHMACPrimitiveSecurity:
 
         tampered_data = b"PAR1\x00TAMPERED artifact content"
         assert verify_hmac(key, tampered_data, digest) is False
+        assert not verify_hmac(key, tampered_data, digest)
 
     def test_replay_attack_rejected(self) -> None:
         """A signature valid for old data must not verify against new data.
@@ -365,8 +367,10 @@ class TestHMACPrimitiveSecurity:
 
         # Old signature must not validate the new data
         assert verify_hmac(key, new_data, old_sig) is False
+        assert not verify_hmac(key, new_data, old_sig)
         # Old signature still validates old data (sanity check)
         assert verify_hmac(key, old_data, old_sig) is True
+        assert verify_hmac(key, old_data, old_sig)
 
     def test_key_rotation_old_key_cannot_verify_new_signature(self) -> None:
         """A signature produced with the new key must not verify with the old key.
@@ -383,7 +387,9 @@ class TestHMACPrimitiveSecurity:
         new_sig = compute_hmac(new_key, data)
 
         assert verify_hmac(old_key, data, new_sig) is False
+        assert not verify_hmac(old_key, data, new_sig)
         assert verify_hmac(new_key, data, new_sig) is True
+        assert verify_hmac(new_key, data, new_sig)
 
     def test_wrong_hash_algorithm_sha1_rejected(self) -> None:
         """A SHA-1 digest must not verify against an SHA-256 HMAC check.
@@ -400,6 +406,7 @@ class TestHMACPrimitiveSecurity:
 
         # 20-byte digest cannot match 32-byte SHA-256 result
         assert verify_hmac(key, data, sha1_digest) is False
+        assert not verify_hmac(key, data, sha1_digest)
 
     def test_empty_payload_sign_and_verify(self) -> None:
         """Signing an empty payload must produce a 32-byte digest that verifies.
@@ -454,6 +461,7 @@ class TestHMACPrimitiveSecurity:
             hmac_mod.verify_hmac(key, data, digest)
 
         sentinel.assert_called_once()
+        assert sentinel.call_count == 1
 
     def test_compute_hmac_output_is_exactly_32_bytes(self) -> None:
         """compute_hmac must always return exactly 32 bytes (SHA-256 digest size)."""
@@ -483,6 +491,7 @@ class TestHMACPrimitiveSecurity:
         digest = compute_hmac(key, data)
 
         assert verify_hmac(key, data, digest) is True
+        assert verify_hmac(key, data, digest)
 
     @pytest.mark.parametrize(
         "data",
@@ -506,6 +515,7 @@ class TestHMACPrimitiveSecurity:
 
         digest = compute_hmac(correct_key, data)
         assert verify_hmac(wrong_key, data, digest) is False
+        assert not verify_hmac(wrong_key, data, digest)
 
     def test_versioned_verify_rejects_unknown_key_id(self) -> None:
         """verify_versioned must return False when the key_id is not in key_map.
@@ -530,6 +540,7 @@ class TestHMACPrimitiveSecurity:
         # key_map only contains LEGACY_KEY_ID — unknown_key_id is absent
         key_map = {LEGACY_KEY_ID: signing_key}
         assert verify_versioned(key_map, data, sig) is False
+        assert not verify_versioned(key_map, data, sig)
 
     def test_versioned_verify_rejects_empty_key_map(self) -> None:
         """verify_versioned must return False when key_map is empty.
@@ -546,3 +557,4 @@ class TestHMACPrimitiveSecurity:
         sig = sign_versioned(key, key_id, data)
 
         assert verify_versioned({}, data, sig) is False
+        assert not verify_versioned({}, data, sig)

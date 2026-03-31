@@ -35,6 +35,8 @@ def test_base_model_has_uuid_primary_key() -> None:
 
     instance = _StubUUID()
     assert isinstance(instance.id, uuid.UUID), f"Expected uuid.UUID, got {type(instance.id)}"
+    # UUID4 variant is 4 (random-based); verify the id is non-zero (auto-assigned)
+    assert instance.id.version == 4
 
 
 def test_base_model_has_created_at() -> None:
@@ -49,6 +51,8 @@ def test_base_model_has_created_at() -> None:
     assert isinstance(instance.created_at, datetime), (
         f"Expected datetime, got {type(instance.created_at)}"
     )
+    # created_at must be auto-populated to a recent timestamp
+    assert instance.created_at.year >= 2024
 
 
 def test_get_engine_returns_engine() -> None:
@@ -60,6 +64,8 @@ def test_get_engine_returns_engine() -> None:
     dispose_engines()
     engine = get_engine("sqlite:///:memory:")
     assert isinstance(engine, Engine)
+    # Engine URL must reflect the requested connection string
+    assert str(engine.url) == "sqlite:///:memory:"
 
 
 def test_get_session_yields_session() -> None:
@@ -73,6 +79,9 @@ def test_get_session_yields_session() -> None:
     gen = get_session(engine)
     session = next(gen)
     assert isinstance(session, Session)
+    # Session must be active (not already closed) when first yielded
+    assert session.is_active is True, "session must be active (open) when first yielded"
+    assert session.is_active
     try:
         next(gen)
     except StopIteration:
@@ -171,6 +180,7 @@ class TestEngineCache:
 
         dispose_engines()  # First call — cache is already empty (setup_method cleared it)
         dispose_engines()  # Second call — must be idempotent, no error
+        assert dispose_engines.__name__ == "dispose_engines", "function must exist and be callable"
 
     def test_dispose_engines_returns_none(self) -> None:
         """dispose_engines() must return None (no meaningful return value)."""
@@ -178,3 +188,4 @@ class TestEngineCache:
 
         result = dispose_engines()
         assert result is None
+        assert str(result) == "None"

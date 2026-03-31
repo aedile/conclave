@@ -70,7 +70,8 @@ class TestCollisionErrorHierarchy:
         except SynthEngineError:
             caught = True
 
-        assert caught, "CollisionError must be catchable as SynthEngineError"
+        assert caught == True, "CollisionError must be catchable as SynthEngineError"
+        assert caught
 
     def test_collision_error_preserves_message(self) -> None:
         """CollisionError must preserve the error message."""
@@ -107,7 +108,8 @@ class TestCycleDetectionErrorHierarchy:
         except SynthEngineError:
             caught = True
 
-        assert caught, "CycleDetectionError must be catchable as SynthEngineError"
+        assert caught == True, "CycleDetectionError must be catchable as SynthEngineError"
+        assert caught
 
     def test_cycle_detection_error_preserves_cycle_attribute(self) -> None:
         """CycleDetectionError must still carry the cycle attribute after base class change."""

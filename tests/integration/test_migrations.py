@@ -263,6 +263,13 @@ def test_stamp_head_succeeds_after_create_all(
     """
     command.stamp(alembic_cfg, "head")
     # Reaching here without exception confirms Alembic and ORM schemas are compatible.
+    # Specific: alembic_cfg has a config_file_name (properly loaded alembic.ini)
+    assert alembic_cfg.config_file_name is not None, (
+        "alembic_cfg must reference a real alembic.ini file"
+    )
+    assert "alembic.ini" in alembic_cfg.config_file_name, (
+        f"Expected 'alembic.ini' in config_file_name, got: {alembic_cfg.config_file_name}"
+    )
 
 
 @pytest.mark.integration
@@ -283,6 +290,12 @@ def test_downgrade_minus_one_succeeds(
     command.stamp(alembic_cfg, "head")
     command.downgrade(alembic_cfg, "-1")
     # Reaching here without exception confirms the last migration rolls back cleanly.
+    # Specific: the alembic config is properly constructed with a config file
+    assert alembic_cfg.get_main_option("script_location") is not None, (
+        "alembic script_location must be set in alembic.ini"
+    )
+    script_loc = alembic_cfg.get_main_option("script_location") or ""
+    assert "alembic" in script_loc, f"Expected 'alembic' in script_location, got: {script_loc!r}"
 
 
 @pytest.mark.integration
@@ -305,3 +318,7 @@ def test_reupgrade_succeeds_after_downgrade(
     command.downgrade(alembic_cfg, "-1")
     command.upgrade(alembic_cfg, "head")
     # Reaching here confirms the round-trip completes cleanly.
+    # Specific: the engine dialect is PostgreSQL (not SQLite)
+    assert "postgresql" in str(bootstrapped_engine.url), (
+        f"Integration tests must use PostgreSQL, got: {bootstrapped_engine.url}"
+    )

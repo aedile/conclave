@@ -174,48 +174,42 @@ class TestAttackAndNegative:
     # 1. Safe methods with Idempotency-Key are ignored
     # -----------------------------------------------------------------------
 
-    def test_get_with_idempotency_key_passes_through(self) -> None:
-        """GET + Idempotency-Key — header must be ignored, request passes through.
+    @pytest.mark.parametrize(
+        ("method", "path", "acceptable_statuses"),
+        [
+            pytest.param("get", "/items", {200}, id="GET"),
+            pytest.param("head", "/items", {200, 405}, id="HEAD"),
+            pytest.param("options", "/items", {200, 405}, id="OPTIONS"),
+        ],
+    )
+    def test_safe_method_with_idempotency_key_passes_through(
+        self,
+        method: str,
+        path: str,
+        acceptable_statuses: set[int],
+    ) -> None:
+        """Safe (read-only) HTTP methods must not trigger Redis idempotency checks.
 
-        Verifies that safe (read-only) methods are never intercepted, even when
-        an Idempotency-Key header is present.
+        The Idempotency-Key header is only relevant for mutating methods (POST,
+        PUT, PATCH, DELETE). Safe methods must pass through regardless.
+        FastAPI may return 200 or 405 for HEAD/OPTIONS depending on routing;
+        the critical invariant is Redis.set is never called.
+
+        Args:
+            method: HTTP method name (lowercase) to invoke.
+            path: Request path to test.
+            acceptable_statuses: Set of acceptable response status codes.
         """
         redis_mock = _make_redis_mock()
         app = _make_app(redis_mock)
         client = TestClient(app, raise_server_exceptions=True)
 
-        response = client.get("/items", headers={"Idempotency-Key": "key-abc"})
+        response = getattr(client, method)(path, headers={"Idempotency-Key": "key-abc"})
 
-        assert response.status_code == 200
-        redis_mock.set.assert_not_called()
-
-    def test_head_with_idempotency_key_passes_through(self) -> None:
-        """HEAD + Idempotency-Key — header must be ignored, never touches Redis.
-
-        FastAPI may return 200 or 405 depending on whether HEAD is inferred
-        from GET.  The critical assertion is that the middleware never calls
-        Redis SET for safe methods — the status code is a routing concern.
-        """
-        redis_mock = _make_redis_mock()
-        app = _make_app(redis_mock)
-        client = TestClient(app, raise_server_exceptions=True)
-
-        response = client.head("/items", headers={"Idempotency-Key": "key-abc"})
-
-        # 200 or 405 is acceptable — routing detail; Redis must NOT be touched.
-        assert response.status_code in {200, 405}
-        redis_mock.set.assert_not_called()
-
-    def test_options_with_idempotency_key_passes_through(self) -> None:
-        """OPTIONS + Idempotency-Key — header must be ignored."""
-        redis_mock = _make_redis_mock()
-        app = _make_app(redis_mock)
-        client = TestClient(app, raise_server_exceptions=True)
-
-        response = client.options("/items", headers={"Idempotency-Key": "key-abc"})
-
-        # OPTIONS may return 200 or 405; the key point is Redis is untouched.
-        assert response.status_code in {200, 405}
+        assert response.status_code in acceptable_statuses, (
+            f"{method.upper()} {path} returned {response.status_code}, "
+            f"expected one of {acceptable_statuses}"
+        )
         redis_mock.set.assert_not_called()
 
     # -----------------------------------------------------------------------
@@ -813,3 +807,4 @@ class TestFeature:
             assert isinstance(client, redis_lib.Redis), (
                 f"get_redis_client() must return a redis.Redis instance, got {type(client)}"
             )
+            assert mock_from_url.call_count == 1, "from_url must be called exactly once"

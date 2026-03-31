@@ -389,6 +389,7 @@ class TestSpendBudgetWiring:
             job_id=26, enable_dp=enable_dp, dp_wrapper=dp_wrapper_arg, budget_fn=mock_budget_fn
         )
         mock_budget_fn.assert_not_called()
+        assert mock_budget_fn.call_count == 0
 
     def test_audit_log_emitted_on_budget_spend(self) -> None:
         """Audit log_event must be called after successful spend_budget (AC5).

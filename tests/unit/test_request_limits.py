@@ -38,21 +38,31 @@ pytestmark = pytest.mark.unit
 class TestMeasureJsonDepth:
     """Unit tests for the _measure_json_depth function."""
 
-    def test_empty_string_returns_zero(self) -> None:
-        """Empty string has no nesting — depth is 0."""
-        assert _measure_json_depth("") == 0
+    @pytest.mark.parametrize(
+        ("text", "expected_depth"),
+        [
+            pytest.param("", 0, id="empty_string"),
+            pytest.param("42", 0, id="flat_number"),
+            pytest.param('{"key": "val"}', 1, id="flat_object"),
+            pytest.param('{"a": {"b": 1}}', 2, id="nested_object_2"),
+            pytest.param("[1, 2, 3]", 1, id="flat_array"),
+            pytest.param("[[1, 2]]", 2, id="nested_array_2"),
+        ],
+    )
+    def test_measure_json_depth_simple_cases(self, text: str, expected_depth: int) -> None:
+        """_measure_json_depth returns the correct nesting depth for simple inputs.
 
-    def test_flat_number_returns_zero(self) -> None:
-        """A bare number has no nesting."""
-        assert _measure_json_depth("42") == 0
+        Tests zero-depth (no brackets), single-level, and two-level nesting for
+        both object and array types. Consolidates 6 near-identical assertions.
 
-    def test_flat_object_depth_1(self) -> None:
-        """A flat object ``{"key": "val"}`` has depth 1."""
-        assert _measure_json_depth('{"key": "val"}') == 1
-
-    def test_nested_object_depth_2(self) -> None:
-        """Nested object ``{"a": {"b": 1}}`` has depth 2."""
-        assert _measure_json_depth('{"a": {"b": 1}}') == 2
+        Args:
+            text: JSON string to measure.
+            expected_depth: Expected maximum nesting depth.
+        """
+        result = _measure_json_depth(text)
+        assert result == expected_depth, (
+            f"_measure_json_depth({text!r}) returned {result}, expected {expected_depth}"
+        )
 
     def test_nested_object_depth_10(self) -> None:
         """10 levels of nesting returns depth 10."""
@@ -61,14 +71,6 @@ class TestMeasureJsonDepth:
             obj = {"a": obj}
         text = json.dumps(obj)
         assert _measure_json_depth(text) == 10
-
-    def test_flat_array_depth_1(self) -> None:
-        """A flat array ``[1, 2, 3]`` has depth 1."""
-        assert _measure_json_depth("[1, 2, 3]") == 1
-
-    def test_nested_array_depth_2(self) -> None:
-        """Nested array ``[[1, 2]]`` has depth 2."""
-        assert _measure_json_depth("[[1, 2]]") == 2
 
     def test_brackets_inside_strings_ignored(self) -> None:
         """Brackets inside a string literal must NOT increase depth.
@@ -203,6 +205,7 @@ class TestRequestBodyLimitMiddleware:
         await middleware(scope, receive, send)
 
         inner.assert_awaited_once_with(scope, receive, send)
+        assert inner.await_count == 1, "non-HTTP scope must forward to inner app exactly once"
 
     @pytest.mark.asyncio
     async def test_content_length_over_limit_returns_413(self) -> None:
@@ -252,6 +255,7 @@ class TestRequestBodyLimitMiddleware:
 
         # Inner app must be called (warning, not rejection)
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_streaming_body_over_limit_returns_413(self) -> None:
@@ -291,6 +295,7 @@ class TestRequestBodyLimitMiddleware:
 
         # Inner app is called with empty body after disconnect
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_valid_json_body_forwarded_to_inner_app(self) -> None:
@@ -365,6 +370,7 @@ class TestRequestBodyLimitMiddleware:
         await middleware(scope, receive, send)
 
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_non_json_content_type_skips_depth_check(self) -> None:
@@ -386,6 +392,7 @@ class TestRequestBodyLimitMiddleware:
 
         # Inner app must be called — depth check is skipped for non-JSON
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_replay_receive_fallback_called_after_body_sent(self) -> None:
@@ -444,6 +451,7 @@ class TestRequestBodyLimitMiddleware:
 
         # Inner app must be called — no body to check
         inner.assert_awaited_once()
+        assert inner.await_count == 1, "inner app must be called exactly once"
 
     @pytest.mark.asyncio
     async def test_valid_json_body_under_depth_limit_forwarded(self) -> None:
@@ -465,6 +473,9 @@ class TestRequestBodyLimitMiddleware:
         await middleware(scope, receive, send)
 
         inner.assert_awaited_once()
+        assert inner.await_count == 1, (
+            "valid JSON under depth limit must be forwarded to inner app once"
+        )
 
     @pytest.mark.asyncio
     async def test_depth_check_regression_after_dead_branch_removal(self) -> None:

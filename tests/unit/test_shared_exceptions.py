@@ -9,6 +9,12 @@ Key goals:
 - Verify error sanitization for HTTP exposure.
 - Verify vault and license exceptions are unified under SynthEngineError (T34.1).
 
+T73: Parametrize 4 groups of near-duplicate tests:
+  - 5 inherits-SynthEngineError tests → 1 parametrized
+  - 3 safe_error_msg strip tests → 1 parametrized
+  - 3 vault-is-SynthEngineError tests → 1 parametrized
+  - 3 vault-not-ValueError tests → 1 parametrized
+
 CONSTITUTION Priority 3: TDD — RED phase
 Task: P26-T26.2 — Exception Hierarchy + Error Sanitization + Type Tightening
 Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
@@ -23,6 +29,140 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
+# ---------------------------------------------------------------------------
+# Parametrized: domain exception subclass inheritance (AC1)
+# ---------------------------------------------------------------------------
+
+_EXCEPTION_SUBCLASSES = [
+    pytest.param("BudgetExhaustionError", id="BudgetExhaustion"),
+    pytest.param("OOMGuardrailError", id="OOMGuardrail"),
+    pytest.param("PrivilegeEscalationError", id="PrivilegeEscalation"),
+    pytest.param("ArtifactTamperingError", id="ArtifactTampering"),
+    pytest.param("VaultSealedError", id="VaultSealed"),
+]
+
+
+@pytest.mark.parametrize("exc_name", _EXCEPTION_SUBCLASSES)
+def test_domain_exception_inherits_synth_engine_error(exc_name: str) -> None:
+    """Each domain exception must inherit from SynthEngineError (AC1).
+
+    All five domain exceptions must be catchable at the SynthEngineError boundary
+    so orchestration code can handle them with a single except clause.
+
+    Args:
+        exc_name: Name of the exception class to verify.
+    """
+    import synth_engine.shared.exceptions as mod
+
+    synth_engine_error = mod.SynthEngineError
+    exc_class = getattr(mod, exc_name)
+    assert issubclass(exc_class, synth_engine_error), (
+        f"{exc_name} must be a subclass of SynthEngineError, got bases: {exc_class.__bases__!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parametrized: safe_error_msg strips module paths (AC5)
+# ---------------------------------------------------------------------------
+
+_STRIP_CASES = [
+    pytest.param(
+        "synth_engine.modules.privacy.dp_engine.BudgetExhaustionError: budget gone",
+        "synth_engine.modules",
+        id="modules_path",
+    ),
+    pytest.param(
+        "synth_engine.shared.exceptions.SynthEngineError: something failed",
+        "synth_engine.shared",
+        id="shared_path",
+    ),
+    pytest.param(
+        "synth_engine.bootstrapper.errors.RFC7807Middleware raised",
+        "synth_engine.bootstrapper",
+        id="bootstrapper_path",
+    ),
+]
+
+
+@pytest.mark.parametrize(("input_msg", "forbidden_fragment"), _STRIP_CASES)
+def test_safe_error_msg_strips_module_path(input_msg: str, forbidden_fragment: str) -> None:
+    """safe_error_msg must strip Python module-path prefixes from error messages (AC5).
+
+    Module paths in error messages expose internal class names and module
+    structure.  safe_error_msg must sanitize them before the string is
+    returned to callers or included in HTTP responses.
+
+    Args:
+        input_msg: Raw error message that contains a module-path prefix.
+        forbidden_fragment: Fragment that must NOT appear in the sanitized output.
+    """
+    from synth_engine.shared.errors import safe_error_msg
+
+    result = safe_error_msg(input_msg)
+    assert forbidden_fragment not in result, (
+        f"safe_error_msg must strip {forbidden_fragment!r} from {input_msg!r}, got: {result!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parametrized: vault exceptions — SynthEngineError membership + not ValueError (T34.1)
+# ---------------------------------------------------------------------------
+
+_VAULT_EXCEPTION_CASES = [
+    pytest.param(
+        "VaultEmptyPassphraseError",
+        "Passphrase must not be empty.",
+        id="VaultEmptyPassphrase",
+    ),
+    pytest.param(
+        "VaultAlreadyUnsealedError",
+        "Vault is already unsealed.",
+        id="VaultAlreadyUnsealed",
+    ),
+    pytest.param(
+        "VaultConfigError",
+        "VAULT_SEAL_SALT is not set.",
+        id="VaultConfig",
+    ),
+]
+
+
+@pytest.mark.parametrize(("exc_name", "message"), _VAULT_EXCEPTION_CASES)
+def test_vault_exception_is_synth_engine_error_not_value_error(exc_name: str, message: str) -> None:
+    """Vault exceptions must inherit SynthEngineError and NOT ValueError (T34.1).
+
+    T34.1 moved vault exceptions from ValueError to SynthEngineError.  Both
+    conditions are tested together: is-SynthEngineError and is-NOT-ValueError,
+    because they are two sides of the same migration — if one passes but the
+    other fails, the migration is incomplete.
+
+    Args:
+        exc_name: Name of the vault exception class.
+        message: Test message to pass when constructing the exception.
+    """
+    import synth_engine.shared.exceptions as mod
+
+    synth_engine_error = mod.SynthEngineError
+    exc_class = getattr(mod, exc_name)
+
+    # Must be a SynthEngineError (post-T34.1)
+    exc = exc_class(message)
+    assert isinstance(exc, synth_engine_error), (
+        f"{exc_name} instance must satisfy isinstance(exc, SynthEngineError)"
+    )
+    assert str(exc) == message, f"{exc_name} must preserve the message string, got: {str(exc)!r}"
+    # Must NOT be a ValueError (pre-T34.1 base class)
+    assert not issubclass(exc_class, ValueError), (
+        f"{exc_name} must NOT inherit ValueError after T34.1 — "
+        "it must only be catchable at SynthEngineError"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Class-based tests: exception hierarchy (unique assertions kept standalone)
+# ---------------------------------------------------------------------------
+
+
 class TestExceptionHierarchy:
     """AC1: SynthEngineError base hierarchy lives in shared/exceptions.py."""
 
@@ -31,36 +171,6 @@ class TestExceptionHierarchy:
         from synth_engine.shared.exceptions import SynthEngineError
 
         assert issubclass(SynthEngineError, Exception)
-
-    def test_budget_exhaustion_error_inherits_synth_engine_error(self) -> None:
-        """BudgetExhaustionError must inherit from SynthEngineError."""
-        from synth_engine.shared.exceptions import BudgetExhaustionError, SynthEngineError
-
-        assert issubclass(BudgetExhaustionError, SynthEngineError)
-
-    def test_oom_guardrail_error_inherits_synth_engine_error(self) -> None:
-        """OOMGuardrailError must inherit from SynthEngineError."""
-        from synth_engine.shared.exceptions import OOMGuardrailError, SynthEngineError
-
-        assert issubclass(OOMGuardrailError, SynthEngineError)
-
-    def test_privilege_escalation_error_inherits_synth_engine_error(self) -> None:
-        """PrivilegeEscalationError must inherit from SynthEngineError."""
-        from synth_engine.shared.exceptions import PrivilegeEscalationError, SynthEngineError
-
-        assert issubclass(PrivilegeEscalationError, SynthEngineError)
-
-    def test_artifact_tampering_error_inherits_synth_engine_error(self) -> None:
-        """ArtifactTamperingError must inherit from SynthEngineError."""
-        from synth_engine.shared.exceptions import ArtifactTamperingError, SynthEngineError
-
-        assert issubclass(ArtifactTamperingError, SynthEngineError)
-
-    def test_vault_sealed_error_inherits_synth_engine_error(self) -> None:
-        """VaultSealedError must inherit from SynthEngineError."""
-        from synth_engine.shared.exceptions import SynthEngineError, VaultSealedError
-
-        assert issubclass(VaultSealedError, SynthEngineError)
 
     def test_all_exception_classes_exported(self) -> None:
         """All hierarchy members must appear in shared.exceptions.__all__."""
@@ -184,61 +294,43 @@ class TestBudgetExhaustionCatchByType:
                 total_allocated=Decimal("1.0"),
             )
 
-        caught = False
+        exc_captured: BudgetExhaustionError | None = None
         try:
             _fake_spend_budget()
-        except BudgetExhaustionError:
-            caught = True
+        except BudgetExhaustionError as exc:
+            exc_captured = exc
 
-        assert caught, "BudgetExhaustionError must be catchable by type"
+        assert exc_captured is not None, "BudgetExhaustionError must be catchable by type"
+        # Verify the exception carries the expected epsilon attributes
+        assert exc_captured.requested_epsilon == Decimal("0.5")
+        assert exc_captured.remaining_epsilon == Decimal("0.1")
 
     def test_privacy_module_budget_exhaustion_catchable_as_shared_type(self) -> None:
         """Raising from modules/privacy must be catchable via shared.exceptions type."""
         from synth_engine.modules.privacy.dp_engine import BudgetExhaustionError as DpBee
         from synth_engine.shared.exceptions import BudgetExhaustionError as SharedBee
 
-        caught_as_shared = False
+        exc_captured: SharedBee | None = None
         try:
             raise DpBee(
                 requested_epsilon=Decimal("0.5"),
                 total_spent=Decimal("0.9"),
                 total_allocated=Decimal("1.0"),
             )
-        except SharedBee:
-            caught_as_shared = True
+        except SharedBee as exc:
+            exc_captured = exc
 
-        assert caught_as_shared, (
+        assert exc_captured is not None, (
             "dp_engine.BudgetExhaustionError raised must be catchable as "
             "shared BudgetExhaustionError"
         )
+        # Verify the exception carries the expected epsilon attributes
+        assert exc_captured.requested_epsilon == Decimal("0.5")
+        assert exc_captured.total_allocated == Decimal("1.0")
 
 
 class TestSafeErrorMsgModulePaths:
-    """AC5: safe_error_msg must strip Python module paths from error messages."""
-
-    def test_strips_synth_engine_module_path(self) -> None:
-        """safe_error_msg must strip 'synth_engine.modules.*' prefixes."""
-        from synth_engine.shared.errors import safe_error_msg
-
-        msg = "synth_engine.modules.privacy.dp_engine.BudgetExhaustionError: budget gone"
-        result = safe_error_msg(msg)
-        assert "synth_engine.modules" not in result
-
-    def test_strips_synth_engine_shared_path(self) -> None:
-        """safe_error_msg must strip 'synth_engine.shared.*' class name paths."""
-        from synth_engine.shared.errors import safe_error_msg
-
-        msg = "synth_engine.shared.exceptions.SynthEngineError: something failed"
-        result = safe_error_msg(msg)
-        assert "synth_engine.shared" not in result
-
-    def test_strips_synth_engine_bootstrapper_path(self) -> None:
-        """safe_error_msg must strip 'synth_engine.bootstrapper.*' paths."""
-        from synth_engine.shared.errors import safe_error_msg
-
-        msg = "synth_engine.bootstrapper.errors.RFC7807Middleware raised"
-        result = safe_error_msg(msg)
-        assert "synth_engine.bootstrapper" not in result
+    """AC5: safe_error_msg must handle non-module messages and combined messages."""
 
     def test_preserves_user_facing_message_after_stripping_module_path(self) -> None:
         """Stripping module paths must not destroy the human-readable portion."""
@@ -269,62 +361,19 @@ class TestSafeErrorMsgModulePaths:
 
 
 class TestVaultExceptionHierarchyT34:
-    """T34.1 AC1: Vault exceptions must inherit SynthEngineError (not ValueError).
-
-    These tests verify the three vault exceptions that previously inherited
-    ValueError are now unified under the domain hierarchy.
-    """
-
-    def test_vault_empty_passphrase_error_is_synth_engine_error(self) -> None:
-        """VaultEmptyPassphraseError instance must satisfy isinstance(exc, SynthEngineError)."""
-        from synth_engine.shared.exceptions import SynthEngineError, VaultEmptyPassphraseError
-
-        exc = VaultEmptyPassphraseError("Passphrase must not be empty.")
-        assert isinstance(exc, SynthEngineError)
-
-    def test_vault_already_unsealed_error_is_synth_engine_error(self) -> None:
-        """VaultAlreadyUnsealedError instance must satisfy isinstance(exc, SynthEngineError)."""
-        from synth_engine.shared.exceptions import SynthEngineError, VaultAlreadyUnsealedError
-
-        exc = VaultAlreadyUnsealedError("Vault is already unsealed.")
-        assert isinstance(exc, SynthEngineError)
-
-    def test_vault_config_error_is_synth_engine_error(self) -> None:
-        """VaultConfigError instance must satisfy isinstance(exc, SynthEngineError)."""
-        from synth_engine.shared.exceptions import SynthEngineError, VaultConfigError
-
-        exc = VaultConfigError("VAULT_SEAL_SALT is not set.")
-        assert isinstance(exc, SynthEngineError)
-
-    def test_vault_empty_passphrase_error_not_value_error(self) -> None:
-        """VaultEmptyPassphraseError must NOT inherit ValueError after T34.1.
-
-        Changing the base class away from ValueError is the whole point of the task.
-        A VaultEmptyPassphraseError must NOT be caught by a bare 'except ValueError'.
-        """
-        from synth_engine.shared.exceptions import VaultEmptyPassphraseError
-
-        assert not issubclass(VaultEmptyPassphraseError, ValueError)
-
-    def test_vault_already_unsealed_error_not_value_error(self) -> None:
-        """VaultAlreadyUnsealedError must NOT inherit ValueError after T34.1."""
-        from synth_engine.shared.exceptions import VaultAlreadyUnsealedError
-
-        assert not issubclass(VaultAlreadyUnsealedError, ValueError)
-
-    def test_vault_config_error_not_value_error(self) -> None:
-        """VaultConfigError must NOT inherit ValueError after T34.1."""
-        from synth_engine.shared.exceptions import VaultConfigError
-
-        assert not issubclass(VaultConfigError, ValueError)
+    """T34.1: Vault exception backward-compat and importability (non-parametrized unique tests)."""
 
     def test_vault_exceptions_importable_from_shared_exceptions(self) -> None:
         """All three vault exceptions must be importable from shared.exceptions directly."""
-        from synth_engine.shared.exceptions import (  # noqa: F401
+        from synth_engine.shared.exceptions import (
             VaultAlreadyUnsealedError,
             VaultConfigError,
             VaultEmptyPassphraseError,
         )
+
+        assert VaultAlreadyUnsealedError.__name__ == "VaultAlreadyUnsealedError"
+        assert VaultConfigError.__name__ == "VaultConfigError"
+        assert VaultEmptyPassphraseError.__name__ == "VaultEmptyPassphraseError"
 
     def test_vault_exceptions_re_exported_from_vault_module(self) -> None:
         """vault.py must still export the three exceptions for backward compatibility."""
@@ -333,6 +382,8 @@ class TestVaultExceptionHierarchyT34:
             VaultConfigError,
             VaultEmptyPassphraseError,
         )
+
+        assert VaultAlreadyUnsealedError.__name__ == "VaultAlreadyUnsealedError"
 
 
 class TestLicenseExceptionHierarchyT34:
@@ -348,6 +399,7 @@ class TestLicenseExceptionHierarchyT34:
 
         exc = LicenseError("License token has expired.")
         assert isinstance(exc, SynthEngineError)
+        assert str(exc) == "License token has expired."
 
     def test_license_error_not_bare_exception(self) -> None:
         """LicenseError must not directly inherit bare Exception after T34.1.
@@ -369,8 +421,12 @@ class TestLicenseExceptionHierarchyT34:
 
     def test_license_error_importable_from_shared_exceptions(self) -> None:
         """LicenseError must be importable directly from shared.exceptions."""
-        from synth_engine.shared.exceptions import LicenseError  # noqa: F401
+        from synth_engine.shared.exceptions import LicenseError
+
+        assert LicenseError.__name__ == "LicenseError"
 
     def test_license_error_re_exported_from_licensing_module(self) -> None:
         """licensing.py must still export LicenseError for backward compatibility."""
-        from synth_engine.shared.security.licensing import LicenseError  # noqa: F401
+        from synth_engine.shared.security.licensing import LicenseError
+
+        assert LicenseError.__name__ == "LicenseError"

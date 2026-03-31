@@ -40,12 +40,6 @@ class TestAuthMiddlewareCanonicalLocation:
             "synth_engine.bootstrapper.dependencies.auth_middleware"
         )
 
-    def test_build_401_response_exists_in_auth_middleware(self) -> None:
-        """_build_401_response must be importable from auth_middleware.py."""
-        from synth_engine.bootstrapper.dependencies.auth_middleware import _build_401_response
-
-        assert callable(_build_401_response)
-
     def test_build_401_response_returns_json_response_with_401_status(self) -> None:
         """_build_401_response must return a JSONResponse with status code 401."""
         from fastapi.responses import JSONResponse

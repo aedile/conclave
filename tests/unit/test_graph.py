@@ -200,6 +200,7 @@ class TestCycleDetection:
         dag.add_edge("X", "Y")
         dag.add_edge("Y", "X")
         assert dag.has_cycle() is True
+        assert dag.has_cycle()
 
     def test_has_cycle_returns_false_for_dag(self) -> None:
         """has_cycle() returns False for a valid DAG."""
@@ -207,11 +208,13 @@ class TestCycleDetection:
         dag.add_edge("root", "child")
         dag.add_edge("child", "leaf")
         assert dag.has_cycle() is False
+        assert not dag.has_cycle()
 
     def test_has_cycle_returns_false_for_empty_graph(self) -> None:
         """has_cycle() returns False for an empty graph."""
         dag = DirectedAcyclicGraph()
         assert dag.has_cycle() is False
+        assert not dag.has_cycle()
 
     def test_cycle_detection_three_node_loop(self) -> None:
         """A->B->C->A raises CycleDetectionError with all three nodes in cycle."""

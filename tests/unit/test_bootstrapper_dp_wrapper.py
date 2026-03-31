@@ -49,6 +49,7 @@ class TestBuildDpWrapper:
         assert isinstance(result, DPTrainingWrapper), (
             f"build_dp_wrapper() must return DPTrainingWrapper, got {type(result)}"
         )
+        assert callable(result.wrap), "DPTrainingWrapper must expose a wrap() method"
 
     def test_build_dp_wrapper_default_max_grad_norm(self) -> None:
         """build_dp_wrapper() default must have max_grad_norm=1.0 stored."""
@@ -267,6 +268,9 @@ class TestSynthesisEngineRoutes:
 
         assert isinstance(result, ModelArtifact), (
             f"train() with dp_wrapper must return ModelArtifact, got {type(result)}"
+        )
+        assert result.table_name == "persons", (
+            f"ModelArtifact.table_name must be 'persons', got {result.table_name!r}"
         )
 
     def test_train_with_dp_wrapper_no_deferral_warning(

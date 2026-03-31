@@ -291,6 +291,8 @@ class TestBudgetExhaustionAttributes:
         assert isinstance(exc, Exception), (
             "BudgetExhaustionError must be catchable as a plain Exception"
         )
+        # BudgetExhaustionError message must be the privacy-safe generic string
+        assert "budget" in str(exc).lower()
 
     def test_budget_exhaustion_default_message_is_generic(self) -> None:
         """BudgetExhaustionError generic message must match the expected constant.

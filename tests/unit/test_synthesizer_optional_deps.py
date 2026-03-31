@@ -87,6 +87,8 @@ class TestOptionalDepsExports:
         import synth_engine.modules.synthesizer.training._optional_deps as m
 
         assert isinstance(m.TORCH_AVAILABLE, bool)
+        # bool must be True or False (not truthy/falsy non-bool)
+        assert m.TORCH_AVAILABLE in (True, False)
 
     def test_exports_require_synthesizer_callable(self) -> None:
         """Module exports require_synthesizer as a callable."""
@@ -115,6 +117,7 @@ class TestRequireSynthesizerInstalled:
         # Must not raise
         result = require_synthesizer()
         assert result is None
+        assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +181,7 @@ class TestTorchAvailableSentinel:
             assert m.TORCH_AVAILABLE is True, (
                 "TORCH_AVAILABLE must be True when torch module was imported successfully"
             )
+            assert m.TORCH_AVAILABLE
 
     def test_torch_available_is_false_when_torch_is_none(self) -> None:
         """If torch is None, TORCH_AVAILABLE must be False."""
@@ -187,3 +191,4 @@ class TestTorchAvailableSentinel:
             assert m.TORCH_AVAILABLE is False, (
                 "TORCH_AVAILABLE must be False when torch module import failed"
             )
+            assert not m.TORCH_AVAILABLE

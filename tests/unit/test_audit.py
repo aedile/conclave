@@ -75,6 +75,9 @@ def test_audit_event_has_valid_signature(logger_instance: AuditLogger) -> None: 
     )
 
     assert logger_instance.verify_event(event) is True
+    # Specific-value assertion: the event actor and type are preserved in the record
+    assert event.actor == "pytest"
+    assert event.event_type == "TEST"
 
 
 def test_tampered_event_fails_verification(logger_instance: AuditLogger) -> None:  # noqa: F821
@@ -102,6 +105,8 @@ def test_tampered_event_fails_verification(logger_instance: AuditLogger) -> None
     )
 
     assert logger_instance.verify_event(tampered) is False
+    # Specific-value assertion: tampered action is reflected in the object we built
+    assert tampered.action == "TAMPERED_ACTION"
 
 
 def test_audit_events_form_chain(logger_instance: AuditLogger) -> None:  # noqa: F821
@@ -277,55 +282,51 @@ def test_get_audit_logger_returns_instance(
 
     logger = get_audit_logger()
     assert isinstance(logger, AuditLogger)
+    # AuditLogger must expose log_event() callable
+    assert callable(logger.log_event)
 
 
-def test_get_audit_logger_missing_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_audit_logger() raises ValueError when AUDIT_KEY is not set."""
-    monkeypatch.delenv("AUDIT_KEY", raising=False)
+@pytest.mark.parametrize(
+    ("audit_key_value", "setup"),
+    [
+        pytest.param(None, "delete", id="missing_key"),
+        pytest.param("deadbeef12", "set", id="wrong_length"),
+        pytest.param("z" * 32 + "g" * 32, "set", id="malformed_non_hex"),
+    ],
+)
+def test_get_audit_logger_invalid_key_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    audit_key_value: str | None,
+    setup: str,
+) -> None:
+    """get_audit_logger() raises ValueError for any invalid AUDIT_KEY configuration.
 
-    from synth_engine.shared.security.audit import reset_audit_logger
+    Tests three invalid configurations:
+    - Missing: AUDIT_KEY env var not set at all.
+    - Wrong length: key string is too short (10 hex chars instead of 64).
+    - Malformed: 64-char string with non-hex characters (bytes.fromhex() fails).
 
-    reset_audit_logger()
-
-    from synth_engine.shared.security.audit import get_audit_logger
-
-    with pytest.raises(ValueError, match="AUDIT_KEY"):
-        get_audit_logger()
-
-
-def test_get_audit_logger_wrong_length_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_audit_logger() raises ValueError when AUDIT_KEY length is not 64 chars."""
-    # 10 hex chars = 5 bytes (too short)
-    monkeypatch.setenv("AUDIT_KEY", "deadbeef12")
-
-    from synth_engine.shared.security.audit import reset_audit_logger
-
-    reset_audit_logger()
-
-    from synth_engine.shared.security.audit import get_audit_logger
-
-    with pytest.raises(ValueError, match="AUDIT_KEY"):
-        get_audit_logger()
-
-
-def test_get_audit_logger_malformed_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """get_audit_logger() raises ValueError when AUDIT_KEY has non-hex chars.
-
-    Uses a 64-character string that contains characters outside [0-9a-f]
-    to exercise the bytes.fromhex() error path.
+    Args:
+        monkeypatch: pytest fixture for environment manipulation.
+        audit_key_value: Value to set (or None when deleting the var).
+        setup: "delete" to remove the env var, "set" to assign audit_key_value.
     """
-    # 64 chars, correct length, but 'z' and 'g' are not valid hex digits
-    bad_key = "z" * 32 + "g" * 32
-    monkeypatch.setenv("AUDIT_KEY", bad_key)
+    if setup == "delete":
+        monkeypatch.delenv("AUDIT_KEY", raising=False)
+    else:
+        assert audit_key_value is not None
+        monkeypatch.setenv("AUDIT_KEY", audit_key_value)
 
-    from synth_engine.shared.security.audit import reset_audit_logger
+    from synth_engine.shared.security.audit import get_audit_logger, reset_audit_logger
 
     reset_audit_logger()
 
-    from synth_engine.shared.security.audit import get_audit_logger
-
-    with pytest.raises(ValueError, match="AUDIT_KEY"):
+    with pytest.raises(ValueError, match="AUDIT_KEY") as exc_info:
         get_audit_logger()
+
+    assert "AUDIT_KEY" in str(exc_info.value), (
+        f"ValueError message must reference AUDIT_KEY; got: {exc_info.value}"
+    )
 
 
 def test_audit_event_logged_to_stdout(
@@ -553,6 +554,10 @@ def test_v2_signature_verifies_correctly(logger_instance: AuditLogger) -> None: 
     assert logger_instance.verify_event(event) is True, (
         "v2 event with correct details must verify as True"
     )
+    # Specific-value assertion: the signature uses the current format prefix
+    assert event.signature.startswith(("v2:", "v3:")), (
+        f"Expected v2: or v3: prefix, got {event.signature[:10]!r}"
+    )
 
 
 def test_legacy_v1_event_verifies_correctly(logger_instance: AuditLogger) -> None:  # noqa: F821
@@ -587,6 +592,10 @@ def test_legacy_v1_event_verifies_correctly(logger_instance: AuditLogger) -> Non
 
     assert logger_instance.verify_event(legacy_event) is True, (
         "Legacy v1 events must still verify correctly after v2 upgrade"
+    )
+    # Specific-value assertion: the legacy event's signature starts with v1:
+    assert legacy_event.signature.startswith("v1:"), (
+        f"Expected v1: prefix on legacy event signature, got {legacy_event.signature[:5]!r}"
     )
 
 
@@ -623,6 +632,9 @@ def test_v2_signature_round_trip(logger_instance: AuditLogger) -> None:  # noqa:
     # Verify twice to ensure no state mutation on verification
     assert logger_instance.verify_event(event) is True
     assert logger_instance.verify_event(event) is True
+    # Specific-value assertion: event's actor and resource fields are preserved
+    assert event.actor == "tester"
+    assert event.resource == "endpoint/verify"
 
 
 def test_v3_signature_hex_portion_is_64_chars(logger_instance: AuditLogger) -> None:  # noqa: F821

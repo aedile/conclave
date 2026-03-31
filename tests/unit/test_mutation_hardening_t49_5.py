@@ -200,7 +200,8 @@ def test_verify_hmac_returns_false_not_none_for_wrong_key() -> None:
     data = b"test payload"
     digest = compute_hmac(key, data)
     result = verify_hmac(key, data, digest)
-    assert result is True, "verify_hmac must return True for a correct digest"
+    assert result == True, "verify_hmac must return True for a correct digest"
+    assert result
     assert isinstance(result, bool), "verify_hmac must return a bool, not None"
 
 
@@ -220,6 +221,7 @@ def test_verify_hmac_wrong_data_returns_false_not_raises() -> None:
     digest = compute_hmac(key, original)
     result = verify_hmac(key, tampered, digest)
     assert result is False, f"Expected False for tampered data, got {result!r}"
+    assert not result
 
 
 def test_log_key_rotation_event_exact_event_type(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -339,6 +341,7 @@ def test_log_key_rotation_event_called_exactly_once(monkeypatch: pytest.MonkeyPa
         actor="operator",
     )
     mock_audit.log_event.assert_called_once()
+    assert mock_audit.log_event.call_count == 1
 
 
 def test_build_key_map_returns_none_when_no_keys_configured(
@@ -358,6 +361,7 @@ def test_build_key_map_returns_none_when_no_keys_configured(
 
     result = build_key_map_from_settings()
     assert result is None, f"Expected None when no keys configured, got {result!r}"
+    assert str(result) == "None"
 
 
 def test_build_key_map_returns_legacy_key_when_only_legacy_configured(

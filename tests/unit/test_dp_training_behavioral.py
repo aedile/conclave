@@ -145,26 +145,31 @@ class TestParseGanHyparamsBehavioral:
             "batch_size": batch_size,
         }
 
-    def test_returned_object_has_correct_embedding_dim(self) -> None:
-        """parse_gan_hyperparams must extract embedding_dim from kwargs."""
+    @pytest.mark.parametrize(
+        ("kwarg", "kwarg_value", "attr", "expected"),
+        [
+            pytest.param("embedding_dim", 64, "embedding_dim", 64, id="embedding_dim_64"),
+            pytest.param("pac", 4, "pac", 4, id="pac_4"),
+            pytest.param(
+                "discriminator_steps", 3, "discriminator_steps", 3, id="discriminator_steps_3"
+            ),
+        ],
+    )
+    def test_returned_object_has_correct_hyperparam(
+        self, kwarg: str, kwarg_value: int, attr: str, expected: int
+    ) -> None:
+        """parse_gan_hyperparams must extract each scalar hyperparameter from kwargs.
+
+        Args:
+            kwarg: Keyword argument name passed to _make_model_kwargs.
+            kwarg_value: Value to pass for the kwarg.
+            attr: Attribute name to check on the returned object.
+            expected: Expected value of that attribute.
+        """
         from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
-        result = parse_gan_hyperparams(self._make_model_kwargs(embedding_dim=64))
-        assert result.embedding_dim == 64
-
-    def test_returned_object_has_correct_pac(self) -> None:
-        """parse_gan_hyperparams must extract pac from kwargs."""
-        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
-
-        result = parse_gan_hyperparams(self._make_model_kwargs(pac=4))
-        assert result.pac == 4
-
-    def test_returned_object_has_correct_discriminator_steps(self) -> None:
-        """parse_gan_hyperparams must extract discriminator_steps from kwargs."""
-        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
-
-        result = parse_gan_hyperparams(self._make_model_kwargs(discriminator_steps=3))
-        assert result.discriminator_steps == 3
+        result = parse_gan_hyperparams(self._make_model_kwargs(**{kwarg: kwarg_value}))
+        assert getattr(result, attr) == expected
 
     def test_default_values_applied_when_keys_missing(self) -> None:
         """parse_gan_hyperparams must apply sane defaults for missing keys."""
@@ -176,23 +181,25 @@ class TestParseGanHyparamsBehavioral:
         assert result.discriminator_steps == 1
         assert result.batch_size == 500
 
-    def test_generator_dim_is_tuple(self) -> None:
-        """parse_gan_hyperparams must return generator_dim as a tuple."""
+    @pytest.mark.parametrize(
+        "dim_attr",
+        [
+            pytest.param("generator_dim", id="generator_dim"),
+            pytest.param("discriminator_dim", id="discriminator_dim"),
+        ],
+    )
+    def test_dim_attribute_is_tuple_of_correct_value(self, dim_attr: str) -> None:
+        """parse_gan_hyperparams must return both dim attributes as tuples equal to (256, 256).
+
+        Args:
+            dim_attr: Name of the dimension attribute to check (generator_dim or discriminator_dim).
+        """
         from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
 
         result = parse_gan_hyperparams(self._make_model_kwargs())
-        assert isinstance(result.generator_dim, tuple), (
-            f"generator_dim must be tuple, got {type(result.generator_dim)}"
-        )
-
-    def test_discriminator_dim_is_tuple(self) -> None:
-        """parse_gan_hyperparams must return discriminator_dim as a tuple."""
-        from synth_engine.modules.synthesizer.training.ctgan_utils import parse_gan_hyperparams
-
-        result = parse_gan_hyperparams(self._make_model_kwargs())
-        assert isinstance(result.discriminator_dim, tuple), (
-            f"discriminator_dim must be tuple, got {type(result.discriminator_dim)}"
-        )
+        value = getattr(result, dim_attr)
+        assert isinstance(value, tuple), f"{dim_attr} must be tuple, got {type(value)}"
+        assert value == (256, 256), f"{dim_attr} must be (256, 256), got {value}"
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +455,7 @@ class TestDPCompatibleCTGANFitBehavioral:
         """fit() must produce an instance with _fitted=True."""
         instance = self._make_fitted_vanilla_instance()
         assert instance._fitted is True
+        assert instance._fitted
 
     def test_sample_returns_dataframe(self) -> None:
         """sample(N) on a fitted instance must return a pd.DataFrame."""
@@ -456,6 +464,7 @@ class TestDPCompatibleCTGANFitBehavioral:
         assert isinstance(result, pd.DataFrame), (
             f"sample() must return pd.DataFrame, got {type(result)}"
         )
+        assert len(result) == 5, f"sample(5) must return 5 rows, got {len(result)}"
 
     def test_sample_result_has_correct_columns(self) -> None:
         """sample() result must have the same columns as the mock's reverse_transform output."""
@@ -889,6 +898,7 @@ def test_vanilla_ctgan_strategy_trains_real_small_dataframe() -> None:
     assert sampled is not None, (
         "CTGAN.sample() must return data after VanillaCtganStrategy training."
     )
+    assert len(sampled) == 5, f"CTGAN.sample(5) must return 5 rows, got {len(sampled)}"
 
 
 # ---------------------------------------------------------------------------

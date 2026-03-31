@@ -6,6 +6,7 @@ Tests cover:
 - Authenticated privacy requests succeed.
 
 Split from test_auth_gap_remediation.py (T56.3).
+Parametrized in T73.1 to reduce repetition.
 
 CONSTITUTION Priority 0: Security
 Task: ADR-D1 — Add Authentication to Settings, Security & Privacy Routers
@@ -71,36 +72,6 @@ def _make_token(
         secret,
         algorithm="HS256",
     )
-
-
-def _make_security_app(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Build a test FastAPI app with the security router, auth configured.
-
-    Args:
-        monkeypatch: pytest monkeypatch for env var injection.
-
-    Returns:
-        FastAPI app instance.
-    """
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
-    from synth_engine.bootstrapper.errors import register_error_handlers
-    from synth_engine.bootstrapper.main import create_app
-    from synth_engine.bootstrapper.routers.security import router as security_router
-
-    monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
-    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
-
-    from synth_engine.shared.settings import get_settings
-
-    get_settings.cache_clear()
-
-    app = create_app()
-    register_error_handlers(app)
-    app.include_router(security_router)
-
-    # Remove any override for get_current_operator so the real dependency is used
-    app.dependency_overrides.pop(get_current_operator, None)
-    return app
 
 
 def _make_privacy_app(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
@@ -180,168 +151,140 @@ def _common_patches() -> list[Any]:
     ]
 
 
-class TestPrivacyUnauthenticatedReturns401:
-    """Unauthenticated requests to privacy budget endpoints must return 401."""
-
-    @pytest.mark.asyncio
-    async def test_get_budget_unauthenticated_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """GET /privacy/budget without token must return 401 when JWT is configured."""
-        app, _ = _make_privacy_app(monkeypatch)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get("/api/v1/privacy/budget")
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_refresh_budget_unauthenticated_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """POST /privacy/budget/refresh without token must return 401 when JWT is configured."""
-        app, _ = _make_privacy_app(monkeypatch)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/api/v1/privacy/budget/refresh",
-                    json={"justification": "Monthly budget refresh by admin"},
-                )
-
-        assert response.status_code == 401
-
-
 # ---------------------------------------------------------------------------
-# ATTACK RED: Privacy endpoints — expired JWT → 401
+# ATTACK: Privacy endpoints — unauthenticated, expired, empty-sub, wrong-key
+# Each parametrize value: (method, path, body)
 # ---------------------------------------------------------------------------
 
-
-class TestPrivacyExpiredTokenReturns401:
-    """Expired JWT tokens must return 401 on privacy endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_get_budget_expired_token_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """GET /privacy/budget with expired JWT must return 401."""
-        app, _ = _make_privacy_app(monkeypatch)
-        token = _make_token(exp_offset=-3600)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get(
-                    "/api/v1/privacy/budget",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_refresh_budget_expired_token_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """POST /privacy/budget/refresh with expired JWT must return 401."""
-        app, _ = _make_privacy_app(monkeypatch)
-        token = _make_token(exp_offset=-3600)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/api/v1/privacy/budget/refresh",
-                    json={"justification": "Monthly budget refresh by admin"},
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
+_PRIVACY_ENDPOINT_CASES = [
+    pytest.param("GET", "/api/v1/privacy/budget", None, id="get_budget"),
+    pytest.param(
+        "POST",
+        "/api/v1/privacy/budget/refresh",
+        {"justification": "Monthly budget refresh by admin"},
+        id="refresh_budget",
+    ),
+]
 
 
-# ---------------------------------------------------------------------------
-# ATTACK RED: Privacy endpoints — empty sub → 401
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(("method", "path", "body"), _PRIVACY_ENDPOINT_CASES)
+@pytest.mark.asyncio
+async def test_privacy_endpoint_unauthenticated_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Privacy endpoints without token must return 401 when JWT is configured.
+
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app, _ = _make_privacy_app(monkeypatch)
+    patches = _common_patches()
+
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            kwargs = {"json": body} if body is not None else {}
+            response = await getattr(client, method.lower())(path, **kwargs)
+
+    assert response.status_code == 401
 
 
-class TestPrivacyEmptySubReturns401:
-    """Tokens with empty sub must return 401 on privacy endpoints."""
+@pytest.mark.parametrize(("method", "path", "body"), _PRIVACY_ENDPOINT_CASES)
+@pytest.mark.asyncio
+async def test_privacy_endpoint_expired_token_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Privacy endpoints with expired JWT must return 401.
 
-    @pytest.mark.asyncio
-    async def test_get_budget_empty_sub_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """GET /privacy/budget with token sub="" must return 401."""
-        app, _ = _make_privacy_app(monkeypatch)
-        token = _make_token(sub="")
-        patches = _common_patches()
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app, _ = _make_privacy_app(monkeypatch)
+    token = _make_token(exp_offset=-3600)
+    patches = _common_patches()
 
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get(
-                    "/api/v1/privacy/budget",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
 
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_refresh_budget_empty_sub_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """POST /privacy/budget/refresh with token sub="" must return 401."""
-        app, _ = _make_privacy_app(monkeypatch)
-        token = _make_token(sub="")
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/api/v1/privacy/budget/refresh",
-                    json={"justification": "Monthly budget refresh by admin"},
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
+    assert response.status_code == 401
 
 
-# ---------------------------------------------------------------------------
-# ATTACK RED: Privacy endpoints — wrong signing key → 401
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(("method", "path", "body"), _PRIVACY_ENDPOINT_CASES)
+@pytest.mark.asyncio
+async def test_privacy_endpoint_empty_sub_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Privacy endpoints with empty-sub token must return 401.
+
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app, _ = _make_privacy_app(monkeypatch)
+    token = _make_token(sub="")
+    patches = _common_patches()
+
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert response.status_code == 401
 
 
-class TestPrivacyWrongKeyReturns401:
-    """Tokens signed with wrong key must return 401 on privacy endpoints."""
+@pytest.mark.parametrize(("method", "path", "body"), _PRIVACY_ENDPOINT_CASES)
+@pytest.mark.asyncio
+async def test_privacy_endpoint_wrong_key_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Privacy endpoints with wrong-key token must return 401.
 
-    @pytest.mark.asyncio
-    async def test_get_budget_wrong_key_returns_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """GET /privacy/budget with token signed by wrong key must return 401."""
-        app, _ = _make_privacy_app(monkeypatch)
-        token = _make_token(secret=_WRONG_SECRET)
-        patches = _common_patches()
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app, _ = _make_privacy_app(monkeypatch)
+    token = _make_token(secret=_WRONG_SECRET)
+    patches = _common_patches()
 
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get(
-                    "/api/v1/privacy/budget",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
 
-        assert response.status_code == 401
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------

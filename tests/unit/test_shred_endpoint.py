@@ -650,6 +650,8 @@ class TestShredArtifactsDomainFunction:
 
         # Must not raise
         shred_artifacts(job)
+        assert job.output_path is None, "output_path was None — no file to delete"
+        assert str(job.output_path) == "None", "output_path string representation must be None"
 
     def test_shred_artifacts_tolerates_missing_artifact_path(self, tmp_path: Path) -> None:
         """shred_artifacts() must not raise if artifact_path is None."""
@@ -690,6 +692,9 @@ class TestShredArtifactsDomainFunction:
 
         # Must not raise — NIST 800-88: idempotent erasure is acceptable
         shred_artifacts(job)
+        assert job.output_path == "/nonexistent/path/out.parquet", (
+            "path must remain set in job record"
+        )
 
     def test_shred_artifacts_tolerates_sig_already_deleted(self, tmp_path: Path) -> None:
         """shred_artifacts() must not raise if only the Parquet exists (no .sig)."""

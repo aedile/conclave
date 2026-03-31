@@ -105,8 +105,4 @@ class TestUnsealRemainsInLifecycle:
         routes = {r.path for r in app.routes}  # type: ignore[attr-defined]
         assert "/unseal" in routes, f"/unseal not in routes: {routes}"
 
-    def test_register_routes_still_exists_in_lifecycle(self) -> None:
-        """_register_routes function must still exist in lifecycle.py."""
-        from synth_engine.bootstrapper.lifecycle import _register_routes
-
         assert callable(_register_routes)

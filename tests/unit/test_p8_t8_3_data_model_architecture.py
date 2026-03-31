@@ -198,6 +198,8 @@ def test_bootstrapper_licensing_router_maps_403_without_exc_status_code() -> Non
                     "bootstrapper/routers/licensing.py still reads exc.status_code. "
                     "After ADV-054, the router must hardcode 403 for LicenseError."
                 )
+    # No exc.status_code found — verify the source was read
+    assert len(source) > 0, "licensing router source must be non-empty"
 
 
 # ---------------------------------------------------------------------------

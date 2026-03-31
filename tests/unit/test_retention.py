@@ -75,71 +75,73 @@ def _backdate(session: Session, job_id: int, days: int) -> None:
 class TestRetentionSettings:
     """Tests for ConclaveSettings retention period fields."""
 
-    def test_job_retention_days_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """job_retention_days defaults to 90."""
+    @pytest.mark.parametrize(
+        ("env_var", "attr", "default_value"),
+        [
+            pytest.param("JOB_RETENTION_DAYS", "job_retention_days", 90, id="job_90"),
+            pytest.param("AUDIT_RETENTION_DAYS", "audit_retention_days", 1095, id="audit_1095"),
+            pytest.param(
+                "ARTIFACT_RETENTION_DAYS", "artifact_retention_days", 30, id="artifact_30"
+            ),
+        ],
+    )
+    def test_retention_days_default(
+        self, monkeypatch: pytest.MonkeyPatch, env_var: str, attr: str, default_value: int
+    ) -> None:
+        """Each retention field must have the correct default when the env var is absent.
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+            env_var: Environment variable name to delete.
+            attr: ConclaveSettings attribute name to check.
+            default_value: Expected default integer value.
+        """
         monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
         monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
-        monkeypatch.delenv("JOB_RETENTION_DAYS", raising=False)
+        monkeypatch.delenv(env_var, raising=False)
 
         from synth_engine.shared.settings import ConclaveSettings
 
         s = ConclaveSettings()
-        assert s.job_retention_days == 90
+        assert getattr(s, attr) == default_value
 
-    def test_audit_retention_days_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """audit_retention_days defaults to 1095 (3 years)."""
+    @pytest.mark.parametrize(
+        ("env_var", "env_val", "attr", "expected_value"),
+        [
+            pytest.param("JOB_RETENTION_DAYS", "180", "job_retention_days", 180, id="job_180"),
+            pytest.param(
+                "AUDIT_RETENTION_DAYS", "2555", "audit_retention_days", 2555, id="audit_2555"
+            ),
+            pytest.param(
+                "ARTIFACT_RETENTION_DAYS", "60", "artifact_retention_days", 60, id="artifact_60"
+            ),
+        ],
+    )
+    def test_retention_days_env_override(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_var: str,
+        env_val: str,
+        attr: str,
+        expected_value: int,
+    ) -> None:
+        """Setting the env var must override the default for each retention field.
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+            env_var: Environment variable name to set.
+            env_val: String value to set the env var to.
+            attr: ConclaveSettings attribute name to check.
+            expected_value: Expected integer value after env override.
+        """
         monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
         monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
-        monkeypatch.delenv("AUDIT_RETENTION_DAYS", raising=False)
+        monkeypatch.setenv(env_var, env_val)
 
         from synth_engine.shared.settings import ConclaveSettings
 
         s = ConclaveSettings()
-        assert s.audit_retention_days == 1095
-
-    def test_artifact_retention_days_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """artifact_retention_days defaults to 30."""
-        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
-        monkeypatch.delenv("ARTIFACT_RETENTION_DAYS", raising=False)
-
-        from synth_engine.shared.settings import ConclaveSettings
-
-        s = ConclaveSettings()
-        assert s.artifact_retention_days == 30
-
-    def test_job_retention_days_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """JOB_RETENTION_DAYS overrides the default."""
-        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
-        monkeypatch.setenv("JOB_RETENTION_DAYS", "180")
-
-        from synth_engine.shared.settings import ConclaveSettings
-
-        s = ConclaveSettings()
-        assert s.job_retention_days == 180
-
-    def test_audit_retention_days_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """AUDIT_RETENTION_DAYS overrides the default."""
-        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
-        monkeypatch.setenv("AUDIT_RETENTION_DAYS", "2555")
-
-        from synth_engine.shared.settings import ConclaveSettings
-
-        s = ConclaveSettings()
-        assert s.audit_retention_days == 2555
-
-    def test_artifact_retention_days_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """ARTIFACT_RETENTION_DAYS overrides the default."""
-        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
-        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)
-        monkeypatch.setenv("ARTIFACT_RETENTION_DAYS", "60")
-
-        from synth_engine.shared.settings import ConclaveSettings
-
-        s = ConclaveSettings()
-        assert s.artifact_retention_days == 60
+        assert getattr(s, attr) == expected_value
 
     def test_job_retention_days_rejects_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Setting JOB_RETENTION_DAYS=0 raises ValidationError."""
@@ -183,6 +185,7 @@ class TestSynthesisJobLegalHold:
             num_rows=1,
         )
         assert job.legal_hold is False
+        assert not job.legal_hold
 
     def test_legal_hold_can_be_set_true(self) -> None:
         """SynthesisJob.legal_hold can be set to True at construction."""
@@ -194,6 +197,7 @@ class TestSynthesisJobLegalHold:
             legal_hold=True,
         )
         assert job.legal_hold is True
+        assert job.legal_hold
 
     def test_legal_hold_is_not_pii(self) -> None:
         """SynthesisJob.legal_hold is a boolean, not PII — no ALE encryption needed."""
@@ -206,6 +210,9 @@ class TestSynthesisJobLegalHold:
         )
         # The field must be a plain Python bool, not an encrypted wrapper
         assert isinstance(job.legal_hold, bool)
+        # The value we set must be preserved (True)
+        assert job.legal_hold is True
+        assert job.legal_hold
 
     def test_job_has_created_at_field(self) -> None:
         """SynthesisJob has a created_at field for retention TTL comparisons."""
@@ -480,6 +487,8 @@ class TestDeleteArtifactOSError:
         with patch.object(Path, "unlink", side_effect=PermissionError("access denied")):
             # Must not raise — best-effort deletion
             cleanup._delete_artifact(job)
+        # Job record is preserved even when file deletion fails
+        assert job.output_path == "/tmp/some_artifact.parquet", "job path must remain set"
 
     def test_oserror_logs_correct_exception_type_name(
         self, caplog: pytest.LogCaptureFixture

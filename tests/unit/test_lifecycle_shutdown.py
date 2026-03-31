@@ -34,6 +34,10 @@ def test_redis_never_initialized_shutdown_noop() -> None:
         from synth_engine.bootstrapper.dependencies.redis import close_redis_client
 
         close_redis_client()
+        assert redis_mod._client is None, (
+            "_client must remain None after close on uninitialized state"
+        )
+        assert str(redis_mod._client) == "None"
     finally:
         redis_mod._client = original
 
@@ -68,6 +72,7 @@ def test_shutdown_audit_failure_does_not_block() -> None:
 
         mock_dispose.assert_called_once()
         mock_redis_close.assert_called_once()
+        assert mock_redis_close.call_count == 1
 
 
 def test_dispose_engines_failure_does_not_skip_redis() -> None:
@@ -103,6 +108,7 @@ def test_dispose_engines_failure_does_not_skip_redis() -> None:
         asyncio.run(run())
 
         mock_redis_close.assert_called_once()
+        assert mock_redis_close.call_count == 1
 
 
 def test_shutdown_cleanup_idempotent() -> None:
@@ -135,6 +141,9 @@ def test_shutdown_cleanup_idempotent() -> None:
 
         # Must not raise
         asyncio.run(run())
+        assert mock_get_audit.call_count >= 2, (
+            "get_audit_logger must be called for each lifespan cycle"
+        )
 
 
 def test_close_redis_client_when_none_is_noop() -> None:
@@ -151,6 +160,8 @@ def test_close_redis_client_when_none_is_noop() -> None:
 
         close_redis_client()
         close_redis_client()  # second call — still must not raise
+        assert redis_mod._client is None, "_client must remain None after double close"
+        assert str(redis_mod._client) == "None"
     finally:
         redis_mod._client = original
 
@@ -186,6 +197,7 @@ def test_shutdown_dispose_engines_called() -> None:
         asyncio.run(run())
 
         mock_dispose.assert_called_once()
+        assert mock_dispose.call_count == 1
 
 
 def test_shutdown_redis_close_called() -> None:
@@ -214,6 +226,7 @@ def test_shutdown_redis_close_called() -> None:
         asyncio.run(run())
 
         mock_redis_close.assert_called_once()
+        assert mock_redis_close.call_count == 1
 
 
 def test_shutdown_audit_event_emitted() -> None:
@@ -262,6 +275,7 @@ def test_close_redis_client_resets_to_none() -> None:
         close_redis_client()
 
         assert redis_mod._client is None
+        assert str(redis_mod._client) == "None"
     finally:
         redis_mod._client = original
 
@@ -282,6 +296,7 @@ def test_close_redis_client_disconnects_pool() -> None:
         close_redis_client()
 
         mock_pool.disconnect.assert_called_once()
+        assert mock_pool.disconnect.call_count == 1
     finally:
         redis_mod._client = original
 

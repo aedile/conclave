@@ -223,11 +223,12 @@ class TestDockerStackPrecheck:
             or "docker-compose ps" in text
             or "docker compose exec" in text
         )
-        assert has_stack_check, (
+        assert has_stack_check == True, (
             "Script does not check Docker stack availability before proceeding. "
             "Add a preflight check (e.g. 'docker compose ps') that exits non-zero "
             "if the required services are not running."
         )
+        assert has_stack_check
 
     def test_script_exits_nonzero_on_failure(self) -> None:
         """The script must exit non-zero if any scenario fails.
@@ -238,10 +239,11 @@ class TestDockerStackPrecheck:
         text = _script_text()
         # set -e or explicit exit 1 patterns
         has_nonzero_exit = "set -euo pipefail" in text or "exit 1" in text
-        assert has_nonzero_exit, (
+        assert has_nonzero_exit == True, (
             "Script does not exit non-zero on failure. "
             "Add 'set -euo pipefail' and/or explicit 'exit 1' on failure paths."
         )
+        assert has_nonzero_exit
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +276,7 @@ class TestNoHardcodedCredentials:
                 f"{match.group()!r}\n"
                 "Credentials must be read from environment variables, not hardcoded."
             )
+            assert str(match) == "None"
 
     def test_uses_docker_exec_or_env_for_db_access(self) -> None:
         """The script must access the DB via docker compose exec or env vars.
@@ -285,12 +288,13 @@ class TestNoHardcodedCredentials:
         text = _script_text()
         # Must use docker compose exec for postgres access
         has_exec = "docker compose exec" in text or "docker-compose exec" in text
-        assert has_exec, (
+        assert has_exec == True, (
             "Script does not use 'docker compose exec' for database access. "
             "All psql/pg_dump invocations must run inside the postgres container "
             "via 'docker compose exec postgres ...' to avoid needing exposed ports "
             "or hardcoded connection strings."
         )
+        assert has_exec
 
 
 # ---------------------------------------------------------------------------
@@ -321,10 +325,12 @@ class TestPgDumpPrecheck:
             and not line.strip().startswith("#")
             and not line.strip().startswith("print_")
         ]
-        assert command_lines_with_pgdump, "No pg_dump command invocation found in dr_dry_run.sh"
+        assert len(command_lines_with_pgdump) > 0, (
+            "No pg_dump command invocation found in dr_dry_run.sh"
+        )
         for line in command_lines_with_pgdump:
             is_exec_based = "docker compose exec" in line or "docker-compose exec" in line
-            assert is_exec_based, (
+            assert is_exec_based == True, (
                 f"pg_dump invocation does not use 'docker compose exec': {line!r}\n"
                 "Run pg_dump inside the postgres container to avoid host dependency."
             )

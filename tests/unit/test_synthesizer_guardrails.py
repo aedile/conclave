@@ -81,6 +81,7 @@ def test_feasibility_passes_at_75_percent() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
 
 
 def test_feasibility_passes_at_80_percent() -> None:
@@ -95,6 +96,7 @@ def test_feasibility_passes_at_80_percent() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +213,8 @@ def test_billion_row_dataset_is_rejected() -> None:
             )
     # Verify the error is clean -- no unhandled arithmetic overflow or TypeError
     assert isinstance(exc_info.value, OOMGuardrailError)
+    # Error message must mention memory estimate so operators know why it failed
+    assert "estimated" in str(exc_info.value).lower() or "available" in str(exc_info.value).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +234,7 @@ def test_psutil_is_mockable() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
     mock_psutil.virtual_memory.assert_called_once()
 
 
@@ -261,6 +266,7 @@ def test_torch_vram_path_used_when_cuda_is_available() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
     torch_mock.cuda.is_available.assert_called_once()
 
 
@@ -293,6 +299,7 @@ def test_torch_falls_back_to_ram_when_cuda_unavailable() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
     mock_psutil.virtual_memory.assert_called_once()
     # VRAM path must NOT have been reached when cuda is unavailable
     torch_mock.cuda.memory_reserved.assert_not_called()
@@ -339,6 +346,7 @@ def test_feasibility_passes_at_threshold_floor() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +430,7 @@ def test_falls_back_to_ram_when_torch_not_installed() -> None:
             overhead_factor=1.0,
         )
     assert result is None
+    assert str(result) == "None"
     mock_psutil.virtual_memory.assert_called_once()
 
 
@@ -444,6 +453,7 @@ def test_importlib_util_find_spec_is_used_for_torch_detection() -> None:
     # Verifies the spec-check is observable and not a direct import.
     # When find_spec returns None, torch is treated as absent.
     assert importlib.util.find_spec("torch") is None  # torch not installed in CI
+    assert str(importlib.util.find_spec("torch")) == "None"
 
 
 # ---------------------------------------------------------------------------
@@ -451,91 +461,44 @@ def test_importlib_util_find_spec_is_used_for_torch_detection() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_raises_value_error_for_zero_rows() -> None:
-    """rows=0 must raise ValueError before any memory check."""
-    with pytest.raises(ValueError, match="rows"):
+@pytest.mark.parametrize(
+    ("rows", "columns", "dtype_bytes", "overhead_factor", "match"),
+    [
+        pytest.param(0, 1, 1, 1.0, "rows", id="rows_zero"),
+        pytest.param(-1, 1, 1, 1.0, "rows", id="rows_negative"),
+        pytest.param(1, 0, 1, 1.0, "columns", id="columns_zero"),
+        pytest.param(1, -5, 1, 1.0, "columns", id="columns_negative"),
+        pytest.param(1, 1, 0, 1.0, "dtype_bytes", id="dtype_bytes_zero"),
+        pytest.param(1, 1, -8, 1.0, "dtype_bytes", id="dtype_bytes_negative"),
+        pytest.param(1, 1, 1, 0.0, "overhead_factor", id="overhead_factor_zero"),
+        pytest.param(1, 1, 1, -1.0, "overhead_factor", id="overhead_factor_negative"),
+    ],
+)
+def test_raises_value_error_for_invalid_parameter(
+    rows: int,
+    columns: int,
+    dtype_bytes: int,
+    overhead_factor: float,
+    match: str,
+) -> None:
+    """check_memory_feasibility must raise ValueError for any degenerate parameter value.
+
+    Each parameter (rows, columns, dtype_bytes, overhead_factor) must be positive.
+    The error must be raised before any memory probe occurs.
+
+    Args:
+        rows: Row count to pass (may be zero or negative).
+        columns: Column count to pass (may be zero or negative).
+        dtype_bytes: Dtype byte size to pass (may be zero or negative).
+        overhead_factor: Overhead multiplier to pass (may be zero or negative).
+        match: Regex pattern the ValueError message must match.
+    """
+    with pytest.raises(ValueError, match=match):
         check_memory_feasibility(
-            rows=0,
-            columns=1,
-            dtype_bytes=1,
-            overhead_factor=1.0,
-        )
-
-
-def test_raises_value_error_for_negative_rows() -> None:
-    """rows=-1 must raise ValueError before any memory check."""
-    with pytest.raises(ValueError, match="rows"):
-        check_memory_feasibility(
-            rows=-1,
-            columns=1,
-            dtype_bytes=1,
-            overhead_factor=1.0,
-        )
-
-
-def test_raises_value_error_for_zero_columns() -> None:
-    """columns=0 must raise ValueError before any memory check."""
-    with pytest.raises(ValueError, match="columns"):
-        check_memory_feasibility(
-            rows=1,
-            columns=0,
-            dtype_bytes=1,
-            overhead_factor=1.0,
-        )
-
-
-def test_raises_value_error_for_negative_columns() -> None:
-    """columns=-5 must raise ValueError before any memory check."""
-    with pytest.raises(ValueError, match="columns"):
-        check_memory_feasibility(
-            rows=1,
-            columns=-5,
-            dtype_bytes=1,
-            overhead_factor=1.0,
-        )
-
-
-def test_raises_value_error_for_zero_dtype_bytes() -> None:
-    """dtype_bytes=0 must raise ValueError before any memory check."""
-    with pytest.raises(ValueError, match="dtype_bytes"):
-        check_memory_feasibility(
-            rows=1,
-            columns=1,
-            dtype_bytes=0,
-            overhead_factor=1.0,
-        )
-
-
-def test_raises_value_error_for_negative_dtype_bytes() -> None:
-    """dtype_bytes=-8 must raise ValueError before any memory check."""
-    with pytest.raises(ValueError, match="dtype_bytes"):
-        check_memory_feasibility(
-            rows=1,
-            columns=1,
-            dtype_bytes=-8,
-            overhead_factor=1.0,
-        )
-
-
-def test_raises_value_error_for_zero_overhead_factor() -> None:
-    """overhead_factor=0.0 must raise ValueError before any memory check."""
-    with pytest.raises(ValueError, match="overhead_factor"):
-        check_memory_feasibility(
-            rows=1,
-            columns=1,
-            dtype_bytes=1,
-            overhead_factor=0.0,
-        )
-
-
-def test_raises_value_error_for_negative_overhead_factor() -> None:
-    """overhead_factor=-1.0 must raise ValueError before any memory check."""
-    with pytest.raises(ValueError, match="overhead_factor"):
-        check_memory_feasibility(
-            rows=1,
-            columns=1,
-            dtype_bytes=1,
-            overhead_factor=-1.0,
+            rows=rows,
+            columns=columns,
+            dtype_bytes=dtype_bytes,
+            overhead_factor=overhead_factor,
         )
 
 

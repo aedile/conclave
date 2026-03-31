@@ -86,6 +86,9 @@ class TestDPCompatibleCTGANSchemaIntegration:
         assert isinstance(result, pd.DataFrame), (
             f"sample() must return pd.DataFrame, got {type(result)}"
         )
+        # Specific: sampled 30 rows
+        assert len(result) == 30, f"Expected 30 rows, got {len(result)}"
+        assert len(result.columns) > 0, "Sampled DataFrame must have columns"
 
     def test_sample_returns_correct_row_count(self, persons_df: pd.DataFrame) -> None:
         """sample(num_rows=N) must return exactly N rows."""

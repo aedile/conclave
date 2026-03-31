@@ -355,6 +355,10 @@ class TestLoadCertificate:
 
         cert = load_certificate(cert_file)
         assert isinstance(cert, x509.Certificate)
+        # A valid PEM leaf cert must have a serial number > 0
+        assert cert.serial_number > 0, (
+            f"Certificate serial number must be positive, got {cert.serial_number}"
+        )
 
     def test_load_certificate_has_expected_subject(
         self,
@@ -377,6 +381,7 @@ class TestValidateCertificate:
 
         # Should complete without raising
         validate_certificate(cert_file)
+        assert validate_certificate.__name__ == "validate_certificate"
 
     def test_validate_certificate_returns_expiry_datetime(self, cert_file: Path) -> None:
         """validate_certificate must return the not_valid_after datetime."""
@@ -398,6 +403,7 @@ class TestVerifyKeyCertPair:
 
         # Should complete without raising
         verify_key_cert_pair(key_file, cert_file)
+        assert verify_key_cert_pair.__name__ == "verify_key_cert_pair"
 
 
 class TestVerifyChain:
@@ -408,6 +414,7 @@ class TestVerifyChain:
         from synth_engine.shared.tls.config import verify_chain
 
         verify_chain(leaf_cert_path=cert_file, ca_cert_path=ca_cert_file)
+        assert verify_chain.__name__ == "verify_chain"
 
     def test_verify_chain_raises_for_mismatched_chain(
         self,
@@ -525,20 +532,31 @@ class TestSANValidation:
 
         # Should complete without raising
         validate_san_hostname(hostname)
+        assert validate_san_hostname.__name__ == "validate_san_hostname"
 
-    def test_san_validation_rejects_hostname_with_spaces(self) -> None:
-        """Hostname with spaces must raise ValueError."""
+    @pytest.mark.parametrize(
+        ("invalid_hostname", "match"),
+        [
+            pytest.param("host name with spaces", "invalid", id="spaces"),
+            pytest.param("host\x00name", "invalid", id="null_byte"),
+        ],
+    )
+    def test_san_validation_rejects_invalid_hostname(
+        self, invalid_hostname: str, match: str
+    ) -> None:
+        """validate_san_hostname must raise ValueError for invalid hostname patterns.
+
+        Hostnames with spaces or null bytes are common injection vectors and must
+        be rejected at the SAN validation layer before they reach TLS libraries.
+
+        Args:
+            invalid_hostname: The malformed hostname input.
+            match: Expected fragment of the ValueError message.
+        """
         from synth_engine.shared.tls.config import validate_san_hostname
 
-        with pytest.raises(ValueError, match="invalid"):
-            validate_san_hostname("host name with spaces")
-
-    def test_san_validation_rejects_null_byte(self) -> None:
-        """Hostname with null byte must raise ValueError."""
-        from synth_engine.shared.tls.config import validate_san_hostname
-
-        with pytest.raises(ValueError, match="invalid"):
-            validate_san_hostname("host\x00name")
+        with pytest.raises(ValueError, match=match):
+            validate_san_hostname(invalid_hostname)
 
 
 class TestServiceHostnames:

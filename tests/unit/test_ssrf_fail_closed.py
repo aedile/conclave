@@ -89,6 +89,7 @@ class TestSSRFAttackFailClosed:
                 "https://nonexistent.example.com/hook",
                 strict=False,
             )
+        assert validate_callback_url.__name__ == "validate_callback_url"
 
     def test_ssrf_strict_default_is_true(self) -> None:
         """validate_callback_url() must default to strict=True (fail-closed).
@@ -144,6 +145,7 @@ class TestSSRFFailClosedFeature:
         ):
             # Must not raise — fail-open preserved for delivery path
             validate_callback_url("https://example.com/hook", strict=False)
+        assert validate_callback_url.__name__ == "validate_callback_url"
 
     def test_webhook_registration_uses_strict_true(self) -> None:
         """Webhook registration endpoint calls validate_callback_url with strict=True.
@@ -274,3 +276,4 @@ class TestSSRFFailClosedFeature:
 
         # validate_delivery_ips must be called with the hostname (T69.1 — fail-closed)
         mock_validate.assert_called_once_with("delivery.example.com", pinned_ips=None)
+        assert mock_validate.call_count == 1

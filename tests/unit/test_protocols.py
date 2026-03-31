@@ -23,7 +23,9 @@ class TestDPWrapperProtocolStructure:
 
     def test_protocol_exists_in_shared(self) -> None:
         """DPWrapperProtocol must be importable from synth_engine.shared.protocols."""
-        from synth_engine.shared.protocols import DPWrapperProtocol  # noqa: F401
+        from synth_engine.shared.protocols import DPWrapperProtocol
+
+        assert DPWrapperProtocol.__name__ == "DPWrapperProtocol"
 
     def test_protocol_has_wrap_method(self) -> None:
         """DPWrapperProtocol must define a wrap() method."""
@@ -108,6 +110,7 @@ class TestDPWrapperProtocolStructure:
         assert result is False, (
             "isinstance() against DPWrapperProtocol must work (requires @runtime_checkable)"
         )
+        assert not result
 
 
 class TestDPTrainingWrapperSatisfiesProtocol:
@@ -127,6 +130,8 @@ class TestDPTrainingWrapperSatisfiesProtocol:
         assert isinstance(wrapper, DPWrapperProtocol), (
             "DPTrainingWrapper must satisfy DPWrapperProtocol structurally"
         )
+        # DPWrapperProtocol requires epsilon_spent() callable
+        assert callable(wrapper.epsilon_spent)
 
     def test_dptw_wrap_parameter_names_match_protocol(self) -> None:
         """DPTrainingWrapper.wrap() parameter names must match DPWrapperProtocol.wrap().

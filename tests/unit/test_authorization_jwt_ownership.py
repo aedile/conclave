@@ -258,14 +258,24 @@ def test_get_current_operator_extracts_sub_from_valid_token(
     assert result == _OPERATOR_A_SUB
 
 
-def test_get_current_operator_raises_401_when_no_auth_header(
+# Authorization header values that get_current_operator() must reject with 401
+_BAD_AUTH_HEADERS = [
+    pytest.param({}, id="no_auth_header"),
+    pytest.param({"Authorization": "Bearer this-is-not-a-valid-jwt"}, id="invalid_token"),
+    pytest.param({"Authorization": "Token not-bearer"}, id="wrong_scheme"),
+]
+
+
+@pytest.mark.parametrize("headers", _BAD_AUTH_HEADERS)
+def test_get_current_operator_raises_401_for_bad_auth(
+    headers: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """get_current_operator() raises HTTPException(401) when Authorization header absent.
+    """get_current_operator() raises HTTPException(401) for missing or invalid auth.
 
-    Arrange: set JWT_SECRET_KEY; build request with no Authorization header.
-    Act: call get_current_operator().
-    Assert: HTTPException with status_code=401 is raised.
+    Args:
+        headers: Request headers dict to pass (may be empty or malformed).
+        monkeypatch: pytest monkeypatch fixture.
     """
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
@@ -275,32 +285,7 @@ def test_get_current_operator_raises_401_when_no_auth_header(
     from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 
     mock_request = MagicMock()
-    mock_request.headers = {}
-
-    with pytest.raises(HTTPException) as exc_info:
-        get_current_operator(mock_request)
-
-    assert exc_info.value.status_code == 401
-
-
-def test_get_current_operator_raises_401_for_invalid_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """get_current_operator() raises HTTPException(401) for an invalid token.
-
-    Arrange: set JWT_SECRET_KEY; build request with malformed token.
-    Act: call get_current_operator().
-    Assert: HTTPException with status_code=401 is raised.
-    """
-    monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
-    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
-
-    from fastapi import HTTPException
-
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
-
-    mock_request = MagicMock()
-    mock_request.headers = {"Authorization": "Bearer this-is-not-a-valid-jwt"}
+    mock_request.headers = headers
 
     with pytest.raises(HTTPException) as exc_info:
         get_current_operator(mock_request)
@@ -355,13 +340,13 @@ def test_get_current_operator_raises_401_for_empty_sub_claim(
 # ---------------------------------------------------------------------------
 
 
-def test_synthesis_job_has_owner_id_field() -> None:
-    """SynthesisJob must have an owner_id field for IDOR protection.
+# ---------------------------------------------------------------------------
+# AC3: Resource models have owner_id field
+# ---------------------------------------------------------------------------
 
-    Arrange: create a SynthesisJob with owner_id set.
-    Act: access the owner_id attribute.
-    Assert: owner_id is stored and retrievable.
-    """
+
+def test_synthesis_job_has_owner_id_field() -> None:
+    """SynthesisJob must have an owner_id field that stores the value correctly."""
     from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     job = SynthesisJob(
@@ -375,12 +360,7 @@ def test_synthesis_job_has_owner_id_field() -> None:
 
 
 def test_synthesis_job_owner_id_defaults_to_empty_string() -> None:
-    """SynthesisJob.owner_id must default to empty string for backward compatibility.
-
-    Arrange: create a SynthesisJob without specifying owner_id.
-    Act: access the owner_id attribute.
-    Assert: owner_id is empty string (not None).
-    """
+    """SynthesisJob.owner_id must default to empty string for backward compatibility."""
     from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
     job = SynthesisJob(
@@ -392,18 +372,8 @@ def test_synthesis_job_owner_id_defaults_to_empty_string() -> None:
     assert job.owner_id == ""
 
 
-# ---------------------------------------------------------------------------
-# AC3: Connection model has owner_id field
-# ---------------------------------------------------------------------------
-
-
 def test_connection_has_owner_id_field() -> None:
-    """Connection must have an owner_id field for IDOR protection.
-
-    Arrange: create a Connection with owner_id set.
-    Act: access the owner_id attribute.
-    Assert: owner_id is stored and retrievable.
-    """
+    """Connection must have an owner_id field that stores the value correctly."""
     from synth_engine.bootstrapper.schemas.connections import Connection
 
     conn = Connection(
@@ -417,12 +387,7 @@ def test_connection_has_owner_id_field() -> None:
 
 
 def test_connection_owner_id_defaults_to_empty_string() -> None:
-    """Connection.owner_id must default to empty string for backward compatibility.
-
-    Arrange: create a Connection without specifying owner_id.
-    Act: access the owner_id attribute.
-    Assert: owner_id is empty string (not None).
-    """
+    """Connection.owner_id must default to empty string for backward compatibility."""
     from synth_engine.bootstrapper.schemas.connections import Connection
 
     conn = Connection(

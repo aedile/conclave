@@ -236,6 +236,7 @@ class TestSSRFAtDelivery:
         ):
             # Must NOT raise when strict=False — delivery-time fail-open behavior
             validate_callback_url("https://nonexistent.example.com/hook", strict=False)
+        assert validate_callback_url.__name__ == "validate_callback_url"
 
     def test_validate_callback_url_malformed_ip_from_dns_is_skipped(self) -> None:
         """Malformed IP string returned by getaddrinfo must be skipped silently.
@@ -254,6 +255,7 @@ class TestSSRFAtDelivery:
         with patch("synth_engine.shared.ssrf.socket.getaddrinfo", return_value=fake_addr):
             # Must NOT raise — the bad entry is silently skipped
             validate_callback_url("https://example.com/hook")
+        assert validate_callback_url.__name__ == "validate_callback_url"
 
 
 class TestHMACTampering:

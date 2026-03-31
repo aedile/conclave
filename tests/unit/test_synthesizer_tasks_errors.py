@@ -98,6 +98,7 @@ class TestSynthesisTaskOOMRejection:
             )
 
         mock_engine.train.assert_not_called()
+        assert mock_engine.train.call_count == 0
 
     def test_oom_guardrail_rejection_commits_failed_status(self) -> None:
         """OOM rejection must commit the FAILED status to the database."""
@@ -839,10 +840,18 @@ class TestGenerationRuntimeErrorSanitized:
 class TestSynthesisJobNumRowsValidation:
     """SynthesisJob must reject num_rows < 1 at construction time (finding F3)."""
 
-    def test_synthesis_job_num_rows_zero_raises(self) -> None:
-        """SynthesisJob must reject num_rows=0 with ValueError.
+    @pytest.mark.parametrize(
+        "num_rows",
+        [
+            pytest.param(0, id="zero"),
+            pytest.param(-1, id="negative"),
+        ],
+    )
+    def test_synthesis_job_invalid_num_rows_raises(self, num_rows: int) -> None:
+        """SynthesisJob must reject num_rows values below 1 with ValueError.
 
-        Finding F3: docstring says 'Must be >= 1' but __init__ does not enforce it.
+        Args:
+            num_rows: The degenerate row count to pass to SynthesisJob.
         """
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
@@ -851,19 +860,7 @@ class TestSynthesisJobNumRowsValidation:
                 total_epochs=10,
                 table_name="persons",
                 parquet_path="/data/persons.parquet",
-                num_rows=0,
-            )
-
-    def test_synthesis_job_num_rows_negative_raises(self) -> None:
-        """SynthesisJob must reject num_rows=-1 with ValueError."""
-        from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-
-        with pytest.raises(ValueError, match="num_rows must be >= 1"):
-            SynthesisJob(
-                total_epochs=10,
-                table_name="persons",
-                parquet_path="/data/persons.parquet",
-                num_rows=-1,
+                num_rows=num_rows,
             )
 
     def test_synthesis_job_num_rows_one_is_valid(self) -> None:

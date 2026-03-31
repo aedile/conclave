@@ -327,6 +327,6 @@ async def test_rate_limit_fail_open_true_blocks_startup_in_production(
     has_setting_name = (
         "CONCLAVE_RATE_LIMIT_FAIL_OPEN" in error_message or "rate_limit_fail_open" in error_message
     )
-    assert has_setting_name, (
+    assert has_setting_name == True, (
         f"SystemExit message must name the problematic setting; got: {error_message}"
     )

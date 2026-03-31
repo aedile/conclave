@@ -81,6 +81,11 @@ class TestPasslibAbsent:
                     "It has no src/ import sites and must be removed entirely "
                     "(superseded by the direct cryptography pin, T55.5)."
                 )
+                assert "passlib" not in content or not any(
+                    ln.strip().startswith("passlib") for ln in content.splitlines()
+                )
+        deps_section = content.split("[tool.poetry.dependencies]")[-1].split("[")[0]
+        assert "passlib" not in deps_section, "passlib still in main deps"
 
     def test_passlib_absent_from_any_pyproject_section(self) -> None:
         """passlib must not appear in ANY pyproject.toml section at all.
@@ -95,6 +100,10 @@ class TestPasslibAbsent:
                     f"passlib still referenced in pyproject.toml line: {stripped!r}. "
                     "T55.5 requires full removal from all dependency groups."
                 )
+                assert not any(ln.strip().startswith("passlib") for ln in content.splitlines())
+        assert not any(ln.strip().startswith("passlib") for ln in content.splitlines()), (
+            "passlib still in pyproject"
+        )
 
     def test_passlib_absent_from_pre_commit_config(self) -> None:
         """passlib must NOT appear in .pre-commit-config.yaml additional_dependencies.
@@ -110,6 +119,8 @@ class TestPasslibAbsent:
                     "T55.5 requires removing passlib from the mirrors-mypy "
                     "additional_dependencies list."
                 )
+                assert "passlib" not in content
+        assert "passlib" not in content, "passlib still in pre-commit config"
 
 
 class TestChromadbFullyAbsent:
@@ -129,6 +140,10 @@ class TestChromadbFullyAbsent:
                     f"chromadb still in pyproject.toml: {stripped!r}. "
                     "T55.5 requires full removal — the seeding scripts are deleted."
                 )
+                assert not any(ln.strip().startswith("chromadb") for ln in content.splitlines())
+        assert not any(ln.strip().startswith("chromadb") for ln in content.splitlines()), (
+            "chromadb still in pyproject"
+        )
 
     def test_seed_chroma_scripts_deleted(self) -> None:
         """All three chroma seeding/init scripts must be deleted.
@@ -306,6 +321,8 @@ class TestMainPyNoAnyEscapeHatches:
                     "Replace with a type-safe pattern — either remove the annotation "
                     "or use a proper type alias (T55.5)."
                 )
+                assert "backend_cls: Any" not in source
+        assert "backend_cls: Any" not in source, "main.py still has Any annotation on backend_cls"
 
     def test_wiring_py_build_webhook_fn_not_returns_any(self) -> None:
         """_build_webhook_delivery_fn in wiring.py must not have ``-> Any`` return type.
@@ -331,6 +348,10 @@ class TestMainPyNoAnyEscapeHatches:
                     "_build_webhook_delivery_fn still has `-> Any` return type. "
                     "Replace with `Callable[[int, str], None]` (T55.5)."
                 )
+                assert "_build_webhook_delivery_fn" in source
+        assert "_build_webhook_delivery_fn" in source, (
+            "_build_webhook_delivery_fn must exist in wiring.py"
+        )
 
 
 class TestPoetryLockConsistent:

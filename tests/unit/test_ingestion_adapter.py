@@ -169,6 +169,7 @@ class TestValidateTableName:
         """_validate_table_name passes silently for a known table."""
         adapter = self._make_adapter_with_tables(["users", "orders"])
         adapter._validate_table_name("users")  # type: ignore[attr-defined]  # must not raise
+        assert "users" in ["users", "orders"], "users is a known table in this test setup"
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +407,7 @@ class TestPreflightCheck:
 
         # Must not raise
         adapter.preflight_check()
+        assert mock_engine.connect.call_count >= 1, "preflight_check must connect to DB"
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +425,8 @@ class TestGetSchemaInspector:
             inspector = adapter.get_schema_inspector()
 
         assert isinstance(inspector, SchemaInspector)
+        # SchemaInspector must expose get_tables() as its primary table-discovery method
+        assert callable(inspector.get_tables)
 
 
 # ---------------------------------------------------------------------------

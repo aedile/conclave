@@ -255,6 +255,8 @@ def test_v3_tampered_actor_fails_verification(v3_logger: object) -> None:
     assert logger.verify_event(tampered) is False, (
         "verify_event must return False when actor is tampered on a v3 event"
     )
+    # Specific: the tampered event has actor="mallory"
+    assert tampered.actor == "mallory"
 
 
 def test_v3_tampered_details_fails_verification(v3_logger: object) -> None:
@@ -285,6 +287,8 @@ def test_v3_tampered_details_fails_verification(v3_logger: object) -> None:
     assert logger.verify_event(tampered) is False, (
         "verify_event must return False when details is tampered on a v3 event"
     )
+    # Specific: tampered details contains the forged amount
+    assert tampered.details.get("amount") == "9999999"
 
 
 def test_v3_downgrade_to_v2_attack_fails(v3_key: bytes) -> None:
@@ -362,6 +366,8 @@ def test_v1_events_still_verify_with_v3_logger(v3_key: bytes) -> None:
     assert logger.verify_event(v1_event) is True, (
         "v1-signed events must still verify correctly after v3 upgrade (backward compat)"
     )
+    # Specific: v1 signature starts with "v1:"
+    assert v1_event.signature.startswith("v1:")
 
 
 def test_v2_events_still_verify_with_v3_logger(v3_key: bytes) -> None:
@@ -401,6 +407,8 @@ def test_v2_events_still_verify_with_v3_logger(v3_key: bytes) -> None:
     assert logger.verify_event(v2_event) is True, (
         "v2-signed events must still verify correctly after v3 upgrade (backward compat)"
     )
+    # Specific: v2 signature starts with "v2:"
+    assert v2_event.signature.startswith("v2:")
 
 
 def test_new_events_use_v3_prefix(v3_logger: object) -> None:

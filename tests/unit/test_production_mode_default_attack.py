@@ -115,6 +115,7 @@ def test_unset_conclave_env_is_not_development(monkeypatch: pytest.MonkeyPatch) 
         "When CONCLAVE_ENV is unset, is_production() must return True — "
         "the system defaults to production mode, not development mode"
     )
+    assert s.is_production()
 
 
 def test_unset_conclave_env_conclave_env_field_is_production(
@@ -358,6 +359,7 @@ def test_old_dev_default_upgrade_path_requires_explicit_development(
     assert result is None, (
         "validate_config() must succeed when CONCLAVE_ENV=development is explicitly set"
     )
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------

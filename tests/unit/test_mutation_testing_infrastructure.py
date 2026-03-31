@@ -57,6 +57,7 @@ def cosmic_ray_config() -> dict:  # type: ignore[return]
 def test_cosmic_ray_config_is_valid_toml(cosmic_ray_config: dict) -> None:
     """Config file parses as TOML without errors (validated by fixture load)."""
     assert isinstance(cosmic_ray_config, dict), "Parsed [cosmic-ray] section must be a dict."
+    assert len(cosmic_ray_config) > 0, "[cosmic-ray] section must contain at least one key"
 
 
 def test_cosmic_ray_config_has_required_keys(cosmic_ray_config: dict) -> None:
@@ -179,11 +180,12 @@ def test_cosmic_ray_excluded_modules_skip_init_files(cosmic_ray_config: dict) ->
     assert isinstance(excluded, list), "excluded-modules must be a list."
     # At least one exclusion must target __init__ or init files
     has_init_exclusion = any("__init__" in str(ex) or "init" in str(ex).lower() for ex in excluded)
-    assert has_init_exclusion, (
+    assert has_init_exclusion == True, (
         "excluded-modules must exclude __init__ files from mutation scope. "
         "Mutating __init__.py produces noise without testing real behavior. "
         f"Current exclusions: {excluded}"
     )
+    assert has_init_exclusion
 
 
 def test_cosmic_ray_excluded_modules_skip_non_security_shared(cosmic_ray_config: dict) -> None:

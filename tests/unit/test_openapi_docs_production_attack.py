@@ -107,6 +107,7 @@ def test_docs_endpoint_returns_404_in_production_mode(
         f"Expected docs_url=None in production, got {production_app.docs_url!r}. "
         "The /docs endpoint must be disabled to prevent API reconnaissance."
     )
+    assert str(production_app.docs_url) == "None"
 
 
 def test_redoc_endpoint_returns_404_in_production_mode(
@@ -119,6 +120,7 @@ def test_redoc_endpoint_returns_404_in_production_mode(
     assert production_app.redoc_url is None, (
         f"Expected redoc_url=None in production, got {production_app.redoc_url!r}."
     )
+    assert str(production_app.redoc_url) == "None"
 
 
 def test_openapi_json_endpoint_returns_404_in_production_mode(
@@ -131,6 +133,7 @@ def test_openapi_json_endpoint_returns_404_in_production_mode(
     assert production_app.openapi_url is None, (
         f"Expected openapi_url=None in production, got {production_app.openapi_url!r}."
     )
+    assert str(production_app.openapi_url) == "None"
 
 
 def test_docs_not_in_exempt_paths_in_production_mode(

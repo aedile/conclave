@@ -6,6 +6,7 @@ Tests cover:
 - Authenticated settings requests succeed.
 
 Split from test_auth_gap_remediation.py (T56.3).
+Parametrized in T73.1 to reduce repetition.
 
 CONSTITUTION Priority 0: Security
 Task: ADR-D1 — Add Authentication to Settings, Security & Privacy Routers
@@ -139,226 +140,195 @@ def _common_patches() -> list[Any]:
 # ---------------------------------------------------------------------------
 
 
-def test_security_shred_is_in_seal_exempt_paths() -> None:
-    """/security/shred must be in SEAL_EXEMPT_PATHS (vault/license bypass).
+@pytest.mark.parametrize(
+    ("path", "container", "expected_membership"),
+    [
+        pytest.param(
+            "/security/shred",
+            "SEAL_EXEMPT_PATHS",
+            True,
+            id="shred_in_seal_exempt",
+        ),
+        pytest.param(
+            "/security/shred",
+            "COMMON_INFRA_EXEMPT_PATHS",
+            False,
+            id="shred_not_in_common_infra",
+        ),
+        pytest.param(
+            "/security/keys/rotate",
+            "COMMON_INFRA_EXEMPT_PATHS",
+            False,
+            id="rotate_not_in_common_infra",
+        ),
+        pytest.param(
+            "/security/keys/rotate",
+            "SEAL_EXEMPT_PATHS",
+            False,
+            id="rotate_not_in_seal_exempt",
+        ),
+    ],
+)
+def test_security_path_exempt_membership(
+    path: str, container: str, expected_membership: bool
+) -> None:
+    """Security paths must be in the correct exempt-path sets.
 
-    After the P50 layered exemption model: /security/shred is no longer in
-    COMMON_INFRA_EXEMPT_PATHS (auth baseline).  Instead it lives in
-    SEAL_EXEMPT_PATHS so that SealGateMiddleware and LicenseGateMiddleware
-    allow emergency shred through, while AuthenticationGateMiddleware still
-    requires JWT auth (the route uses require_scope("security:admin")).
-    """
-    from synth_engine.bootstrapper.dependencies._exempt_paths import SEAL_EXEMPT_PATHS
-
-    assert "/security/shred" in SEAL_EXEMPT_PATHS
-
-
-def test_security_shred_not_in_common_infra_exempt_paths() -> None:
-    """/security/shred must NOT be in COMMON_INFRA_EXEMPT_PATHS (requires JWT auth).
-
-    COMMON_INFRA_EXEMPT_PATHS is the auth baseline.  Security routes must
-    not bypass AuthenticationGateMiddleware (ADV-P47-04, P50 review fix).
-    """
-    from synth_engine.bootstrapper.dependencies._exempt_paths import COMMON_INFRA_EXEMPT_PATHS
-
-    assert "/security/shred" not in COMMON_INFRA_EXEMPT_PATHS
-
-
-def test_security_keys_rotate_not_in_any_exempt_paths() -> None:
-    """/security/keys/rotate must NOT be in COMMON_INFRA_EXEMPT_PATHS or SEAL_EXEMPT_PATHS.
-
-    Key rotation requires an unsealed vault and JWT auth.  It must not bypass
-    either SealGateMiddleware or AuthenticationGateMiddleware.
+    Args:
+        path: URL path to check.
+        container: Name of the exempt-paths constant to check.
+        expected_membership: True if path should be in the set, False otherwise.
     """
     from synth_engine.bootstrapper.dependencies._exempt_paths import (
         COMMON_INFRA_EXEMPT_PATHS,
         SEAL_EXEMPT_PATHS,
     )
 
-    assert "/security/keys/rotate" not in COMMON_INFRA_EXEMPT_PATHS
-    assert "/security/keys/rotate" not in SEAL_EXEMPT_PATHS
+    containers = {
+        "SEAL_EXEMPT_PATHS": SEAL_EXEMPT_PATHS,
+        "COMMON_INFRA_EXEMPT_PATHS": COMMON_INFRA_EXEMPT_PATHS,
+    }
+    actual = path in containers[container]
+    assert actual == expected_membership, (
+        f"Expected {path!r} in {container}={expected_membership}, got {actual}"
+    )
 
 
 # ---------------------------------------------------------------------------
-# ATTACK RED: Settings endpoints — unauthenticated → 401
+# ATTACK: Settings endpoints — unauthenticated, expired, empty-sub, wrong-key
+# Each parametrize value: (method, path, body)
 # ---------------------------------------------------------------------------
 
-
-class TestSettingsUnauthenticatedReturns401:
-    """Unauthenticated requests to all settings endpoints must return 401."""
-
-    @pytest.mark.asyncio
-    async def test_list_settings_unauthenticated_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """GET /settings without token must return 401 when JWT is configured."""
-        app = _make_settings_app(monkeypatch)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get("/api/v1/settings")
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_get_setting_unauthenticated_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """GET /settings/{key} without token must return 401 when JWT is configured."""
-        app = _make_settings_app(monkeypatch)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get("/api/v1/settings/some_key")
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_upsert_setting_unauthenticated_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """PUT /settings/{key} without token must return 401 when JWT is configured."""
-        app = _make_settings_app(monkeypatch)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.put("/api/v1/settings/some_key", json={"value": "v"})
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_delete_setting_unauthenticated_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """DELETE /settings/{key} without token must return 401 when JWT is configured."""
-        app = _make_settings_app(monkeypatch)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.delete("/api/v1/settings/some_key")
-
-        assert response.status_code == 401
+_SETTINGS_ATTACK_CASES = [
+    pytest.param("GET", "/api/v1/settings", None, id="list"),
+    pytest.param("GET", "/api/v1/settings/some_key", None, id="get_key"),
+    pytest.param("PUT", "/api/v1/settings/some_key", {"value": "v"}, id="upsert"),
+    pytest.param("DELETE", "/api/v1/settings/some_key", None, id="delete"),
+]
 
 
-# ---------------------------------------------------------------------------
-# ATTACK RED: Settings endpoints — expired JWT → 401
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(("method", "path", "body"), _SETTINGS_ATTACK_CASES)
+@pytest.mark.asyncio
+async def test_settings_endpoint_unauthenticated_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings endpoints without token must return 401 when JWT is configured.
+
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app = _make_settings_app(monkeypatch)
+    patches = _common_patches()
+
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            kwargs = {"json": body} if body is not None else {}
+            response = await getattr(client, method.lower())(path, **kwargs)
+
+    assert response.status_code == 401
 
 
-class TestSettingsExpiredTokenReturns401:
-    """Expired JWT tokens must return 401 on settings endpoints."""
+@pytest.mark.parametrize(("method", "path", "body"), _SETTINGS_ATTACK_CASES)
+@pytest.mark.asyncio
+async def test_settings_endpoint_expired_token_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings endpoints with expired JWT must return 401.
 
-    @pytest.mark.asyncio
-    async def test_list_settings_expired_token_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """GET /settings with expired JWT must return 401."""
-        app = _make_settings_app(monkeypatch)
-        token = _make_token(exp_offset=-3600)  # already expired
-        patches = _common_patches()
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app = _make_settings_app(monkeypatch)
+    token = _make_token(exp_offset=-3600)
+    patches = _common_patches()
 
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get(
-                    "/api/v1/settings", headers={"Authorization": f"Bearer {token}"}
-                )
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
 
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_upsert_setting_expired_token_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """PUT /settings/{key} with expired JWT must return 401."""
-        app = _make_settings_app(monkeypatch)
-        token = _make_token(exp_offset=-3600)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.put(
-                    "/api/v1/settings/some_key",
-                    json={"value": "v"},
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-
-        assert response.status_code == 401
+    assert response.status_code == 401
 
 
-# ---------------------------------------------------------------------------
-# ATTACK RED: Settings endpoints — empty sub → 401
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(("method", "path", "body"), _SETTINGS_ATTACK_CASES)
+@pytest.mark.asyncio
+async def test_settings_endpoint_empty_sub_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings endpoints with empty-sub token must return 401.
+
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app = _make_settings_app(monkeypatch)
+    token = _make_token(sub="")
+    patches = _common_patches()
+
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert response.status_code == 401
 
 
-class TestSettingsEmptySubReturns401:
-    """Tokens with empty sub claim must return 401 on settings endpoints."""
+@pytest.mark.parametrize(("method", "path", "body"), _SETTINGS_ATTACK_CASES)
+@pytest.mark.asyncio
+async def test_settings_endpoint_wrong_key_returns_401(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings endpoints with wrong-key token must return 401.
 
-    @pytest.mark.asyncio
-    async def test_list_settings_empty_sub_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """GET /settings with token sub="" must return 401."""
-        app = _make_settings_app(monkeypatch)
-        token = _make_token(sub="")
-        patches = _common_patches()
+    Args:
+        method: HTTP method to use.
+        path: URL path to request.
+        body: Optional JSON body.
+        monkeypatch: pytest monkeypatch fixture.
+    """
+    app = _make_settings_app(monkeypatch)
+    token = _make_token(secret=_WRONG_SECRET)
+    patches = _common_patches()
 
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get(
-                    "/api/v1/settings", headers={"Authorization": f"Bearer {token}"}
-                )
+    with patches[0], patches[1]:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await getattr(client, method.lower())(
+                path,
+                **({"json": body} if body is not None else {}),
+                headers={"Authorization": f"Bearer {token}"},
+            )
 
-        assert response.status_code == 401
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
-# ATTACK RED: Settings endpoints — wrong signing key → 401
-# ---------------------------------------------------------------------------
-
-
-class TestSettingsWrongKeyReturns401:
-    """Tokens signed with wrong key must return 401 on settings endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_list_settings_wrong_key_returns_401(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """GET /settings with token signed by wrong key must return 401."""
-        app = _make_settings_app(monkeypatch)
-        token = _make_token(secret=_WRONG_SECRET)
-        patches = _common_patches()
-
-        with patches[0], patches[1]:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.get(
-                    "/api/v1/settings", headers={"Authorization": f"Bearer {token}"}
-                )
-
-        assert response.status_code == 401
-
-
-# ---------------------------------------------------------------------------
-# ATTACK RED: Security endpoints — unauthenticated → 401
+# Feature: Authenticated requests succeed
 # ---------------------------------------------------------------------------
 
 

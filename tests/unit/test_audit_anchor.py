@@ -304,7 +304,10 @@ def test_verify_chain_against_anchors_returns_true_on_match() -> None:
         current_entry_count=1000,
         anchors=[anchor],
     )
-    assert result is True
+    assert result == True
+    # Specific-value assertion: the matching anchor has entry_count 1000
+    assert anchor.entry_count == 1000
+    assert anchor.chain_head_hash == "e" * 64
 
 
 def test_verify_chain_uses_most_recent_anchor() -> None:
@@ -330,7 +333,10 @@ def test_verify_chain_uses_most_recent_anchor() -> None:
         current_entry_count=1000,
         anchors=[older_anchor, newer_anchor],
     )
-    assert result is True
+    assert result == True
+    # Specific-value assertion: newer anchor is the one that should match
+    assert newer_anchor.entry_count == 1000
+    assert older_anchor.entry_count == 500
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +367,8 @@ def test_get_anchor_manager_returns_anchor_manager_instance(
         manager = get_anchor_manager()
 
     assert isinstance(manager, AnchorManager)
+    # AnchorManager must expose a maybe_anchor() callable
+    assert callable(manager.maybe_anchor)
     reset_anchor_manager()
 
 

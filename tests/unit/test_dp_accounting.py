@@ -62,6 +62,9 @@ class TestDpAccountingModuleExists:
     def test_module_is_importable(self) -> None:
         """dp_accounting module must be importable from the synthesizer package."""
         import synth_engine.modules.synthesizer.training.dp_accounting  # noqa: F401
+        import synth_engine.modules.synthesizer.training.dp_accounting as dp_acct
+
+        assert dp_acct.__name__ == "synth_engine.modules.synthesizer.training.dp_accounting"
 
     def test_audit_reconciliation_msg_is_exported(self) -> None:
         """_AUDIT_RECONCILIATION_MSG constant must be present in dp_accounting."""
@@ -84,7 +87,10 @@ class TestDpAccountingModuleExists:
         """DpAccountingStep class must be present in dp_accounting."""
         from synth_engine.modules.synthesizer.training.dp_accounting import DpAccountingStep
 
-        assert isinstance(DpAccountingStep(), DpAccountingStep)
+        step = DpAccountingStep()
+        assert isinstance(step, DpAccountingStep)
+        # DpAccountingStep must implement the execute() method from the protocol
+        assert callable(step.execute)
 
     def test_dp_accounting_step_has_execute_method(self) -> None:
         """DpAccountingStep must implement the SynthesisJobStep protocol."""
@@ -289,6 +295,7 @@ class TestHandleDpAccountingBehaviour:
 
         # spend_budget_fn must NOT have been called when actual_epsilon is None
         mock_budget_fn.assert_not_called()
+        assert mock_budget_fn.call_count == 0
 
     def test_connection_error_from_spend_budget_fn_propagates_as_connection_error(
         self,
@@ -390,10 +397,11 @@ class TestHandleDpAccountingBehaviour:
         except EpsilonMeasurementError:
             raised = True
 
-        assert raised, (
+        assert raised == True, (
             "EpsilonMeasurementError must propagate to the caller, "
             "not be silently caught and logged"
         )
+        assert raised
 
     def test_budget_exhaustion_error_not_silently_logged(self) -> None:
         """BudgetExhaustionError must propagate to the caller — not just be logged.
@@ -432,9 +440,10 @@ class TestHandleDpAccountingBehaviour:
         except BudgetExhaustionError:
             raised = True
 
-        assert raised, (
+        assert raised == True, (
             "BudgetExhaustionError must propagate to the caller, not be silently caught and logged"
         )
+        assert raised
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +463,7 @@ class TestDpAccountingStepFromDpAccountingModule:
         result = DpAccountingStep().execute(ctx)
 
         assert result.success is True
+        assert result.success
 
     def test_step_returns_success_on_normal_dp_flow(self) -> None:
         """DpAccountingStep.execute() must return success when DP accounting completes."""
@@ -474,6 +484,7 @@ class TestDpAccountingStepFromDpAccountingModule:
             result = DpAccountingStep().execute(ctx)
 
         assert result.success is True
+        assert result.success
 
     def test_step_returns_failure_on_budget_exhaustion(self) -> None:
         """DpAccountingStep.execute() must return failure on BudgetExhaustionError."""

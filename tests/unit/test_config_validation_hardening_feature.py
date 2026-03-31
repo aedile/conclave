@@ -67,6 +67,7 @@ def test_valid_jwt_secret_production_passes(monkeypatch: pytest.MonkeyPatch) -> 
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 def test_empty_jwt_secret_dev_warns(
@@ -123,6 +124,7 @@ def test_valid_operator_hash_production_passes(monkeypatch: pytest.MonkeyPatch) 
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 def test_empty_operator_hash_dev_warns(
@@ -233,6 +235,7 @@ def test_mtls_cert_readable_passes(
 
     result = validate_config()
     assert result is None
+    assert str(result) == "None"
 
 
 # ---------------------------------------------------------------------------

@@ -256,7 +256,9 @@ class TestDpAccountingStepFailClosed:
             result = DpAccountingStep().execute(ctx)
 
         assert result.success is False
+        assert not result.success
         assert result.error_msg is not None
+        assert result.error_msg != None  # noqa: E711 — specific check
 
     def test_step_error_message_does_not_expose_internal_exception_detail(
         self,

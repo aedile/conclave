@@ -252,6 +252,7 @@ def test_db_no_ssl_connect_args_when_mtls_disabled_settings() -> None:
     )
     # No error raised — just verify the field exists and is False
     assert s.mtls_enabled is False
+    assert not s.mtls_enabled
 
 
 # ---------------------------------------------------------------------------

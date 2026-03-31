@@ -874,6 +874,7 @@ def test_env_alias_sets_conclave_env_when_conclave_env_not_set(
         "When CONCLAVE_ENV defaults to 'production', is_production() must return True "
         "even if ENV=development (conclave_env takes precedence per T57.6)"
     )
+    assert s.is_production()
 
 
 def test_conclave_env_wins_when_both_set(
@@ -895,6 +896,7 @@ def test_conclave_env_wins_when_both_set(
         "When CONCLAVE_ENV=development overrides ENV=production, "
         "is_production() must return False (conclave_env wins)"
     )
+    assert not s.is_production()
 
 
 def test_env_alias_deprecation_emits_warning_when_used(
@@ -977,6 +979,7 @@ def test_is_production_uses_conclave_env_as_primary_source(
 
     s = ConclaveSettings()
     assert s.is_production() is True, "CONCLAVE_ENV=production must make is_production() True"
+    assert s.is_production()
 
 
 # ===========================================================================
@@ -1018,6 +1021,7 @@ def test_deletion_manifest_audit_logged_defaults_true() -> None:
     assert manifest.audit_logged is True, (
         "DeletionManifest.audit_logged must default to True on the success path"
     )
+    assert manifest.audit_logged
 
 
 def test_erasure_service_sets_audit_logged_false_on_audit_failure() -> None:
@@ -1055,6 +1059,7 @@ def test_erasure_service_sets_audit_logged_false_on_audit_failure() -> None:
         "DeletionManifest.audit_logged must be False when audit logging raises: "
         f"got audit_logged={manifest.audit_logged}"
     )
+    assert not manifest.audit_logged
 
 
 def test_erasure_service_sets_audit_logged_true_on_success() -> None:
@@ -1086,3 +1091,4 @@ def test_erasure_service_sets_audit_logged_true_on_success() -> None:
     assert manifest.audit_logged is True, (
         "DeletionManifest.audit_logged must be True when audit logging succeeds"
     )
+    assert manifest.audit_logged

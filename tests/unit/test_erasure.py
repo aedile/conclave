@@ -329,6 +329,7 @@ class TestErasureServicePreservation:
                 manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
 
         assert manifest.retained_synthesized_output is True
+        assert manifest.retained_synthesized_output
 
     def test_retained_audit_trail_flag_is_true(self) -> None:
         """Manifest always reports retained_audit_trail=True."""
@@ -345,6 +346,7 @@ class TestErasureServicePreservation:
                 manifest = service.execute_erasure(subject_id="any-subject", actor="operator-admin")
 
         assert manifest.retained_audit_trail is True
+        assert manifest.retained_audit_trail
 
     def test_output_path_not_deleted_from_filesystem(self) -> None:
         """execute_erasure does NOT delete synthesized output files from disk."""

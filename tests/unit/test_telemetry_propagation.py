@@ -194,6 +194,12 @@ class TestExtractTraceContext:
 
         ctx = extract_trace_context(None)
         assert isinstance(ctx, Context)
+        # A default (empty) context must have no valid span context
+        from opentelemetry import trace
+
+        span = trace.get_current_span(ctx)
+        assert span.get_span_context().is_valid is False
+        assert not span.get_span_context().is_valid
 
     def test_extract_returns_default_context_with_empty_carrier(self) -> None:
         """extract_trace_context() returns a default Context when carrier is an empty dict.

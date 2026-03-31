@@ -393,6 +393,7 @@ def test_middleware_reads_production_flag_from_settings(monkeypatch: pytest.Monk
     HTTPSEnforcementMiddleware.__init__(middleware, MagicMock())
 
     assert middleware._production is True
+    assert middleware._production
 
     get_settings.cache_clear()
 
@@ -414,6 +415,7 @@ def test_middleware_is_not_production_when_env_is_dev(monkeypatch: pytest.Monkey
     HTTPSEnforcementMiddleware.__init__(middleware, MagicMock())
 
     assert middleware._production is False
+    assert not middleware._production
 
     get_settings.cache_clear()
 

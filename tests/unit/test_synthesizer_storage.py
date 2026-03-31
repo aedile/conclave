@@ -85,6 +85,8 @@ def test_upload_download_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
         original_df.reset_index(drop=True),
         downloaded_df.reset_index(drop=True),
     )
+    assert len(downloaded_df) == len(original_df), "downloaded DataFrame must have same row count"
+    assert list(downloaded_df.columns) == list(original_df.columns)
 
 
 def test_upload_download_roundtrip_empty_dataframe(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,6 +102,8 @@ def test_upload_download_roundtrip_empty_dataframe(monkeypatch: pytest.MonkeyPat
     client.upload_parquet("empty_table.parquet", empty_df)
     result = client.download_parquet("empty_table.parquet")
     pd.testing.assert_frame_equal(empty_df.reset_index(drop=True), result.reset_index(drop=True))
+    assert len(result) == 0, "downloaded empty DataFrame must have 0 rows"
+    assert list(result.columns) == list(empty_df.columns)
 
 
 # ---------------------------------------------------------------------------

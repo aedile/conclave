@@ -312,6 +312,8 @@ class TestCalcGradientPenalty:
         )
         # Should not raise
         penalty.backward()
+        assert penalty.requires_grad, "penalty must have grad enabled for backward()"
+        assert penalty.ndim >= 0
 
     def test_gradient_penalty_default_lambda_scales_penalty(self) -> None:
         """A higher lambda_ produces a proportionally larger penalty."""

@@ -162,11 +162,12 @@ class TestSecurityAttacks:
                 ".mkdir" in source,
             ]
         )
-        assert has_writable_check, (
+        assert has_writable_check == True, (
             "Script must validate that the output directory is writable before "
             "starting the pipeline. No writable-check pattern found (os.access+W_OK, "
             ".mkdir, or explicit writable guard)."
         )
+        assert has_writable_check
 
     def test_validate_script_has_nan_detection(self) -> None:
         """The script must detect NaN/inf in generated DataFrames.

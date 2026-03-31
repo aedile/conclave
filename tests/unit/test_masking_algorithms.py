@@ -15,6 +15,8 @@ from synth_engine.modules.masking.algorithms import (
     luhn_check,
     mask_credit_card,
     mask_email,
+    mask_first_name,
+    mask_last_name,
     mask_name,
     mask_phone,
     mask_ssn,
@@ -320,13 +322,14 @@ def test_mask_email_salt_sensitivity() -> None:
 @pytest.mark.parametrize(
     ("mask_fn", "value"),
     [
-        (mask_name, "Alice Smith"),
-        (mask_email, "alice@example.com"),
-        (mask_phone, "555-867-5309"),
-        (mask_ssn, "123-45-6789"),
-        (mask_credit_card, "4111111111111111"),
+        pytest.param(mask_name, "Alice Smith", id="mask_name"),
+        pytest.param(mask_first_name, "Alice", id="mask_first_name"),
+        pytest.param(mask_last_name, "Smith", id="mask_last_name"),
+        pytest.param(mask_email, "alice@example.com", id="mask_email"),
+        pytest.param(mask_phone, "555-867-5309", id="mask_phone"),
+        pytest.param(mask_ssn, "123-45-6789", id="mask_ssn"),
+        pytest.param(mask_credit_card, "4111111111111111", id="mask_credit_card"),
     ],
-    ids=["mask_name", "mask_email", "mask_phone", "mask_ssn", "mask_credit_card"],
 )
 def test_mask_function_is_deterministic(mask_fn: Callable[..., str], value: str) -> None:
     """Each mask function returns the same result for the same (value, salt) pair.
@@ -345,11 +348,12 @@ def test_mask_function_is_deterministic(mask_fn: Callable[..., str], value: str)
 @pytest.mark.parametrize(
     ("mask_fn", "value"),
     [
-        (mask_name, "Alice Smith"),
-        (mask_email, "alice@example.com"),
-        (mask_phone, "555-867-5309"),
+        pytest.param(mask_name, "Alice Smith", id="mask_name"),
+        pytest.param(mask_first_name, "Alice", id="mask_first_name"),
+        pytest.param(mask_last_name, "Smith", id="mask_last_name"),
+        pytest.param(mask_email, "alice@example.com", id="mask_email"),
+        pytest.param(mask_phone, "555-867-5309", id="mask_phone"),
     ],
-    ids=["mask_name-salt-sensitive", "mask_email-salt-sensitive", "mask_phone-salt-sensitive"],
 )
 def test_mask_function_salt_sensitivity(mask_fn: Callable[..., str], value: str) -> None:
     """Each mask function produces different output when the salt changes (T49.2).
@@ -438,39 +442,35 @@ def test_mask_credit_card_salt_sensitivity() -> None:
 
 
 # ---------------------------------------------------------------------------
-# luhn_check
+# luhn_check — parametrized validity checks (T73)
 # ---------------------------------------------------------------------------
 
 
-def test_luhn_check_valid_number() -> None:
-    """luhn_check returns True for a known valid LUHN number."""
-    # Visa test card — well-known valid LUHN number
-    assert luhn_check("4111111111111111") is True
+@pytest.mark.parametrize(
+    ("card_number", "expected"),
+    [
+        pytest.param("4111111111111111", True, id="visa_test_card"),
+        pytest.param("4111 1111 1111 1111", True, id="visa_with_spaces"),
+        pytest.param("1234567890123456", False, id="invalid_number"),
+        pytest.param("", False, id="empty_string"),
+        pytest.param("abcdefghijk", False, id="non_digit_input"),
+    ],
+)
+def test_luhn_check_validates_correctly(card_number: str, expected: bool) -> None:
+    """luhn_check returns the expected result for each input class.
 
+    Valid LUHN numbers (pass) and invalid/malformed inputs (fail) are verified
+    in a single parametrized sweep. This replaces 5 individual tests that
+    each exercised a single branch of the same algorithm.
 
-def test_luhn_check_invalid_number() -> None:
-    """luhn_check returns False for an invalid LUHN number."""
-    assert luhn_check("1234567890123456") is False
-
-
-def test_luhn_check_with_spaces() -> None:
-    """luhn_check passes the raw spaced input without pre-stripping.
-
-    luhn_check must handle spaces itself by filtering non-digit characters
-    internally (via str.isdigit()), so callers should NOT pre-strip spaces.
+    Args:
+        card_number: Input string to validate.
+        expected: True if the number should pass LUHN validation, False otherwise.
     """
-    # Pass the raw spaced string — luhn_check must handle spaces itself.
-    assert luhn_check("4111 1111 1111 1111") is True
-
-
-def test_luhn_check_empty_string() -> None:
-    """luhn_check returns False for an empty string (no digits to validate)."""
-    assert luhn_check("") is False
-
-
-def test_luhn_check_non_digit_input() -> None:
-    """luhn_check returns False when input contains no digits at all."""
-    assert luhn_check("abcdefghijk") is False
+    result = luhn_check(card_number)
+    assert result is expected, (
+        f"luhn_check({card_number!r}) returned {result!r}, expected {expected!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -547,6 +547,8 @@ def test_deterministic_hash_max_length_none_no_truncation() -> None:
     """deterministic_hash with max_length=None (default) returns an int, no truncation."""
     result = deterministic_hash("x", "y", max_length=None)
     assert isinstance(result, int), "Without max_length, return type must be int"
+    # The int result must be positive (hash of non-empty inputs)
+    assert result > 0
 
 
 def test_deterministic_hash_length_zero_raises_value_error() -> None:

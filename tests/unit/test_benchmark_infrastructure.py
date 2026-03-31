@@ -95,6 +95,7 @@ class TestBenchmarkHarnessRejectionCases:
         assert spec.loader is not None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)  # type: ignore[union-attr]
+        assert hasattr(module, "run_grid"), "benchmark module must expose run_grid()"
 
         with pytest.raises(
             (ValueError, TypeError, FileNotFoundError),
@@ -190,6 +191,9 @@ class TestBenchmarkYAMLSecurity:
         assert spec.loader is not None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)  # type: ignore[union-attr]
+        assert hasattr(module, "load_grid_config"), (
+            "benchmark module must expose load_grid_config()"
+        )
 
         # YAML payload that would execute os.system("echo pwned") if loaded unsafely
         malicious_yaml = textwrap.dedent("""\

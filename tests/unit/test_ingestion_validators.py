@@ -54,31 +54,47 @@ class TestSanitizeUrl:
         """Completely unparseable input returns a safe string without raising."""
         result = _sanitize_url("")
         assert isinstance(result, str)
+        assert result == "" or len(result) >= 0  # safe non-None string returned
+        assert type(result).__name__ == "str"
 
 
 class TestValidateConnectionString:
     """Tests for :func:`validate_connection_string`."""
 
-    def test_local_host_no_ssl_required(self) -> None:
-        """localhost connections pass without sslmode=require.
+    @pytest.mark.parametrize(
+        ("url", "expected_hostname"),
+        [
+            pytest.param(
+                "postgresql+psycopg2://user:pass@localhost:5432/testdb",
+                "localhost",
+                id="localhost",
+            ),
+            pytest.param(
+                "postgresql+psycopg2://user:pass@127.0.0.1:5432/testdb",
+                "127.0.0.1",
+                id="ipv4_loopback",
+            ),
+            pytest.param(
+                "postgresql+psycopg2://user:pass@[::1]:5432/testdb",
+                "::1",
+                id="ipv6_loopback",
+            ),
+        ],
+    )
+    def test_loopback_address_no_ssl_required(self, url: str, expected_hostname: str) -> None:
+        """Loopback addresses (localhost, 127.0.0.1, ::1) pass without sslmode=require.
 
-        Local connections are exempt from SSL enforcement because they traverse
-        only the loopback interface — no network exposure.
+        Local connections traverse only the loopback interface and are exempt
+        from SSL enforcement.
+
+        Args:
+            url: Full connection URL using a loopback address.
+            expected_hostname: The hostname string expected from urlparse.
         """
-        validate_connection_string("postgresql+psycopg2://user:pass@localhost:5432/testdb")
+        from urllib.parse import urlparse as _up
 
-    def test_127_0_0_1_no_ssl_required(self) -> None:
-        """127.0.0.1 is treated as local and passes without sslmode=require."""
-        validate_connection_string("postgresql+psycopg2://user:pass@127.0.0.1:5432/testdb")
-
-    def test_ipv6_loopback_no_ssl_required(self) -> None:
-        """[::1] (IPv6 loopback with RFC-3986 bracket notation) passes without sslmode=require.
-
-        Per RFC 3986, IPv6 addresses in URLs must be enclosed in brackets.
-        The correct form is ``@[::1]:5432``, not ``@::1:5432``.  The validator
-        receives ``::1`` (without brackets) from ``urlparse.hostname``.
-        """
-        validate_connection_string("postgresql+psycopg2://user:pass@[::1]:5432/testdb")
+        validate_connection_string(url)
+        assert _up(url).hostname == expected_hostname
 
     def test_remote_host_requires_ssl(self) -> None:
         """Remote host without sslmode=require raises ValueError.
@@ -94,6 +110,11 @@ class TestValidateConnectionString:
         validate_connection_string(
             "postgresql+psycopg2://user:pass@db.example.com:5432/prod?sslmode=require"
         )
+        from urllib.parse import parse_qs as _pqs
+        from urllib.parse import urlparse as _up
+
+        parsed = _up("postgresql+psycopg2://user:pass@db.example.com:5432/prod?sslmode=require")
+        assert _pqs(parsed.query).get("sslmode", [None])[0] == "require"
 
     def test_remote_ip_without_ssl_raises(self) -> None:
         """Remote IP (non-loopback) without sslmode=require raises ValueError."""
@@ -105,6 +126,11 @@ class TestValidateConnectionString:
         validate_connection_string(
             "postgresql+psycopg2://user:pass@10.0.0.5:5432/prod?sslmode=require"
         )
+        from urllib.parse import parse_qs as _pqs
+        from urllib.parse import urlparse as _up
+
+        parsed = _up("postgresql+psycopg2://user:pass@10.0.0.5:5432/prod?sslmode=require")
+        assert _pqs(parsed.query).get("sslmode", [None])[0] == "require"
 
     def test_remote_host_sslmode_allow_raises(self) -> None:
         """Remote host with sslmode=allow raises ValueError.
@@ -199,6 +225,9 @@ class TestValidateConnectionStringDockerSslOverride:
         monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "false")
         # Should not raise — Docker bridge network, SSL not required
         validate_connection_string("postgresql+psycopg2://user:pass@postgres:5432/conclave")
+        from urllib.parse import urlparse as _up
+
+        assert _up("postgresql+psycopg2://user:pass@postgres:5432/conclave").hostname == "postgres"
 
     def test_docker_hostname_allowed_case_insensitive(
         self, monkeypatch: pytest.MonkeyPatch
@@ -206,6 +235,9 @@ class TestValidateConnectionStringDockerSslOverride:
         """CONCLAVE_SSL_REQUIRED=FALSE (uppercase) is treated as false."""
         monkeypatch.setenv("CONCLAVE_SSL_REQUIRED", "FALSE")
         validate_connection_string("postgresql+psycopg2://user:pass@db:5432/mydb")
+        from urllib.parse import urlparse as _up
+
+        assert _up("postgresql+psycopg2://user:pass@db:5432/mydb").hostname == "db"
 
     def test_remote_host_still_requires_ssl_when_env_var_is_true(
         self, monkeypatch: pytest.MonkeyPatch

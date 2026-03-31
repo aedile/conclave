@@ -180,6 +180,7 @@ class TestQueuedJobsIgnored:
         reaper.reap()
 
         repo.get_stale_in_progress.assert_called_once()
+        assert repo.get_stale_in_progress.call_count == 1
         repo.mark_failed.assert_not_called()
 
     def test_task_with_queued_status_is_not_reaped(self) -> None:
@@ -260,11 +261,25 @@ class TestZeroStaleJobs:
 class TestThresholdValidation:
     """AC-4: reaper_stale_threshold_minutes must be >= 5 (ge=5)."""
 
-    def test_threshold_below_5_raises(self) -> None:
-        """Constructing OrphanTaskReaper with threshold < 5 must raise ValueError."""
+    @pytest.mark.parametrize(
+        "threshold",
+        [
+            pytest.param(4, id="below_min"),
+            pytest.param(0, id="zero"),
+        ],
+    )
+    def test_threshold_below_minimum_raises(self, threshold: int) -> None:
+        """OrphanTaskReaper must raise ValueError for stale_threshold_minutes < 5.
+
+        Thresholds below 5 minutes could incorrectly mark recently-started jobs
+        as stale before they have had time to complete, causing data loss.
+
+        Args:
+            threshold: Invalid threshold value (below the minimum of 5).
+        """
         repo = MagicMock(spec=TaskRepository)
         with pytest.raises(ValueError, match="stale_threshold_minutes"):
-            OrphanTaskReaper(repository=repo, stale_threshold_minutes=4)
+            OrphanTaskReaper(repository=repo, stale_threshold_minutes=threshold)
 
     def test_threshold_of_5_is_allowed(self) -> None:
         """Threshold == 5 (the minimum) must be accepted."""
@@ -277,12 +292,6 @@ class TestThresholdValidation:
         assert reaper._threshold == 5, (
             f"Expected _threshold=5 (the minimum allowed), got {reaper._threshold}"
         )
-
-    def test_threshold_of_0_raises(self) -> None:
-        """Threshold == 0 must raise ValueError."""
-        repo = MagicMock(spec=TaskRepository)
-        with pytest.raises(ValueError, match="stale_threshold_minutes"):
-            OrphanTaskReaper(repository=repo, stale_threshold_minutes=0)
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +448,7 @@ class TestLegalHoldIsOnStaleTask:
             legal_hold=True,
         )
         assert task.legal_hold is True
+        assert task.legal_hold
 
     def test_stale_task_default_legal_hold_is_false(self) -> None:
         """StaleTask must default legal_hold to False."""
@@ -448,6 +458,7 @@ class TestLegalHoldIsOnStaleTask:
             created_at=datetime.now(UTC),
         )
         assert task.legal_hold is False
+        assert not task.legal_hold
 
 
 # ---------------------------------------------------------------------------
@@ -733,7 +744,7 @@ class TestSQLAlchemyTaskRepository:
         repo = SQLAlchemyTaskRepository(engine=engine)
         result = repo.mark_failed(job_id, "Reaped: test")
 
-        assert result is True
+        assert result == True
         with Session(engine) as session:
             job = session.get(SynthesisJob, job_id)
             assert job is not None
@@ -758,6 +769,7 @@ class TestSQLAlchemyTaskRepository:
         result = repo.mark_failed(job_id, "Reaped: test")
 
         assert result is False
+        assert not result
 
 
 # ---------------------------------------------------------------------------

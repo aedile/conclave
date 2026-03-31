@@ -209,6 +209,10 @@ class TestDPWiringBudgetExhaustion:
         # A very large allocated_epsilon means the budget can never be exhausted
         # in 2 epochs — this must not raise.
         wrapper.check_budget(allocated_epsilon=1_000_000.0, delta=1e-5)
+        # Specific: epsilon_spent is a positive finite float (training happened)
+        epsilon = wrapper.epsilon_spent(delta=1e-5)
+        assert epsilon > 0.0, f"Expected positive epsilon after training, got {epsilon}"
+        assert epsilon < 1_000_000.0, f"Epsilon should be far below 1_000_000, got {epsilon}"
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +289,8 @@ class TestDPWiringEpsilonConsistency:
         epsilon = wrapper.epsilon_spent(delta=1e-5)
 
         assert isinstance(epsilon, float), f"epsilon_spent() must return float, got {type(epsilon)}"
+        # Specific: epsilon is positive (training spent some budget)
+        assert epsilon > 0.0, f"Expected positive epsilon after training, got {epsilon}"
 
     def test_epsilon_before_wrap_is_zero(self) -> None:
         """epsilon_spent() before wrap() must return 0.0.

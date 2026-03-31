@@ -44,6 +44,7 @@ def test_verify_hmac_true_on_correct_digest() -> None:
     data = b"the data to authenticate"
     digest = compute_hmac(key, data)
     assert verify_hmac(key, data, digest) is True
+    assert verify_hmac(key, data, digest)
 
 
 def test_verify_hmac_false_on_wrong_key() -> None:
@@ -54,6 +55,7 @@ def test_verify_hmac_false_on_wrong_key() -> None:
     digest = compute_hmac(correct_key, data)
     result = verify_hmac(wrong_key, data, digest)
     assert result is False
+    assert not result
 
 
 def test_verify_hmac_false_on_wrong_data() -> None:
@@ -64,6 +66,7 @@ def test_verify_hmac_false_on_wrong_data() -> None:
     digest = compute_hmac(key, original_data)
     result = verify_hmac(key, tampered_data, digest)
     assert result is False
+    assert not result
 
 
 def test_security_error_importable_from_canonical_path() -> None:
@@ -129,6 +132,7 @@ def test_verify_hmac_empty_key_correct_digest_returns_true() -> None:
     data = b"payload"
     digest = compute_hmac(key, data)
     assert verify_hmac(key, data, digest) is True
+    assert verify_hmac(key, data, digest)
 
 
 def test_verify_hmac_empty_data_correct_digest_returns_true() -> None:
@@ -137,6 +141,7 @@ def test_verify_hmac_empty_data_correct_digest_returns_true() -> None:
     data = b""
     digest = compute_hmac(key, data)
     assert verify_hmac(key, data, digest) is True
+    assert verify_hmac(key, data, digest)
 
 
 pytestmark = pytest.mark.unit

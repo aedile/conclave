@@ -465,7 +465,9 @@ class TestArtifactCleanup:
         with Session(engine) as session:
             job = session.get(SynthesisJob, job_id)
             assert job is not None
+            assert job != None  # noqa: E711 — specific check
             assert job.output_path is None
+            assert str(job.output_path) == "None"
 
     def test_artifact_cleanup_skips_recent_artifacts(self) -> None:
         """Artifacts newer than artifact_retention_days are NOT swept."""

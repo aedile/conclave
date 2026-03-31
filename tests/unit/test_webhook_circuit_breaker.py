@@ -106,6 +106,7 @@ class TestCircuitBreakerTripping:
 
         # Circuit should now be open
         assert cb.is_open(url) is True
+        assert cb.is_open(url)
 
     def test_circuit_breaker_does_not_trip_before_threshold(self) -> None:
         """Circuit must NOT trip after fewer than threshold failures."""
@@ -121,6 +122,7 @@ class TestCircuitBreakerTripping:
 
         # Only 2 failures — should NOT be open
         assert cb.is_open(url) is False
+        assert not cb.is_open(url)
 
     def test_circuit_breaker_skips_delivery_during_cooldown(self) -> None:
         """deliver_webhook must return SKIPPED when circuit is open for the URL."""
@@ -169,6 +171,7 @@ class TestCircuitBreakerTripping:
         cb.record_failure(url)
         cb.record_failure(url)
         assert cb.is_open(url) is True
+        assert cb.is_open(url)
 
         # Simulate cooldown expiry by backdating the trip time
         # Access the internal state to backdate
@@ -176,6 +179,7 @@ class TestCircuitBreakerTripping:
 
         # After cooldown, circuit should allow a probe attempt
         assert cb.is_open(url) is False
+        assert not cb.is_open(url)
 
     def test_successful_delivery_clears_failure_count(self) -> None:
         """Recording a success must reset the consecutive failure counter for the URL."""
@@ -197,6 +201,7 @@ class TestCircuitBreakerTripping:
         cb.record_failure(url)
         cb.record_failure(url)
         assert cb.is_open(url) is False
+        assert not cb.is_open(url)
 
     def test_circuit_trips_mid_loop_aborts_remaining_attempts(self) -> None:
         """If circuit trips during multi-registration delivery, remaining regs are skipped.
@@ -340,6 +345,7 @@ class TestCircuitBreakerPrometheusCounter:
         # Counter must have been incremented exactly once (on trip)
         mock_counter.labels.assert_called_once_with(reason="consecutive_failures")
         mock_labels.inc.assert_called_once()
+        assert mock_labels.inc.call_count == 1
 
     def test_circuit_breaker_counter_has_no_registration_id_label(self) -> None:
         """Prometheus counter must NOT use registration_id as a label (unbounded cardinality).

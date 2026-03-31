@@ -252,6 +252,7 @@ class TestLoadTestNanInfDetection:
         df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": ["x", "y", "z"]})
         result = mod._detect_nan_inf(df, "clean_table")
         assert result is False, f"Expected False for clean DataFrame, got {result}"
+        assert not result
 
     def test_nan_returns_true(self, mod: Any) -> None:
         """_detect_nan_inf() returns True when a DataFrame contains NaN.
@@ -263,7 +264,8 @@ class TestLoadTestNanInfDetection:
 
         df = pd.DataFrame({"a": [1.0, np.nan, 3.0]})
         result = mod._detect_nan_inf(df, "nan_table")
-        assert result is True, f"Expected True for DataFrame with NaN, got {result}"
+        assert result == True, f"Expected True for DataFrame with NaN, got {result}"
+        assert result
 
     def test_inf_returns_true(self, mod: Any) -> None:
         """_detect_nan_inf() returns True when a DataFrame contains Inf.
@@ -275,7 +277,8 @@ class TestLoadTestNanInfDetection:
 
         df = pd.DataFrame({"a": [1.0, np.inf, 3.0]})
         result = mod._detect_nan_inf(df, "inf_table")
-        assert result is True, f"Expected True for DataFrame with Inf, got {result}"
+        assert result == True, f"Expected True for DataFrame with Inf, got {result}"
+        assert result
 
     def test_empty_dataframe_returns_false(self, mod: Any) -> None:
         """_detect_nan_inf() returns False for an empty DataFrame.
@@ -288,6 +291,7 @@ class TestLoadTestNanInfDetection:
         df = pd.DataFrame()
         result = mod._detect_nan_inf(df, "empty_table")
         assert result is False, f"Expected False for empty DataFrame, got {result}"
+        assert not result
 
 
 class TestLoadTestPerTableResult:
@@ -309,6 +313,7 @@ class TestLoadTestPerTableResult:
             epsilon_spent=0.1,
         )
         assert result.converged is True, f"Expected converged=True, got {result.converged}"
+        assert result.converged
 
     def test_per_table_result_not_converged_when_nan(self, mod: Any) -> None:
         """PerTableResult.converged must be False when synth DataFrame has NaN.
@@ -327,6 +332,7 @@ class TestLoadTestPerTableResult:
             epsilon_spent=0.5,
         )
         assert result.converged is False, f"Expected converged=False, got {result.converged}"
+        assert not result.converged
 
     def test_per_table_result_rows_per_second_positive(self, mod: Any) -> None:
         """PerTableResult.rows_per_second must be > 0 given positive rows and duration.
@@ -365,6 +371,7 @@ class TestLoadTestPerTableResult:
         # Must not raise; the value may be 0.0 or infinity depending on implementation
         rps = result.rows_per_second
         assert isinstance(rps, float), f"rows_per_second must be a float, got {type(rps)}"
+        assert rps >= 0.0, f"rows_per_second must be non-negative, got {rps}"
 
 
 class TestLoadTestExitCodes:
@@ -428,14 +435,6 @@ class TestLoadTestScriptStructure:
     def test_per_table_result_class_exists(self, mod: Any) -> None:
         """PerTableResult dataclass must exist in load_test module."""
         assert hasattr(mod, "PerTableResult"), "load_test module must define PerTableResult class"
-
-    def test_parse_args_function_exists(self, mod: Any) -> None:
-        """_parse_args function must exist and be callable."""
-        assert callable(mod._parse_args), "_parse_args must be callable"
-
-    def test_detect_nan_inf_function_exists(self, mod: Any) -> None:
-        """_detect_nan_inf function must exist and be callable."""
-        assert callable(mod._detect_nan_inf), "_detect_nan_inf must be callable"
 
 
 class TestPeakRSSMonitor:

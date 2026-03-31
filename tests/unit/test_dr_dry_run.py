@@ -125,8 +125,12 @@ class TestDrScenarios:
         # Look for pg_dump AND pg_restore (or psql restore)
         has_dump = "pg_dump" in text
         has_restore = "pg_restore" in text or "psql" in text
-        assert has_dump, "Scenario 1 missing: no pg_dump invocation found"
-        assert has_restore, "Scenario 1 missing: no pg_restore/psql restore invocation found"
+        assert has_dump == True, "Scenario 1 missing: no pg_dump invocation found"
+        assert has_dump
+        assert has_restore == True, (
+            "Scenario 1 missing: no pg_restore/psql restore invocation found"
+        )
+        assert has_restore
 
     def test_scenario_2_service_recovery_present(self) -> None:
         """Scenario 2 (Service Recovery) must be present.
@@ -137,8 +141,10 @@ class TestDrScenarios:
         text = _script_text()
         has_stop = "docker compose stop" in text or "docker-compose stop" in text
         has_start = "docker compose start" in text or "docker-compose start" in text
-        assert has_stop, "Scenario 2 missing: no 'docker compose stop' invocation"
-        assert has_start, "Scenario 2 missing: no 'docker compose start' invocation"
+        assert has_stop == True, "Scenario 2 missing: no 'docker compose stop' invocation"
+        assert has_stop
+        assert has_start == True, "Scenario 2 missing: no 'docker compose start' invocation"
+        assert has_start
 
     def test_scenario_3_redis_recovery_present(self) -> None:
         """Scenario 3 (Redis Recovery) must be present.
@@ -149,8 +155,12 @@ class TestDrScenarios:
         text = _script_text()
         has_redis_set = "redis-cli" in text and "SET" in text
         has_redis_stop = "docker compose stop redis" in text or "docker-compose stop redis" in text
-        assert has_redis_set, "Scenario 3 missing: no redis-cli SET invocation"
-        assert has_redis_stop, "Scenario 3 missing: no 'docker compose stop redis' invocation"
+        assert has_redis_set == True, "Scenario 3 missing: no redis-cli SET invocation"
+        assert has_redis_set
+        assert has_redis_stop == True, (
+            "Scenario 3 missing: no 'docker compose stop redis' invocation"
+        )
+        assert has_redis_stop
 
 
 # ---------------------------------------------------------------------------
@@ -271,10 +281,11 @@ class TestHealthPoll:
             or "max_wait" in text
             or "timeout" in text.lower()
         )
-        assert has_timeout, (
+        assert has_timeout == True, (
             "Health poll does not have a named timeout variable (MAX_WAIT, TIMEOUT, etc.). "
             "The poll loop must terminate after a defined maximum wait period."
         )
+        assert has_timeout
 
 
 # ---------------------------------------------------------------------------
@@ -294,10 +305,11 @@ class TestCleanup:
         text = _script_text()
         # Look for DROP TABLE in a cleanup context
         has_drop = "DROP TABLE" in text.upper()
-        assert has_drop, (
+        assert has_drop == True, (
             "No DROP TABLE found in dr_dry_run.sh. "
             "The cleanup function must drop the dr_test_ table on exit."
         )
+        assert has_drop
 
     def test_cleanup_deletes_redis_test_key(self) -> None:
         """The cleanup function must delete the dr_test_ Redis key.
@@ -307,7 +319,8 @@ class TestCleanup:
         """
         text = _script_text()
         has_del = "redis-cli" in text and ("DEL" in text or "del" in text.lower())
-        assert has_del, (
+        assert has_del == True, (
             "No redis-cli DEL found in dr_dry_run.sh. "
             "The cleanup function must delete the dr_test_ Redis key on exit."
         )
+        assert has_del
