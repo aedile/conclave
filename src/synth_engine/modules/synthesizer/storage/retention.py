@@ -160,7 +160,9 @@ class RetentionCleanup:
                             "retention_days": str(self._job_retention_days),
                         },
                     )
-                except (ValueError, OSError) as audit_exc:
+                # Broad catch intentional: audit logging is best-effort for retention
+                # cleanup — a logging failure must never prevent job deletion.
+                except Exception as audit_exc:
                     _logger.warning(
                         "Retention purge: audit log failed for job id=%s — %s",
                         job_id,
@@ -253,7 +255,9 @@ class RetentionCleanup:
                             "artifact_retention_days": str(self._artifact_retention_days),
                         },
                     )
-                except (ValueError, OSError) as audit_exc:
+                # Broad catch intentional: audit logging is best-effort for retention
+                # cleanup — a logging failure must never prevent artifact deletion.
+                except Exception as audit_exc:
                     _logger.warning(
                         "Artifact sweep: audit log failed for job id=%s — %s",
                         job_id,
