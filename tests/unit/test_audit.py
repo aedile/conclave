@@ -321,8 +321,12 @@ def test_get_audit_logger_invalid_key_raises(
 
     reset_audit_logger()
 
-    with pytest.raises(ValueError, match="AUDIT_KEY"):
+    with pytest.raises(ValueError, match="AUDIT_KEY") as exc_info:
         get_audit_logger()
+
+    assert "AUDIT_KEY" in str(exc_info.value), (
+        f"ValueError message must reference AUDIT_KEY; got: {exc_info.value}"
+    )
 
 
 def test_audit_event_logged_to_stdout(
