@@ -463,120 +463,128 @@ def deliver_webhook(
     last_status_code: int | None = None
     budget_start = time.monotonic()
 
-    for attempt in range(1, _MAX_ATTEMPTS + 1):
-        # Time budget check: abort if budget is exhausted before this attempt.
-        elapsed = time.monotonic() - budget_start
-        if elapsed >= time_budget_seconds:
-            _logger.warning(
-                "Webhook delivery time budget exhausted (%.1fs of %.1fs used) "
-                "for registration=%s job=%d after %d attempt(s).",
-                elapsed,
-                time_budget_seconds,
-                registration.id,
-                job_id,
-                attempt - 1,
-            )
-            break
-
-        # DNS-rebinding protection: re-validate before each attempt (T69.1).
-        # validate_delivery_ips() is fail-closed: DNS failures return FAILED
-        # (not SKIPPED) so operators are notified of delivery failures.
-        # This closes the TOCTOU gap where strict=False would silently pass
-        # DNS resolution failures through to httpx.
-        try:
-            parsed_url = urlparse(registration.callback_url)
-            delivery_hostname = parsed_url.hostname or ""
-            pinned_ips_parsed: list[str] | None = None
-            if registration.pinned_ips:
-                import json as _json_ips
-
-                try:
-                    pinned_ips_parsed = _json_ips.loads(registration.pinned_ips)
-                except (ValueError, TypeError):
-                    pinned_ips_parsed = None
-            validate_delivery_ips(delivery_hostname, pinned_ips=pinned_ips_parsed)
-        except ValueError as ssrf_exc:
-            _logger.error(
-                "SSRF delivery validation failed for registration %s (attempt %d): %s",
-                registration.id,
-                attempt,
-                ssrf_exc,
-            )
-            cb.record_failure(registration.callback_url)
-            return DeliveryResult(
-                status="FAILED",
-                attempt_number=attempt,
-                delivery_id=delivery_id,
-                error_message=(
-                    "SSRF delivery validation failed: callback URL resolves to a blocked address."
-                ),
-            )
-
-        # Circuit check again mid-loop: if a previous attempt just tripped the circuit, abort.
-        if cb.is_open(registration.callback_url):
-            _logger.warning(
-                "Circuit breaker tripped mid-loop for registration=%s — aborting.",
-                registration.id,
-            )
-            return DeliveryResult(
-                status="FAILED",
-                attempt_number=attempt - 1,
-                delivery_id=delivery_id,
-                error_message="Circuit breaker tripped during delivery.",
-            )
-
-        try:
-            response = httpx.post(
-                registration.callback_url,
-                content=canonical_body.encode("utf-8"),
-                headers=headers,
-                timeout=timeout_seconds,
-                follow_redirects=False,
-            )
-            last_status_code = response.status_code
-            response.raise_for_status()
-            _logger.info(
-                "Webhook delivery SUCCESS: registration=%s job=%d attempt=%d status=%d",
-                registration.id,
-                job_id,
-                attempt,
-                response.status_code,
-            )
-            cb.record_success(registration.callback_url)
-            return DeliveryResult(
-                status="SUCCESS",
-                attempt_number=attempt,
-                delivery_id=delivery_id,
-                response_code=last_status_code,
-            )
-        except Exception as exc:
-            last_error = _safe_error_msg(exc)
-            _logger.warning(
-                "Webhook delivery attempt %d failed for registration %s job %d: %s",
-                attempt,
-                registration.id,
-                job_id,
-                type(exc).__name__,
-            )
-            cb.record_failure(registration.callback_url)
-
-            # Check if circuit just tripped — abort remaining attempts immediately.
-            if cb.is_open(registration.callback_url):
+    # T72.5: Use httpx.Client as a context manager so the connection pool is
+    # closed after all retry attempts complete.  This prevents file-descriptor
+    # leaks when ConnectError or other network exceptions are raised mid-loop.
+    # timeout and follow_redirects are set at the Client level (not per-request)
+    # to ensure they apply consistently across all attempts in the retry loop.
+    with httpx.Client(timeout=timeout_seconds, follow_redirects=False) as _client:
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            # Time budget check: abort if budget is exhausted before this attempt.
+            elapsed = time.monotonic() - budget_start
+            if elapsed >= time_budget_seconds:
                 _logger.warning(
-                    "Circuit breaker tripped after attempt %d for registration=%s — aborting.",
-                    attempt,
+                    "Webhook delivery time budget exhausted (%.1fs of %.1fs used) "
+                    "for registration=%s job=%d after %d attempt(s).",
+                    elapsed,
+                    time_budget_seconds,
                     registration.id,
+                    job_id,
+                    attempt - 1,
                 )
+                break
+
+            # DNS-rebinding protection: re-validate before each attempt (T69.1).
+            # validate_delivery_ips() is fail-closed: DNS failures return FAILED
+            # (not SKIPPED) so operators are notified of delivery failures.
+            # This closes the TOCTOU gap where strict=False would silently pass
+            # DNS resolution failures through to httpx.
+            try:
+                parsed_url = urlparse(registration.callback_url)
+                delivery_hostname = parsed_url.hostname or ""
+                pinned_ips_parsed: list[str] | None = None
+                if registration.pinned_ips:
+                    import json as _json_ips
+
+                    try:
+                        pinned_ips_parsed = _json_ips.loads(registration.pinned_ips)
+                    except (ValueError, TypeError):
+                        pinned_ips_parsed = None
+                validate_delivery_ips(delivery_hostname, pinned_ips=pinned_ips_parsed)
+            except ValueError as ssrf_exc:
+                _logger.error(
+                    "SSRF delivery validation failed for registration %s (attempt %d): %s",
+                    registration.id,
+                    attempt,
+                    ssrf_exc,
+                )
+                cb.record_failure(registration.callback_url)
                 return DeliveryResult(
                     status="FAILED",
                     attempt_number=attempt,
                     delivery_id=delivery_id,
-                    response_code=last_status_code,
-                    error_message=last_error,
+                    error_message=(
+                        "SSRF delivery validation failed: "
+                        "callback URL resolves to a blocked address."
+                    ),
                 )
 
-            # No time.sleep() — check budget before next attempt instead.
-            # This prevents Huey worker starvation on retries.
+            # Circuit check again mid-loop: if a previous attempt just tripped the circuit, abort.
+            if cb.is_open(registration.callback_url):
+                _logger.warning(
+                    "Circuit breaker tripped mid-loop for registration=%s — aborting.",
+                    registration.id,
+                )
+                return DeliveryResult(
+                    status="FAILED",
+                    attempt_number=attempt - 1,
+                    delivery_id=delivery_id,
+                    error_message="Circuit breaker tripped during delivery.",
+                )
+
+            try:
+                response = _client.post(
+                    registration.callback_url,
+                    content=canonical_body.encode("utf-8"),
+                    headers=headers,
+                )
+                last_status_code = response.status_code
+                response.raise_for_status()
+                _logger.info(
+                    "Webhook delivery SUCCESS: registration=%s job=%d attempt=%d status=%d",
+                    registration.id,
+                    job_id,
+                    attempt,
+                    response.status_code,
+                )
+                cb.record_success(registration.callback_url)
+                return DeliveryResult(
+                    status="SUCCESS",
+                    attempt_number=attempt,
+                    delivery_id=delivery_id,
+                    response_code=last_status_code,
+                )
+            except Exception as exc:
+                # Broad catch intentional: httpx/network retry loop must absorb any
+                # transport-level failure (ConnectError, ReadTimeout, HTTPStatusError,
+                # SSLError, etc.) and attempt retry within the time budget.
+                last_error = _safe_error_msg(exc)
+                _logger.warning(
+                    "Webhook delivery attempt %d failed for registration %s job %d: %s",
+                    attempt,
+                    registration.id,
+                    job_id,
+                    type(exc).__name__,
+                )
+                cb.record_failure(registration.callback_url)
+
+                # Check if circuit just tripped — abort remaining attempts immediately.
+                if cb.is_open(registration.callback_url):
+                    _logger.warning(
+                        "Circuit breaker tripped after attempt %d for registration=%s — aborting.",
+                        attempt,
+                        registration.id,
+                    )
+                    return DeliveryResult(
+                        status="FAILED",
+                        attempt_number=attempt,
+                        delivery_id=delivery_id,
+                        response_code=last_status_code,
+                        error_message=last_error,
+                    )
+
+                # No time.sleep() — check budget before next attempt instead.
+                # This prevents Huey worker starvation on retries.
 
     return DeliveryResult(
         status="FAILED",
