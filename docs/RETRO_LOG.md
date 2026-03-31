@@ -24,6 +24,8 @@ Updated after each task's review phase completes.
 | ADV-P70-01 | `settings.py` 1025 LOC after T71.4 extraction — still exceeds 300 LOC target. Further decomposition needed. | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
 | ADV-P70-04 | Missing composite FK integration test with real PostgreSQL (T70.1 AC7). | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
 | ADV-P71-01 | Prometheus multiprocess mode not configured — `PROMETHEUS_MULTIPROC_DIR` unset; per-worker counters invisible in multi-worker deployments. | [P71](#2026-03-29-phase-71--audit-coverage-completion--polish) |
+| ADV-P73-01 | Test-to-code LOC ratio at 4.01:1, exceeds 2.5:1 target. Parametrization and consolidation reduced function count but LOC reduction limited by legitimate test infrastructure (enforcement gates, fault injection). Waived per spec-challenger recommendation. | [P73](#2026-03-29-phase-73--test-quality-rehabilitation) |
+| ADV-P73-02 | Gate 2 does not detect `assert x == True` as weak (uses ast.Eq, only ast.Is/IsNot detected). Accepted tradeoff for incremental adoption; extend in future gate pass. | [P73](#2026-03-29-phase-73--test-quality-rehabilitation) |
 
 **CLOSED (P71 — audit coverage completion & polish)**
 
@@ -105,6 +107,8 @@ Updated after each task's review phase completes.
 
 **Testing**
 - ADV-P70-04: Missing composite FK integration test
+- ADV-P73-01: Test-to-code LOC ratio 4.01:1 (waived per spec-challenger)
+- ADV-P73-02: Gate 2 assert-True detection gap (accepted tradeoff)
 
 ---
 
@@ -112,6 +116,7 @@ Updated after each task's review phase completes.
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 73 | 2026-03-29 | [Test Quality Rehabilitation](#2026-03-29-phase-73--test-quality-rehabilitation) |
 | Phase 71 | 2026-03-29 | [Audit Coverage Completion & Polish](#2026-03-29-phase-71--audit-coverage-completion--polish) |
 | Phase 70 | 2026-03-29 | [Structural Debt Reduction](#2026-03-29-phase-70--structural-debt-reduction) |
 | Phase 69 | 2026-03-29 | [Security Depth & Test Coverage](#2026-03-29-phase-69--security-depth--test-coverage) |
@@ -139,6 +144,34 @@ Updated after each task's review phase completes.
 | Phase 48 | 2026-03-23 | [Production-Critical Infrastructure Fixes](#2026-03-23-phase-48--production-critical-infrastructure-fixes) |
 | Phase 47 | 2026-03-22 | [Auth & Safety Ops Retrospective](#2026-03-22-phase-47--auth--safety-ops-retrospective) |
 | Phase 46 | 2026-03-22 | [T46.1–T46.4](#2026-03-22-t461--internal-certificate-authority--certificate-issuance) |
+
+---
+
+### [2026-03-29] Phase 73 — Test Quality Rehabilitation
+
+**Tasks**: T73.1 (attack test enforcement gate), T73.2 (assertion density gate), T73.3 (parametrize rollout), T73.4 (import contract tests), T73.5 (fault injection integration tests), T73.6 (mapping module attack tests)
+
+**Source**: Post-P71 retrospective — test suite had 410 shallow-only assertion violations, only 32 parametrize decorators, no mechanical enforcement of attack-test coverage.
+
+**Delivered**:
+- 4 Crucible-pattern enforcement gates: attack test conftest plugin (Gate 1), assertion density meta-test (Gate 2), import contract tests (Gate 4), fault injection integration tests (Gate 5)
+- 100 parametrize decorators (up from 32), eliminating copy-paste test proliferation
+- 0 shallow-only assertion violations (down from 410), Constitution Priority 4 compliance
+- Mapping module attack tests added (Gate 1 enforcement gap)
+- Coverage: 96.19% (above 95% threshold), 3,470 passed / 7 skipped
+
+**NOT met (waived per spec-challenger)**:
+- Test-to-code LOC ratio: 4.01:1 (target ≤2.5:1) → ADV-P73-01
+- Test function count: 3,473 (target ≤2,500) → waived, no advisory (count reduction is a long-term effort)
+- File consolidation: 2 files merged (target ≥20) → waived, structural consolidation deferred
+
+**Review agents**: QA ✓, DevOps ✓, Red-team ✓, Architecture ✓ — 0 BLOCKERs after fixes.
+
+**Review findings fixed**: Gate 1/2 counter test assertion (QA), async collection pattern corrected (QA), dead code removed from fault injection (Architecture), import contract test scope clarified (Architecture), boundary audit redundant isinstance noted (boundary auditor ADVISORY — no fix required).
+
+**New advisories**: ADV-P73-01 (LOC ratio 4.01:1 waived), ADV-P73-02 (Gate 2 assert-True detection gap accepted).
+
+**Advisory count**: 7 open (ADV-P62-03, ADV-P63-01, ADV-P70-01, ADV-P70-04, ADV-P71-01, ADV-P73-01, ADV-P73-02). Below Rule 11 threshold of 8.
 
 ---
 
