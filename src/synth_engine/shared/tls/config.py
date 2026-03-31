@@ -159,6 +159,8 @@ def load_certificate(cert_path: Path) -> x509.Certificate:
     try:
         return x509.load_pem_x509_certificate(pem_data)
     except Exception as exc:
+        # Broad catch intentional: cryptography library raises arbitrary exception subclasses
+        # on malformed PEM input. All are domain-wrapped into TLSCertificateError.
         raise TLSCertificateError(f"Failed to parse certificate at {cert_path}: {exc}") from exc
 
 
@@ -223,6 +225,8 @@ def verify_key_cert_pair(key_path: Path, cert_path: Path) -> None:
     try:
         private_key = serialization.load_pem_private_key(key_pem, password=None)
     except Exception as exc:
+        # Broad catch intentional: cryptography library raises arbitrary exception subclasses
+        # (UnsupportedAlgorithm, ValueError, etc.) on malformed key input. All domain-wrapped.
         raise TLSCertificateError(f"Failed to load private key at {key_path}: {exc}") from exc
 
     cert_pub_bytes = cert.public_key().public_bytes(
@@ -280,6 +284,8 @@ def verify_chain(leaf_cert_path: Path, ca_cert_path: Path) -> None:
             f"was not signed by CA at {ca_cert_path}"
         ) from exc
     except Exception as exc:
+        # Broad catch intentional: cryptography verify() may raise arbitrary exceptions
+        # (e.g. NotImplementedError for unsupported curve types). All domain-wrapped.
         raise TLSCertificateError(f"Certificate chain verification error: {exc}") from exc
 
     # Also verify the issuer name matches the CA subject name

@@ -14,6 +14,8 @@ from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
 
 from synth_engine.bootstrapper.config_validation import validate_config
 from synth_engine.bootstrapper.dependencies.redis import close_redis_client
@@ -55,15 +57,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 action="shutdown",
                 details={},
             )
-        except Exception:
+        except (ValueError, OSError):
             _logger.warning("Shutdown audit event could not be recorded.", exc_info=True)
         try:
             dispose_engines()
-        except Exception:
+        except (OSError, SQLAlchemyError):
             _logger.warning("dispose_engines() failed during shutdown.", exc_info=True)
         try:
             close_redis_client()
-        except Exception:
+        except (OSError, RedisError):
             _logger.warning("close_redis_client() failed during shutdown.", exc_info=True)
         _logger.info("Shutdown cleanup complete.")
 
