@@ -184,7 +184,8 @@ def test_db_query_timeout_raises_error() -> None:
         pytest.skip("asyncpg not installed")
 
     db_url = os.environ.get(
-        "DATABASE_URL", "postgresql://conclave:conclave@localhost:5432/conclave"
+        "DATABASE_URL",
+        "postgresql://conclave:conclave@localhost:5432/conclave",  # pragma: allowlist secret
     )
     db_url = db_url.replace("postgres://", "postgresql://")
 
