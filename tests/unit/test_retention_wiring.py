@@ -257,10 +257,14 @@ class TestErrorIsolationPerJob:
         original_commit: Any = None
 
         def _patched_commit(session_self: Any) -> None:
+            from sqlalchemy.exc import OperationalError
+
             nonlocal commit_call_count
             commit_call_count += 1
             if commit_call_count == 1:
-                raise RuntimeError("simulated DB commit failure")
+                # T72.4: retention.py now catches (OSError, SQLAlchemyError).
+                # Use OperationalError (a SQLAlchemyError subclass) to simulate DB failure.
+                raise OperationalError("simulated DB commit failure", None, None)
             original_commit(session_self)
 
         import sqlmodel

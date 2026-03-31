@@ -258,13 +258,18 @@ class TestSSRFFailClosedFeature:
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"
             ) as mock_validate,
-            patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx.post") as mock_post,
+            patch(
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx.Client"
+            ) as mock_client_cls,
         ):
             mock_validate.return_value = None  # SSRF check passes
+            # T72.5: httpx.Client context manager; configure mock client .post
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.raise_for_status = MagicMock()
-            mock_post.return_value = mock_response
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_response
+            mock_client_cls.return_value.__enter__.return_value = mock_client
 
             deliver_webhook(
                 registration=mock_registration,

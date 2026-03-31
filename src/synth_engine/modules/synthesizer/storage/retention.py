@@ -34,6 +34,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, col, select
 
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
@@ -125,7 +126,10 @@ class RetentionCleanup:
 
                     session.delete(job)
                     session.commit()
-                except Exception as exc:
+                except (OSError, SQLAlchemyError) as exc:
+                    # OSError: artifact file deletion failure (permissions, disk I/O).
+                    # SQLAlchemyError: DB commit failure (deadlock, constraint violation).
+                    # Any other exception is a programming error and must propagate.
                     _logger.warning(
                         "Retention purge: failed to delete job id=%s table=%s — %s: %s",
                         job_id,
@@ -156,6 +160,8 @@ class RetentionCleanup:
                             "retention_days": str(self._job_retention_days),
                         },
                     )
+                # Broad catch intentional: audit logging is best-effort for retention
+                # cleanup — a logging failure must never prevent job deletion.
                 except Exception as audit_exc:
                     _logger.warning(
                         "Retention purge: audit log failed for job id=%s — %s",
@@ -219,7 +225,10 @@ class RetentionCleanup:
                     job.output_path = None
                     session.add(job)
                     session.commit()
-                except Exception as exc:
+                except (OSError, SQLAlchemyError) as exc:
+                    # OSError: artifact file deletion failure (permissions, disk I/O).
+                    # SQLAlchemyError: DB commit failure (deadlock, constraint violation).
+                    # Any other exception is a programming error and must propagate.
                     _logger.warning(
                         "Artifact sweep: failed for job id=%s — %s: %s",
                         job_id,
@@ -246,6 +255,8 @@ class RetentionCleanup:
                             "artifact_retention_days": str(self._artifact_retention_days),
                         },
                     )
+                # Broad catch intentional: audit logging is best-effort for retention
+                # cleanup — a logging failure must never prevent artifact deletion.
                 except Exception as audit_exc:
                     _logger.warning(
                         "Artifact sweep: audit log failed for job id=%s — %s",

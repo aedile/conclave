@@ -387,7 +387,7 @@ def shred_job(
                 "table_name": job.table_name,
             },
         )
-    except Exception:
+    except (ValueError, OSError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="jobs", endpoint="/jobs/{job_id}/shred").inc()
         _logger.exception(
             "Job %d: WORM audit log failed before artifact shredding — aborting (T70.8)", job_id
@@ -421,7 +421,7 @@ def shred_job(
                     "error": exc.__class__.__name__,
                 },
             )
-        except Exception:
+        except (ValueError, OSError):
             _logger.exception(
                 "Job %d: compensating audit event ARTIFACT_SHRED_FAILED also failed", job_id
             )

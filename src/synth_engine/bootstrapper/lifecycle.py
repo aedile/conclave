@@ -2,7 +2,8 @@
 
 ``UnsealRequest`` re-exported from :mod:`schemas.vault` (T60.5).
 ``GET /health`` moved to :mod:`routers.health` (T60.2).
-Tasks: P29-T29.3, T46.3, T47.8, T60.2, T60.5
+Shutdown catches narrowed from broad Exception to specific types (T72.2).
+Tasks: P29-T29.3, T46.3, T47.8, T60.2, T60.5, T72.2
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
 
 from synth_engine.bootstrapper.config_validation import validate_config
 from synth_engine.bootstrapper.dependencies.redis import close_redis_client
@@ -55,15 +58,15 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 action="shutdown",
                 details={},
             )
-        except Exception:
+        except (ValueError, OSError):
             _logger.warning("Shutdown audit event could not be recorded.", exc_info=True)
         try:
             dispose_engines()
-        except Exception:
+        except (OSError, SQLAlchemyError):
             _logger.warning("dispose_engines() failed during shutdown.", exc_info=True)
         try:
             close_redis_client()
-        except Exception:
+        except (OSError, RedisError):
             _logger.warning("close_redis_client() failed during shutdown.", exc_info=True)
         _logger.info("Shutdown cleanup complete.")
 
@@ -112,6 +115,6 @@ def _register_routes(app: FastAPI) -> None:
                 action="unseal",
                 details={},
             )
-        except (ValueError, RuntimeError):
+        except (ValueError, OSError):
             _logger.warning("AUDIT_KEY not configured; vault unseal event was not audited.")
         return JSONResponse(content={"status": "unsealed"})

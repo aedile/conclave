@@ -718,9 +718,11 @@ class TestLegalHoldEndpoint:
             job_id = job.id
 
         audit_mock = MagicMock()
-        audit_mock.log_event.side_effect = RuntimeError("audit service down")
+        # T72.1: admin.py now catches (ValueError, OSError) from log_event.
+        # ValueError is the canonical audit-write failure (sign_v3 oversized details).
+        audit_mock.log_event.side_effect = ValueError("oversized audit details")
 
-        client = TestClient(app)
+        client = TestClient(app, raise_server_exceptions=False)
         with patch(
             "synth_engine.bootstrapper.routers.admin.get_audit_logger",
             return_value=audit_mock,

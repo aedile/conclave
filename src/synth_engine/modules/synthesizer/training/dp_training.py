@@ -427,7 +427,7 @@ class DPCompatibleCTGAN:
                 )
             except BudgetExhaustionError:
                 raise
-            # Broad catch: Opacus/PyTorch raises arbitrary exceptions; fall back to vanilla CTGAN.
+            # Broad catch intentional: Opacus/PyTorch exceptions not narrowable (T72.4).
             except Exception as exc:
                 _logger.warning(
                     "DPCompatibleCTGAN: discriminator-level DP-SGD training failed "

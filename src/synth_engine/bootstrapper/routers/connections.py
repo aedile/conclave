@@ -254,7 +254,7 @@ def delete_connection(
             action="delete",
             details={"connection_id": connection_id},
         )
-    except Exception:
+    except (ValueError, OSError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="connections", endpoint="/connections/{id}").inc()
         _logger.exception(
             "Audit logging failed for delete_connection id=%s; aborting (T71.1)",
@@ -294,7 +294,7 @@ def delete_connection(
                     "reason": "db_commit_failed",
                 },
             )
-        except Exception:
+        except (ValueError, OSError):
             _logger.exception(
                 "delete_connection: compensating audit event CONNECTION_DELETE_ABORTED "
                 "also failed for connection_id=%s",

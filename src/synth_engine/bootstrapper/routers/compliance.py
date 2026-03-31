@@ -232,7 +232,7 @@ def erasure(
                     "reason": "subject_id does not match authenticated operator",
                 },
             )
-        except Exception:
+        except (ValueError, OSError):
             AUDIT_WRITE_FAILURE_TOTAL.labels(
                 router="compliance", endpoint="/compliance/erasure"
             ).inc()

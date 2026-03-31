@@ -330,8 +330,12 @@ class TestWebhookDeliveryHttpxTimeout:
 
         with (
             patch("socket.getaddrinfo", return_value=public_addr_info),
-            patch("httpx.post", side_effect=_timeout_post),
+            patch("httpx.Client") as mock_client_cls,
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client = MagicMock()
+            mock_client.post.side_effect = _timeout_post
+            mock_client_cls.return_value.__enter__.return_value = mock_client
             result = deliver_webhook(
                 registration=_FakeRegistration(),
                 job_id=99,
@@ -387,8 +391,12 @@ class TestWebhookDeliveryHttpxTimeout:
 
         with (
             patch("socket.getaddrinfo", return_value=public_addr_info),
-            patch("httpx.post", side_effect=_counting_timeout),
+            patch("httpx.Client") as mock_client_cls,
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client = MagicMock()
+            mock_client.post.side_effect = _counting_timeout
+            mock_client_cls.return_value.__enter__.return_value = mock_client
             result = deliver_webhook(
                 registration=_FakeRegistration(),
                 job_id=100,

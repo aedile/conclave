@@ -117,6 +117,7 @@ Updated after each task's review phase completes.
 | Phase | Date | Link |
 |-------|------|------|
 | Phase 73 | 2026-03-29 | [Test Quality Rehabilitation](#2026-03-29-phase-73--test-quality-rehabilitation) |
+| Phase 72 | 2026-03-29 | [Exception Specificity & Router Safety Hardening](#2026-03-29-phase-72--exception-specificity--router-safety-hardening) |
 | Phase 71 | 2026-03-29 | [Audit Coverage Completion & Polish](#2026-03-29-phase-71--audit-coverage-completion--polish) |
 | Phase 70 | 2026-03-29 | [Structural Debt Reduction](#2026-03-29-phase-70--structural-debt-reduction) |
 | Phase 69 | 2026-03-29 | [Security Depth & Test Coverage](#2026-03-29-phase-69--security-depth--test-coverage) |
@@ -170,6 +171,32 @@ Updated after each task's review phase completes.
 **Review findings fixed**: Gate 1/2 counter test assertion (QA), async collection pattern corrected (QA), dead code removed from fault injection (Architecture), import contract test scope clarified (Architecture), boundary audit redundant isinstance noted (boundary auditor ADVISORY — no fix required).
 
 **New advisories**: ADV-P73-01 (LOC ratio 4.01:1 waived), ADV-P73-02 (Gate 2 assert-True detection gap accepted).
+
+**Advisory count**: 7 open (ADV-P62-03, ADV-P63-01, ADV-P70-01, ADV-P70-04, ADV-P71-01, ADV-P73-01, ADV-P73-02). Below Rule 11 threshold of 8.
+
+---
+
+### [2026-03-29] Phase 72 — Exception Specificity & Router Safety Hardening
+
+**Tasks**: T72.1 (router audit-write catches), T72.2 (lifecycle/TLS/synthesizer catches), T72.3 (retention/DP accounting catches), T72.4 (privacy catches), T72.5 (httpx connection pooling)
+
+**Source**: Post-P71 retrospective — broad `except Exception` catches masking genuine bugs across 14 production files; httpx.Client lacking connection pooling in webhook delivery; CVE-2026-4539 in cryptography/pygments.
+
+**Delivered**:
+- Narrowed 50+ broad `except Exception` catches to specific types (`ValueError`, `OSError`, `RuntimeError`, etc.) across 14 production files
+- Added `httpx.Client` context manager for connection pooling in webhook delivery (T72.5)
+- Intentionally broad catches preserved with inline justification comments: dp_accounting (fail-closed safety), licensing QR (library fallback), privacy async bridge (asyncio.run bridge), webhook retry (network errors)
+- Updated cryptography and pygments dependency pins to resolve CVE-2026-4539 and lock staleness
+- 52 new tests (17 attack + 35 feature) for exception specificity semantics
+- Coverage: 96.23% (above 95% threshold), 3,535 passed / 7 skipped
+
+**Review agents**: QA ✓, DevOps ✓, Red-team ✓, Architecture ✓ — 0 BLOCKERs after fixes.
+
+**Review findings fixed (4)**: lifecycle.py catch inconsistency (QA), retention.py audit catches not narrowed (Architecture), dp_accounting.py audit catches not narrowed (Architecture), privacy.py missing justification comment on broad catch (Red-team).
+
+**Boundary audit**: PASS. 3 ADVISORYs noted (ADR-0037 stale line numbers, test-to-code ratio, assertion specificity) — no new advisories raised; existing open advisories unchanged.
+
+**New advisories**: None.
 
 **Advisory count**: 7 open (ADV-P62-03, ADV-P63-01, ADV-P70-01, ADV-P70-04, ADV-P71-01, ADV-P73-01, ADV-P73-02). Below Rule 11 threshold of 8.
 

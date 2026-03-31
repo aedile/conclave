@@ -43,19 +43,26 @@ def test_redis_never_initialized_shutdown_noop() -> None:
 
 
 def test_shutdown_audit_failure_does_not_block() -> None:
-    """Audit log failure during shutdown must not prevent cleanup from continuing.
+    """Audit log failure (ValueError) during shutdown must not prevent cleanup.
 
-    Attack vector: If get_audit_logger() raises, dispose_engines and
-    close_redis_client must still be called.
+    Attack vector: If log_event() raises ValueError (narrowed catch after P72),
+    dispose_engines and close_redis_client must still be called.
+    Note: After T72.2 narrowing, only ValueError/OSError are caught in the
+    shutdown audit block; RuntimeError propagates (tested separately).
     """
     with (
         patch(
             "synth_engine.bootstrapper.lifecycle.get_audit_logger",
-            side_effect=RuntimeError("audit unavailable"),
-        ),
+        ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.lifecycle.validate_config"),
+        patch("synth_engine.bootstrapper.lifecycle.update_cert_expiry_metrics"),
         patch("synth_engine.bootstrapper.lifecycle.dispose_engines") as mock_dispose,
         patch("synth_engine.bootstrapper.lifecycle.close_redis_client") as mock_redis_close,
     ):
+        mock_audit = MagicMock()
+        mock_audit.log_event.side_effect = ValueError("oversized shutdown event details")
+        mock_get_audit.return_value = mock_audit
+
         import asyncio
 
         from fastapi import FastAPI
@@ -76,18 +83,20 @@ def test_shutdown_audit_failure_does_not_block() -> None:
 
 
 def test_dispose_engines_failure_does_not_skip_redis() -> None:
-    """dispose_engines() raising must not prevent close_redis_client() from running.
+    """dispose_engines() raising OSError must not prevent close_redis_client() from running.
 
-    Attack vector: A partial failure in dispose_engines must not short-circuit
-    the remaining cleanup steps.
+    Attack vector: A partial OSError failure in dispose_engines (now narrowed per T72.2)
+    must not short-circuit the remaining cleanup steps.
     """
     with (
         patch(
             "synth_engine.bootstrapper.lifecycle.get_audit_logger",
         ) as mock_get_audit,
+        patch("synth_engine.bootstrapper.lifecycle.validate_config"),
+        patch("synth_engine.bootstrapper.lifecycle.update_cert_expiry_metrics"),
         patch(
             "synth_engine.bootstrapper.lifecycle.dispose_engines",
-            side_effect=RuntimeError("db pool exploded"),
+            side_effect=OSError("db pool socket error"),
         ),
         patch("synth_engine.bootstrapper.lifecycle.close_redis_client") as mock_redis_close,
     ):

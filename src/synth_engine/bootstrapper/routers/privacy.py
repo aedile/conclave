@@ -284,7 +284,7 @@ def refresh_budget(
                 else prev_allocated,
             },
         )
-    except Exception:
+    except (ValueError, OSError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="privacy", endpoint="/privacy/budget/refresh").inc()
         _logger.exception("WORM audit emission failed BEFORE budget reset — aborting (T70.8)")
         return JSONResponse(
@@ -301,6 +301,9 @@ def refresh_budget(
     # T70.8: If reset fails AFTER audit, emit compensating event and return 500.
     try:
         _run_reset_budget(ledger_id=ledger_id, new_allocated_epsilon=new_alloc)
+    # Broad catch intentional: asyncio.run() bridge + async SQLAlchemy can raise
+    # RuntimeError, SQLAlchemyError, or driver-specific exceptions — compensating
+    # audit event must fire for any failure type.
     except Exception:
         _logger.exception("Budget reset failed after audit — emitting compensating event (T70.8)")
         try:
@@ -315,7 +318,7 @@ def refresh_budget(
                     "prev_spent_epsilon": prev_spent,
                 },
             )
-        except Exception:
+        except (ValueError, OSError):
             _logger.exception("Compensating audit event BUDGET_RESET_FAILED also failed")
         return JSONResponse(
             status_code=500,
