@@ -302,8 +302,12 @@ class TestDNSPinningAttacks:
 
         with (
             patch("socket.getaddrinfo", return_value=public_addr),
-            patch("httpx.post", return_value=mock_response),
+            patch("httpx.Client") as mock_client_cls,
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_response
+            mock_client_cls.return_value.__enter__.return_value = mock_client
             result = deliver_webhook(
                 registration=registration,
                 job_id=5,
@@ -347,8 +351,12 @@ class TestDNSPinningAttacks:
 
         with (
             patch("socket.getaddrinfo", return_value=public_addr),
-            patch("httpx.post", return_value=mock_response),
+            patch("httpx.Client") as mock_client_cls,
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_response
+            mock_client_cls.return_value.__enter__.return_value = mock_client
             result = deliver_webhook(
                 registration=registration,
                 job_id=6,

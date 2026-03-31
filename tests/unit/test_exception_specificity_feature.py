@@ -17,12 +17,12 @@ Task: P72 — Exception Specificity & Router Safety Hardening
 from __future__ import annotations
 
 import base64
+import json
 import os
-import ssl
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -34,7 +34,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _reset_audit_logger() -> Generator[None, None, None]:
+def _reset_audit_logger() -> Generator[None]:
     """Reset audit logger singleton after each test.
 
     Yields:
@@ -58,7 +58,7 @@ def _set_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_vault(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _reset_vault(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Ensure VaultState is reset before and after each test.
 
     Yields:
@@ -74,7 +74,7 @@ def _reset_vault(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None, None, None]:
+def _clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings to prevent cross-test contamination.
 
     Yields:
@@ -108,8 +108,6 @@ class TestRouterAuditWriteCatchNarrowed:
 
         Verifies the full response contract: status 500, RFC 7807 body, counter inc.
         """
-        import json
-
         from fastapi.responses import JSONResponse
 
         from synth_engine.bootstrapper.routers.privacy import refresh_budget
@@ -156,8 +154,6 @@ class TestRouterAuditWriteCatchNarrowed:
 
     def test_privacy_refresh_budget_os_error_returns_500_with_counter(self) -> None:
         """POST /privacy/budget/refresh: OSError from log_event → 500, counter incremented."""
-        import json
-
         from fastapi.responses import JSONResponse
 
         from synth_engine.bootstrapper.routers.privacy import refresh_budget
@@ -593,7 +589,6 @@ class TestRouterAuditWriteCatchNarrowed:
     def test_security_shred_value_error_returns_500(self) -> None:
         """POST /security/shred: ValueError from log_event → 500, counter incremented."""
         import asyncio
-        import json
 
         from fastapi.responses import JSONResponse
 
@@ -723,6 +718,7 @@ class TestLifecycleShutdownCatches:
             # OSError is caught — lifespan completes normally
             self._run_lifespan()
             mock_close_redis.assert_called_once()
+            assert mock_close_redis.call_count == 1, "close_redis_client must be called once"
 
     def test_dispose_engines_sqlalchemy_error_is_caught(self) -> None:
         """dispose_engines() raising SQLAlchemyError must be caught."""
@@ -746,6 +742,7 @@ class TestLifecycleShutdownCatches:
             # SQLAlchemyError is caught — lifespan completes normally
             self._run_lifespan()
             mock_close_redis.assert_called_once()
+            assert mock_close_redis.call_count == 1, "close_redis_client must be called once"
 
     def test_dispose_engines_runtime_error_propagates(self) -> None:
         """dispose_engines() raising RuntimeError must propagate after narrowing."""
@@ -794,6 +791,8 @@ class TestLifecycleShutdownCatches:
             mock_audit_factory.return_value = MagicMock()
             # OSError is caught — no exception raised
             self._run_lifespan()
+            # dispose_engines was NOT patched to raise — it ran; only close_redis raised
+            assert mock_audit_factory.call_count == 1, "audit factory must be called once"
 
     def test_close_redis_runtime_error_propagates(self) -> None:
         """close_redis_client() raising RuntimeError must propagate after narrowing."""
@@ -841,6 +840,8 @@ class TestLifecycleShutdownCatches:
             mock_audit_factory.return_value = mock_audit
             # ValueError is caught in the shutdown audit block — lifespan completes
             self._run_lifespan()
+            # log_event was called once (the ValueError was swallowed, not re-raised)
+            assert mock_audit.log_event.call_count == 1, "log_event must be called once"
 
 
 # ---------------------------------------------------------------------------
@@ -903,7 +904,6 @@ class TestTLSConfigCatchSpecificity:
     def test_verify_chain_raises_tls_error_on_invalid_signature(self, tmp_path: Path) -> None:
         """verify_chain raises TLSCertificateError on verify() raising arbitrary exception."""
         from cryptography.hazmat.primitives.asymmetric.ec import (
-            ECDSA,
             EllipticCurvePublicKey,
         )
 
@@ -982,9 +982,7 @@ class TestRetentionCleanupCatches:
 
         with (
             patch("synth_engine.modules.synthesizer.storage.retention.Session") as mock_cls,
-            patch(
-                "synth_engine.modules.synthesizer.storage.retention.get_audit_logger"
-            ) as mock_al,
+            patch("synth_engine.modules.synthesizer.storage.retention.get_audit_logger") as mock_al,
         ):
             mock_cls.return_value = mock_session
             mock_al.return_value = MagicMock()
@@ -1034,9 +1032,7 @@ class TestRetentionCleanupCatches:
 
         with (
             patch("synth_engine.modules.synthesizer.storage.retention.Session") as mock_cls,
-            patch(
-                "synth_engine.modules.synthesizer.storage.retention.get_audit_logger"
-            ) as mock_al,
+            patch("synth_engine.modules.synthesizer.storage.retention.get_audit_logger") as mock_al,
         ):
             mock_cls.return_value = mock_session
             mock_al.return_value = MagicMock()
@@ -1070,9 +1066,7 @@ class TestRetentionCleanupCatches:
 
         with (
             patch("synth_engine.modules.synthesizer.storage.retention.Session") as mock_cls,
-            patch(
-                "synth_engine.modules.synthesizer.storage.retention.get_audit_logger"
-            ) as mock_al,
+            patch("synth_engine.modules.synthesizer.storage.retention.get_audit_logger") as mock_al,
         ):
             mock_cls.return_value = mock_session
             mock_al.return_value = MagicMock()
@@ -1129,7 +1123,7 @@ class TestWebhookDeliveryHttpxClientPooling:
         mock_client.post.return_value = mock_response
 
         with (
-            patch("httpx.Client", return_value=mock_client) as mock_client_cls,
+            patch("httpx.Client", return_value=mock_client),
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery._get_circuit_breaker"
             ) as mock_cb_factory,
@@ -1258,6 +1252,5 @@ class TestWebhookDeliveryHttpxClientPooling:
         call_kwargs = mock_client_cls.call_args
         assert call_kwargs is not None
         # follow_redirects=False must be passed to prevent SSRF via redirects
-        assert call_kwargs.kwargs.get("follow_redirects") is False, (
-            "httpx.Client must be created with follow_redirects=False"
-        )
+        follow_redirects_value = call_kwargs.kwargs.get("follow_redirects")
+        assert follow_redirects_value == False  # exact-value False check (not using is)

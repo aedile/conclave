@@ -573,7 +573,9 @@ class TestAuditWriteFailureCounter:
         app = _make_admin_app(engine)
 
         mock_audit = MagicMock()
-        mock_audit.log_event.side_effect = RuntimeError("audit unavailable")
+        # ValueError is the canonical audit-write failure (sign_v3 oversized details).
+        # RuntimeError is no longer caught after P72 narrowing — use ValueError here.
+        mock_audit.log_event.side_effect = ValueError("audit details exceed 64 KB limit")
 
         # Import the counter to read its value
         from synth_engine.bootstrapper.routers import admin as admin_module
@@ -614,7 +616,9 @@ class TestAuditWriteFailureCounter:
         app.dependency_overrides[require_scope("security:admin")] = _override_scope_dep
 
         mock_audit = MagicMock()
-        mock_audit.log_event.side_effect = RuntimeError("audit unavailable")
+        # ValueError is the canonical audit-write failure (sign_v3 oversized details).
+        # RuntimeError is no longer caught after P72 narrowing — use ValueError here.
+        mock_audit.log_event.side_effect = ValueError("audit details exceed 64 KB limit")
 
         from synth_engine.bootstrapper.routers import security as security_module
 

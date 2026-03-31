@@ -231,8 +231,12 @@ class TestCircuitBreakerTripping:
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
-            patch("httpx.post", side_effect=Exception("connection refused")),
+            patch("httpx.Client") as mock_client_cls,
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client_inst = MagicMock()
+            mock_client_inst.post.side_effect = Exception("connection refused")
+            mock_client_cls.return_value.__enter__.return_value = mock_client_inst
             result = deliver_webhook(
                 registration=reg,
                 job_id=1,
@@ -273,14 +277,15 @@ class TestCircuitBreakerTripping:
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
-            patch(
-                "httpx.post",
-                side_effect=httpx.ReadTimeout("timed out", request=request),
-            ),
+            patch("httpx.Client") as mock_client_cls,
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery._circuit_breaker_trips_total"
             ) as mock_counter,
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client_inst = MagicMock()
+            mock_client_inst.post.side_effect = httpx.ReadTimeout("timed out", request=request)
+            mock_client_cls.return_value.__enter__.return_value = mock_client_inst
             mock_labels = MagicMock()
             mock_counter.labels = MagicMock(return_value=mock_labels)
 
@@ -409,11 +414,15 @@ class TestDeliveryTimeBudget:
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
-            patch("httpx.post", side_effect=_slow_post),
+            patch("httpx.Client") as mock_client_cls,
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.time.sleep",
             ),
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client_inst = MagicMock()
+            mock_client_inst.post.side_effect = _slow_post
+            mock_client_cls.return_value.__enter__.return_value = mock_client_inst
             result = deliver_webhook(
                 registration=reg,
                 job_id=1,
@@ -458,7 +467,7 @@ class TestDeliveryTimeBudget:
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
-            patch("httpx.post", side_effect=_slow_post),
+            patch("httpx.Client") as mock_client_cls,
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.time.monotonic",
                 side_effect=_mock_monotonic,
@@ -467,6 +476,10 @@ class TestDeliveryTimeBudget:
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.time.sleep",
             ),
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client_inst = MagicMock()
+            mock_client_inst.post.side_effect = _slow_post
+            mock_client_cls.return_value.__enter__.return_value = mock_client_inst
             result = deliver_webhook(
                 registration=reg,
                 job_id=1,
@@ -516,12 +529,16 @@ class TestNoBlockingSleep:
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips",
             ),
-            patch("httpx.post", side_effect=Exception("refused")),
+            patch("httpx.Client") as mock_client_cls,
             patch(
                 "synth_engine.modules.synthesizer.jobs.webhook_delivery.time.sleep",
                 side_effect=_track_sleep,
             ),
         ):
+            # T72.5: httpx.Client context manager; configure mock client .post
+            mock_client_inst = MagicMock()
+            mock_client_inst.post.side_effect = Exception("refused")
+            mock_client_cls.return_value.__enter__.return_value = mock_client_inst
             deliver_webhook(
                 registration=reg,
                 job_id=1,

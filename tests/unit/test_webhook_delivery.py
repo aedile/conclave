@@ -302,7 +302,8 @@ class TestDeactivatedRegistrationNoDelivery:
                 payload={"job_id": "1", "status": "COMPLETE"},
             )
 
-        mock_httpx.post.assert_not_called()
+        # T72.5: httpx.Client context manager is no longer called when registration is inactive
+        assert mock_httpx.Client.call_count == 0
         assert result.status == "SKIPPED"
 
 
@@ -333,7 +334,9 @@ class TestRetryExhaustion:
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
-            mock_httpx.post.side_effect = Exception("Connection refused")
+            # T72.5: httpx.Client used as context manager; configure mock client .post
+            mock_client = mock_httpx.Client.return_value.__enter__.return_value
+            mock_client.post.side_effect = Exception("Connection refused")
             result = deliver_webhook(
                 registration=reg,
                 job_id=1,
@@ -342,7 +345,7 @@ class TestRetryExhaustion:
             )
 
         assert result.status == "FAILED"
-        assert mock_httpx.post.call_count == 3
+        assert mock_client.post.call_count == 3
 
     def test_no_sleep_between_retries(self) -> None:
         """T62.2: deliver_webhook must NOT call time.sleep() between retry attempts.
@@ -373,7 +376,9 @@ class TestRetryExhaustion:
                 side_effect=lambda s: sleep_calls.append(s),
             ),
         ):
-            mock_httpx.post.side_effect = Exception("fail")
+            # T72.5: httpx.Client used as context manager; configure mock client .post
+            mock_post = mock_httpx.Client.return_value.__enter__.return_value.post
+            mock_post.side_effect = Exception("fail")
             deliver_webhook(
                 registration=reg,
                 job_id=1,
@@ -476,12 +481,14 @@ class TestDeliveryHeaders:
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
+            # T72.5: httpx.Client used as context manager; configure mock client .post
+            mock_client = mock_httpx.Client.return_value.__enter__.return_value
 
             def _capture(*args: object, **kwargs: object) -> MagicMock:
                 captured_headers.update(kwargs.get("headers", {}))  # type: ignore[arg-type]
                 return mock_response
 
-            mock_httpx.post.side_effect = _capture
+            mock_client.post.side_effect = _capture
             deliver_webhook(
                 registration=reg,
                 job_id=42,
@@ -544,7 +551,8 @@ class TestDeliveryResult:
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
-            mock_httpx.post.return_value = mock_response
+            # T72.5: httpx.Client used as context manager; configure mock client .post
+            mock_httpx.Client.return_value.__enter__.return_value.post.return_value = mock_response
             result = deliver_webhook(
                 registration=reg,
                 job_id=1,
@@ -795,7 +803,9 @@ class TestSafeErrorMsg:
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.validate_delivery_ips"),
             patch("synth_engine.modules.synthesizer.jobs.webhook_delivery.httpx") as mock_httpx,
         ):
-            mock_httpx.post.side_effect = ConnectionError(f"{sensitive}: timed out")
+            # T72.5: httpx.Client used as context manager; configure mock client .post
+            mock_post = mock_httpx.Client.return_value.__enter__.return_value.post
+            mock_post.side_effect = ConnectionError(f"{sensitive}: timed out")
             result = deliver_webhook(
                 registration=reg,
                 job_id=5,

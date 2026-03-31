@@ -28,8 +28,7 @@ from __future__ import annotations
 import base64
 import os
 from collections.abc import Generator
-from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -41,7 +40,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture(autouse=True)
-def _reset_audit_logger() -> Generator[None, None, None]:
+def _reset_audit_logger() -> Generator[None]:
     """Reset audit logger singleton after each test.
 
     Yields:
@@ -65,7 +64,7 @@ def _set_audit_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_vault(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _reset_vault(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Ensure VaultState is reset before and after each test.
 
     Yields:
@@ -81,7 +80,7 @@ def _reset_vault(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Generator[None, None, None]:
+def _clear_settings_cache() -> Generator[None]:
     """Clear lru_cache on get_settings to prevent cross-test contamination.
 
     Yields:
@@ -481,7 +480,9 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
                 "synth_engine.bootstrapper.routers.jobs.get_audit_logger",
                 return_value=mock_audit,
             ),
-            patch("synth_engine.bootstrapper.routers.jobs.AUDIT_WRITE_FAILURE_TOTAL") as mock_counter,
+            patch(
+                "synth_engine.bootstrapper.routers.jobs.AUDIT_WRITE_FAILURE_TOTAL"
+            ) as mock_counter,
         ):
             mock_labels = MagicMock()
             mock_counter.labels.return_value = mock_labels
@@ -791,3 +792,6 @@ class TestPrivacySessionRace:
         # Verify the session refreshed the ledger to get post-reset state
         mock_session.expire.assert_called_once_with(mock_ledger)
         mock_session.refresh.assert_called_once_with(mock_ledger)
+        # Specific-value: call counts confirm both were invoked exactly once
+        assert mock_session.expire.call_count == 1, "expire must be called once"
+        assert mock_session.refresh.call_count == 1, "refresh must be called once"
