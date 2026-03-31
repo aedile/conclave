@@ -2,7 +2,8 @@
 
 ``UnsealRequest`` re-exported from :mod:`schemas.vault` (T60.5).
 ``GET /health`` moved to :mod:`routers.health` (T60.2).
-Tasks: P29-T29.3, T46.3, T47.8, T60.2, T60.5
+Shutdown catches narrowed from broad Exception to specific types (T72.2).
+Tasks: P29-T29.3, T46.3, T47.8, T60.2, T60.5, T72.2
 """
 
 from __future__ import annotations
