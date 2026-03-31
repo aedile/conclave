@@ -167,7 +167,7 @@ async def shred_vault(
             action="shred",
             details={"note": "Master KEK zeroized — all ALE ciphertext is now unrecoverable"},
         )
-    except Exception:
+    except (ValueError, OSError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="security", endpoint="/security/shred").inc()
         _logger.exception("Audit logging failed during CRYPTO_SHRED; aborting shred (T68.3)")
         return JSONResponse(
@@ -280,7 +280,7 @@ async def rotate_keys(
                 "passphrase_provided": str(bool(body.new_passphrase)),
             },
         )
-    except Exception:
+    except (ValueError, OSError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="security", endpoint="/security/keys/rotate").inc()
         _logger.exception("Audit logging failed during KEY_ROTATION_REQUESTED; aborting (T68.3)")
         return JSONResponse(

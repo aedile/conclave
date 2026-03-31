@@ -284,7 +284,7 @@ def refresh_budget(
                 else prev_allocated,
             },
         )
-    except Exception:
+    except (ValueError, OSError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="privacy", endpoint="/privacy/budget/refresh").inc()
         _logger.exception("WORM audit emission failed BEFORE budget reset — aborting (T70.8)")
         return JSONResponse(
@@ -315,7 +315,7 @@ def refresh_budget(
                     "prev_spent_epsilon": prev_spent,
                 },
             )
-        except Exception:
+        except (ValueError, OSError):
             _logger.exception("Compensating audit event BUDGET_RESET_FAILED also failed")
         return JSONResponse(
             status_code=500,

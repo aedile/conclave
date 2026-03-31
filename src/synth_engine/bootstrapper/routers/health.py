@@ -198,6 +198,10 @@ async def _run_check_with_timeout(
         _logger.warning("Readiness check timed out: %s (timeout=%ss)", name, _CHECK_TIMEOUT_SECONDS)
         raise
     except Exception:
+        # Broad catch intentional: health checks (_check_database, _check_redis,
+        # _check_minio) span multiple libraries (SQLAlchemy, redis-py, boto3/botocore)
+        # each with their own exception hierarchy. The caller uses return_exceptions=True
+        # so this exception is captured as a result value, not propagated to the app.
         _logger.warning("Readiness check failed: %s", name, exc_info=False)
         raise
 

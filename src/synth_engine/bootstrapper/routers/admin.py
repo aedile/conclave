@@ -188,7 +188,7 @@ def set_legal_hold(
                 "previous": str(previous),
             },
         )
-    except Exception:
+    except (ValueError, OSError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(
             router="admin", endpoint="/admin/jobs/{job_id}/legal-hold"
         ).inc()
