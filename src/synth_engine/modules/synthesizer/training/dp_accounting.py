@@ -24,22 +24,25 @@ Boundary constraints (import-linter enforced):
 
 Fail-closed guarantee (T50.1 / ADR-0050)
 -----------------------------------------
-``spend_budget_fn`` is only called when the privacy budget ledger is reachable.
-If it raises an unexpected exception (e.g. ``ConnectionError``, ``RuntimeError``),
-the epsilon ledger state is unknown — the reported epsilon may already be lower
-than the actual privacy cost.  The broad ``except Exception`` block that
-previously wrapped such errors as ``AuditWriteError`` has been removed.
+Two distinct exception tiers exist in ``_handle_dp_accounting``:
 
-Unexpected exceptions now propagate to ``DpAccountingStep.execute()``, which
-catches them, logs them at ERROR level (full traceback retained for operators),
-and returns ``StepResult(success=False)`` with a sanitised sentinel message.
-This ensures the job is marked FAILED without leaking raw exception detail
-(which may contain connection strings, internal paths, or other sensitive state)
-into the API response or task result.
+**Tier 1 — spend_budget_fn block**: ``BudgetExhaustionError`` is caught
+specifically.  All other unexpected exceptions from ``spend_budget_fn``
+(e.g. ``ConnectionError``, ``RuntimeError``) propagate un-caught to
+``DpAccountingStep.execute()``, which wraps them as
+``StepResult(success=False, error_msg=_BUDGET_SPEND_FAILED_MSG)``.  This
+preserves the distinction between "budget failed to spend" and "budget was
+spent but audit failed."
 
-Only ``BudgetExhaustionError`` is caught specifically in
-``_handle_dp_accounting`` because it is an expected, intentional outcome with
-well-defined semantics.  Everything else is unexpected and must not be silenced.
+**Tier 2 — audit log_event block**: The broad ``except Exception`` is
+intentional.  The budget has already been deducted at this point.  If the
+WORM audit write fails for ANY reason (``RuntimeError``, ``OSError``,
+``ValueError``, or any other exception type), the operator MUST reconcile.
+Narrowing this catch would cause audit failures to fall through to
+``DpAccountingStep.execute()``'s catch-all, producing the wrong sentinel
+(``_BUDGET_SPEND_FAILED_MSG`` instead of ``_AUDIT_RECONCILIATION_MSG``) and
+losing the reconciliation context.  The broad catch is therefore correct
+and intentional — P72 regression fix.
 
 Task: T43.1 — Extract dp_accounting.py from job_orchestration.py
 Task: T50.1 — DP Budget Deduction: Fail Closed (ADR-0050)
@@ -162,9 +165,11 @@ def _handle_dp_accounting(
     except BudgetExhaustionError:
         _logger.error("Job %d: Privacy budget exhausted — marking FAILED.", job_id)
         raise  # Re-raise: orchestrator (not step) sets job.status (AC4).
-    # T50.1 / ADR-0050: No broad except-Exception here.
+    # T50.1 / ADR-0050: No broad except-Exception on the spend_budget_fn block.
     # Unexpected exceptions from spend_budget_fn propagate to
     # DpAccountingStep.execute(), which catches and sanitises them.
+    # This preserves the "budget-failed-to-spend" vs "budget-spent-audit-failed"
+    # distinction in the error sentinel message.
 
     try:
         audit = _orch.get_audit_logger()
@@ -175,7 +180,12 @@ def _handle_dp_accounting(
             action="spend_budget",
             details={"job_id": str(job_id), "epsilon_spent": str(job.actual_epsilon)},
         )
-    except (ValueError, OSError) as exc:
+    # Broad catch intentional: this is a post-spend audit catch — the budget
+    # has already been deducted. ANY audit failure (not just ValueError/OSError)
+    # must produce the reconciliation sentinel, not propagate as an unexpected
+    # error. Narrowing this catch would cause audit failures to be misclassified
+    # as budget failures, losing the reconciliation context. (P72 regression fix)
+    except Exception as exc:
         _logger.error(
             "Job %d: Audit log failed after budget deduction — reconciliation required.",
             job_id,
