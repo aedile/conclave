@@ -175,7 +175,7 @@ def _handle_dp_accounting(
             action="spend_budget",
             details={"job_id": str(job_id), "epsilon_spent": str(job.actual_epsilon)},
         )
-    except Exception as exc:
+    except (ValueError, OSError) as exc:
         _logger.error(
             "Job %d: Audit log failed after budget deduction — reconciliation required.",
             job_id,

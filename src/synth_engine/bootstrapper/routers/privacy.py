@@ -301,6 +301,9 @@ def refresh_budget(
     # T70.8: If reset fails AFTER audit, emit compensating event and return 500.
     try:
         _run_reset_budget(ledger_id=ledger_id, new_allocated_epsilon=new_alloc)
+    # Broad catch intentional: asyncio.run() bridge + async SQLAlchemy can raise
+    # RuntimeError, SQLAlchemyError, or driver-specific exceptions — compensating
+    # audit event must fire for any failure type.
     except Exception:
         _logger.exception("Budget reset failed after audit — emitting compensating event (T70.8)")
         try:

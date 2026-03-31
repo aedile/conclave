@@ -115,6 +115,6 @@ def _register_routes(app: FastAPI) -> None:
                 action="unseal",
                 details={},
             )
-        except (ValueError, RuntimeError):
+        except (ValueError, OSError):
             _logger.warning("AUDIT_KEY not configured; vault unseal event was not audited.")
         return JSONResponse(content={"status": "unsealed"})
