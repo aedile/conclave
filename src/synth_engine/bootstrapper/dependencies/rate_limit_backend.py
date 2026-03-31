@@ -29,8 +29,10 @@ from prometheus_client import Counter
 #: This ensures no collision between middleware namespaces (T48.1 attack mitigation).
 _REDIS_KEY_PREFIX: str = "ratelimit:"
 
-#: Window duration in seconds for the per-minute rate limit.
-_WINDOW_SECONDS: int = 60
+# Window duration is externalized to ConclaveSettings.conclave_rate_limit_window_seconds (T74.2).
+# Read via get_settings() inside _redis_hit() to allow runtime configuration via env vars.
+# IMPORTANT: changing CONCLAVE_RATE_LIMIT_WINDOW_SECONDS requires an application restart —
+# the window is baked into the Redis key format at startup.
 
 #: Prometheus counter for Redis fallback events.
 #: Label 'tier' identifies which rate limit tier triggered the fallback.
@@ -52,7 +54,6 @@ for _tier in ("unseal", "auth", "download", "general"):
 __all__ = [
     "RATE_LIMIT_REDIS_FALLBACK_TOTAL",
     "_REDIS_KEY_PREFIX",
-    "_WINDOW_SECONDS",
     "_memory_hit",
     "_redis_hit",
 ]
@@ -71,7 +72,7 @@ def _redis_hit(
     from the pipeline propagates to the caller for graceful degradation
     handling in the middleware dispatch.
 
-    Redis key format: ``ratelimit:{_WINDOW_SECONDS}:{identity_key}``
+    Redis key format: ``ratelimit:{window_seconds}:{identity_key}``
 
     Args:
         redis_client: Synchronous Redis client to use for the pipeline.
@@ -87,11 +88,14 @@ def _redis_hit(
     """
     # Parse limit count from "N/period" format (e.g. "5/minute" -> limit=5)
     limit_count = int(limit_str.split("/")[0])
-    redis_key = f"{_REDIS_KEY_PREFIX}{_WINDOW_SECONDS}:{identity_key}"
+    from synth_engine.shared.settings import get_settings
+
+    window_seconds = get_settings().conclave_rate_limit_window_seconds
+    redis_key = f"{_REDIS_KEY_PREFIX}{window_seconds}:{identity_key}"
 
     with redis_client.pipeline() as pipe:
         pipe.incr(redis_key)
-        pipe.expire(redis_key, _WINDOW_SECONDS)
+        pipe.expire(redis_key, window_seconds)
         results = pipe.execute()
 
     count: int = int(results[0])

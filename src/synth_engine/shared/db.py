@@ -126,24 +126,12 @@ SessionFactory = Callable[[], contextlib.AbstractContextManager[Session]]
 # Engine factories
 # ---------------------------------------------------------------------------
 
-_POOL_SIZE = 5
-_MAX_OVERFLOW = 10
-
-#: Huey worker connection pool constants (T48.2).
-#: Each Huey worker handles one task at a time; pool_size=1 provides a
-#: single persistent connection. max_overflow=2 allows two temporary
-#: burst connections for brief sursts (e.g. the pre-flight session).
-#: Total max per worker = 3 connections.
-#: 4 workers x 3 + FastAPI(15) = 27 << PgBouncer max_client_conn(100).
-_WORKER_POOL_SIZE = 1
-_WORKER_MAX_OVERFLOW = 2
-
-#: pool_recycle=1800: Recycle connections after 30 minutes, matching
-#: PgBouncer server_idle_timeout.
-_WORKER_POOL_RECYCLE = 1800
-
-#: pool_timeout=30: Raise TimeoutError after 30s rather than blocking.
-_WORKER_POOL_TIMEOUT = 30
+# Pool sizing is externalized to ConclaveSettings (T74.1).
+# Read via get_settings() inside get_engine(), get_async_engine(), and
+# get_worker_engine() to allow runtime configuration via env vars.
+# See ConclaveSettings fields: conclave_db_pool_size, conclave_db_max_overflow,
+# conclave_db_worker_pool_size, conclave_db_worker_max_overflow,
+# conclave_db_worker_pool_recycle, conclave_db_worker_pool_timeout.
 
 #: Module-level cache for synchronous engines, keyed by composite cache key.
 #: For PostgreSQL: ``"{database_url}|mtls={mtls_enabled}"``.
@@ -286,8 +274,8 @@ def get_engine(database_url: str) -> Engine:
 
         engine = create_engine(
             database_url,
-            pool_size=_POOL_SIZE,
-            max_overflow=_MAX_OVERFLOW,
+            pool_size=settings.conclave_db_pool_size,
+            max_overflow=settings.conclave_db_max_overflow,
             **extra_kwargs,
         )
 
@@ -348,8 +336,8 @@ def get_async_engine(database_url: str) -> AsyncEngine:
 
         engine = create_async_engine(
             database_url,
-            pool_size=_POOL_SIZE,
-            max_overflow=_MAX_OVERFLOW,
+            pool_size=settings.conclave_db_pool_size,
+            max_overflow=settings.conclave_db_max_overflow,
             **extra_kwargs,
         )
 
@@ -410,11 +398,11 @@ def get_worker_engine(database_url: str) -> Engine:
         engine = create_engine(
             database_url,
             poolclass=QueuePool,
-            pool_size=_WORKER_POOL_SIZE,
-            max_overflow=_WORKER_MAX_OVERFLOW,
-            pool_timeout=_WORKER_POOL_TIMEOUT,
+            pool_size=settings.conclave_db_worker_pool_size,
+            max_overflow=settings.conclave_db_worker_max_overflow,
+            pool_timeout=settings.conclave_db_worker_pool_timeout,
             pool_pre_ping=True,
-            pool_recycle=_WORKER_POOL_RECYCLE,
+            pool_recycle=settings.conclave_db_worker_pool_recycle,
             **extra_kwargs,
         )
 

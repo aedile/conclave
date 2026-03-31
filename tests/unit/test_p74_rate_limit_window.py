@@ -109,7 +109,7 @@ class TestRateLimitBackendUsesConfiguredWindow:
             def execute(self) -> list[int]:
                 return [self._incr_result]
 
-            def __enter__(self) -> "_MockPipeline":
+            def __enter__(self) -> _MockPipeline:
                 return self
 
             def __exit__(self, *args: object) -> None:
@@ -118,8 +118,6 @@ class TestRateLimitBackendUsesConfiguredWindow:
         class _MockRedis:
             def pipeline(self) -> _MockPipeline:
                 return _MockPipeline()
-
-        import redis as redis_lib
 
         from synth_engine.bootstrapper.dependencies.rate_limit_backend import _redis_hit
 
@@ -133,17 +131,13 @@ class TestRateLimitBackendUsesConfiguredWindow:
         # The expire call must use the configured window (120), not the hardcoded 60.
         assert len(expire_calls) == 1, "pipeline.expire() must be called exactly once"
         key_used, seconds_used = expire_calls[0]
-        assert seconds_used == 120, (
-            f"EXPIRE must use configured window 120, but got {seconds_used}"
-        )
+        assert seconds_used == 120, f"EXPIRE must use configured window 120, but got {seconds_used}"
         # The Redis key must embed the window value for observability.
         assert "120" in key_used, (
             f"Redis key must embed window '120' for observability, got key: {key_used}"
         )
 
-    def test_redis_hit_key_format_uses_default_60(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_redis_hit_key_format_uses_default_60(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """With default window (60), Redis key must embed '60'."""
         _set_minimal_dev_env(monkeypatch)
         _clear_settings()
@@ -160,7 +154,7 @@ class TestRateLimitBackendUsesConfiguredWindow:
             def execute(self) -> list[int]:
                 return [1]
 
-            def __enter__(self) -> "_MockPipeline":
+            def __enter__(self) -> _MockPipeline:
                 return self
 
             def __exit__(self, *args: object) -> None:
@@ -180,7 +174,5 @@ class TestRateLimitBackendUsesConfiguredWindow:
 
         assert len(expire_calls) == 1
         key_used, seconds_used = expire_calls[0]
-        assert seconds_used == 60, (
-            f"Default window must be 60, got {seconds_used}"
-        )
+        assert seconds_used == 60, f"Default window must be 60, got {seconds_used}"
         assert "60" in key_used, f"Key must embed '60', got: {key_used}"

@@ -87,9 +87,7 @@ class TestValidatorsInSettingsModels:
         with pytest.raises((ValidationError, ValueError)):
             ConclaveSettings()
 
-    def test_multi_key_signing_validator_still_works(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_multi_key_signing_validator_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Multi-key signing misconfiguration must still raise after decomposition."""
         _set_dev_env(monkeypatch)
         monkeypatch.setenv("ARTIFACT_SIGNING_KEYS", '{"00000001": "aa" * 32}')

@@ -117,9 +117,7 @@ class TestDbPoolParameterValidation:
         with pytest.raises((ValidationError, ValueError)):
             ConclaveSettings()
 
-    def test_db_worker_pool_size_over_limit_rejected(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_db_worker_pool_size_over_limit_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """CONCLAVE_DB_WORKER_POOL_SIZE=11 must be rejected (gt=0, le=10)."""
         _set_minimal_dev_env(monkeypatch)
         monkeypatch.setenv("CONCLAVE_DB_WORKER_POOL_SIZE", "11")
@@ -321,9 +319,7 @@ class TestProductionValidationSurvivesDecomposition:
         with pytest.raises((ValidationError, ValueError)):
             ConclaveSettings()
 
-    def test_production_mode_requires_database_url(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_production_mode_requires_database_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Missing DATABASE_URL in production mode must raise ValueError/ValidationError."""
         monkeypatch.setenv("CONCLAVE_ENV", "production")
         monkeypatch.delenv("DATABASE_URL", raising=False)
