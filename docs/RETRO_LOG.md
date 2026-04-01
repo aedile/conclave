@@ -121,6 +121,7 @@ Updated after each task's review phase completes.
 
 | Phase | Date | Link |
 |-------|------|------|
+| Phase 74 | 2026-03-31 | [Maintainability & Configuration Hardening](#2026-03-31-phase-74--maintainability--configuration-hardening) |
 | Phase 73 | 2026-03-29 | [Test Quality Rehabilitation](#2026-03-29-phase-73--test-quality-rehabilitation) |
 | Phase 72 | 2026-03-29 | [Exception Specificity & Router Safety Hardening](#2026-03-29-phase-72--exception-specificity--router-safety-hardening) |
 | Phase 71 | 2026-03-29 | [Audit Coverage Completion & Polish](#2026-03-29-phase-71--audit-coverage-completion--polish) |
@@ -131,6 +132,35 @@ Updated after each task's review phase completes.
 | Phase 66 | 2026-03-28 | [Expired Security Advisory Resolution](#2026-03-28-phase-66--expired-security-advisory-resolution) |
 | Phase 65 | 2026-03-27 | [Advisory Drain & Polish](#2026-03-27-phase-65--advisory-drain--polish) |
 | Phase 64 | 2026-03-27 | [Review Summary](#2026-03-27-phase-64--review-summary) |
+
+---
+
+### [2026-03-31] Phase 74 — Maintainability & Configuration Hardening
+
+**Tasks**: T74.1 (DB pool params to settings), T74.2 (rate limit window to settings), T74.3 (decompose settings.py), T74.4 (break ≥100 LOC functions), T74.5 (break 50-100 LOC functions), T74.6 (documentation cleanup)
+
+**Source**: Production Audit 2026-03-29 findings C5-C8 + ADV-P70-01.
+
+**Delivered**:
+- 6 DB pool parameters externalized to ConclaveSettings (env vars with Pydantic validation, gt=0/le=max bounds)
+- Rate limit window (CONCLAVE_RATE_LIMIT_WINDOW_SECONDS) externalized to settings; startup warning added when non-default value detected (T74.2 red-team finding)
+- settings.py decomposed from ~1025 LOC to 183 LOC; all validators and field groups moved to settings_models.py; get_settings() API unchanged; ADV-P70-01 closed
+- All public endpoint and module functions reduced to ≤50 LOC via private helper extraction (_check_job_ownership, _fetch_ledger_or_raise, _check_circuit_breaker, etc.)
+- FastAPI decorator placement bug found and fixed during helper extraction (decorators on helpers instead of endpoints caused FastAPIError at import time — systematic fix across 4 router files)
+- 66 phase backlog files archived to docs/retro_archive/; RETRO_LOG trimmed to last 10 phases; task-ID lines stripped from module docstrings
+- 7 new env vars documented in .env.example (DevOps review finding, fixed)
+- 4 new test files, 2 new warning-behavior tests added in fix commit
+- Coverage: 96.27% (above 95% threshold), 3579 passed / 7 skipped (Gate #1)
+
+**Review agents**: QA (self-conducted), DevOps ✓, Red-team ✓, Architecture ✓
+
+**Review findings fixed**:
+- DevOps: 7 new env vars not in .env.example — added DB pool tuning section and rate limit window entry (fix commit)
+- Red-team: Rate limit window decoupled from /minute periods — added startup WARNING via model_validator + 2 new tests + vulture whitelist entry (fix commit)
+
+**New advisories**: None — all review findings resolved in fix commit.
+
+**Advisory count**: 6 open (ADV-P62-03, ADV-P63-01, ADV-P70-04, ADV-P71-01, ADV-P73-01, ADV-P73-02). ADV-P70-01 closed.
 
 ---
 
