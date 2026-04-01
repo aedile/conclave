@@ -23,12 +23,8 @@ Exempt paths
 :data:`AUTH_EXEMPT_PATHS` — paths that bypass authentication entirely.
 Composed from ``COMMON_INFRA_EXEMPT_PATHS`` plus ``/auth/token``.
 
-Task: T60.1 — Extract AuthenticationGateMiddleware to auth_middleware.py
-    ``AuthenticationGateMiddleware`` re-exported here for backward compat.
-
 CONSTITUTION Priority 0: Security — algorithm pinning, no alg:none
 CONSTITUTION Priority 3: TDD
-Task: T39.1, T39.2, T47.1, T47.3, T57.1, T63.4
 """
 
 from __future__ import annotations

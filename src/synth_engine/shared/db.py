@@ -21,8 +21,10 @@ engine when the same URL is subsequently requested with mTLS enabled — a
 scenario that can occur in tests that toggle ``MTLS_ENABLED`` between cases.
 
 Without caching, each call would create a new ``QueuePool`` with up to
-``pool_size + max_overflow = 15`` connections.  In a request-heavy
-environment this could exhaust the available PostgreSQL connections.
+``pool_size + max_overflow`` connections (defaults: 5 + 10 = 15,
+configurable via ``CONCLAVE_DB_POOL_SIZE`` and ``CONCLAVE_DB_MAX_OVERFLOW``).
+In a request-heavy environment this could exhaust the available PostgreSQL
+connections.
 
 Call :func:`dispose_engines` to release all cached engines and their
 connection pools — required between test cases that use different
@@ -126,24 +128,25 @@ SessionFactory = Callable[[], contextlib.AbstractContextManager[Session]]
 # Engine factories
 # ---------------------------------------------------------------------------
 
-_POOL_SIZE = 5
-_MAX_OVERFLOW = 10
+# Pool sizing is externalized to ConclaveSettings (T74.1).
+# Read via get_settings() inside get_engine(), get_async_engine(), and
+# get_worker_engine() to allow runtime configuration via env vars.
+# See ConclaveSettings fields: conclave_db_pool_size, conclave_db_max_overflow,
+# conclave_db_worker_pool_size, conclave_db_worker_max_overflow,
+# conclave_db_worker_pool_recycle, conclave_db_worker_pool_timeout.
 
-#: Huey worker connection pool constants (T48.2).
-#: Each Huey worker handles one task at a time; pool_size=1 provides a
-#: single persistent connection. max_overflow=2 allows two temporary
-#: burst connections for brief sursts (e.g. the pre-flight session).
-#: Total max per worker = 3 connections.
-#: 4 workers x 3 + FastAPI(15) = 27 << PgBouncer max_client_conn(100).
-_WORKER_POOL_SIZE = 1
-_WORKER_MAX_OVERFLOW = 2
-
-#: pool_recycle=1800: Recycle connections after 30 minutes, matching
-#: PgBouncer server_idle_timeout.
-_WORKER_POOL_RECYCLE = 1800
-
-#: pool_timeout=30: Raise TimeoutError after 30s rather than blocking.
-_WORKER_POOL_TIMEOUT = 30
+# Backward-compatible named constants matching the ConclaveSettings defaults.
+# Tests and documentation reference these constants to verify the connection
+# budget (pool_size + max_overflow) stays within PgBouncer capacity limits.
+# Cardinality note: one pool per FastAPI app instance + one per worker process.
+#: Default FastAPI pool size (overridden by CONCLAVE_DB_POOL_SIZE).
+_POOL_SIZE: int = 5
+#: Default FastAPI max_overflow (overridden by CONCLAVE_DB_MAX_OVERFLOW).
+_MAX_OVERFLOW: int = 10
+#: Default Huey worker pool size (overridden by CONCLAVE_DB_WORKER_POOL_SIZE).
+_WORKER_POOL_SIZE: int = 1
+#: Default Huey worker max_overflow (overridden by CONCLAVE_DB_WORKER_MAX_OVERFLOW).
+_WORKER_MAX_OVERFLOW: int = 2
 
 #: Module-level cache for synchronous engines, keyed by composite cache key.
 #: For PostgreSQL: ``"{database_url}|mtls={mtls_enabled}"``.
@@ -286,8 +289,8 @@ def get_engine(database_url: str) -> Engine:
 
         engine = create_engine(
             database_url,
-            pool_size=_POOL_SIZE,
-            max_overflow=_MAX_OVERFLOW,
+            pool_size=settings.conclave_db_pool_size,
+            max_overflow=settings.conclave_db_max_overflow,
             **extra_kwargs,
         )
 
@@ -348,8 +351,8 @@ def get_async_engine(database_url: str) -> AsyncEngine:
 
         engine = create_async_engine(
             database_url,
-            pool_size=_POOL_SIZE,
-            max_overflow=_MAX_OVERFLOW,
+            pool_size=settings.conclave_db_pool_size,
+            max_overflow=settings.conclave_db_max_overflow,
             **extra_kwargs,
         )
 
@@ -364,13 +367,17 @@ def get_worker_engine(database_url: str) -> Engine:
     Isolation is required so that a stuck or slow Huey task cannot exhaust
     the connection pool used by FastAPI request handlers.
 
-    Pool configuration (T48.2, ADR-0035):
+    Pool configuration (T48.2, ADR-0035, T74.1):
     - ``poolclass=QueuePool`` — bounded connection pool.
-    - ``pool_size=1`` — one persistent connection per worker process.
-    - ``max_overflow=2`` — two additional overflow connections for burst.
-    - ``pool_timeout=30`` — raise TimeoutError after 30s on pool exhaustion.
+    - ``pool_size`` — persistent connections per worker (default: 1, via
+      ``CONCLAVE_DB_WORKER_POOL_SIZE``).
+    - ``max_overflow`` — burst overflow connections (default: 2, via
+      ``CONCLAVE_DB_WORKER_MAX_OVERFLOW``).
+    - ``pool_timeout`` — seconds before TimeoutError (default: 30, via
+      ``CONCLAVE_DB_WORKER_POOL_TIMEOUT``).
     - ``pool_pre_ping=True`` — detect stale connections before use.
-    - ``pool_recycle=1800`` — match PgBouncer server_idle_timeout.
+    - ``pool_recycle`` — connection lifetime seconds (default: 1800, via
+      ``CONCLAVE_DB_WORKER_POOL_RECYCLE``).
 
     For SQLite URLs, pool size arguments are skipped (StaticPool used).
 
@@ -410,11 +417,11 @@ def get_worker_engine(database_url: str) -> Engine:
         engine = create_engine(
             database_url,
             poolclass=QueuePool,
-            pool_size=_WORKER_POOL_SIZE,
-            max_overflow=_WORKER_MAX_OVERFLOW,
-            pool_timeout=_WORKER_POOL_TIMEOUT,
+            pool_size=settings.conclave_db_worker_pool_size,
+            max_overflow=settings.conclave_db_worker_max_overflow,
+            pool_timeout=settings.conclave_db_worker_pool_timeout,
             pool_pre_ping=True,
-            pool_recycle=_WORKER_POOL_RECYCLE,
+            pool_recycle=settings.conclave_db_worker_pool_recycle,
             **extra_kwargs,
         )
 
