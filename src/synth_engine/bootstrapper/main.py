@@ -46,16 +46,33 @@ silently allowing the wrong order to serve production traffic.
 
 The assertion is fail-closed: any ``AttributeError``, ``TypeError``, or
 unexpected structure raises, never silently passes.
+
+Prometheus multiprocess mode (T75.3)
+--------------------------------------
+When ``PROMETHEUS_MULTIPROC_DIR`` is set in the environment, the ``/metrics``
+endpoint uses ``prometheus_client.multiprocess.MultiProcessCollector`` to
+aggregate per-worker Prometheus .db files into a single merged response.
+
+:func:`validate_prometheus_multiproc_dir` validates the directory at startup:
+- Must be an absolute path.
+- Must exist and be writable.
+- Must NOT be inside the application source tree.
+
+If validation fails, a ``ValueError`` is raised to fail-closed (better than
+silently serving stale or merged metrics from a bad dir).
 """
 
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from prometheus_client import make_asgi_app
+from prometheus_client import CollectorRegistry, make_asgi_app
+from prometheus_client.multiprocess import MultiProcessCollector
 
 import synth_engine
 from synth_engine.bootstrapper.docker_secrets import (  # noqa: F401 — re-exported for test patches
@@ -90,6 +107,95 @@ if TYPE_CHECKING:
 
 _SERVICE_NAME = "conclave-engine"
 _logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# T75.3 — Prometheus multiprocess dir validation
+# ---------------------------------------------------------------------------
+
+#: Source tree root (resolved at import time for path containment check).
+_SRC_ROOT: Path = Path(__file__).parent.parent.parent.resolve()
+
+
+def validate_prometheus_multiproc_dir(
+    dir_path: str | None,
+) -> None:
+    """Validate the Prometheus multiprocess directory setting (T75.3).
+
+    Called at startup when ``PROMETHEUS_MULTIPROC_DIR`` is configured.
+    Fail-closed: raises on any invalid configuration so the application
+    never silently drops metrics from multi-worker deployments.
+
+    Validation rules:
+    1. ``None`` or empty string → single-worker mode; returns ``None`` (no-op).
+    2. Must be an absolute path (relative paths are ambiguous across workers).
+    3. Must exist and be writable (missing dir silently drops all metrics).
+    4. Must NOT be inside the application source tree (prevents .db files
+       contaminating committed code).
+
+    Args:
+        dir_path: Path string from ``PROMETHEUS_MULTIPROC_DIR`` env var,
+            or ``None`` / empty string for single-worker mode.
+
+    Returns:
+        ``None`` in all cases (validation-only function).
+
+    Raises:
+        ValueError: If ``dir_path`` is non-absolute, non-existent,
+            non-writable, or inside the source tree.
+    """
+    if not dir_path:
+        return None
+
+    path = Path(dir_path)
+
+    if not path.is_absolute():
+        raise ValueError(
+            f"PROMETHEUS_MULTIPROC_DIR must be an absolute path. "
+            f"Got: {dir_path!r}. "
+            f"Relative paths are ambiguous across uvicorn worker processes "
+            f"that may have different working directories."
+        )
+
+    # Resolve after absoluteness check to follow symlinks for containment test
+    resolved = path.resolve()
+
+    # Must not be inside the source tree
+    try:
+        resolved.relative_to(_SRC_ROOT)
+        # If we get here, the path IS inside the source tree
+        raise ValueError(
+            f"PROMETHEUS_MULTIPROC_DIR must NOT be inside the application source tree. "
+            f"Got: {dir_path!r} which resolves to {resolved}. "
+            f"Storing Prometheus .db files inside src/ risks contaminating VCS. "
+            f"Use an external path such as /tmp/prometheus_multiproc or /var/run/conclave."
+        )
+    except ValueError as exc:
+        # Re-raise the source-tree error
+        if "source tree" in str(exc):
+            raise
+        # Otherwise path is outside source tree — fall through to existence check
+
+    if not resolved.exists():
+        raise ValueError(
+            f"PROMETHEUS_MULTIPROC_DIR does not exist: {dir_path!r} "
+            f"(resolved: {resolved}). "
+            f"Create the directory and ensure it is writable before starting. "
+            f"Example: mkdir -p {resolved} && chmod 755 {resolved}"
+        )
+
+    if not os.access(resolved, os.W_OK):
+        raise ValueError(
+            f"PROMETHEUS_MULTIPROC_DIR is not writable: {dir_path!r} "
+            f"(resolved: {resolved}). "
+            f"Check permissions for the process user."
+        )
+
+    _logger.info(
+        "Prometheus multiprocess mode: using dir=%s (T75.3).",
+        resolved,
+    )
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Rule 8 — Huey task wiring (T4.2c) + DI factory injection (ADR-0029)
@@ -225,12 +331,20 @@ def create_app() -> FastAPI:
     disabled in production mode to reduce API reconnaissance surface
     (ADV-P62-01).  In development mode all three endpoints are available.
 
+    Prometheus multiprocess mode (T75.3): when ``PROMETHEUS_MULTIPROC_DIR``
+    is set, the /metrics endpoint uses ``MultiProcessCollector`` to aggregate
+    per-worker metrics.  The directory is validated at startup (fail-closed).
+
     Returns:
         A configured FastAPI instance ready to serve requests.
     """
     from synth_engine.shared.settings import get_settings
 
     configure_telemetry(_SERVICE_NAME)
+
+    # T75.3: Validate and configure Prometheus multiprocess dir if set.
+    _multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "").strip() or None
+    validate_prometheus_multiproc_dir(_multiproc_dir)
 
     # T66.2: Disable OpenAPI docs in production to prevent API reconnaissance.
     # In production: docs_url=None, redoc_url=None, openapi_url=None → 404.
@@ -273,7 +387,17 @@ def create_app() -> FastAPI:
     FastAPIInstrumentor.instrument_app(app)
     setup_middleware(app)
 
-    metrics_app = make_asgi_app()
+    # T75.3 (review fix): Wire MultiProcessCollector when PROMETHEUS_MULTIPROC_DIR is set.
+    # When set: create a fresh CollectorRegistry, register MultiProcessCollector, and
+    # pass the registry to make_asgi_app() so the /metrics endpoint aggregates per-worker
+    # .db files from all N uvicorn workers into a single merged response.
+    # When not set: use the default make_asgi_app() (existing single-worker behavior).
+    if _multiproc_dir:
+        _mp_registry = CollectorRegistry()
+        MultiProcessCollector(_mp_registry, path=_multiproc_dir)  # type: ignore[no-untyped-call]  # prometheus_client has no py.typed
+        metrics_app = make_asgi_app(registry=_mp_registry)
+    else:
+        metrics_app = make_asgi_app()
     app.mount("/metrics", metrics_app)
 
     _register_exception_handlers(app)

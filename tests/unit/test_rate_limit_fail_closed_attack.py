@@ -50,10 +50,15 @@ def clear_settings_cache() -> Generator[None]:
 
 
 def _make_failing_redis() -> redis_lib.Redis:
-    """Build a mock Redis client whose pipeline always raises ConnectionError.
+    """Build a mock Redis client that raises ConnectionError on all operations.
+
+    Fails on pipeline execute(), get(), set(), and delete() so that the
+    T75.2 grace period methods (_record_grace_period_start, _get_grace_period_elapsed)
+    fall back to process-local tracking rather than returning garbage from mock
+    method calls.
 
     Returns:
-        A mock Redis client configured to fail on every pipeline execute().
+        A mock Redis client configured to fail on all Redis operations.
     """
     mock_redis = MagicMock(spec=redis_lib.Redis)
     mock_pipeline = MagicMock()
@@ -61,6 +66,10 @@ def _make_failing_redis() -> redis_lib.Redis:
     mock_pipeline.__exit__ = MagicMock(return_value=False)
     mock_pipeline.execute.side_effect = redis_lib.ConnectionError("Redis down")
     mock_redis.pipeline.return_value = mock_pipeline
+    # T75.2: grace period methods also call get/set/delete — fail them too
+    mock_redis.get.side_effect = redis_lib.ConnectionError("Redis down")
+    mock_redis.set.side_effect = redis_lib.ConnectionError("Redis down")
+    mock_redis.delete.side_effect = redis_lib.ConnectionError("Redis down")
     return mock_redis
 
 
@@ -136,22 +145,23 @@ async def test_requests_rejected_429_after_grace_period_expires(
     mock_redis = _make_failing_redis()
     app = _build_fail_closed_app(redis_client=mock_redis, unseal_limit=100)
 
-    # Advance the grace period clock past expiry by patching time.monotonic
-    # so the middleware sees the failure as 10 seconds old.
+    # Advance the grace period clock past expiry by patching time.time
+    # (T75.2: grace period uses UTC epoch, not monotonic) so the middleware
+    # sees the failure as 10 seconds old.
     grace_period_seconds = 5
-    fake_now = time.monotonic() + grace_period_seconds + 1.0
+    fake_now = time.time() + grace_period_seconds + 1.0
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # First request — this triggers the first_failure_time to be recorded
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.time",
             return_value=fake_now - grace_period_seconds - 1.0,
         ):
             await client.post("/unseal", headers={"X-Forwarded-For": "10.2.2.2"})
 
         # Second request — now past grace period
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.time",
             return_value=fake_now,
         ):
             r2 = await client.post("/unseal", headers={"X-Forwarded-For": "10.2.2.2"})
@@ -180,13 +190,14 @@ async def test_grace_period_uses_in_memory_counter_within_5_seconds(
     mock_redis = _make_failing_redis()
     app = _build_fail_closed_app(redis_client=mock_redis, unseal_limit=2)
 
-    # Freeze monotonic time so the grace period never expires during the test
-    frozen_time = time.monotonic()
+    # Freeze time.time so the grace period never expires during the test
+    # (T75.2: grace period uses UTC epoch, not monotonic)
+    frozen_time = time.time()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         headers = {"X-Forwarded-For": "10.3.3.3"}
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.time",
             return_value=frozen_time,
         ):
             r1 = await client.post("/unseal", headers=headers)
@@ -210,26 +221,27 @@ async def test_grace_period_not_reset_on_repeated_redis_failure_cycles() -> None
     in between. This test verifies that repeated failure cycles with no recovery
     do not extend the grace period indefinitely.
 
-    Arrange: Redis fails throughout; mock monotonic to show time advancing.
+    Arrange: Redis fails throughout; mock time.time to show time advancing.
     Act: first request at t=0 (starts clock), second request at t=6 (past grace).
     Assert: second request gets 429 (fail-closed, grace period has expired).
     """
     mock_redis = _make_failing_redis()
     app = _build_fail_closed_app(redis_client=mock_redis, unseal_limit=100)
 
-    base_time = time.monotonic()
+    # T75.2: grace period uses UTC epoch (time.time), not monotonic
+    base_time = time.time()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Request 1 at t=0: records first_failure_time
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.time",
             return_value=base_time,
         ):
             await client.post("/unseal", headers={"X-Forwarded-For": "10.4.4.4"})
 
         # Request 2 at t=6: grace period (5s) has expired → must reject
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.time",
             return_value=base_time + 6.0,
         ):
             r_after_grace = await client.post("/unseal", headers={"X-Forwarded-For": "10.4.4.4"})
