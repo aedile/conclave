@@ -341,6 +341,13 @@ async def test_graceful_degradation_request_passes_when_redis_down() -> None:
     mock_pipeline.__exit__ = MagicMock(return_value=False)
     mock_pipeline.execute.side_effect = redis_lib.ConnectionError("Redis down")
     mock_redis.pipeline.return_value = mock_pipeline
+    # Also fail direct Redis calls so grace-period key reads/writes fail correctly.
+    # Without this, mock_redis.get() returns a MagicMock whose float() == 1.0,
+    # making the grace period look like it started at epoch+1s (elapsed >> grace).
+    _conn_err = redis_lib.ConnectionError("Redis down")
+    mock_redis.get.side_effect = _conn_err
+    mock_redis.set.side_effect = _conn_err
+    mock_redis.delete.side_effect = _conn_err
 
     app = _build_redis_app(redis_client=mock_redis, unseal_limit=5)
 

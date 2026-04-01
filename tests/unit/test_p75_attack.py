@@ -497,8 +497,11 @@ class TestPrometheusMultiprocDirValidation:
         with pytest.raises((ValueError, RuntimeError, OSError, SystemExit)) as exc_info:
             validate_prometheus_multiproc_dir(nonexistent)
 
-        # Error must be descriptive — not just an assertion error
-        assert exc_info.value is not None
+        # Error must be descriptive — must reference the missing directory path
+        error_msg = str(exc_info.value)
+        assert nonexistent in error_msg, (
+            f"Error must mention the bad path {nonexistent!r}; got: {error_msg!r}"
+        )
 
     def test_relative_path_rejected(self) -> None:
         """Prometheus multiprocess dir must be an absolute path.
