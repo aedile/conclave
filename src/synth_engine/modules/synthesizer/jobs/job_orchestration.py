@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -95,6 +96,20 @@ _OOM_FALLBACK_COLUMNS: int = 50
 
 
 # ---------------------------------------------------------------------------
+# T75.4 — Factory injection thread-safety lock
+#
+# This lock protects thread-safety within a single worker process (e.g.,
+# uvicorn --workers 1 --threads 4).  Cross-process safety is provided by
+# process-level isolation: each uvicorn worker has its own Python interpreter
+# and its own copy of these module-level globals.  The lock has NO cross-process
+# effect in multi-process uvicorn (the production model).
+# ---------------------------------------------------------------------------
+
+#: Per-process lock protecting all factory injection globals (T75.4).
+#: Intra-process thread safety only — NOT cross-process.
+_FACTORY_LOCK: threading.Lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
 # DI factory callbacks — injected by bootstrapper at startup (ADR-0029)
 # ---------------------------------------------------------------------------
 
@@ -110,21 +125,37 @@ def set_dp_wrapper_factory(
 ) -> None:
     """Register the DP wrapper factory (called by bootstrapper at startup).
 
+    Acquires ``_FACTORY_LOCK`` for intra-process thread safety (T75.4).
+    Emits WARNING if a factory is already registered (double-set detection).
+
+    NOTE: This lock protects thread-safety within a single worker process.
+    Cross-process safety is provided by process-level isolation (each uvicorn
+    worker has its own Python interpreter and its own copy of these globals).
+
     Args:
         factory: Callable ``(max_grad_norm, noise_multiplier) → DPWrapperProtocol``.
     """
     global _dp_wrapper_factory
-    _dp_wrapper_factory = factory
+    with _FACTORY_LOCK:
+        if _dp_wrapper_factory is not None:
+            _logger.warning(
+                "set_dp_wrapper_factory() called with factory already registered — overwriting. "
+                "This is safe but may indicate a wiring configuration issue (T75.4)."
+            )
+        _dp_wrapper_factory = factory
 
 
 def set_spend_budget_fn(fn: SpendBudgetProtocol) -> None:
     """Register the sync spend_budget callable (called by bootstrapper at startup).
 
+    Acquires ``_FACTORY_LOCK`` for intra-process thread safety (T75.4).
+
     Args:
         fn: Sync ``SpendBudgetProtocol`` callable wrapping async ``spend_budget()``.
     """
     global _spend_budget_fn
-    _spend_budget_fn = fn
+    with _FACTORY_LOCK:
+        _spend_budget_fn = fn
 
 
 # ---------------------------------------------------------------------------
@@ -135,22 +166,32 @@ def set_webhook_delivery_fn(fn: WebhookDeliveryCallback) -> None:
 
     The bootstrapper wires this at startup so that job_orchestration.py can
     trigger webhook delivery without importing from bootstrapper/.
+    Acquires ``_FACTORY_LOCK`` for intra-process thread safety (T75.4).
+    Emits WARNING if a callback is already registered (double-set detection).
 
     Args:
         fn: Callable ``(job_id: int, status: str) -> None`` that dispatches
             webhook deliveries for all active registrations for the given job.
     """
     global _webhook_delivery_fn
-    _webhook_delivery_fn = fn
+    with _FACTORY_LOCK:
+        if _webhook_delivery_fn is not None:
+            _logger.warning(
+                "set_webhook_delivery_fn() called with callback already registered — overwriting. "
+                "This is safe but may indicate a wiring configuration issue (T75.4)."
+            )
+        _webhook_delivery_fn = fn
 
 
 def _reset_webhook_delivery_fn() -> None:
     """Reset the IoC webhook delivery callback to None.
 
+    Acquires ``_FACTORY_LOCK`` for thread-safe test isolation (T75.4).
     For test isolation only.  Not a production path.
     """
     global _webhook_delivery_fn
-    _webhook_delivery_fn = None
+    with _FACTORY_LOCK:
+        _webhook_delivery_fn = None
 
 
 # Internal helpers (defined here to preserve patch-path compatibility)
