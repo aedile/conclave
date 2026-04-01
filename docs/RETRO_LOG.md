@@ -26,6 +26,16 @@ Updated after each task's review phase completes.
 | ADV-P73-01 | Test-to-code LOC ratio at 4.01:1, exceeds 2.5:1 target. Parametrization and consolidation reduced function count but LOC reduction limited by legitimate test infrastructure (enforcement gates, fault injection). Waived per spec-challenger recommendation. | [P73](#2026-03-29-phase-73--test-quality-rehabilitation) |
 | ADV-P73-02 | Gate 2 does not detect `assert x == True` as weak (uses ast.Eq, only ast.Is/IsNot detected). Accepted tradeoff for incremental adoption; extend in future gate pass. | [P73](#2026-03-29-phase-73--test-quality-rehabilitation) |
 
+### Deferred by Tier
+
+Items logged here belong to maturity tiers above the current tier. They do not count toward
+the Rule 11 advisory cap and do not block merges. They are promoted to active advisories when
+the system enters their target tier.
+
+| ID | Target Tier | Summary | Raised Phase |
+|----|-------------|---------|--------------|
+| _(PM to triage existing advisories into this table at next phase kickoff)_ | | | |
+
 **CLOSED (P74 — maintainability & configuration hardening)**
 
 | ID | Resolution | Closed |

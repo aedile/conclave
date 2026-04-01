@@ -55,9 +55,11 @@ Any IoC hook or callback introduced in a task must be wired to a concrete implem
 Every PR branch MUST contain at least one `docs:` commit. If no docs changed:
 `docs: no documentation changes required — <justification>`
 
-**Rule 11 — Advisory drain cadence.** [sunset: Phase 60]
-ADV rows tagged: `BLOCKER` | `ADVISORY` | `DEFERRED`. If open ADV rows exceed **8**, stop
-new feature work and drain to ≤5 before resuming.
+**Rule 11 — Advisory cadence by tier.** [sunset: Phase 60]
+Advisory drain is scoped to the current maturity tier. Only advisories tagged with the current
+tier or below count toward the cap of 8. Higher-tier advisories are tracked in RETRO_LOG under
+a separate "Deferred by Tier" section but do not trigger drain phases and do not block merges.
+Security advisories retain Rule 26 TTL regardless of tier.
 
 **Rule 12 — Phase execution authority.** [sunset: Phase 60]
 Once user approves a phase plan, the PM has execution authority over all tasks. Human touchpoints:
@@ -104,6 +106,30 @@ of being raised. If an advisory survives past its TTL (phase_raised + 2), it aut
 a merge-blocking gate on the next phase. The PM MUST NOT approve a new phase plan while any
 expired security advisory exists. Non-security advisories retain the existing Rule 11 drain
 cadence (max 8 open).
+
+**Rule 27 — Reviewer scope constraint.** [sunset: never — structural]
+Review agents MUST only raise BLOCKER findings for issues relevant to the current maturity tier
+or below. Issues belonging to higher tiers are logged as DEFERRED with the target tier noted.
+DEFERRED items do not count toward the Rule 11 advisory cap and do not block merges.
+Exception: any finding classified as CRITICAL security (RCE, auth bypass, data exfiltration)
+is always a BLOCKER regardless of tier.
+
+**Rule 28 — Phase roadmap.** [sunset: never — structural]
+At the start of each maturity tier, the PM MUST present a tier roadmap: all phases needed to
+exit the tier, with dependencies identified. Individual phase plans are still approved one at
+a time, but the roadmap provides strategic context. When choosing between two possible phases,
+the PM MUST prefer the phase that unblocks a tier exit criterion over a phase that hardens
+existing functionality.
+
+**Rule 29 — Reviewer findings are inputs, not mandates.** [sunset: never — structural]
+When reviewers return findings, the PM MUST triage each finding against the current tier roadmap:
+- BLOCKER at current tier or below → must fix before merge
+- FINDING at current tier → fix this phase if low effort; otherwise next phase
+- ADVISORY at current tier → log, defer to roadmap
+- Any finding above current tier → log as DEFERRED with target tier, do not action
+The PM MUST NOT create a phase whose primary purpose is "fix review findings" unless those
+findings are BLOCKERs at the current tier. Review findings for higher tiers are batched into
+the tier roadmap, not actioned immediately.
 
 **Rule 25 — Complexity budget.** [sunset: Phase 55]
 Each phase should target a production-to-test LOC ratio no worse than 1:2.5. If a phase exceeds this, the architecture reviewer must provide written justification in their review output. Legitimate exceptions: security-critical code, protocol implementations, state machines with many edge cases. Illegitimate: verbose test setup, redundant assertions, copy-paste test patterns.
