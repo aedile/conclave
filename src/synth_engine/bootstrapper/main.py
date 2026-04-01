@@ -71,7 +71,8 @@ from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from prometheus_client import make_asgi_app
+from prometheus_client import CollectorRegistry, make_asgi_app
+from prometheus_client.multiprocess import MultiProcessCollector
 
 import synth_engine
 from synth_engine.bootstrapper.docker_secrets import (  # noqa: F401 — re-exported for test patches
@@ -386,7 +387,17 @@ def create_app() -> FastAPI:
     FastAPIInstrumentor.instrument_app(app)
     setup_middleware(app)
 
-    metrics_app = make_asgi_app()
+    # T75.3 (review fix): Wire MultiProcessCollector when PROMETHEUS_MULTIPROC_DIR is set.
+    # When set: create a fresh CollectorRegistry, register MultiProcessCollector, and
+    # pass the registry to make_asgi_app() so the /metrics endpoint aggregates per-worker
+    # .db files from all N uvicorn workers into a single merged response.
+    # When not set: use the default make_asgi_app() (existing single-worker behavior).
+    if _multiproc_dir:
+        _mp_registry = CollectorRegistry()
+        MultiProcessCollector(_mp_registry, path=_multiproc_dir)  # type: ignore[no-untyped-call]  # prometheus_client has no py.typed
+        metrics_app = make_asgi_app(registry=_mp_registry)
+    else:
+        metrics_app = make_asgi_app()
     app.mount("/metrics", metrics_app)
 
     _register_exception_handlers(app)

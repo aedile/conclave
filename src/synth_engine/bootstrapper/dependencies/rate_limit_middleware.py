@@ -314,24 +314,41 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         Falls back to the process-local ``_redis_first_failure_time`` if the
         Redis key is absent or unreadable.
 
+        Clamping (T75.2 review fix): if the stored ``started_at`` timestamp is
+        in the future (clock skew or injected Redis key), the naive
+        ``now - started_at`` would be negative, satisfying
+        ``elapsed <= _REDIS_GRACE_PERIOD_SECONDS`` and holding the rate-limiter
+        fail-open indefinitely.  To prevent this, any negative elapsed value is
+        clamped to ``_REDIS_GRACE_PERIOD_SECONDS + 1.0`` (force fail-closed) and
+        a WARNING is emitted.
+
         Args:
             now: Current UTC epoch float (from ``time.time()``).
 
         Returns:
-            Elapsed seconds since grace period start; ``0.0`` if no grace
-            period is active.
+            Non-negative elapsed seconds since grace period start; ``0.0`` if
+            no grace period is active.
         """
         # Try Redis-shared grace start first
         try:
             raw = self._redis.get(_REDIS_GRACE_KEY)
             if raw is not None:
                 started_at = float(raw)  # type: ignore[arg-type]  # redis.get() returns bytes | None
-                return now - started_at
+                elapsed = now - started_at
+                if elapsed < 0.0:
+                    _logger.warning(
+                        "Grace period started_at is in the future (skew=%.1fs) — "
+                        "treating as expired",
+                        -elapsed,
+                    )
+                    return float(_REDIS_GRACE_PERIOD_SECONDS) + 1.0  # Force fail-closed
+                return elapsed
         except (redis_lib.RedisError, ValueError, TypeError):
             pass
         # Fall back to process-local tracking
         if self._redis_first_failure_time is not None:
-            return now - self._redis_first_failure_time
+            elapsed = now - self._redis_first_failure_time
+            return max(0.0, elapsed)
         return 0.0
 
     def _handle_redis_failure(self) -> None:

@@ -565,3 +565,284 @@ class TestDeliverWebhookUsesRedisCB:
             )
 
         assert result.status == "SKIPPED"
+
+
+# ---------------------------------------------------------------------------
+# Review fix: T75.3 — MultiProcessCollector wiring (DevOps BLOCKER)
+# ---------------------------------------------------------------------------
+
+
+class TestMultiProcessCollectorWiring:
+    """create_app() must wire MultiProcessCollector when PROMETHEUS_MULTIPROC_DIR is set."""
+
+    def test_multiprocess_collector_registered_when_env_set(self, tmp_path: Path) -> None:
+        """When PROMETHEUS_MULTIPROC_DIR is set, create_app() must use a fresh
+        CollectorRegistry and register MultiProcessCollector against it.
+
+        The default REGISTRY must NOT be used — it contains per-process collectors
+        that are not valid in multi-worker mode.
+        """
+        import os
+
+        from prometheus_client import CollectorRegistry
+
+        registered_registries: list[CollectorRegistry] = []
+
+        def _fake_multi_process_collector(registry: CollectorRegistry, path: str) -> None:
+            registered_registries.append(registry)
+
+        with (
+            patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": str(tmp_path)}),
+            patch(
+                "synth_engine.bootstrapper.main.MultiProcessCollector",
+                side_effect=_fake_multi_process_collector,
+                create=True,
+            ),
+            patch("synth_engine.bootstrapper.main.make_asgi_app") as mock_make,
+            patch("synth_engine.bootstrapper.main.configure_telemetry"),
+            patch("synth_engine.bootstrapper.main.FastAPIInstrumentor"),
+            patch("synth_engine.bootstrapper.main.setup_middleware"),
+            patch("synth_engine.bootstrapper.main._register_exception_handlers"),
+            patch("synth_engine.bootstrapper.main._register_routes"),
+            patch("synth_engine.bootstrapper.main._include_routers"),
+            patch("synth_engine.bootstrapper.main._assert_middleware_ordering"),
+        ):
+            mock_make.return_value = MagicMock()
+            from synth_engine.bootstrapper.main import create_app
+
+            create_app()
+
+        # MultiProcessCollector must have been registered with a fresh registry
+        assert len(registered_registries) == 1, (
+            "MultiProcessCollector must be instantiated exactly once when "
+            f"PROMETHEUS_MULTIPROC_DIR is set. Got {len(registered_registries)} calls."
+        )
+        # The registry passed must be a CollectorRegistry instance
+        assert isinstance(registered_registries[0], CollectorRegistry), (
+            "MultiProcessCollector must be passed a fresh CollectorRegistry instance. "
+            f"Got: {type(registered_registries[0])}"
+        )
+        # make_asgi_app must be called with the fresh registry, not default
+        make_asgi_app_kwargs = mock_make.call_args.kwargs if mock_make.call_args else {}
+        assert "registry" in make_asgi_app_kwargs, (
+            "make_asgi_app() must be called with registry= kwarg in multiprocess mode. "
+            f"Called with: {mock_make.call_args}"
+        )
+        passed_registry = make_asgi_app_kwargs["registry"]
+        assert passed_registry is registered_registries[0], (
+            "make_asgi_app() must receive the same registry that MultiProcessCollector "
+            "was registered with. Fresh registry must be threaded through both calls."
+        )
+
+    def test_single_worker_mode_uses_default_registry(self) -> None:
+        """When PROMETHEUS_MULTIPROC_DIR is NOT set, create_app() must use the default
+        make_asgi_app() call (no registry= kwarg) — existing behavior unchanged.
+        """
+        import os
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch("synth_engine.bootstrapper.main.MultiProcessCollector", create=True) as mock_mpc,
+            patch("synth_engine.bootstrapper.main.make_asgi_app") as mock_make,
+            patch("synth_engine.bootstrapper.main.configure_telemetry"),
+            patch("synth_engine.bootstrapper.main.FastAPIInstrumentor"),
+            patch("synth_engine.bootstrapper.main.setup_middleware"),
+            patch("synth_engine.bootstrapper.main._register_exception_handlers"),
+            patch("synth_engine.bootstrapper.main._register_routes"),
+            patch("synth_engine.bootstrapper.main._include_routers"),
+            patch("synth_engine.bootstrapper.main._assert_middleware_ordering"),
+        ):
+            # Ensure env var is absent
+            os.environ.pop("PROMETHEUS_MULTIPROC_DIR", None)
+            mock_make.return_value = MagicMock()
+
+            from synth_engine.bootstrapper.main import create_app
+
+            create_app()
+
+        # MultiProcessCollector must NOT be called in single-worker mode
+        mock_mpc.assert_not_called()
+
+        # make_asgi_app must be called WITHOUT registry= kwarg
+        make_asgi_app_kwargs = mock_make.call_args.kwargs if mock_make.call_args else {}
+        assert "registry" not in make_asgi_app_kwargs, (
+            "In single-worker mode (no PROMETHEUS_MULTIPROC_DIR), make_asgi_app() must NOT "
+            "receive a registry= kwarg. Existing behavior must be preserved. "
+            f"Called with: {mock_make.call_args}"
+        )
+
+    def test_mark_process_dead_called_on_shutdown(self, tmp_path: Path) -> None:
+        """When PROMETHEUS_MULTIPROC_DIR is set, _lifespan shutdown must call
+        prometheus_client.multiprocess.mark_process_dead(os.getpid()).
+
+        This allows the multiprocess collector to remove stale .db files from
+        worker processes that have exited cleanly.  Verified by running the
+        async lifespan context manager to completion and checking that
+        mark_process_dead was called with the current PID.
+        """
+        import asyncio
+        import os
+        from unittest.mock import patch as _patch
+
+        mark_dead_pids: list[int] = []
+
+        def _fake_mark_dead(pid: int) -> None:
+            mark_dead_pids.append(pid)
+
+        # Patch every side-effectful call in the lifespan so it runs safely in tests.
+        from fastapi import FastAPI
+
+        from synth_engine.bootstrapper.lifecycle import _lifespan
+
+        with (
+            patch.dict(os.environ, {"PROMETHEUS_MULTIPROC_DIR": str(tmp_path)}),
+            _patch(
+                "synth_engine.bootstrapper.lifecycle.mark_process_dead",
+                side_effect=_fake_mark_dead,
+                create=True,
+            ),
+            _patch("synth_engine.bootstrapper.lifecycle.validate_config"),
+            _patch("synth_engine.bootstrapper.lifecycle.update_cert_expiry_metrics"),
+            _patch("synth_engine.bootstrapper.lifecycle.get_audit_logger"),
+            _patch("synth_engine.bootstrapper.lifecycle.dispose_engines"),
+            _patch("synth_engine.bootstrapper.lifecycle.close_redis_client"),
+        ):
+            dummy_app = FastAPI()
+
+            async def _run_lifespan() -> None:
+                async with _lifespan(dummy_app):
+                    pass  # startup done; now trigger shutdown
+
+            asyncio.run(_run_lifespan())
+
+        # mark_process_dead must have been called with the current PID
+        current_pid = os.getpid()
+        assert current_pid in mark_dead_pids, (
+            f"mark_process_dead must be called with os.getpid()={current_pid} on shutdown. "
+            f"Called with: {mark_dead_pids}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Review fix: T75.2 — Negative elapsed time clamping (Red Team FINDING)
+# ---------------------------------------------------------------------------
+
+
+class TestGracePeriodNegativeElapsedClamping:
+    """_get_grace_period_elapsed() must clamp negative values to force fail-closed."""
+
+    def test_future_redis_timestamp_clamped_to_expired(self) -> None:
+        """A future timestamp in Redis (clock skew or key injection) must NOT
+        extend the grace period indefinitely.
+
+        When started_at > now, elapsed = now - started_at < 0.
+        The function must return _REDIS_GRACE_PERIOD_SECONDS + 1.0 (force fail-closed).
+        """
+        import time
+
+        from synth_engine.bootstrapper.dependencies.rate_limit_middleware import (
+            _REDIS_GRACE_PERIOD_SECONDS,
+            RateLimitGateMiddleware,
+        )
+
+        # Future timestamp: 60s in the future
+        future_ts = time.time() + 60.0
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = str(future_ts).encode()
+
+        middleware = RateLimitGateMiddleware.__new__(RateLimitGateMiddleware)
+        middleware._redis = mock_redis
+        middleware._redis_first_failure_time = None
+
+        now = time.time()
+        elapsed = middleware._get_grace_period_elapsed(now)
+
+        # With future timestamp, naive elapsed = now - future_ts < 0
+        # The clamped result must be > _REDIS_GRACE_PERIOD_SECONDS (force fail-closed)
+        assert elapsed > _REDIS_GRACE_PERIOD_SECONDS, (
+            f"Future Redis timestamp must produce elapsed > grace period "
+            f"({_REDIS_GRACE_PERIOD_SECONDS}s) to force fail-closed. "
+            f"Got elapsed={elapsed:.3f}s. "
+            "A negative elapsed value would hold the limiter fail-open indefinitely."
+        )
+
+    def test_future_process_local_timestamp_also_clamped(self) -> None:
+        """If the process-local _redis_first_failure_time is somehow set to a future
+        value (should not occur, but defensive), the result must also be clamped.
+        """
+        import time
+
+        from synth_engine.bootstrapper.dependencies.rate_limit_middleware import (
+            RateLimitGateMiddleware,
+        )
+
+        future_ts = time.time() + 30.0
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = None  # No Redis grace key
+
+        middleware = RateLimitGateMiddleware.__new__(RateLimitGateMiddleware)
+        middleware._redis = mock_redis
+        middleware._redis_first_failure_time = future_ts  # Future process-local time
+
+        now = time.time()
+        elapsed = middleware._get_grace_period_elapsed(now)
+
+        # Result must not be negative — either clamped to 0 or to > grace period
+        assert elapsed >= 0.0, (
+            f"_get_grace_period_elapsed() must never return negative elapsed. "
+            f"Got: {elapsed:.3f}s with future process-local timestamp."
+        )
+
+    def test_past_redis_timestamp_returns_positive_elapsed(self) -> None:
+        """Normal case: a past timestamp returns a positive elapsed value unchanged."""
+        import time
+
+        from synth_engine.bootstrapper.dependencies.rate_limit_middleware import (
+            RateLimitGateMiddleware,
+        )
+
+        # Timestamp 3s in the past
+        past_ts = time.time() - 3.0
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = str(past_ts).encode()
+
+        middleware = RateLimitGateMiddleware.__new__(RateLimitGateMiddleware)
+        middleware._redis = mock_redis
+        middleware._redis_first_failure_time = None
+
+        now = time.time()
+        elapsed = middleware._get_grace_period_elapsed(now)
+
+        # Normal past timestamp: elapsed should be approximately 3s
+        assert elapsed >= 2.5, f"Past timestamp should yield elapsed ~3s, got {elapsed:.3f}s."
+        assert elapsed < 10.0, (
+            f"Past timestamp should yield elapsed ~3s, got {elapsed:.3f}s (too large)."
+        )
+
+    def test_negative_elapsed_warning_emitted(self) -> None:
+        """When a future timestamp is detected, a WARNING must be logged."""
+        import time
+
+        from synth_engine.bootstrapper.dependencies.rate_limit_middleware import (
+            RateLimitGateMiddleware,
+        )
+
+        future_ts = time.time() + 60.0
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = str(future_ts).encode()
+
+        middleware = RateLimitGateMiddleware.__new__(RateLimitGateMiddleware)
+        middleware._redis = mock_redis
+        middleware._redis_first_failure_time = None
+
+        now = time.time()
+        with patch(
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware._logger"
+        ) as mock_logger:
+            middleware._get_grace_period_elapsed(now)
+
+        warning_calls = [c for c in mock_logger.method_calls if "warning" in str(c[0]).lower()]
+        assert len(warning_calls) >= 1, (
+            "A WARNING must be logged when started_at is in the future. "
+            f"Logger calls: {mock_logger.method_calls}"
+        )

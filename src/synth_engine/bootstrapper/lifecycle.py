@@ -11,10 +11,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from prometheus_client.multiprocess import mark_process_dead as mark_process_dead
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -68,6 +70,14 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
             close_redis_client()
         except (OSError, RedisError):
             _logger.warning("close_redis_client() failed during shutdown.", exc_info=True)
+        # T75.3 (review fix): In multiprocess mode, signal prometheus_client to
+        # remove .db files for this worker so stale data is not aggregated by
+        # surviving workers after this process exits cleanly.
+        if os.environ.get("PROMETHEUS_MULTIPROC_DIR", "").strip():
+            try:
+                mark_process_dead(os.getpid())  # type: ignore[no-untyped-call]  # prometheus_client has no py.typed
+            except (OSError, ValueError):
+                _logger.warning("mark_process_dead() failed during shutdown.", exc_info=True)
         _logger.info("Shutdown cleanup complete.")
 
 

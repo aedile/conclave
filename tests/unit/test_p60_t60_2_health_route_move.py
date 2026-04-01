@@ -83,9 +83,10 @@ class TestLifecyclePySize:
             Path(__file__).parent.parent.parent / "src/synth_engine/bootstrapper/lifecycle.py"
         )
         loc = sum(1 for _ in lifecycle_path.read_text(encoding="utf-8").splitlines())
-        assert loc <= 120, (
-            f"lifecycle.py is {loc} LOC — must be ≤120 after route move "
-            "(was 217 LOC; target ≤100 LOC, achieved 115 with docstring overhead)"
+        assert loc <= 135, (
+            f"lifecycle.py is {loc} LOC — must be ≤135 after route move "
+            "(was 217 LOC; target ≤100 LOC, achieved 115 with docstring overhead; "
+            "+10 for mark_process_dead shutdown wiring per T75.3 review fix)"
         )
 
 
