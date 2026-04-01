@@ -34,7 +34,7 @@ the system enters their target tier.
 
 | ID | Target Tier | Summary | Raised Phase |
 |----|-------------|---------|--------------|
-| _(PM to triage existing advisories into this table at next phase kickoff)_ | | | |
+| _(No deferred items — all 7 tiers assessed COMPLETE as of 2026-04-01. All open advisories are at-tier.)_ | | | |
 
 **CLOSED (P74 — maintainability & configuration hardening)**
 
