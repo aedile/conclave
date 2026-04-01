@@ -22,16 +22,6 @@ Authorization (T39.2):
 
 All 404 and error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
-
-Task: P5-T5.1 — Task Orchestration API Core
-Task: P22-T22.1 — Job Schema DP Parameters
-Task: P23-T23.4 — Cryptographic Erasure Endpoint
-Task: P26-T26.1 — Split Oversized Files (Refactor Only)
-Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
-Task: T62.1 — Wrap Database Commits in Exception Handlers
-Task: T70.8 — Audit-before-mutation ordering standardisation
-Task: T70.9 — AUDIT_WRITE_FAILURE_TOTAL Prometheus counter
-Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 """
 
 from __future__ import annotations
@@ -80,6 +70,182 @@ _SHRED_ELIGIBLE_STATUS: str = "COMPLETE"
 _SHREDDED_STATUS: str = "SHREDDED"
 
 # T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter from shared/observability.py.
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _persist_new_job(session: Session, job: SynthesisJob, operator: str) -> JSONResponse | None:
+    """Commit the new job row; return a 409 or 500 response on DB error.
+
+    Args:
+        session: Open SQLModel Session with ``job`` already added.
+        job: The SynthesisJob to persist.
+        operator: Authenticated operator sub claim (for logging).
+
+    Returns:
+        None on success; a 409/500 JSONResponse on DB error.
+    """
+    try:
+        session.commit()
+        session.refresh(job)
+        return None
+    except IntegrityError:
+        session.rollback()
+        _logger.warning("create_job: IntegrityError for operator=%s", operator, exc_info=True)
+        return JSONResponse(
+            status_code=409,
+            content={
+                "type": "about:blank",
+                "title": "Conflict",
+                "status": 409,
+                "detail": "A resource with these properties already exists.",
+            },
+        )
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning("create_job: SQLAlchemyError for operator=%s", operator, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
+
+
+def _write_shred_audit(
+    audit: object, operator: str, job_id: int, table_name: str
+) -> JSONResponse | None:
+    """Write the pre-shred ARTIFACT_SHREDDED audit event (T70.8).
+
+    Returns a 500 JSONResponse if the audit write fails, or None on success.
+    No artifact deletion occurs if this returns a non-None response.
+
+    Args:
+        audit: The AuditLogger instance.
+        operator: The authenticated operator ID.
+        job_id: The job's integer PK.
+        table_name: The job's table name (for audit details).
+
+    Returns:
+        500 JSONResponse on audit failure; None on success.
+    """
+    try:
+        audit.log_event(  # type: ignore[attr-defined]
+            event_type="ARTIFACT_SHREDDED",
+            actor=operator,
+            resource=f"synthesis_job/{job_id}",
+            action="shred",
+            details={"job_id": str(job_id), "table_name": table_name},
+        )
+        return None
+    except (ValueError, OSError):
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="jobs", endpoint="/jobs/{job_id}/shred").inc()
+        _logger.exception(
+            "Job %d: WORM audit log failed before artifact shredding — aborting (T70.8)", job_id
+        )
+        return JSONResponse(
+            status_code=500,
+            content=problem_detail(
+                status=500,
+                title="Internal Server Error",
+                detail="Audit write failed. Artifact shred was NOT performed.",
+            ),
+        )
+
+
+def _shred_and_compensate(
+    audit: object, operator: str, job_id: int, job: SynthesisJob
+) -> JSONResponse | None:
+    """Run shred_artifacts(); emit a compensating event on OSError (T70.8).
+
+    Returns a 500 JSONResponse on OSError, or None on success.
+
+    Args:
+        audit: The AuditLogger instance (for the compensating event).
+        operator: The authenticated operator ID.
+        job_id: The job's integer PK.
+        job: The SynthesisJob ORM object.
+
+    Returns:
+        500 JSONResponse on OSError; None on success.
+    """
+    try:
+        shred_artifacts(job)
+        return None
+    except OSError as exc:
+        _logger.error("Job %d: artifact erasure failed: %s", job_id, exc.__class__.__name__)
+        try:
+            audit.log_event(  # type: ignore[attr-defined]
+                event_type="ARTIFACT_SHRED_FAILED",
+                actor=operator,
+                resource=f"synthesis_job/{job_id}",
+                action="shred",
+                details={"job_id": str(job_id), "error": exc.__class__.__name__},
+            )
+        except (ValueError, OSError):
+            _logger.exception(
+                "Job %d: compensating audit event ARTIFACT_SHRED_FAILED also failed", job_id
+            )
+        return JSONResponse(
+            status_code=500,
+            content=problem_detail(
+                status=500,
+                title="Internal Server Error",
+                detail="Artifact erasure failed due to an I/O error — see server logs.",
+            ),
+        )
+
+
+def _commit_shredded_status(session: Session, job: SynthesisJob, job_id: int) -> JSONResponse:
+    """Persist SHREDDED status, commit, and return the 200 or 500 response (T62.1).
+
+    Commits BEFORE returning 200 to avoid confirming a shred that was never
+    recorded in the database (T62.1 critical fix).
+
+    Args:
+        session: The active database session.
+        job: The SynthesisJob ORM object.
+        job_id: The job's integer PK (for logging).
+
+    Returns:
+        200 JSONResponse on commit success; 500 on SQLAlchemyError.
+    """
+    job.status = _SHREDDED_STATUS
+    session.add(job)
+    try:
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "shred_job: SQLAlchemyError persisting SHREDDED status for job_id=%d",
+            job_id,
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
+    _logger.info("Job %d: artifacts shredded, status set to SHREDDED.", job_id)
+    return JSONResponse(
+        status_code=200,
+        content={"status": _SHREDDED_STATUS, "job_id": job_id},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 
 @router.get(
@@ -149,9 +315,8 @@ def create_job(
 ) -> JobResponse | JSONResponse:
     """Create a new synthesis job in QUEUED status.
 
-    The job is persisted to the database but NOT yet enqueued.  Call
-    ``POST /jobs/{id}/start`` to enqueue and begin training.  The
-    ``owner_id`` is set from the authenticated operator's JWT sub claim.
+    The job is persisted but NOT enqueued.  Call ``POST /jobs/{id}/start`` to
+    begin training.  ``owner_id`` is set from the operator's JWT sub claim.
 
     Args:
         body: Job creation request payload.
@@ -159,8 +324,7 @@ def create_job(
         current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
-        The newly created :class:`JobResponse`, RFC 7807 409 on constraint
-        violation, or RFC 7807 500 on other database errors.
+        The newly created :class:`JobResponse`, RFC 7807 409/500 on DB error.
     """
     job = SynthesisJob(
         table_name=body.table_name,
@@ -174,37 +338,9 @@ def create_job(
         owner_id=current_operator,
     )
     session.add(job)
-    try:
-        session.commit()
-        session.refresh(job)
-    except IntegrityError:
-        session.rollback()
-        _logger.warning(
-            "create_job: IntegrityError for operator=%s", current_operator, exc_info=True
-        )
-        return JSONResponse(
-            status_code=409,
-            content={
-                "type": "about:blank",
-                "title": "Conflict",
-                "status": 409,
-                "detail": "A resource with these properties already exists.",
-            },
-        )
-    except SQLAlchemyError:
-        session.rollback()
-        _logger.warning(
-            "create_job: SQLAlchemyError for operator=%s", current_operator, exc_info=True
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "type": "about:blank",
-                "title": "Internal Server Error",
-                "status": 500,
-                "detail": "Database operation failed. Please retry.",
-            },
-        )
+    err = _persist_new_job(session, job, current_operator)
+    if err is not None:
+        return err
     return JobResponse.model_validate(job)
 
 
@@ -322,27 +458,12 @@ def shred_job(
 ) -> JSONResponse:
     """Shred all synthesis artifacts for a COMPLETE job (NIST SP 800-88).
 
-    Deletes the generated Parquet output, its HMAC-SHA256 signature sidecar,
-    and the trained model artifact pickle from the filesystem.  Emits a WORM
-    audit event BEFORE artifact deletion (T70.8 — audit-before-mutation
-    standardisation).  Transitions the job status to ``SHREDDED``.
+    Deletes Parquet output, HMAC sidecar, and model pickle.  Only COMPLETE
+    jobs owned by the authenticated operator are eligible.  Returns 404 for
+    any non-eligible job (IDOR protection).
 
-    Only jobs in ``COMPLETE`` status **owned by the authenticated operator**
-    are eligible.  Jobs in any other status, owned by a different operator,
-    or already-``SHREDDED`` jobs return 404 Problem Detail response.
-
-    Audit ordering (T70.8):
-        1. Ownership & eligibility check.
-        2. Audit write (ARTIFACT_SHREDDED intent) — returns 500 on failure;
-           no mutation proceeds without a successful audit trail.
-        3. ``shred_artifacts()`` — if this raises after a successful audit,
-           a compensating ``ARTIFACT_SHRED_FAILED`` event is emitted and
-           500 is returned.
-        4. Status update (SHREDDED) + database commit.
-
-    CRITICAL (T62.1): The 200 SHREDDED response is only returned AFTER the
-    ``session.commit()`` succeeds.  If the commit fails, the operator receives
-    500 instead of a false confirmation.
+    Audit ordering (T70.8): audit event written BEFORE artifact deletion;
+    compensating event on shred failure.  Commit BEFORE 200 (T62.1).
 
     Args:
         job_id: The integer primary key of the job to shred.
@@ -350,117 +471,29 @@ def shred_job(
         current_operator: JWT sub claim of the authenticated operator.
 
     Returns:
-        ``{"status": "SHREDDED", "job_id": <id>}`` with HTTP 200 on success,
-        RFC 7807 404 if the job does not exist, is not eligible, or ownership
-        mismatch, RFC 7807 500 if audit write fails (no shred performed),
-        RFC 7807 500 if an ``OSError`` prevents artifact deletion,
-        or RFC 7807 500 if the database commit fails.
+        200 on success; 404 if ineligible; 500 on audit/shred/commit failure.
     """
     job = session.get(SynthesisJob, job_id)
-
     if job is None or job.owner_id != current_operator or job.status != _SHRED_ELIGIBLE_STATUS:
-        detail = (
-            f"SynthesisJob with id={job_id} not found or not eligible for shredding. "
-            f"Only jobs with status=COMPLETE may be shredded."
-        )
         return JSONResponse(
             status_code=404,
             content=problem_detail(
                 status=404,
                 title="Not Found",
-                detail=detail,
+                detail=(
+                    f"SynthesisJob with id={job_id} not found or not eligible for shredding. "
+                    f"Only jobs with status=COMPLETE may be shredded."
+                ),
             ),
         )
 
-    # T70.8: Emit audit event BEFORE artifact deletion.
-    # If the audit write fails (any exception), return 500 and do NOT shred.
-    # This ensures no destructive operation proceeds without a successful audit trail.
-    try:
-        audit = get_audit_logger()
-        audit.log_event(
-            event_type="ARTIFACT_SHREDDED",
-            actor=current_operator,
-            resource=f"synthesis_job/{job_id}",
-            action="shred",
-            details={
-                "job_id": str(job_id),
-                "table_name": job.table_name,
-            },
-        )
-    except (ValueError, OSError):
-        AUDIT_WRITE_FAILURE_TOTAL.labels(router="jobs", endpoint="/jobs/{job_id}/shred").inc()
-        _logger.exception(
-            "Job %d: WORM audit log failed before artifact shredding — aborting (T70.8)", job_id
-        )
-        return JSONResponse(
-            status_code=500,
-            content=problem_detail(
-                status=500,
-                title="Internal Server Error",
-                detail="Audit write failed. Artifact shred was NOT performed.",
-            ),
-        )
+    audit = get_audit_logger()
+    audit_err = _write_shred_audit(audit, current_operator, job_id, job.table_name)
+    if audit_err is not None:
+        return audit_err
 
-    # Delegate physical file deletion to the domain function.
-    # This follows the pattern from T22.4: routers delegate to domain services.
-    # T70.8: If shred fails AFTER successful audit, emit a compensating event.
-    try:
-        shred_artifacts(job)
-    except OSError as exc:
-        # Log with basename only — never full path (security mandate T23.1/T23.2).
-        _logger.error("Job %d: artifact erasure failed: %s", job_id, exc.__class__.__name__)
-        # Emit compensating audit event so the audit chain reflects the failure.
-        try:
-            audit.log_event(
-                event_type="ARTIFACT_SHRED_FAILED",
-                actor=current_operator,
-                resource=f"synthesis_job/{job_id}",
-                action="shred",
-                details={
-                    "job_id": str(job_id),
-                    "error": exc.__class__.__name__,
-                },
-            )
-        except (ValueError, OSError):
-            _logger.exception(
-                "Job %d: compensating audit event ARTIFACT_SHRED_FAILED also failed", job_id
-            )
-        return JSONResponse(
-            status_code=500,
-            content=problem_detail(
-                status=500,
-                title="Internal Server Error",
-                detail="Artifact erasure failed due to an I/O error — see server logs.",
-            ),
-        )
+    shred_err = _shred_and_compensate(audit, current_operator, job_id, job)
+    if shred_err is not None:
+        return shred_err
 
-    job.status = _SHREDDED_STATUS
-    session.add(job)
-
-    # T62.1 CRITICAL FIX: commit BEFORE returning 200 SHREDDED.
-    # The old code returned 200 before the commit — if commit failed, the operator
-    # received a confirmed shred that was never recorded in the database.
-    try:
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        _logger.warning(
-            "shred_job: SQLAlchemyError persisting SHREDDED status for job_id=%d",
-            job_id,
-            exc_info=True,
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "type": "about:blank",
-                "title": "Internal Server Error",
-                "status": 500,
-                "detail": "Database operation failed. Please retry.",
-            },
-        )
-
-    _logger.info("Job %d: artifacts shredded, status set to SHREDDED.", job_id)
-    return JSONResponse(
-        status_code=200,
-        content={"status": _SHREDDED_STATUS, "job_id": job_id},
-    )
+    return _commit_shredded_status(session, job, job_id)

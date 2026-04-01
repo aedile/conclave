@@ -1,4 +1,4 @@
-"""FastAPI router for webhook registration CRUD endpoints — T45.3.
+"""FastAPI router for webhook registration CRUD endpoints.
 
 Implements:
 - POST /webhooks/ — register a new webhook callback.
@@ -25,13 +25,6 @@ Boundary constraints (import-linter enforced):
 
 CONSTITUTION Priority 0: Security — SSRF, IDOR, key write-only, safe logging
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
-Task: T45.3 — Implement Webhook Callbacks for Task Completion
-Task: P45 review — F2 (safe URL logging), F4 (import shared/ssrf), F11 (dead code)
-Task: T55.4 — SSRF registration fail-closed on DNS failure
-Task: T59.3 — OpenAPI Documentation Enrichment
-Task: T62.1 — Wrap Database Commits in Exception Handlers
-Task: T71.1 — Add audit events to unaudited destructive endpoints
-Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 """
 
 from __future__ import annotations
@@ -77,9 +70,6 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 def _safe_url_for_log(url: str) -> str:
     """Strip query string and fragment from ``url`` before logging.
 
-    Prevents accidental exposure of embedded auth tokens (e.g. ``?token=…``)
-    in log output.
-
     Args:
         url: Raw callback URL from the request body.
 
@@ -107,6 +97,130 @@ def _count_active_registrations(session: Session, owner_id: str) -> int:
     return len(results)
 
 
+def _check_registration_preconditions(
+    callback_url: str,
+    session: Session,
+    operator: str,
+) -> JSONResponse | None:
+    """Check HTTPS, SSRF, and registration limit before persisting.
+
+    Returns a JSONResponse (400 or 409) if any check fails, else None.
+
+    Args:
+        callback_url: The proposed callback URL.
+        session: Database session for registration count query.
+        operator: Authenticated operator sub claim.
+
+    Returns:
+        JSONResponse with an RFC 7807 body on failure; None on success.
+    """
+    settings = get_settings()
+    if settings.is_production() and callback_url.startswith("http://"):
+        return JSONResponse(
+            status_code=400,
+            content=problem_detail(
+                status=400,
+                title="Invalid Callback URL",
+                detail=(
+                    "Only HTTPS callback URLs are accepted in production mode. "
+                    "Provide an https:// URL."
+                ),
+            ),
+        )
+    try:
+        validate_callback_url(callback_url, strict=True)
+    except ValueError as exc:
+        _logger.warning("SSRF validation rejected callback URL for operator %s: %s", operator, exc)
+        return JSONResponse(
+            status_code=400,
+            content=problem_detail(
+                status=400,
+                title="Invalid Callback URL",
+                detail=(
+                    "The callback URL resolves to a private or reserved address "
+                    "and cannot be registered."
+                ),
+            ),
+        )
+    max_reg = settings.webhook_max_registrations
+    if _count_active_registrations(session, operator) >= max_reg:
+        return JSONResponse(
+            status_code=409,
+            content=problem_detail(
+                status=409,
+                title="Registration Limit Exceeded",
+                detail=(
+                    f"Maximum {max_reg} active webhook registrations per operator. "
+                    "Deactivate an existing registration first."
+                ),
+            ),
+        )
+    return None
+
+
+def _pin_ips_for_url(callback_url: str, operator: str) -> tuple[str | None, JSONResponse | None]:
+    """Resolve and pin IPs for ``callback_url`` at registration time.
+
+    Args:
+        callback_url: The callback URL to resolve.
+        operator: Authenticated operator sub claim (for logging).
+
+    Returns:
+        ``(pinned_json, None)`` on success;
+        ``(None, error_response)`` if DNS resolution fails.
+    """
+    hostname = urlparse(callback_url).hostname or ""
+    try:
+        pinned = resolve_and_pin_ips(hostname)
+        return json.dumps(pinned), None
+    except ValueError as pin_exc:
+        _logger.warning("DNS pinning failed for callback URL (operator=%s): %s", operator, pin_exc)
+        return None, JSONResponse(
+            status_code=400,
+            content=problem_detail(
+                status=400,
+                title="Invalid Callback URL",
+                detail=(
+                    "The callback URL hostname could not be resolved or resolves to "
+                    "a private address. DNS pinning failed at registration time."
+                ),
+            ),
+        )
+
+
+def _commit_registration(
+    session: Session, reg: WebhookRegistration, operator: str
+) -> JSONResponse | None:
+    """Commit the webhook registration row; return a 500 response on DB error.
+
+    Args:
+        session: Open SQLModel Session with ``reg`` already added.
+        reg: The WebhookRegistration to persist.
+        operator: Authenticated operator sub claim (for logging).
+
+    Returns:
+        None on success; a 500 JSONResponse on SQLAlchemyError.
+    """
+    try:
+        session.commit()
+        session.refresh(reg)
+        return None
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "register_webhook: SQLAlchemyError for operator=%s", operator, exc_info=True
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -130,101 +244,23 @@ def register_webhook(
     """Register a new webhook callback URL.
 
     Validates the callback URL for SSRF risk before persisting.  In
-    production mode, only ``https://`` URLs are accepted.  The ``signing_key``
-    is stored but never returned in any response.
-
-    DNS failures during SSRF validation cause registration to be rejected
-    (strict / fail-closed mode) to prevent DNS-pinning attacks.
+    production mode, only ``https://`` URLs are accepted.
 
     Args:
-        body: Registration request with ``callback_url``, ``signing_key``,
-            and ``events``.
+        body: Registration request with ``callback_url``, ``signing_key``, and ``events``.
         session: Database session (injected by FastAPI DI).
         current_operator: Authenticated operator sub claim (injected).
 
     Returns:
-        :class:`WebhookRegistrationResponse` on success, RFC 7807
-        400/409 on validation failure, or RFC 7807 500 on database error.
+        :class:`WebhookRegistrationResponse` on success, RFC 7807 400/409/500 on failure.
     """
-    settings = get_settings()
+    err = _check_registration_preconditions(body.callback_url, session, current_operator)
+    if err is not None:
+        return err
 
-    # Production HTTPS-only enforcement
-    if settings.is_production() and body.callback_url.startswith("http://"):
-        return JSONResponse(
-            status_code=400,
-            content=problem_detail(
-                status=400,
-                title="Invalid Callback URL",
-                detail=(
-                    "Only HTTPS callback URLs are accepted in production mode. "
-                    "Provide an https:// URL."
-                ),
-            ),
-        )
-
-    # SSRF validation — strict=True (fail-closed): DNS failures reject the URL.
-    # Log only the sanitized URL (no query string) to avoid token leakage.
-    try:
-        validate_callback_url(body.callback_url, strict=True)
-        # strict=True: DNS failures reject registration (fail-closed, T55.4)
-    except ValueError as exc:
-        _logger.warning(
-            "SSRF validation rejected callback URL for operator %s: %s",
-            current_operator,
-            exc,
-        )
-        return JSONResponse(
-            status_code=400,
-            content=problem_detail(
-                status=400,
-                title="Invalid Callback URL",
-                detail=(
-                    "The callback URL resolves to a private or reserved address "
-                    "and cannot be registered."
-                ),
-            ),
-        )
-
-    # Registration limit check
-    max_registrations = settings.webhook_max_registrations
-    current_count = _count_active_registrations(session, current_operator)
-    if current_count >= max_registrations:
-        return JSONResponse(
-            status_code=409,
-            content=problem_detail(
-                status=409,
-                title="Registration Limit Exceeded",
-                detail=(
-                    f"Maximum {max_registrations} active webhook registrations "
-                    "per operator. Deactivate an existing registration first."
-                ),
-            ),
-        )
-
-    # Pin resolved IPs at registration time (T69.1 — DNS pinning SSRF protection).
-    # If pinning fails (DNS changed between validate_callback_url and resolve_and_pin_ips),
-    # registration is rejected.  This is intentionally fail-closed.
-    _hostname = urlparse(body.callback_url).hostname or ""
-    try:
-        _pinned = resolve_and_pin_ips(_hostname)
-        _pinned_json: str | None = json.dumps(_pinned)
-    except ValueError as pin_exc:
-        _logger.warning(
-            "DNS pinning failed for callback URL (operator=%s): %s",
-            current_operator,
-            pin_exc,
-        )
-        return JSONResponse(
-            status_code=400,
-            content=problem_detail(
-                status=400,
-                title="Invalid Callback URL",
-                detail=(
-                    "The callback URL hostname could not be resolved or resolves to "
-                    "a private address. DNS pinning failed at registration time."
-                ),
-            ),
-        )
+    pinned_json, pin_err = _pin_ips_for_url(body.callback_url, current_operator)
+    if pin_err is not None:
+        return pin_err
 
     reg = WebhookRegistration(
         owner_id=current_operator,
@@ -232,26 +268,12 @@ def register_webhook(
         signing_key=body.signing_key,
         events=json.dumps(body.events),
         active=True,
-        pinned_ips=_pinned_json,
+        pinned_ips=pinned_json,
     )
     session.add(reg)
-    try:
-        session.commit()
-        session.refresh(reg)
-    except SQLAlchemyError:
-        session.rollback()
-        _logger.warning(
-            "register_webhook: SQLAlchemyError for operator=%s", current_operator, exc_info=True
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "type": "about:blank",
-                "title": "Internal Server Error",
-                "status": 500,
-                "detail": "Database operation failed. Please retry.",
-            },
-        )
+    db_err = _commit_registration(session, reg, current_operator)
+    if db_err is not None:
+        return db_err
 
     _logger.info(
         "Webhook registered: id=%s owner=%s url=%s",
@@ -275,8 +297,8 @@ def list_webhooks(
 ) -> WebhookRegistrationListResponse:
     """List all webhook registrations owned by the authenticated operator.
 
-    Returns both active and inactive registrations so operators can see
-    their history.  The ``signing_key`` is never included in responses.
+    Returns both active and inactive registrations.  The ``signing_key`` is
+    never included in responses.
 
     Args:
         session: Database session (injected by FastAPI DI).
@@ -296,6 +318,69 @@ def list_webhooks(
     )
 
 
+def _audit_and_soft_delete_webhook(
+    session: Session,
+    reg: WebhookRegistration,
+    webhook_id: str,
+    operator: str,
+) -> Response | JSONResponse | None:
+    """Emit audit event then soft-delete the registration row.
+
+    Audit-before-commit: if the audit write fails, return 500 without DB change.
+
+    Args:
+        session: Open SQLModel Session.
+        reg: The registration to deactivate.
+        webhook_id: Registration UUID (for audit and logging).
+        operator: Authenticated operator sub claim.
+
+    Returns:
+        None on success (caller returns 204); a JSONResponse on audit or DB error.
+    """
+    try:
+        get_audit_logger().log_event(
+            event_type="WEBHOOK_DEACTIVATED",
+            actor=operator,
+            resource=f"webhook/{webhook_id}",
+            action="deactivate",
+            details={"webhook_id": webhook_id},
+        )
+    except (ValueError, OSError):
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="webhooks", endpoint="/webhooks/{id}").inc()
+        _logger.exception("Audit logging failed for deactivate_webhook id=%s; aborting", webhook_id)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Webhook was NOT deactivated.",
+            },
+        )
+    reg.active = False
+    session.add(reg)
+    try:
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "deactivate_webhook: SQLAlchemyError for webhook_id=%s operator=%s",
+            webhook_id,
+            operator,
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
+    return None
+
+
 @router.delete(
     "/{webhook_id}",
     summary="Delete a webhook",
@@ -310,9 +395,7 @@ def deactivate_webhook(
 ) -> Response:
     """Deactivate a webhook registration by ID.
 
-    Sets ``active=False`` on the registration so no further deliveries
-    are attempted.  Returns 404 for any ID not owned by the caller
-    (prevents enumeration — no 403 is returned for cross-tenant IDs).
+    Returns 404 for any ID not owned by the caller (IDOR protection, no 403).
 
     Args:
         webhook_id: UUID string primary key of the registration to deactivate.
@@ -320,16 +403,13 @@ def deactivate_webhook(
         current_operator: Authenticated operator sub claim (injected).
 
     Returns:
-        HTTP 204 No Content on success, RFC 7807 404 if not found, or
-        RFC 7807 500 on database error.
+        HTTP 204 No Content on success, RFC 7807 404 if not found, or 500 on error.
     """
-    # Ownership-scoped lookup (IDOR protection: no 403, only 404)
     stmt = select(WebhookRegistration).where(
         WebhookRegistration.id == webhook_id,
         WebhookRegistration.owner_id == current_operator,
     )
     reg = session.exec(stmt).first()
-
     if reg is None:
         import json as _json
 
@@ -344,61 +424,10 @@ def deactivate_webhook(
             ),
             media_type="application/problem+json",
         )
-
-    # T71.1: Emit audit event BEFORE the database soft-delete.
-    # If the audit write fails, return 500 and do NOT deactivate.
-    try:
-        get_audit_logger().log_event(
-            event_type="WEBHOOK_DEACTIVATED",
-            actor=current_operator,
-            resource=f"webhook/{webhook_id}",
-            action="deactivate",
-            details={"webhook_id": webhook_id},
-        )
-    except (ValueError, OSError):
-        AUDIT_WRITE_FAILURE_TOTAL.labels(router="webhooks", endpoint="/webhooks/{id}").inc()
-        _logger.exception(
-            "Audit logging failed for deactivate_webhook id=%s; aborting (T71.1)",
-            webhook_id,
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "type": "about:blank",
-                "title": "Internal Server Error",
-                "status": 500,
-                "detail": "Audit write failed. Webhook was NOT deactivated.",
-            },
-        )
-
-    # Audit succeeded — now perform the soft delete.
-    reg.active = False
-    session.add(reg)
-    try:
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        _logger.warning(
-            "deactivate_webhook: SQLAlchemyError for webhook_id=%s operator=%s",
-            webhook_id,
-            current_operator,
-            exc_info=True,
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "type": "about:blank",
-                "title": "Internal Server Error",
-                "status": 500,
-                "detail": "Database operation failed. Please retry.",
-            },
-        )
-
-    _logger.info(
-        "Webhook deactivated: id=%s owner=%s",
-        webhook_id,
-        current_operator,
-    )
+    err = _audit_and_soft_delete_webhook(session, reg, webhook_id, current_operator)
+    if err is not None:
+        return err
+    _logger.info("Webhook deactivated: id=%s owner=%s", webhook_id, current_operator)
     return Response(status_code=204)
 
 
@@ -420,10 +449,8 @@ def list_webhook_deliveries(
     """List delivery attempts for a webhook registration.
 
     Returns up to 100 most recent delivery attempts, ordered by creation
-    date descending.  The endpoint enforces ownership: a 404 is returned
-    for any ``webhook_id`` not owned by the authenticated operator.
-    This prevents enumeration — callers cannot distinguish "not found"
-    from "found but forbidden" (IDOR protection, T39.2 pattern).
+    date descending.  Returns 404 for any ``webhook_id`` not owned by the
+    authenticated operator (IDOR protection).
 
     Args:
         webhook_id: UUID string primary key of the parent registration.
@@ -432,11 +459,8 @@ def list_webhook_deliveries(
 
     Returns:
         :class:`WebhookDeliveryListResponse` with up to 100 delivery records,
-        or RFC 7807 404 if the registration is not found or not owned by the
-        caller.
+        or RFC 7807 404 if the registration is not found or not owned by the caller.
     """
-    # Ownership check: look up registration by (id, owner_id) — IDOR protection.
-    # Returning 404 (not 403) for cross-tenant IDs prevents resource enumeration.
     reg_stmt = select(WebhookRegistration).where(
         WebhookRegistration.id == webhook_id,
         WebhookRegistration.owner_id == current_operator,
@@ -453,7 +477,6 @@ def list_webhook_deliveries(
             media_type="application/problem+json",
         )
 
-    # Fetch delivery records for this registration (most recent first)
     delivery_stmt = (
         select(WebhookDelivery)
         .where(WebhookDelivery.registration_id == webhook_id)

@@ -30,7 +30,10 @@ def _clear_settings() -> None:
 
 def _set_production_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CONCLAVE_ENV", "production")
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+    )
     monkeypatch.setenv("AUDIT_KEY", "aa" * 32)  # pragma: allowlist secret
     monkeypatch.setenv("ARTIFACT_SIGNING_KEY", "bb" * 32)  # pragma: allowlist secret
     monkeypatch.setenv("MASKING_SALT", "cc" * 16)  # pragma: allowlist secret
@@ -76,7 +79,10 @@ class TestValidatorsInSettingsModels:
     ) -> None:
         """Production mode must still reject empty audit_key after decomposition."""
         monkeypatch.setenv("CONCLAVE_ENV", "production")
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+        )
         monkeypatch.delenv("AUDIT_KEY", raising=False)
         monkeypatch.delenv("CONCLAVE_AUDIT_KEY", raising=False)
 
@@ -113,6 +119,7 @@ class TestValidatorsInSettingsModels:
         s = ConclaveSettings()
         # Auto-detection: production mode => health_strict=True.
         assert s.conclave_health_strict is True
+        assert s.conclave_env == "production"
 
     def test_is_production_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """ConclaveSettings.is_production() must return True in production mode."""
@@ -121,6 +128,7 @@ class TestValidatorsInSettingsModels:
 
         s = ConclaveSettings()
         assert s.is_production() is True
+        assert s.conclave_env == "production"
 
     def test_get_settings_api_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """get_settings() must return a ConclaveSettings instance after decomposition."""
@@ -129,6 +137,7 @@ class TestValidatorsInSettingsModels:
 
         s = get_settings()
         assert isinstance(s, ConclaveSettings)
+        assert s.conclave_env == "development"
 
     def test_settings_models_no_circular_import(self) -> None:
         """settings_models.py must not import from settings.py after decomposition."""

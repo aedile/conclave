@@ -20,52 +20,33 @@ Locking protocol
 4. For ``spend_budget``: raise
    :exc:`~synth_engine.shared.exceptions.BudgetExhaustionError` if
    ``total_spent + amount > total_allocated``.
-   The transaction context manager rolls back automatically on exception,
-   releasing the lock.
 5. For ``spend_budget``: deduct ``amount``, write a :class:`PrivacyTransaction`
-   record, and let the transaction context manager commit — releasing the lock.
+   record, and let the transaction context manager commit.
 6. For ``reset_budget``: reset ``total_spent_epsilon`` to ``Decimal("0.0")``,
    optionally update ``total_allocated_epsilon``, and commit.
 
 The ``async with session.begin()`` pattern ensures rollback occurs automatically
-when an exception propagates out of the block.  This avoids calling
-``await session.rollback()`` explicitly, which can fail in some async drivers
-(aiosqlite on ARM64) when called outside an active greenlet context.
-
-The function must be called with a fresh :class:`sqlalchemy.ext.asyncio.AsyncSession`
-for each invocation to ensure proper concurrency semantics.  The session must
-NOT be shared across concurrent calls.
+when an exception propagates out of the block.
 
 Decimal arithmetic (ADV-050)
 -----------------------------
 The ``amount`` parameter accepts ``float`` for API ergonomics but is converted
 to :class:`decimal.Decimal` immediately on entry using ``Decimal(str(amount))``.
-This preserves decimal precision before any arithmetic against the ledger's
-``NUMERIC(20, 10)`` columns.  Callers may also pass a ``Decimal`` directly.
 Mixed-type arithmetic (``Decimal + float``) raises ``TypeError`` in Python;
 the conversion at the function boundary prevents this error.
 
 Single-operator model (T66.6)
 ------------------------------
-The privacy ledger currently assumes a single operator.  The queries in
-:func:`spend_budget` and :func:`reset_budget` do not filter by an
-``owner_id`` column — they match the ledger row by primary key only.
-See ADR-0062 for the documented assumption and the migration path required
-to support multi-tenant deployments.
+The privacy ledger currently assumes a single operator.  Queries do not filter
+by ``owner_id`` — they match the ledger row by primary key only.
+See ADR-0062 for the documented assumption and the migration path.
 
 Import boundaries:
   Must NOT import from any other module in ``modules/``, from
-  ``bootstrapper/``, or from application-layer code.  Only ``shared/`` and
-  sibling files within ``modules/privacy/`` are permitted.
+  ``bootstrapper/``, or from application-layer code.
 
 CONSTITUTION Priority 0: Security — no PII, no credential leaks
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
-Task: P4-T4.4 — Privacy Accountant
-Task: P8-T8.3 — Data Model & Architecture Cleanup (ADV-050)
-Task: P22-T22.4 — Budget Management API (reset_budget)
-Task: T47.9 — Scrub epsilon from BudgetExhaustionError message; use structured constructor
-Task: T66.5 — Wrap scalar_one() in LedgerNotFoundError; catch raw NoResultFound
-Task: T66.6 — Document single-operator ledger assumption (see ADR-0062)
 """
 
 from __future__ import annotations
@@ -85,28 +66,103 @@ _logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # T25.1 — Custom Prometheus business metric: epsilon_spent_total Counter.
-#
-# Defined at module scope (Prometheus best practice: one singleton per process).
-#
-# Label strategy and cardinality:
-#   job_id     — str(int) synthesis job identifier from the spend_budget() call site.
-#                Cardinality: one time-series per completed synthesis job.  In a
-#                deployment with O(10^3) jobs/day the label set grows ~1k series/day
-#                and should be pruned by the Prometheus retention policy (default 15d).
-#                Do NOT use a high-cardinality free-text field here.
-#   dataset_id — str(int) ledger_id; the dataset-level privacy budget identifier.
-#                Cardinality: bounded by the number of PrivacyLedger rows (typically
-#                single digits to low hundreds). This is the stable low-cardinality
-#                dimension and is safe to use as a label.
-#
-# Incremented AFTER the successful commit inside spend_budget().
-# NOT incremented on BudgetExhaustionError (the transaction never commits).
+# Cardinality note: labels are (job_id, dataset_id). Cardinality is bounded by
+# the number of synthesis jobs and ledgers, which are operator-scoped and
+# finite. One time-series per (job, ledger) pair — acceptable for production.
 # ---------------------------------------------------------------------------
 EPSILON_SPENT_TOTAL: Counter = Counter(
     "epsilon_spent_total",
     "Total epsilon budget deducted, counted per successful spend_budget() call.",
     labelnames=["job_id", "dataset_id"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Shared async helper
+# ---------------------------------------------------------------------------
+
+
+async def _fetch_ledger_or_raise(
+    session: AsyncSession, ledger_id: int, caller: str
+) -> PrivacyLedger:
+    """Fetch a PrivacyLedger row with ``SELECT ... FOR UPDATE`` or raise.
+
+    Must be called within an active ``session.begin()`` transaction block.
+
+    Args:
+        session: Open AsyncSession (inside an active transaction).
+        ledger_id: Primary key of the PrivacyLedger row.
+        caller: Caller name for the warning message (e.g. "spend_budget").
+
+    Returns:
+        The locked PrivacyLedger row.
+
+    Raises:
+        LedgerNotFoundError: If no row exists for ``ledger_id``.
+    """
+    stmt = (
+        select(PrivacyLedger)
+        .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
+        .with_for_update()
+    )
+    result = await session.execute(stmt)
+    try:
+        return result.scalar_one()
+    except NoResultFound:
+        _logger.warning(
+            "%s: ledger_id=%d not found — no PrivacyLedger row exists", caller, ledger_id
+        )
+        raise LedgerNotFoundError(ledger_id=ledger_id) from None
+
+
+async def _deduct_epsilon_in_transaction(
+    session: AsyncSession,
+    ledger: PrivacyLedger,
+    decimal_amount: Decimal,
+    ledger_id: int,
+    job_id: int,
+    note: str | None,
+) -> None:
+    """Deduct epsilon and record the transaction row (within an active transaction).
+
+    Args:
+        session: Open AsyncSession (inside an active transaction).
+        ledger: The locked PrivacyLedger row.
+        decimal_amount: Validated positive Decimal epsilon to deduct.
+        ledger_id: Primary key (for transaction record).
+        job_id: Synthesis job PK (for transaction record).
+        note: Optional human-readable annotation for the transaction record.
+
+    Raises:
+        BudgetExhaustionError: If ``total_spent + decimal_amount > total_allocated``.
+    """
+    if ledger.total_spent_epsilon + decimal_amount > ledger.total_allocated_epsilon:
+        _logger.warning(
+            "Budget exhausted: ledger_id=%d, requested=%s, spent=%s, allocated=%s",
+            ledger_id,
+            decimal_amount,
+            ledger.total_spent_epsilon,
+            ledger.total_allocated_epsilon,
+        )
+        raise BudgetExhaustionError(
+            requested_epsilon=decimal_amount,
+            total_spent=ledger.total_spent_epsilon,
+            total_allocated=ledger.total_allocated_epsilon,
+        )
+    ledger.total_spent_epsilon += decimal_amount
+    session.add(
+        PrivacyTransaction(
+            ledger_id=ledger_id,
+            job_id=job_id,
+            epsilon_spent=decimal_amount,
+            note=note,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 async def spend_budget(
@@ -119,115 +175,36 @@ async def spend_budget(
 ) -> None:
     """Atomically deduct epsilon from the global privacy budget.
 
-    Opens an explicit transaction via ``async with session.begin()``.  Within
-    the transaction, acquires a ``SELECT ... FOR UPDATE`` pessimistic lock on
-    the :class:`~synth_engine.modules.privacy.ledger.PrivacyLedger` row
-    identified by ``ledger_id``.  Under the lock, checks whether
-    ``total_spent + amount <= total_allocated``.
-
-    If sufficient budget exists: deducts the amount, writes a
-    :class:`~synth_engine.modules.privacy.ledger.PrivacyTransaction` record,
-    and commits — all atomically.  The lock is released on commit.
-
-    If budget is exhausted: raises
-    :exc:`~synth_engine.shared.exceptions.BudgetExhaustionError`.
-    The transaction context manager rolls back automatically, releasing the
-    lock without writing any transaction record.
-
-    Single-operator assumption (ADR-0062): the query does not filter by an
-    ``owner_id`` column — it matches the ledger row by primary key only.
-    This is intentional for the current single-operator deployment model.
+    Opens an explicit transaction, acquires ``SELECT ... FOR UPDATE`` on the
+    :class:`PrivacyLedger` row, checks budget, deducts epsilon, and writes a
+    :class:`PrivacyTransaction` record — all atomically.
 
     Args:
-        amount: The epsilon to deduct.  Must be positive.  Accepts ``float``
-            or :class:`decimal.Decimal`.  ``float`` values are converted to
-            ``Decimal`` via ``Decimal(str(amount))`` to avoid mixed-type
-            arithmetic errors against the ledger's ``NUMERIC(20, 10)`` columns.
-        job_id: Identifier of the synthesis job requesting the allocation.
-            Stored in the :class:`PrivacyTransaction` audit record.
-        ledger_id: Primary key of the :class:`PrivacyLedger` row to debit.
-        session: An open :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
-            The caller is responsible for providing a fresh session per call;
-            sharing a session across concurrent calls is not supported.
-        note: Optional human-readable annotation written to the transaction
-            record (e.g. job label, operator comment).  Defaults to ``None``.
+        amount: The epsilon to deduct.  Must be positive.
+        job_id: Synthesis job PK — stored in the PrivacyTransaction record.
+        ledger_id: Primary key of the PrivacyLedger row to debit.
+        session: Fresh AsyncSession per call (not shared across concurrency).
+        note: Optional human-readable annotation for the transaction record.
 
     Returns:
         None on success.
 
     Raises:
-        ValueError: If ``amount`` is not positive (zero or negative).
-        LedgerNotFoundError: If no :class:`PrivacyLedger` row exists for
-            ``ledger_id``.  Wraps ``sqlalchemy.exc.NoResultFound``.
+        ValueError: If ``amount`` is not positive.
+        LedgerNotFoundError: If no PrivacyLedger row exists for ``ledger_id``.
         BudgetExhaustionError: If ``total_spent + amount > total_allocated``.
-            The ledger row is left unchanged; no transaction record is written.
-
-    Example::
-
-        async with get_async_session(engine) as session:
-            await spend_budget(
-                amount=0.5,
-                job_id=42,
-                ledger_id=1,
-                session=session,
-            )
-    """
-    # Normalise to Decimal immediately to prevent mixed-type arithmetic errors
-    # when operating against NUMERIC(20, 10) ledger columns (ADV-050).
+    """  # noqa: DOC503
     decimal_amount: Decimal = amount if isinstance(amount, Decimal) else Decimal(str(amount))
-
     if decimal_amount <= 0:
         raise ValueError(f"amount must be positive, got {amount!r}")
+
     async with session.begin():
-        # Acquire pessimistic lock — blocks until previous holder commits.
-        # SQLModel class-level attribute comparison — instrumented at runtime
-        # by SQLAlchemy, not a plain Python bool despite what mypy infers.
-        # Single-operator assumption: query by primary key only (ADR-0062).
-        stmt = (
-            select(PrivacyLedger)
-            .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
-            .with_for_update()
+        ledger = await _fetch_ledger_or_raise(session, ledger_id, "spend_budget")
+        await _deduct_epsilon_in_transaction(
+            session, ledger, decimal_amount, ledger_id, job_id, note
         )
-        result = await session.execute(stmt)
-        try:
-            ledger = result.scalar_one()
-        except NoResultFound:
-            _logger.warning(
-                "spend_budget: ledger_id=%d not found — no PrivacyLedger row exists",
-                ledger_id,
-            )
-            raise LedgerNotFoundError(ledger_id=ledger_id) from None
 
-        if ledger.total_spent_epsilon + decimal_amount > ledger.total_allocated_epsilon:
-            _logger.warning(
-                "Budget exhausted: ledger_id=%d, requested=%s, spent=%s, allocated=%s",
-                ledger_id,
-                decimal_amount,
-                ledger.total_spent_epsilon,
-                ledger.total_allocated_epsilon,
-            )
-            # Raise here — session.begin() context manager auto-rolls back
-            # when BudgetExhaustionError propagates out of the block.
-            raise BudgetExhaustionError(
-                requested_epsilon=decimal_amount,
-                total_spent=ledger.total_spent_epsilon,
-                total_allocated=ledger.total_allocated_epsilon,
-            )
-
-        # Deduct epsilon and record the transaction — same DB transaction.
-        ledger.total_spent_epsilon += decimal_amount
-        transaction = PrivacyTransaction(
-            ledger_id=ledger_id,
-            job_id=job_id,
-            epsilon_spent=decimal_amount,
-            note=note,
-        )
-        session.add(transaction)
-        # session.begin() context manager commits automatically on successful exit.
-
-    # T57.4: Epsilon values logged at DEBUG, not INFO.
-    # Epsilon budget state is sensitive operational data; INFO would surface
-    # it in default log configurations and SIEM integrations.
+    # T57.4: Epsilon values logged at DEBUG (privacy-sensitive operational data).
     _logger.debug(
         "Epsilon allocated: ledger_id=%d, job_id=%d, amount=%s, total_spent=%s, remaining=%s",
         ledger_id,
@@ -236,11 +213,8 @@ async def spend_budget(
         ledger.total_spent_epsilon,
         ledger.total_allocated_epsilon - ledger.total_spent_epsilon,
     )
-    # T25.1: Increment only after a confirmed successful commit.
-    EPSILON_SPENT_TOTAL.labels(
-        job_id=str(job_id),
-        dataset_id=str(ledger_id),
-    ).inc()
+    # T25.1: Increment only after confirmed successful commit.
+    EPSILON_SPENT_TOTAL.labels(job_id=str(job_id), dataset_id=str(ledger_id)).inc()
 
 
 async def reset_budget(
@@ -251,81 +225,38 @@ async def reset_budget(
 ) -> tuple[Decimal, Decimal]:
     """Atomically reset the privacy budget spent counter.
 
-    Opens an explicit transaction via ``async with session.begin()``.  Within
-    the transaction, acquires a ``SELECT ... FOR UPDATE`` pessimistic lock on
-    the :class:`~synth_engine.modules.privacy.ledger.PrivacyLedger` row
-    identified by ``ledger_id``.
-
-    Under the lock, sets ``total_spent_epsilon`` to ``Decimal("0.0")`` and,
-    if ``new_allocated_epsilon`` is provided, updates ``total_allocated_epsilon``
-    to that value.  The lock is released on commit.
+    Opens an explicit transaction, acquires ``SELECT ... FOR UPDATE`` on the
+    :class:`PrivacyLedger` row, resets ``total_spent_epsilon`` to zero, and
+    optionally updates ``total_allocated_epsilon``.
 
     This function does NOT emit audit events — that responsibility belongs to
     the router layer.
 
-    Single-operator assumption (ADR-0062): the query does not filter by an
-    ``owner_id`` column — it matches the ledger row by primary key only.
-    This is intentional for the current single-operator deployment model.
-
     Args:
-        ledger_id: Primary key of the :class:`PrivacyLedger` row to reset.
-        session: An open :class:`~sqlalchemy.ext.asyncio.AsyncSession`.
-            The caller is responsible for providing a fresh session per call;
-            sharing a session across concurrent calls is not supported.
+        ledger_id: Primary key of the PrivacyLedger row to reset.
+        session: Fresh AsyncSession per call (not shared across concurrency).
         new_allocated_epsilon: Optional new total epsilon allocation ceiling.
-            When provided, ``total_allocated_epsilon`` is updated to this value.
             When ``None``, the existing allocation is preserved.  Must be
             positive if provided.
 
     Returns:
-        A 2-tuple ``(allocated, spent)`` reflecting the post-reset ledger
-        state, where ``spent`` is always ``Decimal("0.0")``.
+        A 2-tuple ``(allocated, spent)`` reflecting the post-reset ledger state,
+        where ``spent`` is always ``Decimal("0.0")``.
 
     Raises:
-        ValueError: If ``new_allocated_epsilon`` is provided and is not
-            strictly positive.
-        LedgerNotFoundError: If no :class:`PrivacyLedger` row exists for
-            ``ledger_id``.  Wraps ``sqlalchemy.exc.NoResultFound``.
-
-    Example::
-
-        async with get_async_session(engine) as session:
-            allocated, spent = await reset_budget(
-                ledger_id=1,
-                session=session,
-                new_allocated_epsilon=Decimal("20.0"),
-            )
-    """
+        ValueError: If ``new_allocated_epsilon`` is provided and is not positive.
+        LedgerNotFoundError: If no PrivacyLedger row exists for ``ledger_id``.
+    """  # noqa: DOC503
     if new_allocated_epsilon is not None and new_allocated_epsilon <= 0:
         raise ValueError(f"new_allocated_epsilon must be positive, got {new_allocated_epsilon!r}")
 
     async with session.begin():
-        # Acquire pessimistic lock — same pattern as spend_budget() to prevent
-        # races between concurrent refresh and spend operations.
-        # Single-operator assumption: query by primary key only (ADR-0062).
-        stmt = (
-            select(PrivacyLedger)
-            .where(PrivacyLedger.id == ledger_id)  # type: ignore[arg-type]
-            .with_for_update()
-        )
-        result = await session.execute(stmt)
-        try:
-            ledger = result.scalar_one()
-        except NoResultFound:
-            _logger.warning(
-                "reset_budget: ledger_id=%d not found — no PrivacyLedger row exists",
-                ledger_id,
-            )
-            raise LedgerNotFoundError(ledger_id=ledger_id) from None
-
-        # Apply the reset: spent always returns to zero.
+        ledger = await _fetch_ledger_or_raise(session, ledger_id, "reset_budget")
         ledger.total_spent_epsilon = Decimal("0.0")
         if new_allocated_epsilon is not None:
             ledger.total_allocated_epsilon = new_allocated_epsilon
 
-        # session.begin() context manager commits automatically on successful exit.
-
-    # T57.4: Epsilon values logged at DEBUG, not INFO (privacy budget state).
+    # T57.4: Epsilon values logged at DEBUG (privacy-sensitive operational data).
     _logger.debug(
         "Budget reset: ledger_id=%d, allocated=%s, spent reset to 0",
         ledger_id,

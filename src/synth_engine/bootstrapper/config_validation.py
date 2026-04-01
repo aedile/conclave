@@ -191,23 +191,48 @@ def _validate_operator_credentials_hash() -> None:
         )
 
 
-def _validate_mtls_cert_files(errors: list[str]) -> None:
-    """Validate that mTLS cert files exist and are readable.
+def _check_cert_path_readable(env_var: str, path_str: str, errors: list[str]) -> None:
+    """Check that a single mTLS cert path exists and is readable (ADV-P46-03).
 
-    Uses an atomic existence-plus-readability check: after verifying the path
-    exists, the function attempts to ``open()`` the file for reading.  This
-    avoids the TOCTOU race that a separate ``os.access()`` call would introduce
-    (ADV-P46-03).
-
-    Appends error messages to ``errors`` for each missing or unreadable
-    cert file.  All three cert paths are checked before returning so that
-    the operator receives a complete list of problems in one pass.
-
-    This function is a no-op when ``MTLS_ENABLED=false``.
+    Uses an atomic open() attempt to avoid TOCTOU race between existence check
+    and actual read.  Appends an error string to ``errors`` on failure.
 
     Args:
-        errors: Mutable list of error strings.  Any new errors found are
-            appended in-place.
+        env_var: The environment variable name (for error messages).
+        path_str: The configured path string.
+        errors: Mutable list; errors appended in-place.
+    """
+    if not path_str:
+        errors.append(f"{env_var} is empty — set it to the path of the mTLS certificate file")
+        return
+    path = Path(path_str)
+    if not path.exists():
+        errors.append(
+            f"{env_var}={path_str!r} does not exist — "
+            f"ensure the certificate file is present before starting with MTLS_ENABLED=true"
+        )
+        return
+    # Atomic readability check: open() catches permission errors and
+    # path-is-a-directory cases without a separate os.access() call (ADV-P46-03).
+    try:
+        with open(path, "rb"):
+            pass
+    except OSError as exc:
+        sanitized = safe_error_msg(str(exc))
+        errors.append(
+            f"{env_var}={path_str!r} exists but cannot be read — "
+            f"check file permissions and ensure the process has read access: {sanitized}"
+        )
+
+
+def _validate_mtls_cert_files(errors: list[str]) -> None:
+    """Validate mTLS cert files exist and are readable when MTLS_ENABLED=true.
+
+    No-op when ``MTLS_ENABLED=false``.  All three cert paths are checked
+    before returning so the operator receives a complete error list.
+
+    Args:
+        errors: Mutable list of error strings; appended in-place.
     """
     settings = get_settings()
     if not settings.mtls_enabled:
@@ -218,30 +243,8 @@ def _validate_mtls_cert_files(errors: list[str]) -> None:
         "MTLS_CLIENT_CERT_PATH": settings.mtls_client_cert_path,
         "MTLS_CLIENT_KEY_PATH": settings.mtls_client_key_path,
     }
-
     for env_var, path_str in cert_paths.items():
-        if not path_str:
-            errors.append(f"{env_var} is empty — set it to the path of the mTLS certificate file")
-            continue
-        path = Path(path_str)
-        if not path.exists():
-            errors.append(
-                f"{env_var}={path_str!r} does not exist — "
-                f"ensure the certificate file is present before starting with MTLS_ENABLED=true"
-            )
-            continue
-        # Atomic readability check: attempt to open the file.  This catches
-        # permission errors and path-is-a-directory cases without a separate
-        # os.access() call that would introduce a TOCTOU race (ADV-P46-03).
-        try:
-            with open(path, "rb"):
-                pass
-        except OSError as exc:
-            sanitized = safe_error_msg(str(exc))
-            errors.append(
-                f"{env_var}={path_str!r} exists but cannot be read — "
-                f"check file permissions and ensure the process has read access: {sanitized}"
-            )
+        _check_cert_path_readable(env_var, path_str, errors)
 
 
 def _warn_if_vault_sealed() -> None:
@@ -288,82 +291,19 @@ def _warn_if_development_mode() -> None:
     )
 
 
-def validate_config() -> None:
-    """Validate required environment variables at application startup.
+def _check_always_required_fields(errors: list[str]) -> None:
+    """Append errors for DATABASE_URL and AUDIT_KEY when empty in any mode.
 
-    Checks that all required environment variables are set and non-empty.
-    In production mode (``CONCLAVE_ENV=production`` — ``ENV=`` is deprecated),
-    also validates that ``ARTIFACT_SIGNING_KEY``, ``MASKING_SALT``,
-    ``JWT_SECRET_KEY``, and ``OPERATOR_CREDENTIALS_HASH`` are present and
-    correctly formed.
+    These fields are required in ALL modes.  In production mode, Pydantic
+    already caught them at settings construction time.  Here we enforce them
+    in development mode too — an empty AUDIT_KEY means all audit event HMAC
+    signatures will be computed with an empty key, which is a security
+    vulnerability in any mode.
 
-    Additionally:
-    - Emits a security warning when ``CONCLAVE_SSL_REQUIRED=false`` is detected
-      in production mode, as this disables SSL enforcement for PostgreSQL
-      connections.
-    - Calls :func:`warn_if_ssl_misconfigured` to warn when
-      ``CONCLAVE_SSL_REQUIRED=true`` but no TLS certificate path is configured
-      in the environment — indicating a potential misconfiguration where the
-      application expects TLS but no cert is wired.
-    - Validates multi-key signing consistency (T42.1): if
-      ``ARTIFACT_SIGNING_KEYS`` is non-empty, ``ARTIFACT_SIGNING_KEY_ACTIVE``
-      must be set and present as a key within the map.  This check applies in
-      all deployment modes.
-    - When ``MTLS_ENABLED=true``, validates that all three mTLS cert paths
-      (``MTLS_CA_CERT_PATH``, ``MTLS_CLIENT_CERT_PATH``, ``MTLS_CLIENT_KEY_PATH``)
-      point to existing, readable files (T46.2, ADV-P46-03).
-    - When ``MTLS_ENABLED=true`` and ``CONCLAVE_SSL_REQUIRED=false``, emits a
-      WARNING that mTLS implies SSL is required (T46.2).
-    - Validates ``JWT_SECRET_KEY`` presence in production (T47.4).
-    - Validates ``OPERATOR_CREDENTIALS_HASH`` presence and bcrypt format in
-      production (T47.5).
-    - Emits a WARNING when running in development mode (T50.3): ``CONCLAVE_ENV``
-      defaults to ``"production"``; set it to ``"development"`` to explicitly
-      opt in to dev mode.
-
-    Collects ALL missing variables and cert errors before raising so that the
-    operator receives a complete list in a single error message — not just the
-    first missing variable.
-
-    All environment variable access goes through the :func:`get_settings`
-    singleton rather than ``os.environ`` directly, ensuring a single source
-    of truth consistent with the T36.1 centralization goal (ADV-P36-01).
-
-    Returns:
-        ``None`` when all required variables are present and consistent.
-
-    Raises:
-        SystemExit: If any required environment variable is missing or if the
-            multi-key signing configuration is inconsistent, or if any mTLS
-            cert file is missing when MTLS_ENABLED=true.  The exit message
-            lists every error.
-
-    Example::
-
-        # Call at application startup before any other initialisation:
-        from synth_engine.bootstrapper.config_validation import validate_config
-        validate_config()
+    Args:
+        errors: Mutable list; errors are appended in-place.
     """
-    try:
-        settings = get_settings()
-    except (ValidationError, ValueError) as exc:
-        # T63.1: ConclaveSettings now validates all required fields at construction
-        # time via @model_validator.  A Pydantic ValidationError or ValueError here
-        # means a required field is missing or misconfigured.  Convert to SystemExit
-        # with a clear, operator-readable message.
-        raise SystemExit(
-            f"Startup configuration error: the following required environment "
-            f"variable(s) are not set or are misconfigured: {exc}. "
-            f"Set them before starting the Conclave Engine."
-        ) from exc
-
-    errors: list[str] = []
-
-    # Always-required fields: DATABASE_URL and AUDIT_KEY must be non-empty in ALL modes.
-    # In production mode, Pydantic already caught these at settings construction time.
-    # Here we enforce them in development mode too — an empty AUDIT_KEY means all
-    # audit event HMAC signatures will be computed with an empty key, which is a
-    # security vulnerability in any mode.
+    settings = get_settings()
     if not settings.database_url or not settings.database_url.strip():
         errors.append(
             "DATABASE_URL is not set or is empty — "
@@ -376,47 +316,22 @@ def validate_config() -> None:
             "set it to a hex-encoded 32-byte HMAC key for audit event signing"
         )
 
-    # T42.1: multi-key signing consistency validation has moved to the Pydantic
-    # model_validator ConclaveSettings._validate_multi_key_signing_consistency()
-    # in shared/settings.py.  It runs at settings construction time (above, inside
-    # the try/except block) and raises ValueError on misconfiguration, which is
-    # caught and converted to SystemExit.  The duplicate check that previously
-    # lived here was unreachable because get_settings() always raises before
-    # returning an inconsistent settings object.  Arch review finding, Phase 63
-    # (T63.1 AC3).
 
-    # T46.2 / ADV-P46-03: validate mTLS cert files exist and are readable.
-    # File-system existence checks cannot be done in Pydantic validators (they would
-    # run at import time in some test setups) — kept as startup warnings here.
-    _validate_mtls_cert_files(errors)
+def _check_production_security_settings() -> None:
+    """Emit warnings and block forbidden production settings (T68.7, T46.2, T42.2).
 
-    if errors:
-        error_list = ", ".join(errors)
-        raise SystemExit(
-            f"Startup configuration error: the following required environment "
-            f"variable(s) are not set or are misconfigured: {error_list}. "
-            f"Set them before starting the Conclave Engine."
-        )
+    Handles three production-mode security checks:
+    1. Block CONCLAVE_RATE_LIMIT_FAIL_OPEN=true (raises SystemExit).
+    2. Warn when CONCLAVE_SSL_REQUIRED=false.
+    3. Warn when MTLS_ENABLED=true but CONCLAVE_SSL_REQUIRED=false.
+    4. Warn when ssl_required=True but no TLS cert path is configured.
 
-    # T47.4: emit WARNING when JWT_SECRET_KEY is absent in development mode.
-    # (Production failure is now caught by settings._validate_production_required_fields.)
-    _validate_jwt_secret_key()
+    Raises:
+        SystemExit: When CONCLAVE_RATE_LIMIT_FAIL_OPEN=true in production mode.
+    """
+    settings = get_settings()
 
-    # T47.5: emit WARNING when OPERATOR_CREDENTIALS_HASH is absent or invalid in dev mode.
-    # (Production failure is now caught by settings._validate_production_required_fields.)
-    _validate_operator_credentials_hash()
-
-    if _is_production() and not settings.conclave_ssl_required:
-        _logger.warning(
-            "CONCLAVE_SSL_REQUIRED=false in production mode — "
-            "SSL enforcement for PostgreSQL connections is disabled. "
-            "This is a security misconfiguration for production."
-        )
-
-    # T68.7: Block rate_limit_fail_open=True in production (upgraded from warning to error).
-    # Fail-open disables distributed rate limiting during Redis outages, which
-    # allows brute-force and DoS attacks to bypass per-IP limits.  This is a
-    # security misconfiguration that MUST be rejected at startup — not just logged.
+    # T68.7: Block rate_limit_fail_open=True in production (security misconfiguration).
     # ADV-P67-02 resolution.
     if _is_production() and settings.conclave_rate_limit_fail_open:
         raise SystemExit(
@@ -428,9 +343,14 @@ def validate_config() -> None:
             "If you are testing fail-open behavior, set CONCLAVE_ENV=development first."
         )
 
+    if _is_production() and not settings.conclave_ssl_required:
+        _logger.warning(
+            "CONCLAVE_SSL_REQUIRED=false in production mode — "
+            "SSL enforcement for PostgreSQL connections is disabled. "
+            "This is a security misconfiguration for production."
+        )
+
     # T46.2: Warn when mTLS is enabled but CONCLAVE_SSL_REQUIRED is false.
-    # mTLS implies SSL — the explicit flag is redundant but its absence is
-    # a misconfiguration signal worth surfacing.
     if settings.mtls_enabled and not settings.conclave_ssl_required:
         _logger.warning(
             "MTLS_ENABLED=true overrides CONCLAVE_SSL_REQUIRED=false — "
@@ -438,26 +358,58 @@ def validate_config() -> None:
             "Set CONCLAVE_SSL_REQUIRED=true to silence this warning."
         )
 
-    # TLS cert misconfiguration check (T42.2): warn if ssl_required=True but no
-    # TLS certificate path is configured.  A TLS cert path is considered
-    # "configured" when CONCLAVE_TLS_CERT_PATH is set and non-empty.  This is a
-    # heuristic advisory — the definitive TLS enforcement is handled by the
-    # reverse proxy (nginx/Caddy) per docs/PRODUCTION_DEPLOYMENT.md §2.1.
+    # TLS cert misconfiguration check (T42.2).
     tls_cert_configured: bool = bool(settings.conclave_tls_cert_path)
     warn_if_ssl_misconfigured(
         ssl_required=settings.conclave_ssl_required,
         tls_cert_configured=tls_cert_configured,
     )
 
-    # T48.5: Warn when the vault is sealed at startup.
-    # ALE operations will fail until /unseal is called; surfacing this at
-    # startup gives operators a clear signal rather than a cryptic
-    # VaultSealedError at first DB write.
-    _warn_if_vault_sealed()
 
-    # T50.3: Warn when running in development mode.
-    # CONCLAVE_ENV defaults to 'production', so development mode is only active
-    # when explicitly set.  This warning is a safety signal for containerized
-    # environments where a port may be inadvertently exposed.
+def validate_config() -> None:
+    """Validate required environment variables at application startup.
+
+    Fail-fast guard that inspects settings at boot and raises SystemExit
+    with a clear, actionable message if any required configuration is absent
+    or misconfigured.  See module docstring for full details on required
+    variables by deployment mode.
+
+    Collects ALL errors before raising so operators receive a complete list
+    in a single message rather than one error at a time.
+
+    Returns:
+        ``None`` when all required variables are present and consistent.
+
+    Raises:
+        SystemExit: On missing required variables, mTLS cert errors, or
+            CONCLAVE_RATE_LIMIT_FAIL_OPEN=true in production mode.
+    """
+    try:
+        get_settings()
+    except (ValidationError, ValueError) as exc:
+        # T63.1: ConclaveSettings validates all required fields at construction
+        # time via @model_validator.  A ValidationError/ValueError here means
+        # a required field is missing or misconfigured.
+        raise SystemExit(
+            f"Startup configuration error: the following required environment "
+            f"variable(s) are not set or are misconfigured: {exc}. "
+            f"Set them before starting the Conclave Engine."
+        ) from exc
+
+    errors: list[str] = []
+    _check_always_required_fields(errors)
+    # T46.2 / ADV-P46-03: validate mTLS cert files exist and are readable.
+    _validate_mtls_cert_files(errors)
+    if errors:
+        raise SystemExit(
+            f"Startup configuration error: the following required environment "
+            f"variable(s) are not set or are misconfigured: {', '.join(errors)}. "
+            f"Set them before starting the Conclave Engine."
+        )
+
+    _validate_jwt_secret_key()  # T47.4 — dev-mode WARNING only
+    _validate_operator_credentials_hash()  # T47.5 — dev-mode WARNING only
+    _check_production_security_settings()  # T68.7, T46.2, T42.2 — warns / blocks
+    _warn_if_vault_sealed()  # T48.5 — vault sealed at startup
     if not _is_production():
-        _warn_if_development_mode()
+        _warn_if_development_mode()  # T50.3 — dev-mode safety warning

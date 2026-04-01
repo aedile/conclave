@@ -133,6 +133,19 @@ SessionFactory = Callable[[], contextlib.AbstractContextManager[Session]]
 # conclave_db_worker_pool_size, conclave_db_worker_max_overflow,
 # conclave_db_worker_pool_recycle, conclave_db_worker_pool_timeout.
 
+# Backward-compatible named constants matching the ConclaveSettings defaults.
+# Tests and documentation reference these constants to verify the connection
+# budget (pool_size + max_overflow) stays within PgBouncer capacity limits.
+# Cardinality note: one pool per FastAPI app instance + one per worker process.
+#: Default FastAPI pool size (overridden by CONCLAVE_DB_POOL_SIZE).
+_POOL_SIZE: int = 5
+#: Default FastAPI max_overflow (overridden by CONCLAVE_DB_MAX_OVERFLOW).
+_MAX_OVERFLOW: int = 10
+#: Default Huey worker pool size (overridden by CONCLAVE_DB_WORKER_POOL_SIZE).
+_WORKER_POOL_SIZE: int = 1
+#: Default Huey worker max_overflow (overridden by CONCLAVE_DB_WORKER_MAX_OVERFLOW).
+_WORKER_MAX_OVERFLOW: int = 2
+
 #: Module-level cache for synchronous engines, keyed by composite cache key.
 #: For PostgreSQL: ``"{database_url}|mtls={mtls_enabled}"``.
 #: For SQLite: ``"{database_url}"`` (TLS not applicable).

@@ -308,7 +308,10 @@ class TestProductionValidationSurvivesDecomposition:
     def test_production_mode_requires_audit_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Missing AUDIT_KEY in production mode must raise ValueError/ValidationError."""
         monkeypatch.setenv("CONCLAVE_ENV", "production")
-        monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/db")
+        monkeypatch.setenv(
+            "DATABASE_URL",
+            "postgresql+asyncpg://user:pass@localhost/db",  # pragma: allowlist secret
+        )
         monkeypatch.delenv("AUDIT_KEY", raising=False)
         monkeypatch.delenv("CONCLAVE_AUDIT_KEY", raising=False)
 

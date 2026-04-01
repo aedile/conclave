@@ -99,22 +99,66 @@ UNEXPECTED_WEBHOOK_ERRORS_TOTAL: Counter = Counter(
 )
 
 
+def _dispatch_to_registrations(
+    session: Session,
+    job_id: int,
+    event_type: str,
+    payload: dict[str, Any],
+    timeout_seconds: int,
+    owner_id: str,
+) -> None:
+    """Deliver and persist audit rows for all qualifying registrations.
+
+    Args:
+        session: Open SQLModel Session.
+        job_id: Synthesis job integer PK.
+        event_type: Event string (e.g. ``"job.completed"``).
+        payload: Dict payload to deliver.
+        timeout_seconds: HTTP timeout per attempt.
+        owner_id: The job owner — used to filter registrations.
+    """
+    stmt = select(WebhookRegistration).where(
+        WebhookRegistration.owner_id == owner_id,
+        WebhookRegistration.active.is_(True),  # type: ignore[attr-defined]
+    )
+    registrations = session.exec(stmt).all()
+    for reg in registrations:
+        subscribed: list[str] = (
+            json.loads(reg.events) if isinstance(reg.events, str) else reg.events
+        )
+        if event_type not in subscribed:
+            continue
+        result = deliver_webhook(
+            registration=reg,
+            job_id=job_id,
+            event_type=event_type,
+            payload=payload,
+            timeout_seconds=timeout_seconds,
+        )
+        _raw_err = result.error_message
+        _safe_err: str | None = safe_error_msg(_raw_err or "")[:500] if _raw_err else None
+        session.add(
+            WebhookDelivery(
+                registration_id=reg.id,
+                job_id=job_id,
+                event_type=event_type,
+                delivery_id=result.delivery_id,
+                attempt_number=result.attempt_number,
+                status=result.status,
+                response_code=result.response_code,
+                error_message=_safe_err,
+            )
+        )
+    session.commit()
+
+
 def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
     """Build the concrete webhook delivery callback for IoC injection.
 
     Returns a closure that, when called with ``(job_id, status)``:
-
-    1. Opens a synchronous DB session using the settings ``database_url``.
-    2. Looks up the ``SynthesisJob`` to resolve the ``owner_id``.
-    3. Queries all active ``WebhookRegistration`` rows for that owner.
-    4. Filters registrations by subscribed event type.
-    5. Calls :func:`~synth_engine.modules.synthesizer.jobs.webhook_delivery.deliver_webhook`
-       for each qualifying registration.
-    6. Persists a :class:`~synth_engine.bootstrapper.schemas.webhooks.WebhookDelivery`
-       audit row for each attempt.
-
-    Errors are caught and logged so webhook delivery never affects the job
-    lifecycle outcome.
+    opens a DB session, resolves the job owner, dispatches to qualifying
+    webhook registrations, and persists audit rows.  Errors are caught and
+    logged so delivery never affects the job lifecycle outcome.
 
     Returns:
         A callable ``(job_id: int, status: str) -> None``.
@@ -135,9 +179,7 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
                 "Webhook delivery skipped for job %d: DATABASE_URL not configured.", job_id
             )
             return
-
         event_type = "job.completed" if status == "COMPLETE" else "job.failed"
-
         try:
             engine = get_engine(database_url)
             with Session(engine) as session:
@@ -147,71 +189,18 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
                         "Webhook delivery: SynthesisJob %d not found — skipping.", job_id
                     )
                     return
-
-                owner_id = job.owner_id
-
-                # Query active registrations for this owner
-                stmt = select(WebhookRegistration).where(
-                    WebhookRegistration.owner_id == owner_id,
-                    WebhookRegistration.active.is_(True),  # type: ignore[attr-defined]
-                )
-                registrations = session.exec(stmt).all()
-
                 payload: dict[str, Any] = {"job_id": str(job_id), "status": status}
-
-                for reg in registrations:
-                    # Check if this registration subscribes to this event type
-                    subscribed_events: list[str] = (
-                        json.loads(reg.events) if isinstance(reg.events, str) else reg.events
-                    )
-                    if event_type not in subscribed_events:
-                        continue
-
-                    result = deliver_webhook(
-                        registration=reg,
-                        job_id=job_id,
-                        event_type=event_type,
-                        payload=payload,
-                        timeout_seconds=timeout_seconds,
-                    )
-
-                    # Persist delivery audit row
-                    # Sanitize and truncate error_message before storage:
-                    # prevents internal IP addresses, paths, or module names
-                    # from leaking through the deliveries API endpoint.
-                    _raw_err = result.error_message
-                    _safe_err: str | None = (
-                        safe_error_msg(_raw_err or "")[:500] if _raw_err else None
-                    )
-                    delivery = WebhookDelivery(
-                        registration_id=reg.id,
-                        job_id=job_id,
-                        event_type=event_type,
-                        delivery_id=result.delivery_id,
-                        attempt_number=result.attempt_number,
-                        status=result.status,
-                        response_code=result.response_code,
-                        error_message=_safe_err,
-                    )
-                    session.add(delivery)
-
-                session.commit()
-
+                _dispatch_to_registrations(
+                    session, job_id, event_type, payload, timeout_seconds, job.owner_id
+                )
         except (SQLAlchemyError, ConnectionError, OSError, httpx.HTTPError) as exc:
             _logger.exception(
-                "Webhook delivery failed for job %d (%s): %s",
-                job_id,
-                status,
-                type(exc).__name__,
+                "Webhook delivery failed for job %d (%s): %s", job_id, status, type(exc).__name__
             )
         except Exception as exc:  # broad catch intentional: protect job lifecycle
-            # Unexpected programming error — log at CRITICAL so it is highly visible
-            # but still never propagated (preserves "never crash the job" contract).
             UNEXPECTED_WEBHOOK_ERRORS_TOTAL.inc()
             _logger.critical(
-                "Unexpected error in webhook delivery (job_id=%d): %s",
-                job_id,
-                type(exc).__name__,
+                "Unexpected error in webhook delivery (job_id=%d): %s", job_id, type(exc).__name__
             )
 
     return _deliver

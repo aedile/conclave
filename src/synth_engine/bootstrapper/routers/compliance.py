@@ -42,8 +42,6 @@ Boundary constraints (import-linter enforced)
 
 CONSTITUTION Priority 0: Security — IDOR guard, vault gate, PII-safe audit
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
-Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
-Task: T69.6 — Fix Compliance Erasure IDOR (ADV-P68-01)
 """
 
 from __future__ import annotations
@@ -154,6 +152,54 @@ class ErasureResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _check_erasure_idor(body_subject_id: str, operator: str) -> JSONResponse | None:
+    """Return 403 if operator is attempting cross-operator erasure (T69.6).
+
+    Emits an audit event for intrusion detection.  The target subject_id is
+    intentionally omitted (PII protection).
+
+    Args:
+        body_subject_id: The ``subject_id`` from the request body.
+        operator: Authenticated operator sub claim.
+
+    Returns:
+        A 403 JSONResponse if blocked; None if the check passes.
+    """
+    if body_subject_id == operator:
+        return None
+    _logger.warning(
+        "Cross-operator erasure attempt blocked: actor=%s (subject_id withheld)", operator
+    )
+    try:
+        get_audit_logger().log_event(
+            event_type="COMPLIANCE_ERASURE_IDOR_ATTEMPT",
+            actor=operator,
+            resource="data_subject",
+            action="erasure_blocked_idor",
+            details={"reason": "subject_id does not match authenticated operator"},
+        )
+    except (ValueError, OSError):
+        AUDIT_WRITE_FAILURE_TOTAL.labels(router="compliance", endpoint="/compliance/erasure").inc()
+        _logger.exception("Audit logging failed for IDOR erasure attempt (actor=%s).", operator)
+    return JSONResponse(
+        status_code=403,
+        content=problem_detail(
+            status=403,
+            title="Forbidden",
+            detail=(
+                "Erasure is restricted to self-erasure only. "
+                "The subject_id must match your authenticated operator identity."
+            ),
+        ),
+        media_type="application/problem+json",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
 #
@@ -183,77 +229,21 @@ def erasure(
 ) -> ErasureResponse | JSONResponse:
     """Execute a GDPR Right-to-Erasure / CCPA deletion request.
 
-    Cascades deletion through connection metadata and synthesis job records
-    whose ``owner_id`` matches ``body.subject_id``.  Synthesized output
-    and the WORM audit trail are always preserved (with justifications in
-    the compliance receipt).
-
-    IDOR check fires FIRST — before the vault-sealed check — to prevent
-    information disclosure about vault state to unauthorized callers.
-    Cross-operator erasure attempts are rejected with 403 and an audit
-    event is emitted (target subject_id omitted to protect PII).
-
-    If the vault is sealed, the request is rejected with 423 Locked because
-    ALE-encrypted fields cannot be reliably identified for deletion without
-    the vault key.
-
-    Every successful erasure (including requests matching zero records) is
-    logged to the WORM audit trail.  Audit failure does not abort erasure.
+    IDOR check fires first (T69.6).  Vault-sealed check second.  Audit failure
+    does not abort erasure.
 
     Args:
-        body: JSON body with a single ``subject_id`` string field (min 1 char).
+        body: JSON body with ``subject_id`` (must match operator sub claim).
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
+        current_operator: Authenticated operator sub claim (injected).
 
     Returns:
-        :class:`ErasureResponse` compliance receipt on success, RFC 7807
-        403 if subject_id does not match current_operator, or RFC 7807
-        423 response if the vault is sealed.
+        :class:`ErasureResponse` on success, RFC 7807 403 on IDOR, 423 if sealed.
     """
-    # ---------------------------------------------------------------------------
-    # T69.6 IDOR guard — fires BEFORE vault-sealed check.
-    # Only the authenticated operator may erase their own data.
-    # The target subject_id is NOT included in the audit event (PII protection).
-    # ---------------------------------------------------------------------------
-    if body.subject_id != current_operator:
-        _logger.warning(
-            "Cross-operator erasure attempt blocked: actor=%s"
-            " (subject_id withheld — no PII in logs)",
-            current_operator,
-        )
-        # Emit audit event for intrusion detection — no subject_id in details.
-        try:
-            get_audit_logger().log_event(
-                event_type="COMPLIANCE_ERASURE_IDOR_ATTEMPT",
-                actor=current_operator,
-                resource="data_subject",
-                action="erasure_blocked_idor",
-                details={
-                    "reason": "subject_id does not match authenticated operator",
-                },
-            )
-        except (ValueError, OSError):
-            AUDIT_WRITE_FAILURE_TOTAL.labels(
-                router="compliance", endpoint="/compliance/erasure"
-            ).inc()
-            _logger.exception(
-                "Audit logging failed for IDOR erasure attempt (actor=%s).",
-                current_operator,
-            )
-        return JSONResponse(
-            status_code=403,
-            content=problem_detail(
-                status=403,
-                title="Forbidden",
-                detail=(
-                    "Erasure is restricted to self-erasure only. "
-                    "The subject_id must match your authenticated operator identity."
-                ),
-            ),
-            media_type="application/problem+json",
-        )
+    idor_err = _check_erasure_idor(body.subject_id, current_operator)
+    if idor_err is not None:
+        return idor_err
 
-    # Vault-sealed guard: ALE-encrypted fields cannot be identified without the KEK.
     if VaultState.is_sealed():
         return JSONResponse(
             status_code=423,
@@ -269,19 +259,14 @@ def erasure(
             media_type="application/problem+json",
         )
 
-    service = ErasureService(
-        session=session,
-        connection_model=Connection,
-    )
-    manifest = service.execute_erasure(
+    manifest = ErasureService(session=session, connection_model=Connection).execute_erasure(
         subject_id=body.subject_id,
         actor=current_operator,
     )
-
     response = ErasureResponse.from_manifest(manifest)
     if not manifest.audit_logged:
         _logger.warning(
-            "Erasure audit log failed for subject (ID withheld — no PII in logs). "
+            "Erasure audit log failed for subject (ID withheld). "
             "DB records deleted but audit chain entry was not written. "
             "Manual audit chain reconciliation required.",
         )

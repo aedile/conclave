@@ -241,6 +241,87 @@ def apply_fk_post_processing(
     return result
 
 
+def _fit_dp_model(
+    source_df: pd.DataFrame,
+    table_name: str,
+    metadata: Any,
+    epochs: int,
+    dp_wrapper: DPWrapperProtocol,
+) -> DPCompatibleCTGAN:
+    """Fit a DPCompatibleCTGAN model with Opacus DP-SGD (T7.3).
+
+    Records the fitting duration into the SYNTHESIS_MS_PER_ROW histogram.
+
+    Args:
+        source_df: Source training DataFrame.
+        table_name: Table name for logging.
+        metadata: SDV SingleTableMetadata for the DataFrame.
+        epochs: Number of training epochs.
+        dp_wrapper: DP wrapper satisfying DPWrapperProtocol.
+
+    Returns:
+        The fitted DPCompatibleCTGAN model.
+    """
+    _logger.info(
+        "Training DPCompatibleCTGAN on table '%s' (%d rows, %d cols, epochs=%d) "
+        "with DP wrapper (max_grad_norm=%.2f, noise_multiplier=%.2f).",
+        table_name,
+        len(source_df),
+        len(source_df.columns),
+        epochs,
+        getattr(dp_wrapper, "max_grad_norm", float("nan")),
+        getattr(dp_wrapper, "noise_multiplier", float("nan")),
+    )
+    model = DPCompatibleCTGAN(metadata=metadata, epochs=epochs, dp_wrapper=dp_wrapper)
+    _fit_start = time.monotonic()
+    model.fit(source_df)
+    _fit_elapsed_ms = (time.monotonic() - _fit_start) * 1000.0
+    _n_rows = len(source_df)
+    SYNTHESIS_MS_PER_ROW.labels(
+        model_type="dp",
+        row_count_bucket=_row_count_bucket(_n_rows),
+    ).observe(_fit_elapsed_ms / _n_rows if _n_rows > 0 else 0.0)
+    return model
+
+
+def _fit_vanilla_model(
+    source_df: pd.DataFrame,
+    table_name: str,
+    metadata: Any,
+    epochs: int,
+) -> Any:
+    """Fit a vanilla CTGANSynthesizer model (T4.2b path).
+
+    Records the fitting duration into the SYNTHESIS_MS_PER_ROW histogram.
+
+    Args:
+        source_df: Source training DataFrame.
+        table_name: Table name for logging.
+        metadata: SDV SingleTableMetadata for the DataFrame.
+        epochs: Number of training epochs.
+
+    Returns:
+        The fitted CTGANSynthesizer model.
+    """
+    _logger.info(
+        "Training CTGANSynthesizer on table '%s' (%d rows, %d cols, epochs=%d)",
+        table_name,
+        len(source_df),
+        len(source_df.columns),
+        epochs,
+    )
+    model = CTGANSynthesizer(metadata=metadata, epochs=epochs)
+    _fit_start = time.monotonic()
+    model.fit(source_df)
+    _fit_elapsed_ms = (time.monotonic() - _fit_start) * 1000.0
+    _n_rows = len(source_df)
+    SYNTHESIS_MS_PER_ROW.labels(
+        model_type="vanilla",
+        row_count_bucket=_row_count_bucket(_n_rows),
+    ).observe(_fit_elapsed_ms / _n_rows if _n_rows > 0 else 0.0)
+    return model
+
+
 class SynthesisEngine:
     """Per-table CTGAN training and synthetic data generation engine.
 
@@ -308,52 +389,22 @@ class SynthesisEngine:
     ) -> ModelArtifact:
         """Train a CTGAN model on the Parquet file at ``parquet_path``.
 
-        Routes to :class:`~synth_engine.modules.synthesizer.training.dp_training.DPCompatibleCTGAN`
-        when ``dp_wrapper`` is provided, or vanilla ``CTGANSynthesizer`` otherwise.
-
-        DP routing (T7.3 — drains ADV-048):
-            When ``dp_wrapper`` is not ``None``, ``DPCompatibleCTGAN`` is used.
-            ``DPCompatibleCTGAN.fit()`` calls ``dp_wrapper.wrap()`` before the
-            training loop begins, activating Opacus DP-SGD.  After training,
-            ``dp_wrapper.epsilon_spent(delta=...)`` returns the cumulative Epsilon.
-
-        Vanilla path:
-            When ``dp_wrapper`` is ``None``, the original ``CTGANSynthesizer``
-            path is used unchanged.
+        Routes to DPCompatibleCTGAN when ``dp_wrapper`` is provided, or
+        vanilla CTGANSynthesizer otherwise (T7.3).
 
         Args:
-            table_name: Logical name of the source table (stored in the
-                artifact for logging and identification).
-            parquet_path: Absolute path to the Parquet file written by the
-                subsetting/ingestion pipeline.
-            dp_wrapper: Optional DP wrapper satisfying ``DPWrapperProtocol``
-                from ``shared/protocols``.  The Protocol defines:
-                ``wrap(optimizer, model, dataloader, *, max_grad_norm,
-                noise_multiplier)`` → dp_optimizer;
-                ``epsilon_spent(*, delta)`` → float;
-                ``check_budget(*, allocated_epsilon, delta)`` → None.
-                Typed via ``DPWrapperProtocol`` (structural typing) rather than
-                the concrete ``DPTrainingWrapper`` to preserve import-linter
-                boundary independence between ``modules/synthesizer`` and
-                ``modules/privacy``.
-                The concrete implementation is ``DPTrainingWrapper`` from
-                ``modules/privacy/dp_engine.py``, injected by the bootstrapper.
-                Default: ``None`` (no DP wrapping; vanilla CTGANSynthesizer used).
+            table_name: Logical name of the source table.
+            parquet_path: Absolute path to the Parquet file.
+            dp_wrapper: Optional DP wrapper (DPWrapperProtocol).  When set,
+                activates Opacus DP-SGD via DPCompatibleCTGAN.
 
         Returns:
-            A :class:`ModelArtifact` containing the trained model, table name,
-            and schema metadata (column names, dtypes, and nullable flags).
+            A ModelArtifact with the trained model and schema metadata.
 
         Raises:
-            FileNotFoundError: If the Parquet file does not exist at
-                ``parquet_path``.
-            ValueError: If the Parquet file contains zero rows.  Training a
-                generative model on an empty dataset is meaningless and would
-                produce a silent failure downstream.  Raised before constructing
-                the CTGAN model to ensure the guard is ordering-independent in
-                the test suite (T55.6 — flaky-test resolution).
-            ImportError: If the ``sdv`` package is not installed (synthesizer
-                group not installed).
+            FileNotFoundError: If the Parquet file does not exist.
+            ValueError: If the Parquet file contains zero rows.
+            ImportError: If the sdv package is not installed.
         """
         from synth_engine.modules.synthesizer.storage.artifact import ModelArtifact
 
@@ -380,60 +431,14 @@ class SynthesisEngine:
         column_names = list(source_df.columns)
         column_dtypes = {col: str(source_df[col].dtype) for col in column_names}
         column_nullables = {col: bool(source_df[col].isnull().any()) for col in column_names}
+        metadata = _build_metadata(source_df)
 
         if dp_wrapper is not None:
-            # DP path — use DPCompatibleCTGAN with Opacus wrapping (T7.3)
-            _logger.info(
-                "Training DPCompatibleCTGAN on table '%s' (%d rows, %d cols, epochs=%d) "
-                "with DP wrapper (max_grad_norm=%.2f, noise_multiplier=%.2f).",
-                table_name,
-                len(source_df),
-                len(column_names),
-                self._epochs,
-                getattr(dp_wrapper, "max_grad_norm", float("nan")),
-                getattr(dp_wrapper, "noise_multiplier", float("nan")),
-            )
-
-            metadata = _build_metadata(source_df)
-            model = DPCompatibleCTGAN(
-                metadata=metadata,
-                epochs=self._epochs,
-                dp_wrapper=dp_wrapper,
-            )
-            _fit_start = time.monotonic()
-            model.fit(source_df)
-            _fit_elapsed_ms = (time.monotonic() - _fit_start) * 1000.0
-            _n_rows = len(source_df)
-            _ms_per_row = _fit_elapsed_ms / _n_rows if _n_rows > 0 else 0.0
-            SYNTHESIS_MS_PER_ROW.labels(
-                model_type="dp",
-                row_count_bucket=_row_count_bucket(_n_rows),
-            ).observe(_ms_per_row)
-
+            model = _fit_dp_model(source_df, table_name, metadata, self._epochs, dp_wrapper)
         else:
-            # Vanilla path — use CTGANSynthesizer (unchanged from T4.2b)
-            _logger.info(
-                "Training CTGANSynthesizer on table '%s' (%d rows, %d cols, epochs=%d)",
-                table_name,
-                len(source_df),
-                len(column_names),
-                self._epochs,
-            )
-
-            metadata = _build_metadata(source_df)
-            model = CTGANSynthesizer(metadata=metadata, epochs=self._epochs)
-            _fit_start = time.monotonic()
-            model.fit(source_df)
-            _fit_elapsed_ms = (time.monotonic() - _fit_start) * 1000.0
-            _n_rows = len(source_df)
-            _ms_per_row = _fit_elapsed_ms / _n_rows if _n_rows > 0 else 0.0
-            SYNTHESIS_MS_PER_ROW.labels(
-                model_type="vanilla",
-                row_count_bucket=_row_count_bucket(_n_rows),
-            ).observe(_ms_per_row)
+            model = _fit_vanilla_model(source_df, table_name, metadata, self._epochs)
 
         _logger.info("Training complete for table '%s'.", table_name)
-
         return ModelArtifact(
             table_name=table_name,
             model=model,

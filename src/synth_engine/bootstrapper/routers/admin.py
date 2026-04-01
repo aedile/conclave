@@ -1,26 +1,14 @@
-"""FastAPI router for administrative operations — T41.1.
+"""FastAPI router for administrative operations.
 
 Implements:
 - PATCH /admin/jobs/{id}/legal-hold — toggle the legal hold flag on a job.
 
-The legal hold flag (``SynthesisJob.legal_hold``) prevents a job from being
-deleted by the routine data retention cleanup task regardless of how old the
-record is.  This endpoint is the sole authoritative way to set or clear the
-flag.
-
 Security posture:
-- The endpoint enforces ownership-scoping: only the authenticated operator who
-  owns the job may toggle its legal hold flag.  Requests from any other operator
-  return 404 (not 403) to avoid leaking the existence of resources owned by
-  other operators.  This matches the IDOR protection pattern applied to
-  /jobs and /connections (T39.2, T68.2).
-- An audit WARNING is logged when an operator attempts to access another
-  operator's job, for intrusion-detection purposes (T68.2 spec amendment).
-- The request payload contains only a boolean (``enable``); no PII is accepted
-  or returned.
-- Audit events are emitted BEFORE the database commit so that no destructive
-  operation proceeds without a successful audit trail (T68.3).  If the audit
-  write fails, the request returns 500 and the database change is rolled back.
+- Ownership-scoped: only the authenticated operator who owns the job may toggle
+  its legal hold flag.  Requests from any other operator return 404 (not 403) to
+  avoid leaking the existence of resources owned by other operators.
+- Audit events are emitted BEFORE the database commit (T68.3).  If the audit
+  write fails, the request returns 500 and the database change is not applied.
 - Every toggle emits a ``LEGAL_HOLD_SET`` or ``LEGAL_HOLD_CLEARED`` WORM audit
   event so the hold history is attributable and tamper-evident.
 
@@ -31,11 +19,6 @@ Boundary constraints (import-linter enforced):
 
 CONSTITUTION Priority 0: Security — audit every privilege operation
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
-Task: T41.1 — Implement Data Retention Policy
-Task: T62.1 — Wrap Database Commits in Exception Handlers
-Task: T68.2 — RBAC Guard on Admin Endpoints (ownership-scoped)
-Task: T68.3 — Mandatory Audit Before Destructive Operations
-Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 """
 
 from __future__ import annotations
@@ -90,6 +73,137 @@ class LegalHoldResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _check_job_ownership(
+    job: SynthesisJob | None,
+    job_id: int,
+    current_operator: str,
+) -> JSONResponse | None:
+    """Return a 404 JSONResponse if the job is absent or owned by someone else.
+
+    T68.2: Ownership check — emit WARNING for intrusion detection, return 404
+    to avoid leaking the existence of other operators' resources.
+
+    Args:
+        job: The fetched SynthesisJob, or None if not found.
+        job_id: Integer PK (for response body and logging).
+        current_operator: Authenticated operator sub claim.
+
+    Returns:
+        A 404 JSONResponse if the job is missing or not owned; else None.
+    """
+    not_found_body = problem_detail(
+        status=404,
+        title="Not Found",
+        detail=f"SynthesisJob with id={job_id} not found.",
+    )
+    if job is None:
+        return JSONResponse(status_code=404, content=not_found_body)
+    if job.owner_id != current_operator:
+        _logger.warning(
+            "set_legal_hold: operator=%s attempted to access job id=%d owned by operator=%s "
+            "(IDOR attempt detected)",
+            current_operator,
+            job_id,
+            job.owner_id,
+        )
+        return JSONResponse(status_code=404, content=not_found_body)
+    return None
+
+
+def _commit_legal_hold_change(
+    session: Session, job: SynthesisJob, job_id: int, operator: str, enable: bool
+) -> JSONResponse | None:
+    """Persist the legal hold flag change; return 500 on SQLAlchemyError.
+
+    Args:
+        session: Open SQLModel Session.
+        job: The SynthesisJob row to update.
+        job_id: Integer PK (for logging).
+        operator: Authenticated operator sub claim (for logging).
+        enable: New legal hold value.
+
+    Returns:
+        None on success; a 500 JSONResponse on DB failure.
+    """
+    job.legal_hold = enable
+    session.add(job)
+    try:
+        session.commit()
+        session.refresh(job)
+        return None
+    except SQLAlchemyError:
+        session.rollback()
+        _logger.warning(
+            "set_legal_hold: SQLAlchemyError for job_id=%d operator=%s",
+            job_id,
+            operator,
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Database operation failed. Please retry.",
+            },
+        )
+
+
+def _audit_and_commit_legal_hold(
+    session: Session,
+    job: SynthesisJob,
+    job_id: int,
+    operator: str,
+    enable: bool,
+    previous: bool,
+) -> JSONResponse | None:
+    """Emit audit event then commit legal hold change (T68.3 audit-before-commit).
+
+    Args:
+        session: Open SQLModel Session.
+        job: The SynthesisJob row to update.
+        job_id: Integer PK (for audit and logging).
+        operator: Authenticated operator sub claim.
+        enable: New legal hold value to set.
+        previous: The previous legal hold value (for audit record).
+
+    Returns:
+        None on success; a 500 JSONResponse on audit or DB failure.
+    """
+    event_type = "LEGAL_HOLD_SET" if enable else "LEGAL_HOLD_CLEARED"
+    try:
+        get_audit_logger().log_event(
+            event_type=event_type,
+            actor=operator,
+            resource=f"synthesis_job/{job_id}",
+            action="legal_hold",
+            details={"job_id": str(job_id), "enable": str(enable), "previous": str(previous)},
+        )
+    except (ValueError, OSError):
+        AUDIT_WRITE_FAILURE_TOTAL.labels(
+            router="admin", endpoint="/admin/jobs/{job_id}/legal-hold"
+        ).inc()
+        _logger.exception(
+            "Audit logging failed for legal hold toggle on job id=%d; aborting", job_id
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "type": "about:blank",
+                "title": "Internal Server Error",
+                "status": 500,
+                "detail": "Audit write failed. Legal hold change was not applied.",
+            },
+        )
+    return _commit_legal_hold_change(session, job, job_id, operator, enable)
+
+
+# ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
 
@@ -111,24 +225,6 @@ def set_legal_hold(
 ) -> LegalHoldResponse | JSONResponse:
     """Toggle the legal hold flag on a synthesis job.
 
-    Setting ``legal_hold=True`` prevents the job from being deleted by the
-    routine retention cleanup task regardless of the configured
-    ``JOB_RETENTION_DAYS`` TTL.  Setting it to ``False`` re-enables normal
-    TTL-based deletion.
-
-    Ownership check (T68.2): the job's ``owner_id`` must match the authenticated
-    operator's ``sub`` claim.  A mismatch returns 404 rather than 403, so
-    that the existence of other operators' resources is not leaked.
-
-    Audit before commit (T68.3): the WORM audit event is emitted before the
-    database commit.  If the audit write fails, the endpoint returns 500 and
-    the database change is rolled back.
-
-    Security:
-        Ownership-scoped — only the authenticated operator owning the job can
-        toggle legal hold on it.  A WARNING is logged when an operator attempts
-        to access another operator's job (for intrusion-detection purposes).
-
     Args:
         job_id: Integer primary key of the job to update.
         body: JSON body with a single boolean ``enable`` field.
@@ -136,12 +232,14 @@ def set_legal_hold(
         current_operator: Authenticated operator sub claim (injected by FastAPI DI).
 
     Returns:
-        :class:`LegalHoldResponse` with the updated ``legal_hold`` value on
-        success, RFC 7807 404 if the job does not exist or is owned by another
-        operator, RFC 7807 500 on audit failure or database error.
+        :class:`LegalHoldResponse` on success, RFC 7807 404 or 500 on failure.
     """
     job = session.get(SynthesisJob, job_id)
-    if job is None:
+    ownership_err = _check_job_ownership(job, job_id, current_operator)
+    if ownership_err is not None:
+        return ownership_err
+
+    if job is None:  # narrowed by _check_job_ownership — unreachable in practice
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -150,85 +248,12 @@ def set_legal_hold(
                 detail=f"SynthesisJob with id={job_id} not found.",
             ),
         )
-
-    # T68.2: Ownership check — emit WARNING for intrusion detection, return 404 to
-    # avoid leaking the existence of other operators' resources.
-    if job.owner_id != current_operator:
-        _logger.warning(
-            "set_legal_hold: operator=%s attempted to access job id=%d owned by operator=%s "
-            "(IDOR attempt detected)",
-            current_operator,
-            job_id,
-            job.owner_id,
-        )
-        return JSONResponse(
-            status_code=404,
-            content=problem_detail(
-                status=404,
-                title="Not Found",
-                detail=f"SynthesisJob with id={job_id} not found.",
-            ),
-        )
-
     previous = job.legal_hold
-    event_type = "LEGAL_HOLD_SET" if body.enable else "LEGAL_HOLD_CLEARED"
-
-    # T68.3: Emit audit event BEFORE the database commit.
-    # If the audit write fails (any exception), return 500 and do NOT commit.
-    # This ensures no destructive operation proceeds without a successful audit trail.
-    try:
-        get_audit_logger().log_event(
-            event_type=event_type,
-            actor=current_operator,
-            resource=f"synthesis_job/{job_id}",
-            action="legal_hold",
-            details={
-                "job_id": str(job_id),
-                "enable": str(body.enable),
-                "previous": str(previous),
-            },
-        )
-    except (ValueError, OSError):
-        AUDIT_WRITE_FAILURE_TOTAL.labels(
-            router="admin", endpoint="/admin/jobs/{job_id}/legal-hold"
-        ).inc()
-        _logger.exception(
-            "Audit logging failed for legal hold toggle on job id=%d; aborting (T68.3)",
-            job_id,
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "type": "about:blank",
-                "title": "Internal Server Error",
-                "status": 500,
-                "detail": "Audit write failed. Legal hold change was not applied.",
-            },
-        )
-
-    # Audit succeeded — now commit the database change.
-    job.legal_hold = body.enable
-    session.add(job)
-    try:
-        session.commit()
-        session.refresh(job)
-    except SQLAlchemyError:
-        session.rollback()
-        _logger.warning(
-            "set_legal_hold: SQLAlchemyError for job_id=%d operator=%s",
-            job_id,
-            current_operator,
-            exc_info=True,
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "type": "about:blank",
-                "title": "Internal Server Error",
-                "status": 500,
-                "detail": "Database operation failed. Please retry.",
-            },
-        )
+    err = _audit_and_commit_legal_hold(
+        session, job, job_id, current_operator, body.enable, previous
+    )
+    if err is not None:
+        return err
 
     _logger.info(
         "Legal hold %s for job id=%d (was=%s, now=%s)",
@@ -237,5 +262,4 @@ def set_legal_hold(
         previous,
         job.legal_hold,
     )
-
     return LegalHoldResponse(job_id=job_id, legal_hold=job.legal_hold)
