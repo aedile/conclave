@@ -83,7 +83,11 @@ class TestSetSpendBudgetFnDoubleSetWarning:
             orch._spend_budget_fn = original
 
     def test_double_set_does_not_raise(self) -> None:
-        """Double-set must succeed — not raise — to preserve backward compatibility."""
+        """Double-set must succeed — not raise — to preserve backward compatibility.
+
+        After two successful calls, _spend_budget_fn must be set (not None).
+        """
+        import synth_engine.modules.synthesizer.jobs.job_orchestration as orch
         from synth_engine.modules.synthesizer.jobs.job_orchestration import (
             set_spend_budget_fn,
         )
@@ -94,6 +98,12 @@ class TestSetSpendBudgetFnDoubleSetWarning:
         # Must not raise
         set_spend_budget_fn(fn_a)
         set_spend_budget_fn(fn_b)
+
+        # Specific: callable must be set to the last supplied value (not None)
+        assert orch._spend_budget_fn is fn_b, (
+            "After double-set, _spend_budget_fn must equal fn_b (the last supplied callable). "
+            f"Got: {orch._spend_budget_fn!r}"
+        )
 
     def test_double_set_stores_last_value(self) -> None:
         """After double-set, _spend_budget_fn must hold the last supplied callable.
