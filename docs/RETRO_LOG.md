@@ -19,10 +19,7 @@ Updated after each task's review phase completes.
 
 | ID | Advisory | Phase |
 |----|----------|-------|
-| ADV-P62-03 | Circuit breaker state is process-local — N×threshold delivery attempts in multi-worker deployments | [P62](#2026-03-27-phase-62--review-summary) |
-| ADV-P63-01 | Grace period clock is per-process — staggered fail-closed across N workers multiplies effective window by N | [P63](#2026-03-27-phase-63--review-summary) |
 | ADV-P70-04 | Missing composite FK integration test with real PostgreSQL (T70.1 AC7). | [P70](#2026-03-29-phase-70--structural-debt-reduction) |
-| ADV-P71-01 | Prometheus multiprocess mode not configured — `PROMETHEUS_MULTIPROC_DIR` unset; per-worker counters invisible in multi-worker deployments. | [P71](#2026-03-29-phase-71--audit-coverage-completion--polish) |
 | ADV-P73-01 | Test-to-code LOC ratio at 4.01:1, exceeds 2.5:1 target. Parametrization and consolidation reduced function count but LOC reduction limited by legitimate test infrastructure (enforcement gates, fault injection). Waived per spec-challenger recommendation. | [P73](#2026-03-29-phase-73--test-quality-rehabilitation) |
 | ADV-P73-02 | Gate 2 does not detect `assert x == True` as weak (uses ast.Eq, only ast.Is/IsNot detected). Accepted tradeoff for incremental adoption; extend in future gate pass. | [P73](#2026-03-29-phase-73--test-quality-rehabilitation) |
 
@@ -35,6 +32,14 @@ the system enters their target tier.
 | ID | Target Tier | Summary | Raised Phase |
 |----|-------------|---------|--------------|
 | _(No deferred items — all 7 tiers assessed COMPLETE as of 2026-04-01. All open advisories are at-tier.)_ | | | |
+
+**CLOSED (P75 — multi-worker safety & observability)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P62-03 | CLOSED — Redis-backed `RedisCircuitBreaker` with `conclave:cb:` key prefix, TTL=cooldown_seconds, SET NX EX half-open probe coordination. Falls back to process-local on Redis unavailability. (T75.1) | P75 |
+| ADV-P63-01 | CLOSED — Grace period start stored in Redis `conclave:grace:started` using `time.time()` (UTC epoch). TTL=grace_period*2. Key deleted on recovery. Falls back to process-local. (T75.2) | P75 |
+| ADV-P71-01 | CLOSED — `validate_prometheus_multiproc_dir()` fail-closed validation at startup. Dir must be absolute, exist, be writable, not inside source tree. `.env.example` documented. (T75.3) | P75 |
 
 **CLOSED (P74 — maintainability & configuration hardening)**
 
