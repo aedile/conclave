@@ -571,47 +571,32 @@ def _attempt_http_post(
         return None  # retry
 
 
-def deliver_webhook(
+def _execute_retry_loop(
     *,
+    cb: WebhookCircuitBreaker,
     registration: WebhookRegistrationProtocol,
+    canonical_body: str,
+    headers: dict[str, str],
     job_id: int,
-    event_type: str,
-    payload: dict[str, Any],
-    timeout_seconds: int = 10,
-    time_budget_seconds: float = _DEFAULT_TIME_BUDGET_SECONDS,
+    delivery_id: str,
+    timeout_seconds: int,
+    time_budget_seconds: float,
 ) -> DeliveryResult:
-    """Deliver a webhook payload to the registered callback URL.
-
-    At-least-once delivery with up to 3 attempts within a 15-second total time
-    budget.  Skips inactive registrations and open circuit breakers.
-    SSRF-validates before each attempt (T69.1).  No time.sleep() — budget only.
+    """Execute the at-most-3 retry loop within the httpx.Client context.
 
     Args:
-        registration: Webhook registration (WebhookRegistrationProtocol).
-        job_id: Integer PK of the synthesis job.
-        event_type: Event type string (e.g. ``"job.completed"``).
-        payload: Dict payload to deliver as JSON.
-        timeout_seconds: HTTP timeout per attempt in seconds.
-        time_budget_seconds: Total wall-clock budget. Defaults to 15 seconds.
+        cb: Circuit breaker instance.
+        registration: Webhook registration.
+        canonical_body: Pre-serialized JSON body string.
+        headers: HTTP headers for each request.
+        job_id: Synthesis job PK (for logging).
+        delivery_id: UUID string for correlation.
+        timeout_seconds: Per-attempt HTTP timeout.
+        time_budget_seconds: Total wall-clock budget in seconds.
 
     Returns:
-        DeliveryResult describing the outcome (SUCCESS, FAILED, or SKIPPED).
+        DeliveryResult (SUCCESS, FAILED, or SKIPPED from mid-loop checks).
     """
-    cb = _get_circuit_breaker()
-    skip = _check_skip_conditions(registration, cb, job_id)
-    if skip is not None:
-        return skip
-
-    delivery_id = str(uuid.uuid4())
-    signature = _compute_hmac_signature(payload, registration.signing_key)
-    canonical_body = _canonicalize_payload(payload)
-    headers = {
-        "Content-Type": "application/json",
-        "X-Conclave-Signature": signature,
-        "X-Conclave-Event": event_type,
-        "X-Conclave-Delivery-Id": delivery_id,
-    }
-
     last_status_code_ref: list[int | None] = [None]
     last_error_ref: list[str | None] = [None]
     budget_start = time.monotonic()
@@ -655,4 +640,56 @@ def deliver_webhook(
         delivery_id=delivery_id,
         response_code=last_status_code_ref[0],
         error_message=last_error_ref[0],
+    )
+
+
+def deliver_webhook(
+    *,
+    registration: WebhookRegistrationProtocol,
+    job_id: int,
+    event_type: str,
+    payload: dict[str, Any],
+    timeout_seconds: int = 10,
+    time_budget_seconds: float = _DEFAULT_TIME_BUDGET_SECONDS,
+) -> DeliveryResult:
+    """Deliver a webhook payload to the registered callback URL.
+
+    At-least-once delivery with up to 3 attempts within a 15-second total time
+    budget.  Skips inactive registrations and open circuit breakers.
+    SSRF-validates before each attempt (T69.1).  No time.sleep() — budget only.
+
+    Args:
+        registration: Webhook registration (WebhookRegistrationProtocol).
+        job_id: Integer PK of the synthesis job.
+        event_type: Event type string (e.g. ``"job.completed"``).
+        payload: Dict payload to deliver as JSON.
+        timeout_seconds: HTTP timeout per attempt in seconds.
+        time_budget_seconds: Total wall-clock budget. Defaults to 15 seconds.
+
+    Returns:
+        DeliveryResult describing the outcome (SUCCESS, FAILED, or SKIPPED).
+    """  # noqa: DOC503
+    cb = _get_circuit_breaker()
+    skip = _check_skip_conditions(registration, cb, job_id)
+    if skip is not None:
+        return skip
+
+    delivery_id = str(uuid.uuid4())
+    signature = _compute_hmac_signature(payload, registration.signing_key)
+    canonical_body = _canonicalize_payload(payload)
+    headers = {
+        "Content-Type": "application/json",
+        "X-Conclave-Signature": signature,
+        "X-Conclave-Event": event_type,
+        "X-Conclave-Delivery-Id": delivery_id,
+    }
+    return _execute_retry_loop(
+        cb=cb,
+        registration=registration,
+        canonical_body=canonical_body,
+        headers=headers,
+        job_id=job_id,
+        delivery_id=delivery_id,
+        timeout_seconds=timeout_seconds,
+        time_budget_seconds=time_budget_seconds,
     )
