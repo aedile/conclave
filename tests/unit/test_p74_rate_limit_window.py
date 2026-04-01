@@ -176,3 +176,73 @@ class TestRateLimitBackendUsesConfiguredWindow:
         key_used, seconds_used = expire_calls[0]
         assert seconds_used == 60, f"Default window must be 60, got {seconds_used}"
         assert "60" in key_used, f"Key must embed '60', got: {key_used}"
+
+
+class TestRateLimitWindowWarning:
+    """Non-default window must emit a WARNING at settings construction."""
+
+    def setup_method(self) -> None:
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+    def teardown_method(self) -> None:
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+    def test_non_default_window_emits_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """CONCLAVE_RATE_LIMIT_WINDOW_SECONDS != 60 must emit a WARNING at startup.
+
+        The warning guards against operator misconfiguration that could weaken
+        rate limits by creating a mismatch between the Redis window TTL and
+        the hardcoded '/minute' period strings in RateLimitGateMiddleware.
+        """
+        import logging
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)  # pragma: allowlist secret
+        monkeypatch.setenv("CONCLAVE_RATE_LIMIT_WINDOW_SECONDS", "120")
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+        with caplog.at_level(logging.WARNING, logger="synth_engine.shared.settings_models"):
+            from synth_engine.shared.settings import ConclaveSettings
+
+            s = ConclaveSettings()
+
+        assert s.conclave_rate_limit_window_seconds == 120, "Window must be 120"
+        warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("CONCLAVE_RATE_LIMIT_WINDOW_SECONDS=120" in msg for msg in warning_msgs), (
+            f"Expected WARNING about non-default window, got: {warning_msgs}"
+        )
+
+    def test_default_window_no_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """CONCLAVE_RATE_LIMIT_WINDOW_SECONDS=60 (default) must NOT emit a mismatch warning."""
+        import logging
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
+        monkeypatch.setenv("AUDIT_KEY", "aa" * 32)  # pragma: allowlist secret
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+        with caplog.at_level(logging.WARNING, logger="synth_engine.shared.settings_models"):
+            from synth_engine.shared.settings import ConclaveSettings
+
+            s = ConclaveSettings()
+
+        assert s.conclave_rate_limit_window_seconds == 60, "Default must be 60"
+        mismatch_warnings = [
+            r.message
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "deviates from the default 60" in r.message
+        ]
+        assert not mismatch_warnings, (
+            f"No mismatch warning expected for default window, got: {mismatch_warnings}"
+        )

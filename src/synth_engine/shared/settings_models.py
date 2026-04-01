@@ -890,6 +890,37 @@ class ConclaveSettingsFields(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _warn_rate_limit_window_mismatch(self) -> ConclaveSettingsFields:
+        """Warn when rate limit window diverges from the hardcoded per-minute periods.
+
+        All rate limit tiers in RateLimitGateMiddleware are parsed as
+        "X/minute" (60-second period).  conclave_rate_limit_window_seconds
+        controls the Redis key TTL and bucket name but NOT the parsed period.
+        Setting it to a non-60 value creates a semantic mismatch: the stated
+        tier is "per minute" but the actual bucket window is different,
+        weakening or strengthening all rate limits proportionally.
+
+        Emits a WARNING in all deployment modes to surface the misconfiguration.
+        This is a WARNING (not ValueError) because the setting has a valid use
+        case if the operator explicitly changes the middleware period strings.
+
+        Returns:
+            The validated instance (self).
+        """
+        if self.conclave_rate_limit_window_seconds != 60:
+            _logger.warning(
+                "CONCLAVE_RATE_LIMIT_WINDOW_SECONDS=%d deviates from the default 60. "
+                "All rate limit tiers are hardcoded as X/minute in RateLimitGateMiddleware. "
+                "A non-60 window creates a mismatch: the Redis TTL (%ds) differs from the "
+                "parsed period (60s), weakening or strengthening all limits proportionally. "
+                "Ensure rate_limit_middleware.py limit period strings are updated to match. "
+                "See .env.example for details. (T74.2 red-team finding)",
+                self.conclave_rate_limit_window_seconds,
+                self.conclave_rate_limit_window_seconds,
+            )
+        return self
+
+    @model_validator(mode="after")
     def _warn_unrecognized_conclave_env_vars(self) -> ConclaveSettingsFields:
         """Log a WARNING for any CONCLAVE_ env var that doesn't match a known field.
 
