@@ -21,8 +21,10 @@ engine when the same URL is subsequently requested with mTLS enabled — a
 scenario that can occur in tests that toggle ``MTLS_ENABLED`` between cases.
 
 Without caching, each call would create a new ``QueuePool`` with up to
-``pool_size + max_overflow = 15`` connections.  In a request-heavy
-environment this could exhaust the available PostgreSQL connections.
+``pool_size + max_overflow`` connections (defaults: 5 + 10 = 15,
+configurable via ``CONCLAVE_DB_POOL_SIZE`` and ``CONCLAVE_DB_MAX_OVERFLOW``).
+In a request-heavy environment this could exhaust the available PostgreSQL
+connections.
 
 Call :func:`dispose_engines` to release all cached engines and their
 connection pools — required between test cases that use different
@@ -365,13 +367,17 @@ def get_worker_engine(database_url: str) -> Engine:
     Isolation is required so that a stuck or slow Huey task cannot exhaust
     the connection pool used by FastAPI request handlers.
 
-    Pool configuration (T48.2, ADR-0035):
+    Pool configuration (T48.2, ADR-0035, T74.1):
     - ``poolclass=QueuePool`` — bounded connection pool.
-    - ``pool_size=1`` — one persistent connection per worker process.
-    - ``max_overflow=2`` — two additional overflow connections for burst.
-    - ``pool_timeout=30`` — raise TimeoutError after 30s on pool exhaustion.
+    - ``pool_size`` — persistent connections per worker (default: 1, via
+      ``CONCLAVE_DB_WORKER_POOL_SIZE``).
+    - ``max_overflow`` — burst overflow connections (default: 2, via
+      ``CONCLAVE_DB_WORKER_MAX_OVERFLOW``).
+    - ``pool_timeout`` — seconds before TimeoutError (default: 30, via
+      ``CONCLAVE_DB_WORKER_POOL_TIMEOUT``).
     - ``pool_pre_ping=True`` — detect stale connections before use.
-    - ``pool_recycle=1800`` — match PgBouncer server_idle_timeout.
+    - ``pool_recycle`` — connection lifetime seconds (default: 1800, via
+      ``CONCLAVE_DB_WORKER_POOL_RECYCLE``).
 
     For SQLite URLs, pool size arguments are skipped (StaticPool used).
 
