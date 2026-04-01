@@ -108,9 +108,26 @@ This principle governs the Constitution itself and all future amendments.
 | 0 | Attack test coverage | `test: add negative/attack tests` commit required before `test: add failing tests` — auditable in git log [ADVISORY — no programmatic gate: commit ordering is convention-enforced only] |
 | 0 | Spec challenge | `spec-challenger` output incorporated before development — auditable in developer brief [ADVISORY — no programmatic gate: incorporation is convention-enforced only] |
 | 2.5 | Priority sequencing | spec-challenger priority-compliance sweep + PM phase-plan checklist |
+| 2.5 | Product maturity gates | Tier exit criteria checklist verified by PM at phase kickoff; reviewers scope-constrained by current tier |
 | 4 | Assertion quality | phase-boundary-auditor assertion-specificity sweep |
 | 4 | Mutation score | `cosmic-ray init cosmic-ray.toml session.sqlite && cosmic-ray exec cosmic-ray.toml session.sqlite && python scripts/check_mutation_score.py session.sqlite` run locally by PM before merge — not in CI (GitHub Actions budget constraint, ADR-0054) |
 | 9 | UI/UX / Accessibility | `ui-ux-reviewer` agent spawned conditionally on frontend changes — findings committed |
+
+## **Section 5: Product Maturity Gates (Priority 2.5)**
+
+The product progresses through maturity tiers. Each tier has objective exit criteria. The PM _MUST NOT_ approve phases targeting Tier N+1 work while Tier N exit criteria remain unmet. Reviewers _MUST NOT_ raise BLOCKER findings against capabilities not yet required by the current tier.
+
+| Tier | Name | Exit Criteria |
+|------|------|---------------|
+| 1 | Core Engine | Subset + mask + synthesize pipeline works E2E on Pagila. Integration tests prove it. No frontend required. |
+| 2 | Operability | Deploy via docker-compose, unseal vault, run a job, retrieve output. Operator manual covers all steps. |
+| 3 | Security Baseline | No CRITICAL/HIGH findings from red-team. Auth on all routes. Audit trail intact. SSRF/IDOR/injection defended. |
+| 4 | Production Hardening | Multi-worker correctness (circuit breaker, Prometheus, vault). Rate limiting. Retention policy. Graceful shutdown. |
+| 5 | API Complete | All REST endpoints documented, versioned, tested. OpenAPI spec published. Webhook delivery reliable. |
+| 6 | Frontend MVP | React SPA: connect, configure job, monitor progress, download output. WCAG 2.1 AA. |
+| 7 | Enterprise Ready | Air-gap deployment validated. mTLS. License activation. Compliance erasure. DR tested. |
+
+Current tier: _PM to assess and fill at next phase kickoff._
 
 ## **Final Mandate: Conflict and Blockers**
 
