@@ -326,6 +326,16 @@ class TestWebhookDeliveryHttpxTimeout:
         def _timeout_post(*args: object, **kwargs: object) -> None:
             raise httpx.TimeoutException("Request timed out")
 
+        # T75.1: Reset CB Redis client to None so _get_circuit_breaker() uses the
+        # process-local fallback.  Without this, the RedisCircuitBreaker tries to
+        # reach Redis on every is_open()/record_failure() call, causing real network
+        # timeouts (~180s each × 3 retries = 540s hang) in CI environments.
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            set_circuit_breaker_redis_client,
+        )
+
+        set_circuit_breaker_redis_client(None)
+
         start_time = time.monotonic()
 
         with (
