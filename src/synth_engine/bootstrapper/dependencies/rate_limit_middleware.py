@@ -14,12 +14,32 @@ compat.  To break the cycle, this module imports identity/config helpers
 from :mod:`.rate_limit` only inside method bodies (deferred imports),
 never at module scope.
 
+Redis-backed grace period (T75.2)
+-----------------------------------
+The grace period start timestamp is stored in Redis under the key
+``conclave:grace:started`` using ``time.time()`` (UTC epoch — NOT
+``time.monotonic()`` which is per-process and not comparable across
+multiple uvicorn workers).
+
+TTL: ``_REDIS_GRACE_PERIOD_TTL_SECONDS`` (default: 2x the grace period).
+This ensures stale grace keys expire well after the grace period ends,
+preventing spurious fail-closed behavior on clean restarts.
+
+On Redis recovery (successful ``_redis_hit``), the grace key is deleted
+from Redis (not just reset in process memory) so all workers agree.
+
+Fallback: if Redis is unavailable, the grace period is tracked in
+process-local memory only (the existing ``_redis_first_failure_time``
+attribute).  This is the pre-T75.2 behavior and remains correct for
+single-worker deployments.
+
 CONSTITUTION Priority 0: Security — outermost DoS/brute-force gate.
 Task: T39.3 — Add Rate Limiting Middleware
 Task: T48.1 — Redis-Backed Rate Limiting
 Task: T63.3 — Rate Limiter Fail-Closed on Redis Failure
 Task: T64.3 — Decompose rate_limit.py
 Task: T66.3 — Pass trusted_proxy_count to _extract_client_ip for safe XFF handling
+Task: T75.2 — Redis-Backed Grace Period Clock
 """
 
 from __future__ import annotations
@@ -55,7 +75,23 @@ _REDIS_GRACE_PERIOD_SECONDS: int = 5
 #: Retry-After seconds in the fail-closed 429 response after grace period expires.
 _DEFAULT_RETRY_AFTER_SECONDS: int = _REDIS_GRACE_PERIOD_SECONDS
 
+#: Redis key prefix for the grace period start timestamp (T75.2).
+#: Uses ``conclave:grace:`` namespace to avoid collision with
+#: ``conclave:cb:`` and ``ratelimit:`` key namespaces.
+_REDIS_GRACE_KEY_PREFIX: str = "conclave:grace:"
+
+#: Full Redis key for storing the grace period start timestamp.
+_REDIS_GRACE_KEY: str = f"{_REDIS_GRACE_KEY_PREFIX}started"
+
+#: TTL for the grace period Redis key in seconds (T75.2).
+#: Set to 2x the grace period so stale keys expire after any restart.
+#: Must be > 0 and >= _REDIS_GRACE_PERIOD_SECONDS * 2.
+_REDIS_GRACE_PERIOD_TTL_SECONDS: int = _REDIS_GRACE_PERIOD_SECONDS * 2
+
 __all__ = [
+    "_REDIS_GRACE_KEY_PREFIX",
+    "_REDIS_GRACE_PERIOD_SECONDS",
+    "_REDIS_GRACE_PERIOD_TTL_SECONDS",
     "RateLimitGateMiddleware",
     "_build_429_response",
     "_build_retry_after",
@@ -123,6 +159,12 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
     - Post-grace-period: all requests rejected 429 until Redis recovers.
     Grace period clock is non-renewable (resets only on genuine recovery).
 
+    Redis-backed grace period (T75.2): the grace period start timestamp is
+    stored in Redis using UTC epoch (``time.time()``) so all N workers share
+    a single clock.  On Redis recovery, the grace key is deleted.  Fallback:
+    if Redis is unavailable for storing the grace key, process-local memory
+    is used (pre-T75.2 behavior; safe for single-worker deployments).
+
     Fail-open mode (``CONCLAVE_RATE_LIMIT_FAIL_OPEN=true``): pre-P63
     behavior — in-memory fallback always permitted. Security WARNING emitted.
 
@@ -164,7 +206,7 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         # T63.3: fail-open restores pre-P63 in-memory fallback (no grace/fail-closed).
         self._fail_open: bool = settings.conclave_rate_limit_fail_open
         # T63.3: monotonic timestamp of first Redis failure; None = healthy.
-        # Reset to None only on genuine Redis recovery (non-renewable grace period).
+        # Used for process-local grace period tracking (fallback when Redis unavailable).
         self._redis_first_failure_time: float | None = None
         # T66.3: number of trusted reverse proxies for XFF extraction.
         self._trusted_proxy_count: int = settings.conclave_trusted_proxy_count
@@ -228,6 +270,83 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
             return self._download_limit, key
         return self._general_limit, key
 
+    def _record_grace_period_start(self) -> None:
+        """Store the grace period start timestamp in Redis using UTC epoch.
+
+        Uses ``time.time()`` (UTC epoch) so all N workers share the same
+        clock reference.  Uses ``SET NX EX`` to avoid overwriting an existing
+        grace start (only the first Redis failure sets the clock).
+
+        Falls back silently if Redis is unavailable — process-local
+        ``_redis_first_failure_time`` is the fallback (set by the caller).
+        """
+        try:
+            self._redis.set(
+                _REDIS_GRACE_KEY,
+                str(time.time()),
+                nx=True,
+                ex=_REDIS_GRACE_PERIOD_TTL_SECONDS,
+            )
+        except redis_lib.RedisError:
+            # Redis is unavailable — process-local fallback already set by caller.
+            pass
+
+    def _record_redis_recovery(self) -> None:
+        """Delete the grace period key from Redis on genuine Redis recovery.
+
+        Deletes the ``conclave:grace:started`` key from Redis so all workers
+        see the recovery and exit the grace period simultaneously.  Also
+        resets the process-local ``_redis_first_failure_time`` to None.
+
+        Falls back silently if the DELETE itself fails (Redis still unstable).
+        """
+        self._redis_first_failure_time = None
+        try:
+            self._redis.delete(_REDIS_GRACE_KEY)
+        except redis_lib.RedisError:
+            # Redis recovery DELETE failed — will retry on next successful hit.
+            pass
+
+    def _get_grace_period_elapsed(self, now: float) -> float:
+        """Return elapsed seconds since the grace period started.
+
+        Reads the grace period start from Redis first (shared across workers).
+        Falls back to the process-local ``_redis_first_failure_time`` if the
+        Redis key is absent or unreadable.
+
+        Args:
+            now: Current UTC epoch float (from ``time.time()``).
+
+        Returns:
+            Elapsed seconds since grace period start; ``0.0`` if no grace
+            period is active.
+        """
+        # Try Redis-shared grace start first
+        try:
+            raw = self._redis.get(_REDIS_GRACE_KEY)
+            if raw is not None:
+                started_at = float(raw)  # type: ignore[arg-type]  # redis.get() returns bytes | None
+                return now - started_at
+        except (redis_lib.RedisError, ValueError, TypeError):
+            pass
+        # Fall back to process-local tracking
+        if self._redis_first_failure_time is not None:
+            return now - self._redis_first_failure_time
+        return 0.0
+
+    def _handle_redis_failure(self) -> None:
+        """Record the first Redis failure time for grace period tracking.
+
+        Called when a ``redis.RedisError`` is caught during rate limit check.
+        Sets ``_redis_first_failure_time`` (process-local) on the first call.
+        Also writes the grace period start to Redis (T75.2) via
+        ``_record_grace_period_start()``.
+        """
+        now = time.time()
+        if self._redis_first_failure_time is None:
+            self._redis_first_failure_time = now
+            self._record_grace_period_start()
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Gate every request through the rate limit tier.
 
@@ -253,11 +372,11 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
         allowed: bool
         try:
             count, allowed = await asyncio.to_thread(_redis_hit, self._redis, limit_str, key)
-            self._redis_first_failure_time = None  # genuine recovery
+            # Genuine Redis recovery — reset process-local timer and delete grace key
+            self._record_redis_recovery()
         except redis_lib.RedisError as e:
-            now = time.monotonic()
-            if self._redis_first_failure_time is None:
-                self._redis_first_failure_time = now
+            now = time.time()
+            self._handle_redis_failure()
             RATE_LIMIT_REDIS_FALLBACK_TOTAL.labels(tier=tier).inc()
             hashed_key = hashlib.sha256(key.encode()).hexdigest()[:12]
             _logger.warning(
@@ -269,7 +388,7 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
             if self._fail_open:
                 count, allowed = _memory_hit(self._fallback_limiter, limit, key)
             else:
-                elapsed = now - self._redis_first_failure_time
+                elapsed = self._get_grace_period_elapsed(now)
                 if elapsed <= _REDIS_GRACE_PERIOD_SECONDS:
                     count, allowed = _memory_hit(self._fallback_limiter, limit, key)
                 else:
