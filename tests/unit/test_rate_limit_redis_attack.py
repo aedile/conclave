@@ -15,6 +15,7 @@ Task: T48.1 — Redis-Backed Rate Limiting
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -223,23 +224,26 @@ async def test_graceful_degradation_redis_down_allows_request() -> None:
     consistent with the in-memory fallback being active during those 5 seconds.
     A WARNING must still be logged for the Redis failure.
     """
-    import time
-    from unittest.mock import patch
-
     mock_redis = MagicMock(spec=redis_lib.Redis)
     mock_pipeline = MagicMock()
     mock_pipeline.__enter__ = MagicMock(return_value=mock_pipeline)
     mock_pipeline.__exit__ = MagicMock(return_value=False)
     mock_pipeline.execute.side_effect = redis_lib.ConnectionError("Redis down")
     mock_redis.pipeline.return_value = mock_pipeline
+    # T75.2: grace period methods (get/set/delete) must also fail so process-local
+    # fallback is used and elapsed time is computed relative to patched time.time.
+    mock_redis.get.side_effect = redis_lib.ConnectionError("Redis down")
+    mock_redis.set.side_effect = redis_lib.ConnectionError("Redis down")
+    mock_redis.delete.side_effect = redis_lib.ConnectionError("Redis down")
 
     app = _build_redis_app(redis_client=mock_redis, unseal_limit=100)
 
-    # Freeze monotonic time so we stay within the grace period
-    frozen_time = time.monotonic()
+    # Freeze time.time so we stay within the grace period.
+    # T75.2: grace period clock uses time.time() (UTC epoch), not time.monotonic().
+    frozen_time = time.time()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         with patch(
-            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.monotonic",
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.time",
             return_value=frozen_time,
         ):
             response = await client.post("/unseal", headers={"X-Forwarded-For": "10.1.1.1"})
@@ -487,14 +491,26 @@ async def test_in_memory_fallback_still_enforces_limits() -> None:
     mock_pipeline.__exit__ = MagicMock(return_value=False)
     mock_pipeline.execute.side_effect = redis_lib.ConnectionError("Redis down")
     mock_redis.pipeline.return_value = mock_pipeline
+    # T75.2: grace period methods (get/set/delete) must also fail so process-local
+    # fallback is used and elapsed time is near zero (within the grace period).
+    mock_redis.get.side_effect = redis_lib.ConnectionError("Redis down")
+    mock_redis.set.side_effect = redis_lib.ConnectionError("Redis down")
+    mock_redis.delete.side_effect = redis_lib.ConnectionError("Redis down")
 
     app = _build_redis_app(redis_client=mock_redis, unseal_limit=2)
 
+    # Freeze time.time so all 3 requests appear within the grace period.
+    # T75.2: grace period clock uses time.time() (UTC epoch), not time.monotonic().
+    frozen_time = time.time()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         headers = {"X-Forwarded-For": "10.9.9.9"}
-        r1 = await client.post("/unseal", headers=headers)
-        r2 = await client.post("/unseal", headers=headers)
-        r3 = await client.post("/unseal", headers=headers)
+        with patch(
+            "synth_engine.bootstrapper.dependencies.rate_limit_middleware.time.time",
+            return_value=frozen_time,
+        ):
+            r1 = await client.post("/unseal", headers=headers)
+            r2 = await client.post("/unseal", headers=headers)
+            r3 = await client.post("/unseal", headers=headers)
 
     assert r1.status_code == 200, f"First request must pass; got {r1.status_code}"
     assert r2.status_code == 200, f"Second request must pass; got {r2.status_code}"

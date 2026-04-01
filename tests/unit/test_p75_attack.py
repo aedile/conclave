@@ -25,7 +25,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -83,8 +83,7 @@ class TestRedisCBKeyPrefix:
             (method, key) for method, key in all_calls if key.startswith("conclave:cb:")
         ]
         assert len(conclave_calls) > 0, (
-            "CB Redis keys must use 'conclave:cb:' prefix. "
-            f"All key args seen: {all_calls}"
+            f"CB Redis keys must use 'conclave:cb:' prefix. All key args seen: {all_calls}"
         )
 
     def test_cb_redis_key_is_scoped_per_url(self) -> None:
@@ -176,6 +175,8 @@ class TestRedisCBTTL:
             "Call expire() or use SET with EX argument. "
             f"expire calls: {expire_calls}, set calls: {set_calls}"
         )
+        # Specific assertion: at least one Redis method was called (INCR triggers state)
+        assert mock_redis.incr.called, "record_failure() must call Redis INCR"
 
     def test_cb_failure_key_ttl_matches_cooldown(self) -> None:
         """TTL on the failure counter key must equal ``cooldown_seconds``.
@@ -208,14 +209,15 @@ class TestRedisCBTTL:
             if len(args) >= 2:
                 ttl_arg = args[1]
                 assert ttl_arg == cooldown, (
-                    f"CB Redis key TTL must be {cooldown} (cooldown_seconds), "
-                    f"got TTL={ttl_arg}."
+                    f"CB Redis key TTL must be {cooldown} (cooldown_seconds), got TTL={ttl_arg}."
                 )
 
         # Check SET calls with EX kwarg
         for set_call in mock_redis.set.call_args_list:
-            kw = set_call.kwargs if hasattr(set_call, "kwargs") else (
-                set_call[1] if len(set_call) > 1 else {}
+            kw = (
+                set_call.kwargs
+                if hasattr(set_call, "kwargs")
+                else (set_call[1] if len(set_call) > 1 else {})
             )
             if "ex" in kw:
                 assert kw["ex"] == cooldown, (
@@ -259,6 +261,12 @@ class TestRedisCBCorruptValue:
                 f"RedisCircuitBreaker.record_failure() must not raise on Redis error. "
                 f"Got: {type(exc).__name__}: {exc}"
             )
+        # After a Redis error, the circuit must remain in closed state (not permanently stuck)
+        is_open_val = cb.is_open(url)
+        assert is_open_val == False, (
+            "After Redis error in record_failure(), circuit must remain closed (not open). "
+            f"Got: {is_open_val!r}"
+        )
 
     def test_non_integer_incr_response_triggers_fallback(self) -> None:
         """If INCR returns a bytes value that cannot be interpreted as int, fallback must fire."""
@@ -287,6 +295,11 @@ class TestRedisCBCorruptValue:
                 f"RedisCircuitBreaker must handle non-integer INCR response gracefully. "
                 f"Got: {type(exc).__name__}: {exc}"
             )
+        # Specific: circuit must remain closed after graceful degradation
+        result = cb.is_open(url)
+        assert result == False, (
+            f"After non-integer INCR, circuit must remain closed. Got: {result!r}"
+        )
 
 
 class TestRedisCBHalfOpenProbeCoordination:
@@ -323,7 +336,8 @@ class TestRedisCBHalfOpenProbeCoordination:
         # Check that SET was called with nx=True and ex=cooldown
         set_calls = mock_redis.set.call_args_list
         probe_set_calls = [
-            c for c in set_calls
+            c
+            for c in set_calls
             if (c.kwargs if hasattr(c, "kwargs") else (c[1] if len(c) > 1 else {})).get("nx")
         ]
         # Probe lock must use NX to be atomic
@@ -503,7 +517,6 @@ class TestPrometheusMultiprocDirValidation:
         Storing Prometheus .db files inside src/ would contaminate the source
         tree and risk committing metrics data to version control.
         """
-        import sys
 
         from synth_engine.bootstrapper.main import validate_prometheus_multiproc_dir
 
@@ -519,7 +532,11 @@ class TestPrometheusMultiprocDirValidation:
 
         # tmp_path is absolute, writable, and outside src/
         # Should not raise
-        validate_prometheus_multiproc_dir(str(tmp_path))
+        result = validate_prometheus_multiproc_dir(str(tmp_path))
+        # Specific: must return None (validation-only function)
+        assert result == None, (  # noqa: E711 — explicit None return check
+            f"validate_prometheus_multiproc_dir must return None for valid dirs. Got: {result!r}"
+        )
 
     def test_env_var_not_set_returns_none_or_noop(self) -> None:
         """When PROMETHEUS_MULTIPROC_DIR is not set, single-worker mode must work unchanged.
@@ -531,8 +548,10 @@ class TestPrometheusMultiprocDirValidation:
 
         # Passing None (or empty string) signals "not configured"
         result = validate_prometheus_multiproc_dir(None)
-        # Must not raise; result can be None
-        assert result is None
+        # Must not raise; result must be None (single-worker mode no-op)
+        assert result == None, (  # noqa: E711 — explicit None return check
+            f"Expected None for None input, got {result!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -563,9 +582,7 @@ class TestFactoryDoubleSetWarns:
             set_dp_wrapper_factory(factory_b)  # double-set — must warn
 
             # Verify warning was emitted on the second call
-            warning_calls = [
-                c for c in mock_logger.method_calls if "warning" in str(c[0]).lower()
-            ]
+            warning_calls = [c for c in mock_logger.method_calls if "warning" in str(c[0]).lower()]
             # At minimum one warning must have been emitted for the double-set
             assert len(warning_calls) >= 1, (
                 "set_dp_wrapper_factory() called twice must emit at least one WARNING. "
@@ -587,9 +604,7 @@ class TestFactoryDoubleSetWarns:
             set_webhook_delivery_fn(fn_a)
             set_webhook_delivery_fn(fn_b)  # double-set — must warn
 
-            warning_calls = [
-                c for c in mock_logger.method_calls if "warning" in str(c[0]).lower()
-            ]
+            warning_calls = [c for c in mock_logger.method_calls if "warning" in str(c[0]).lower()]
             assert len(warning_calls) >= 1, (
                 "set_webhook_delivery_fn() called twice must emit at least one WARNING. "
                 f"Logger calls: {mock_logger.method_calls}"
@@ -611,6 +626,13 @@ class TestFactoryDoubleSetWarns:
 
         set_webhook_delivery_fn(fn)
         set_webhook_delivery_fn(fn)
+
+        # Specific: factories must be set (not None) after double-set
+        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
+
+        assert orch._dp_wrapper_factory is factory, (
+            "After double-set, _dp_wrapper_factory must be the last supplied factory."
+        )
 
 
 class TestFactoryLockThreadSafety:
@@ -662,7 +684,6 @@ class TestFactoryLockThreadSafety:
         If reset helpers bypass the lock, a set() + reset() interleaving could
         leave state in an inconsistent intermediate position.
         """
-        from synth_engine.modules.synthesizer.jobs import job_orchestration as orch
         from synth_engine.modules.synthesizer.jobs.job_orchestration import (
             _reset_webhook_delivery_fn,
             set_webhook_delivery_fn,
@@ -697,23 +718,40 @@ class TestRedisCBFallback:
     """CB must fall back to process-local WebhookCircuitBreaker when Redis is unavailable."""
 
     def test_redis_unavailable_at_startup_produces_local_fallback(self) -> None:
-        """If Redis is unavailable on first _get_circuit_breaker() call, return local CB.
+        """If Redis client raises on first use in _get_circuit_breaker(), return local CB.
 
         The module MUST NOT store None as the circuit breaker singleton.
         It MUST store a process-local WebhookCircuitBreaker instance instead.
         After a Redis failure, subsequent calls must reuse the same local CB
         (not re-attempt Redis on every delivery).
+
+        T75.1: Redis client is injected via set_circuit_breaker_redis_client().
+        When the injected Redis client is unavailable (raises on first use),
+        _get_circuit_breaker() falls back to process-local WebhookCircuitBreaker.
         """
         import redis as redis_lib
 
         import synth_engine.modules.synthesizer.jobs.webhook_delivery as _mod
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            WebhookCircuitBreaker,
+            set_circuit_breaker_redis_client,
+        )
 
-        original = _mod._MODULE_CIRCUIT_BREAKER
-        _mod._MODULE_CIRCUIT_BREAKER = None
+        original_cb = _mod._MODULE_CIRCUIT_BREAKER
+        original_redis = _mod._CB_REDIS_CLIENT
+
+        # Inject a Redis client that fails on any operation
+        failing_redis = MagicMock()
+        failing_redis.ping.side_effect = redis_lib.ConnectionError("Redis unavailable")
 
         try:
+            # set_circuit_breaker_redis_client resets _MODULE_CIRCUIT_BREAKER to None
+            set_circuit_breaker_redis_client(failing_redis)
+
+            # Patch RedisCircuitBreaker.__init__ to raise ConnectionError
+            # so that _get_circuit_breaker() exercises the except branch
             with patch(
-                "synth_engine.modules.synthesizer.jobs.webhook_delivery.get_redis_client",
+                "synth_engine.modules.synthesizer.jobs.webhook_delivery.RedisCircuitBreaker",
                 side_effect=redis_lib.ConnectionError("Redis unavailable at startup"),
             ):
                 cb = _mod._get_circuit_breaker()
@@ -725,10 +763,6 @@ class TestRedisCBFallback:
             )
 
             # Must be a WebhookCircuitBreaker (process-local fallback)
-            from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
-                WebhookCircuitBreaker,
-            )
-
             assert isinstance(cb, WebhookCircuitBreaker), (
                 f"Fallback must be WebhookCircuitBreaker, got {type(cb).__name__}"
             )
@@ -738,5 +772,10 @@ class TestRedisCBFallback:
                 "After Redis-unavailable fallback, _MODULE_CIRCUIT_BREAKER must not be None. "
                 "Store the local fallback so subsequent calls reuse it."
             )
+            # Specific: the stored singleton must be the same object returned
+            assert _mod._MODULE_CIRCUIT_BREAKER is cb, (
+                "The stored singleton must be the same WebhookCircuitBreaker instance returned."
+            )
         finally:
-            _mod._MODULE_CIRCUIT_BREAKER = original
+            _mod._CB_REDIS_CLIENT = original_redis
+            _mod._MODULE_CIRCUIT_BREAKER = original_cb

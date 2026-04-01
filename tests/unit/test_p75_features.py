@@ -74,7 +74,12 @@ class TestRedisCircuitBreakerHappyPath:
         # Simulate tripped_at key existing in Redis
         tripped_ts = str(time.time()).encode()
         mock_redis.get.return_value = tripped_ts
-        assert cb.is_open(url) is True
+        result = cb.is_open(url)
+        assert result is True, f"Expected circuit to be open after threshold failures, got {result}"
+        # Specific: INCR must have been called exactly once (one failure)
+        assert mock_redis.incr.call_count == 1, (
+            f"record_failure() must call INCR exactly once. Got {mock_redis.incr.call_count}"
+        )
 
     def test_redis_cb_not_open_before_threshold(self) -> None:
         """RedisCircuitBreaker.is_open() returns False before threshold is reached."""
@@ -95,7 +100,10 @@ class TestRedisCircuitBreakerHappyPath:
         )
         cb.record_failure(url)
 
-        assert cb.is_open(url) is False
+        result = cb.is_open(url)
+        assert result is False, f"Circuit must be closed before threshold. Got: {result}"
+        # Specific: get() must return None (no tripped_at key) for closed circuit
+        assert mock_redis.get.called, "is_open() must query Redis for tripped_at key"
 
     def test_redis_cb_allows_probe_after_cooldown(self) -> None:
         """RedisCircuitBreaker must allow a probe attempt after cooldown expires.
@@ -155,47 +163,60 @@ class TestRedisCircuitBreakerHappyPath:
         )
         # All deleted keys must use the conclave:cb: prefix
         for key in deleted_keys:
-            assert "conclave:cb:" in key, (
-                f"Deleted key must use conclave:cb: prefix. Got: {key!r}"
-            )
+            assert "conclave:cb:" in key, f"Deleted key must use conclave:cb: prefix. Got: {key!r}"
 
     def test_get_circuit_breaker_returns_redis_cb_when_redis_available(self) -> None:
-        """_get_circuit_breaker() must return RedisCircuitBreaker when Redis is available."""
+        """_get_circuit_breaker() must return RedisCircuitBreaker when Redis is injected."""
         import synth_engine.modules.synthesizer.jobs.webhook_delivery as _mod
         from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
             RedisCircuitBreaker,
+            set_circuit_breaker_redis_client,
         )
 
         mock_redis = MagicMock()
         mock_redis.ping.return_value = True
 
-        with patch(
-            "synth_engine.modules.synthesizer.jobs.webhook_delivery.get_redis_client",
-            return_value=mock_redis,
-        ):
+        # Capture original state for teardown
+        original_cb = _mod._MODULE_CIRCUIT_BREAKER
+        original_redis = _mod._CB_REDIS_CLIENT
+        try:
+            # Inject the mock Redis client via the IoC injection function (T75.1)
+            set_circuit_breaker_redis_client(mock_redis)
             cb = _mod._get_circuit_breaker()
+        finally:
+            # Restore original state
+            _mod._CB_REDIS_CLIENT = original_redis
+            _mod._MODULE_CIRCUIT_BREAKER = original_cb
 
         assert isinstance(cb, RedisCircuitBreaker), (
-            f"_get_circuit_breaker() must return RedisCircuitBreaker when Redis is available. "
+            f"_get_circuit_breaker() must return RedisCircuitBreaker when Redis is injected. "
             f"Got: {type(cb).__name__}"
+        )
+        # Specific: the CB must use the mock redis client
+        assert cb._redis is mock_redis, (
+            "RedisCircuitBreaker must be constructed with the injected Redis client."
         )
 
     def test_get_circuit_breaker_caches_singleton(self) -> None:
         """_get_circuit_breaker() must return the same instance on subsequent calls."""
         import synth_engine.modules.synthesizer.jobs.webhook_delivery as _mod
+        from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+            set_circuit_breaker_redis_client,
+        )
 
         mock_redis = MagicMock()
 
-        with patch(
-            "synth_engine.modules.synthesizer.jobs.webhook_delivery.get_redis_client",
-            return_value=mock_redis,
-        ):
+        original_cb = _mod._MODULE_CIRCUIT_BREAKER
+        original_redis = _mod._CB_REDIS_CLIENT
+        try:
+            set_circuit_breaker_redis_client(mock_redis)
             cb1 = _mod._get_circuit_breaker()
             cb2 = _mod._get_circuit_breaker()
+        finally:
+            _mod._CB_REDIS_CLIENT = original_redis
+            _mod._MODULE_CIRCUIT_BREAKER = original_cb
 
-        assert cb1 is cb2, (
-            "_get_circuit_breaker() must return the same singleton instance."
-        )
+        assert cb1 is cb2, "_get_circuit_breaker() must return the same singleton instance."
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +230,8 @@ class TestRedisGracePeriodHappyPath:
     def test_grace_period_constant_exported(self) -> None:
         """Grace period TTL constant must be exported for test inspection."""
         from synth_engine.bootstrapper.dependencies.rate_limit_middleware import (
-            _REDIS_GRACE_PERIOD_TTL_SECONDS,
             _REDIS_GRACE_KEY_PREFIX,
+            _REDIS_GRACE_PERIOD_TTL_SECONDS,
         )
 
         assert isinstance(_REDIS_GRACE_PERIOD_TTL_SECONDS, int)
@@ -242,15 +263,11 @@ class TestRedisGracePeriodHappyPath:
         Redis (not just stored in process-local memory) so all workers agree
         on when the grace period expires.
         """
-        import asyncio
 
         import redis as redis_lib
 
         from synth_engine.bootstrapper.dependencies.rate_limit_middleware import (
             RateLimitGateMiddleware,
-        )
-        from synth_engine.bootstrapper.dependencies.rate_limit_backend import (
-            _redis_hit,
         )
 
         stored_grace: list[tuple[str, Any]] = []
@@ -316,7 +333,10 @@ class TestPrometheusMultiprocMode:
         from synth_engine.bootstrapper.main import validate_prometheus_multiproc_dir
 
         result = validate_prometheus_multiproc_dir(None)
-        assert result is None
+        assert result == None, (  # noqa: E711 — explicit None return check
+            f"validate_prometheus_multiproc_dir(None) must return None (single-worker no-op). "
+            f"Got: {result!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -394,8 +414,17 @@ class TestFactoryLock:
         """
         from pathlib import Path as _Path
 
-        wiring_py = _Path(__file__).parent.parent.parent / "src" / "synth_engine" / "bootstrapper" / "wiring.py"
-        orch_py = _Path(__file__).parent.parent.parent / "src" / "synth_engine" / "modules" / "synthesizer" / "jobs" / "job_orchestration.py"
+        repo_root = _Path(__file__).parent.parent.parent
+        wiring_py = repo_root / "src" / "synth_engine" / "bootstrapper" / "wiring.py"
+        orch_py = (
+            repo_root
+            / "src"
+            / "synth_engine"
+            / "modules"
+            / "synthesizer"
+            / "jobs"
+            / "job_orchestration.py"
+        )
 
         wiring_text = wiring_py.read_text()
         orch_text = orch_py.read_text()
@@ -409,12 +438,18 @@ class TestFactoryLock:
             or "intra-process" in wiring_text.lower()
             or "intra-process" in orch_text.lower()
         )
-        assert has_doc, (
+        assert has_doc is True, (
             "The threading.Lock for factory injection must be documented as intra-process "
             "thread-safety only (not cross-process). Add a comment or docstring in "
             "wiring.py or job_orchestration.py explaining: "
             "'This lock protects thread-safety within a single worker process. "
             "Cross-process safety is provided by process-level isolation.'"
+        )
+        # Specific: the documentation must appear in at least one of these files
+        combined = wiring_text + orch_text
+        assert "single worker process" in combined.lower() or "intra-process" in combined.lower(), (
+            "Documentation must use the term 'single worker process' or 'intra-process' "
+            "to clearly scope the lock to per-process thread safety."
         )
 
 
@@ -465,6 +500,11 @@ class TestRedisCBPrometheusCounter:
 
         mock_counter.labels.assert_called_once_with(reason="consecutive_failures")
         mock_labels.inc.assert_called_once()
+        # Specific: inc() must be called exactly 1 time on threshold trip
+        assert mock_labels.inc.call_count == 1, (
+            f"Prometheus counter must increment exactly once on trip. "
+            f"Got: {mock_labels.inc.call_count}"
+        )
 
 
 # ---------------------------------------------------------------------------
