@@ -5,6 +5,7 @@ Responsible for:
 - HMAC-SHA256 payload signing.
 - Non-blocking retry with 15-second total time budget (T62.2).
 - Circuit breaker: trips after N consecutive failures per URL (T62.2).
+- Redis-backed circuit breaker for multi-worker deployments (T75.1).
 - Returning a :class:`DeliveryResult` describing the outcome.
 
 This module purposely contains NO FastAPI, SQLModel, or bootstrapper imports.
@@ -22,20 +23,27 @@ SSRF protection model
 
 Private IP ranges blocked: see ``shared/ssrf.BLOCKED_NETWORKS``.
 
-Circuit breaker (T62.2)
------------------------
+Circuit breaker (T62.2, T75.1)
+--------------------------------
 A per-URL circuit breaker prevents continued delivery attempts to a failing
 endpoint.  After ``webhook_circuit_breaker_threshold`` consecutive failures
 to the same URL, the circuit trips and deliveries are skipped for
 ``webhook_circuit_breaker_cooldown_seconds``.
 
-State: in-memory only.  State is NOT shared across workers or persisted.
-This is intentional for the single-worker deployment model.  In a
-multi-worker deployment, circuit state would need to be stored in Redis.
-This constraint is documented in this module's docstring.
+Redis-backed circuit breaker (T75.1)
+--------------------------------------
+When Redis is available at startup, :class:`RedisCircuitBreaker` is used
+instead of the process-local :class:`WebhookCircuitBreaker`.  The Redis
+implementation uses the key prefix ``conclave:cb:`` to avoid collisions
+with ``ratelimit:`` and ``huey.*`` keys.  All Redis keys carry TTL equal
+to ``cooldown_seconds`` so keys cannot become permanent on worker crash.
 
-After the cooldown expires, one probe delivery is attempted.  If it
-succeeds the circuit resets; if it fails the circuit re-trips.
+Half-open probe: ``SET conclave:cb:{url_hash}:probe NX EX {cooldown}``
+ensures only one worker among N fires the probe attempt.
+
+Fallback: if Redis is unavailable at first ``_get_circuit_breaker()`` call,
+a process-local :class:`WebhookCircuitBreaker` singleton is stored and reused
+for the process lifetime — no per-call Redis re-attempts.
 
 Total time budget: 15 seconds per delivery chain.  The retry loop checks
 ``time.monotonic()`` before each attempt.  ``time.sleep()`` is removed
@@ -90,6 +98,14 @@ _MAX_ATTEMPTS: int = 3
 _DEFAULT_TIME_BUDGET_SECONDS: float = 15.0
 
 # ---------------------------------------------------------------------------
+# Redis key prefix constants (T75.1)
+# ---------------------------------------------------------------------------
+
+#: Key prefix for all circuit breaker Redis keys.
+#: Scoped to avoid collision with ``ratelimit:`` and ``huey.*`` namespaces.
+_CB_KEY_PREFIX: str = "conclave:cb:"
+
+# ---------------------------------------------------------------------------
 # Prometheus metrics
 # ---------------------------------------------------------------------------
 
@@ -139,6 +155,27 @@ def _sanitize_url_for_log(url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# URL hash helper for Redis key scoping (T75.1)
+# ---------------------------------------------------------------------------
+
+
+def _url_hash(url: str) -> str:
+    """Return a short SHA-256 hex digest of ``url`` for use as a Redis key component.
+
+    Hashing the URL avoids embedding arbitrary user-controlled strings directly
+    into Redis key names (defense-in-depth against key-injection via crafted
+    callback URLs).
+
+    Args:
+        url: The callback URL to hash.
+
+    Returns:
+        First 16 hex characters of the SHA-256 digest of ``url``.
+    """
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
 # Delivery result value object
 # ---------------------------------------------------------------------------
 
@@ -163,7 +200,7 @@ class DeliveryResult:
 
 
 # ---------------------------------------------------------------------------
-# Circuit breaker
+# Circuit breaker — process-local (original implementation)
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +218,7 @@ class WebhookCircuitBreaker:
     share a single circuit breaker instance safely.
 
     State: in-memory only.  Not shared across workers; not persisted.
-    In multi-worker deployments, use Redis-backed state instead.
+    In multi-worker deployments, use :class:`RedisCircuitBreaker` instead.
 
     Args:
         threshold: Consecutive failures before tripping.
@@ -279,23 +316,292 @@ class WebhookCircuitBreaker:
 
 
 # ---------------------------------------------------------------------------
+# Circuit breaker — Redis-backed (T75.1, multi-worker safe)
+# ---------------------------------------------------------------------------
+
+
+class RedisCircuitBreaker:
+    """Redis-backed per-URL circuit breaker for multi-worker webhook delivery.
+
+    Stores failure counts and trip timestamps in Redis so that N uvicorn
+    workers share a single circuit state.  All Redis keys use the prefix
+    ``conclave:cb:`` to avoid collision with ``ratelimit:`` and ``huey.*``
+    namespaces.  Every key carries a TTL equal to ``cooldown_seconds`` so
+    stale keys cannot become permanent on worker crash.
+
+    Half-open probe coordination
+    ----------------------------
+    When the circuit is in half-open state (cooldown expired), only ONE
+    worker may fire the probe.  This is coordinated atomically via::
+
+        SET conclave:cb:{url_hash}:probe NX EX {cooldown_seconds}
+
+    The worker that successfully sets the probe key fires the probe.
+    All others see ``is_open() → True`` (probe key exists, SET NX fails).
+
+    Graceful degradation
+    --------------------
+    All Redis operations are wrapped in ``try/except redis.RedisError`` (and
+    also catch ``ValueError`` for corrupt non-integer INCR responses).  On any
+    Redis failure, the method logs a warning and performs the safe fallback
+    action (treat as open / treat as not tripped).
+
+    Args:
+        redis_client: Sync ``redis.Redis`` client (the shared singleton from
+            ``bootstrapper/dependencies/redis.py``).
+        threshold: Consecutive failures before tripping. Default: 3.
+        cooldown_seconds: Seconds to remain open after tripping. Default: 300.
+    """
+
+    def __init__(
+        self,
+        redis_client: Any,  # redis.Redis — imported lazily to avoid circular imports
+        threshold: int = 3,
+        cooldown_seconds: int = 300,
+    ) -> None:
+        self._redis = redis_client
+        self.threshold = threshold
+        self.cooldown_seconds = cooldown_seconds
+
+    # ------------------------------------------------------------------
+    # Key helpers
+    # ------------------------------------------------------------------
+
+    def _failures_key(self, url: str) -> str:
+        """Return the Redis key for the consecutive failure counter.
+
+        Args:
+            url: Callback URL.
+
+        Returns:
+            Redis key string with ``conclave:cb:`` prefix.
+        """
+        return f"{_CB_KEY_PREFIX}{_url_hash(url)}:failures"
+
+    def _tripped_at_key(self, url: str) -> str:
+        """Return the Redis key for the circuit trip timestamp.
+
+        Args:
+            url: Callback URL.
+
+        Returns:
+            Redis key string with ``conclave:cb:`` prefix.
+        """
+        return f"{_CB_KEY_PREFIX}{_url_hash(url)}:tripped_at"
+
+    def _probe_key(self, url: str) -> str:
+        """Return the Redis key for the half-open probe coordination lock.
+
+        Args:
+            url: Callback URL.
+
+        Returns:
+            Redis key string with ``conclave:cb:`` prefix.
+        """
+        return f"{_CB_KEY_PREFIX}{_url_hash(url)}:probe"
+
+    # ------------------------------------------------------------------
+    # Public interface (same as WebhookCircuitBreaker)
+    # ------------------------------------------------------------------
+
+    def is_open(self, url: str) -> bool:
+        """Return True if the circuit is open for the given URL.
+
+        Reads the ``tripped_at`` key from Redis.  If the key exists and the
+        trip time is within the cooldown window, the circuit is open.
+
+        When the cooldown has expired (half-open state), attempts an atomic
+        ``SET NX EX`` to claim the probe slot.  The worker that claims the
+        slot returns ``False`` (allowed to probe).  All others return ``True``
+        (still blocked until the probe result is known).
+
+        On any Redis error, returns ``False`` (fail-open for is_open to avoid
+        permanently blocking delivery when Redis is unstable).
+
+        Args:
+            url: Callback URL to check.
+
+        Returns:
+            True if deliveries to ``url`` should be skipped.
+        """
+        import redis as redis_lib
+
+        try:
+            raw = self._redis.get(self._tripped_at_key(url))
+            if raw is None:
+                return False
+            tripped_at = float(raw)
+            elapsed = time.time() - tripped_at
+            if elapsed < self.cooldown_seconds:
+                # Circuit is open (within cooldown window)
+                return True
+            # Half-open: try to claim the probe slot atomically (SET NX EX)
+            # Only one worker among N will succeed; others stay blocked
+            probe_claimed = self._redis.set(
+                self._probe_key(url),
+                "1",
+                nx=True,
+                ex=self.cooldown_seconds,
+            )
+            if probe_claimed:
+                # This worker won the probe slot — allow it to proceed
+                return False
+            # Another worker already has the probe slot — stay blocked
+            return True
+        except (redis_lib.RedisError, ValueError, TypeError) as exc:
+            _logger.warning(
+                "RedisCircuitBreaker.is_open() Redis error for url_hash=%s: %s — "
+                "treating circuit as closed (fail-open for is_open).",
+                _url_hash(url),
+                type(exc).__name__,
+            )
+            return False
+
+    def record_failure(self, url: str) -> None:
+        """Record a delivery failure for the given URL.
+
+        Increments the failure counter in Redis (INCR + EXPIRE).  If the
+        counter reaches ``threshold``, writes the trip timestamp and emits
+        the Prometheus counter.
+
+        On any Redis error (including corrupt non-integer INCR response),
+        logs a warning and returns without propagating.
+
+        Args:
+            url: Callback URL that failed.
+        """
+        import redis as redis_lib
+
+        try:
+            failures_key = self._failures_key(url)
+            raw_count = self._redis.incr(failures_key)
+            # Guard against corrupt values (e.g. bytes that aren't a valid int)
+            try:
+                count = int(raw_count)
+            except (ValueError, TypeError) as corrupt_exc:
+                _logger.warning(
+                    "RedisCircuitBreaker.record_failure(): corrupt INCR value %r for "
+                    "url_hash=%s: %s — treating as RedisError fallback.",
+                    raw_count,
+                    _url_hash(url),
+                    corrupt_exc,
+                )
+                return
+            self._redis.expire(failures_key, self.cooldown_seconds)
+
+            if count >= self.threshold:
+                tripped_at_key = self._tripped_at_key(url)
+                already_tripped = self._redis.get(tripped_at_key) is not None
+                self._redis.set(tripped_at_key, str(time.time()), ex=self.cooldown_seconds)
+                _circuit_breaker_trips_total.labels(reason="consecutive_failures").inc()
+                if already_tripped:
+                    _logger.warning(
+                        "Webhook circuit breaker RE-TRIPPED (Redis) for url=%s "
+                        "after probe failure.",
+                        _sanitize_url_for_log(url),
+                    )
+                else:
+                    _logger.warning(
+                        "Webhook circuit breaker TRIPPED (Redis) for url=%s "
+                        "after %d consecutive failures. Cooldown: %ds.",
+                        _sanitize_url_for_log(url),
+                        count,
+                        self.cooldown_seconds,
+                    )
+        except redis_lib.RedisError as exc:
+            _logger.warning(
+                "RedisCircuitBreaker.record_failure() Redis error for url_hash=%s: %s — "
+                "circuit breaker state not updated.",
+                _url_hash(url),
+                type(exc).__name__,
+            )
+
+    def record_success(self, url: str) -> None:
+        """Record a successful delivery for the given URL.
+
+        Deletes the failure counter, trip timestamp, and probe keys from Redis
+        to reset the circuit to a clean closed state.
+
+        On any Redis error, logs a warning and returns without propagating.
+
+        Args:
+            url: Callback URL that succeeded.
+        """
+        import redis as redis_lib
+
+        try:
+            self._redis.delete(
+                self._failures_key(url),
+                self._tripped_at_key(url),
+                self._probe_key(url),
+            )
+        except redis_lib.RedisError as exc:
+            _logger.warning(
+                "RedisCircuitBreaker.record_success() Redis error for url_hash=%s: %s — "
+                "circuit breaker state not cleared.",
+                _url_hash(url),
+                type(exc).__name__,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Module-level circuit breaker singleton
 # ---------------------------------------------------------------------------
 
-#: Module-level singleton.  Single Huey worker per deployment — in-memory
-#: state is sufficient.  See module docstring for multi-worker constraint.
-_MODULE_CIRCUIT_BREAKER: WebhookCircuitBreaker | None = None
+#: Module-level singleton.  May be a :class:`RedisCircuitBreaker` (when Redis
+#: is available) or a :class:`WebhookCircuitBreaker` (process-local fallback).
+#: Type annotation uses the base class to allow both; callers use duck typing.
+_MODULE_CIRCUIT_BREAKER: WebhookCircuitBreaker | RedisCircuitBreaker | None = None
 _CB_LOCK = threading.Lock()
 
+#: Injected Redis client for the circuit breaker.  Set by the bootstrapper via
+#: :func:`set_circuit_breaker_redis_client` during startup wiring (T75.1).
+#: ``None`` means no Redis client has been injected; process-local fallback
+#: :class:`WebhookCircuitBreaker` will be used.
+_CB_REDIS_CLIENT: Any | None = None
 
-def _get_circuit_breaker() -> WebhookCircuitBreaker:
-    """Return the module-level :class:`WebhookCircuitBreaker` singleton.
+
+def set_circuit_breaker_redis_client(client: Any) -> None:
+    """Inject the Redis client for the circuit breaker (T75.1).
+
+    Called by the bootstrapper during startup wiring so that the circuit
+    breaker can use Redis for shared state across workers.  This module
+    MUST NOT import from ``bootstrapper/`` directly (import-linter contract).
+    The bootstrapper injects the client here at startup, following the same
+    IoC pattern used for ``set_webhook_delivery_fn`` and
+    ``set_dp_wrapper_factory``.
+
+    Args:
+        client: A ``redis.Redis`` instance (typed as ``Any`` because
+            this module must not import redis directly from bootstrapper/).
+            Pass ``None`` to clear the injected client (test teardown).
+    """
+    global _CB_REDIS_CLIENT, _MODULE_CIRCUIT_BREAKER
+    with _CB_LOCK:
+        _CB_REDIS_CLIENT = client
+        # Reset the singleton so the next call to _get_circuit_breaker()
+        # picks up the newly injected client.
+        _MODULE_CIRCUIT_BREAKER = None
+
+
+def _get_circuit_breaker() -> WebhookCircuitBreaker | RedisCircuitBreaker:
+    """Return the module-level circuit breaker singleton.
 
     Lazily initialised on first call using settings for threshold and cooldown.
     Thread-safe via a module-level lock.
 
+    Uses the Redis client injected by :func:`set_circuit_breaker_redis_client`
+    (called by the bootstrapper at startup) to create a
+    :class:`RedisCircuitBreaker`.  If no Redis client has been injected, or if
+    the client is unavailable, falls back to a process-local
+    :class:`WebhookCircuitBreaker`.
+
+    This function MUST NOT import from ``bootstrapper/`` (import-linter
+    contract: modules/synthesizer → bootstrapper is forbidden).
+
     Returns:
-        The singleton circuit breaker instance.
+        The singleton circuit breaker instance (Redis-backed if Redis client
+        was injected; process-local otherwise).
     """
     global _MODULE_CIRCUIT_BREAKER
     with _CB_LOCK:
@@ -303,10 +609,44 @@ def _get_circuit_breaker() -> WebhookCircuitBreaker:
             from synth_engine.shared.settings import get_settings  # late import
 
             s = get_settings()
-            _MODULE_CIRCUIT_BREAKER = WebhookCircuitBreaker(
-                threshold=s.webhook_circuit_breaker_threshold,
-                cooldown_seconds=s.webhook_circuit_breaker_cooldown_seconds,
-            )
+            threshold = s.webhook_circuit_breaker_threshold
+            cooldown = s.webhook_circuit_breaker_cooldown_seconds
+
+            if _CB_REDIS_CLIENT is not None:
+                try:
+                    _MODULE_CIRCUIT_BREAKER = RedisCircuitBreaker(
+                        redis_client=_CB_REDIS_CLIENT,
+                        threshold=threshold,
+                        cooldown_seconds=cooldown,
+                    )
+                    _logger.debug(
+                        "Circuit breaker: using Redis-backed RedisCircuitBreaker "
+                        "(threshold=%d, cooldown=%ds).",
+                        threshold,
+                        cooldown,
+                    )
+                except Exception as exc:
+                    # Redis unavailable at startup — fall back to process-local CB.
+                    _logger.warning(
+                        "Circuit breaker: Redis unavailable at startup (%s: %s). "
+                        "Falling back to process-local WebhookCircuitBreaker. "
+                        "Circuit state will NOT be shared across workers.",
+                        type(exc).__name__,
+                        exc,
+                    )
+                    _MODULE_CIRCUIT_BREAKER = WebhookCircuitBreaker(
+                        threshold=threshold,
+                        cooldown_seconds=cooldown,
+                    )
+            else:
+                _logger.debug(
+                    "Circuit breaker: no Redis client injected — "
+                    "using process-local WebhookCircuitBreaker."
+                )
+                _MODULE_CIRCUIT_BREAKER = WebhookCircuitBreaker(
+                    threshold=threshold,
+                    cooldown_seconds=cooldown,
+                )
         return _MODULE_CIRCUIT_BREAKER
 
 
@@ -378,7 +718,7 @@ def _safe_error_msg(exc: BaseException) -> str:
 
 def _check_skip_conditions(
     registration: WebhookRegistrationProtocol,
-    cb: WebhookCircuitBreaker,
+    cb: WebhookCircuitBreaker | RedisCircuitBreaker,
     job_id: int,
 ) -> DeliveryResult | None:
     """Return a SKIPPED DeliveryResult if delivery should be skipped, else None.
@@ -389,7 +729,7 @@ def _check_skip_conditions(
 
     Args:
         registration: The webhook registration to check.
-        cb: The circuit breaker singleton.
+        cb: The circuit breaker singleton (process-local or Redis-backed).
         job_id: Synthesis job integer PK (for logging).
 
     Returns:
@@ -573,7 +913,7 @@ def _attempt_http_post(
 
 def _execute_retry_loop(
     *,
-    cb: WebhookCircuitBreaker,
+    cb: WebhookCircuitBreaker | RedisCircuitBreaker,
     registration: WebhookRegistrationProtocol,
     canonical_body: str,
     headers: dict[str, str],
@@ -585,7 +925,7 @@ def _execute_retry_loop(
     """Execute the at-most-3 retry loop within the httpx.Client context.
 
     Args:
-        cb: Circuit breaker instance.
+        cb: Circuit breaker instance (process-local or Redis-backed).
         registration: Webhook registration.
         canonical_body: Pre-serialized JSON body string.
         headers: HTTP headers for each request.

@@ -56,6 +56,7 @@ from prometheus_client import Counter
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
+from synth_engine.bootstrapper.dependencies.redis import get_redis_client as _get_redis_client
 from synth_engine.bootstrapper.factories import build_dp_wrapper, build_spend_budget_fn
 from synth_engine.bootstrapper.schemas.webhooks import WebhookDelivery, WebhookRegistration
 from synth_engine.modules.synthesizer.jobs import (
@@ -72,6 +73,9 @@ from synth_engine.modules.synthesizer.jobs.job_orchestration import (
     set_webhook_delivery_fn,
 )
 from synth_engine.modules.synthesizer.jobs.webhook_delivery import deliver_webhook
+from synth_engine.modules.synthesizer.jobs.webhook_delivery import (
+    set_circuit_breaker_redis_client as _set_circuit_breaker_redis_client,
+)
 from synth_engine.modules.synthesizer.storage import (
     reaper_tasks as _reaper_tasks,  # noqa: F401 — side-effect: registers Huey task
 )
@@ -251,10 +255,25 @@ def wire_webhook_delivery_fn() -> None:
     _logger.debug("IoC: webhook_delivery_fn wired (T45.3, Rule 8).")
 
 
+def wire_circuit_breaker_redis_client() -> None:
+    """Inject the shared Redis client into the webhook circuit breaker (T75.1).
+
+    Registers the shared Redis client singleton with
+    :func:`~synth_engine.modules.synthesizer.jobs.webhook_delivery.set_circuit_breaker_redis_client`
+    so the Redis-backed circuit breaker can share state across workers.
+
+    Called before :func:`wire_webhook_delivery_fn` so the circuit breaker is
+    ready before any task tries to deliver webhooks.
+    """
+    _set_circuit_breaker_redis_client(_get_redis_client())
+    _logger.debug("IoC: circuit_breaker_redis_client wired (T75.1).")
+
+
 def wire_all() -> None:
     """Register all IoC callbacks required by the Conclave Engine at startup.
 
-    Calls :func:`wire_dp_wrapper_factory`, :func:`wire_spend_budget_fn`, and
+    Calls :func:`wire_dp_wrapper_factory`, :func:`wire_spend_budget_fn`,
+    :func:`wire_circuit_breaker_redis_client`, and
     :func:`wire_webhook_delivery_fn` in order.  Must be called at module scope
     (not inside ``create_app()``) so the wiring fires for Huey worker processes
     that import ``main`` for task discovery without calling ``create_app()``.
@@ -264,5 +283,6 @@ def wire_all() -> None:
     """
     wire_dp_wrapper_factory()
     wire_spend_budget_fn()
+    wire_circuit_breaker_redis_client()
     wire_webhook_delivery_fn()
     _logger.debug("IoC: all wiring complete (wire_all).")
