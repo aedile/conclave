@@ -43,13 +43,6 @@ and re-exported here for backward compatibility.  They previously inherited
 ``ValueError``; they now inherit ``SynthEngineError`` (T34.1).
 
 CONSTITUTION Priority 0: Security
-Task: P2-T2.4 — Vault Observability
-Task: P26-T26.2 — Exception Hierarchy (VaultSealedError moved to shared)
-Task: T34.1 — Unify Vault Exceptions Under SynthEngineError
-Task: T38.2 — Eliminate vault unseal timing side-channel
-Task: fix/review-critical-issues — Add threading.Lock to VaultState
-Task: P58 — Add ClassVar annotations to _is_sealed and _kek
-Task: T70.3 — Memory-safe vault operations (ctypes.memset, bytearray passphrase)
 """
 
 from __future__ import annotations
