@@ -43,9 +43,7 @@ class TestSetSpendBudgetFnDoubleSetWarning:
             set_spend_budget_fn(fn_a)
             set_spend_budget_fn(fn_b)  # double-set — must warn
 
-            warning_calls = [
-                c for c in mock_logger.method_calls if "warning" in str(c[0]).lower()
-            ]
+            warning_calls = [c for c in mock_logger.method_calls if "warning" in str(c[0]).lower()]
             assert len(warning_calls) >= 1, (
                 "set_spend_budget_fn() called twice must emit at least one WARNING. "
                 f"Logger calls: {mock_logger.method_calls}"
@@ -138,6 +136,7 @@ class TestSetSpendBudgetFnDoubleSetWarning:
         with patch(
             "synth_engine.modules.synthesizer.jobs.job_orchestration._logger"
         ) as mock_logger:
+
             def _capture_warning(msg: str, *args: object, **kwargs: object) -> None:
                 captured_messages.append(msg % args if args else msg)
 

@@ -149,12 +149,18 @@ def set_spend_budget_fn(fn: SpendBudgetProtocol) -> None:
     """Register the sync spend_budget callable (called by bootstrapper at startup).
 
     Acquires ``_FACTORY_LOCK`` for intra-process thread safety (T75.4).
+    Emits WARNING if a callable is already registered (double-set detection).
 
     Args:
         fn: Sync ``SpendBudgetProtocol`` callable wrapping async ``spend_budget()``.
     """
     global _spend_budget_fn
     with _FACTORY_LOCK:
+        if _spend_budget_fn is not None:
+            _logger.warning(
+                "set_spend_budget_fn() called with callable already registered — overwriting. "
+                "This is safe but may indicate a wiring configuration issue (T75.4)."
+            )
         _spend_budget_fn = fn
 
 
