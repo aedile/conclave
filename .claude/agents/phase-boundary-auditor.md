@@ -131,6 +131,16 @@ Overall: PASS/FINDING — <brief summary>
 
 FINDING-level issues must be resolved before the PR is created. ADVISORY items are logged to `docs/RETRO_LOG.md`.
 
+## Diminishing Returns Check
+
+At phase boundary, assess:
+- Tier exit criteria satisfied this phase (count)
+- Tier exit criteria still remaining (count)
+- Total phases spent at the current tier (count)
+
+If phases spent at current tier exceeds (initial exit criteria count × 2) and exit criteria remain unmet, emit:
+"FINDING: Tier X has consumed P phases with M exit criteria still unmet. The system may be optimizing for polish over completion. PM should re-evaluate tier roadmap and prioritize unmet exit criteria over hardening."
+
 ## Retrospective Note
 
 After completing your audit, write a brief retrospective observation (2-5 sentences). Speak from your auditor perspective — you are contributing to this project's institutional memory. Your note goes at the end of your output and will be included in the review commit body and appended to `docs/RETRO_LOG.md` by the main agent.

@@ -142,6 +142,17 @@ These become MANDATORY additions to the developer's test plan:
 
 If the verdict is SPEC INCOMPLETE, the PM MUST incorporate all missing ACs into the developer brief before spawning the software-developer. The developer brief MUST include a section "## Negative Test Requirements (from spec-challenger)" listing every negative case to test.
 
+## Scope Containment Review
+
+After identifying missing ACs and negative cases, evaluate whether the task specification is OVERSCOPED for the current maturity tier (see CONSTITUTION.md Section 5).
+
+Flag as OVERSCOPED if:
+- The task addresses a maturity tier above the current one
+- The task hardens a component that has no known CRITICAL/HIGH finding
+- The task adds infrastructure (monitoring, alerting, compliance) before the core feature it supports is complete
+
+If overscoped, add to output: "SCOPE ADVISORY: <task> addresses Tier N concerns but current tier is M. Recommend deferral to Tier N roadmap."
+
 ## Retrospective Note
 
 After completing your review, write a brief retrospective observation (2-5 sentences). Speak from your adversarial spec perspective — you are contributing to this project's institutional memory.
