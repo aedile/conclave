@@ -161,10 +161,13 @@ def _log_verification_failure(path: str, reason: str) -> None:
             path,
             reason,
         )
-    except Exception:  # best-effort; must not block error propagation
-        import sys
-
-        sys.stderr.write(f"CRITICAL: audit logging failed in _log_verification_failure: {path}\n")
+    except (
+        Exception
+    ):  # best-effort; must not block error propagation — T77.4: use logger not stderr
+        _logger.error(
+            "CRITICAL: artifact verification failure logging failed for path=%s",
+            path,
+        )
 
 
 # Intentionally mutable: column_names, column_dtypes, and column_nullables

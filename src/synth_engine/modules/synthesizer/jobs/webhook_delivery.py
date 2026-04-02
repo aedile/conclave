@@ -160,19 +160,24 @@ def _sanitize_url_for_log(url: str) -> str:
 
 
 def _url_hash(url: str) -> str:
-    """Return a short SHA-256 hex digest of ``url`` for use as a Redis key component.
+    """Return the full SHA-256 hex digest of ``url`` for use as a Redis key component.
 
     Hashing the URL avoids embedding arbitrary user-controlled strings directly
     into Redis key names (defense-in-depth against key-injection via crafted
     callback URLs).
 
+    The full 64-character hex digest is used to ensure collision resistance.
+    A 16-char (64-bit) prefix has a birthday-attack collision probability of
+    ~1 in 2^32 with ~65,000 URLs; the full digest provides 2^128 resistance.
+    (T77.2 — full SHA-256 hash for Redis CB keys.)
+
     Args:
         url: The callback URL to hash.
 
     Returns:
-        First 16 hex characters of the SHA-256 digest of ``url``.
+        Full 64-character SHA-256 hex digest of ``url``.
     """
-    return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +611,8 @@ def _get_circuit_breaker() -> WebhookCircuitBreaker | RedisCircuitBreaker:
     global _MODULE_CIRCUIT_BREAKER
     with _CB_LOCK:
         if _MODULE_CIRCUIT_BREAKER is None:
+            import redis as redis_lib  # late import — T77.3 narrowed except clause
+
             from synth_engine.shared.settings import get_settings  # late import
 
             s = get_settings()
@@ -625,10 +632,15 @@ def _get_circuit_breaker() -> WebhookCircuitBreaker | RedisCircuitBreaker:
                         threshold,
                         cooldown,
                     )
-                except Exception as exc:
-                    # Redis unavailable at startup — fall back to process-local CB.
+                except (redis_lib.RedisError, TypeError, ValueError) as exc:
+                    # Narrowed from broad Exception (T77.3):
+                    # RedisError — Redis unreachable or protocol error at init time.
+                    # TypeError — misconfigured client or wrong argument types.
+                    # ValueError — invalid configuration values (e.g. threshold=0).
+                    # Unknown errors (AttributeError, ImportError, etc.) are NOT
+                    # caught here so they propagate as programming errors.
                     _logger.warning(
-                        "Circuit breaker: Redis unavailable at startup (%s: %s). "
+                        "Circuit breaker: Redis CB init failed (%s: %s). "
                         "Falling back to process-local WebhookCircuitBreaker. "
                         "Circuit state will NOT be shared across workers.",
                         type(exc).__name__,

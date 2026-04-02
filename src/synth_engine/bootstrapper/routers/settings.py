@@ -135,7 +135,7 @@ def upsert_setting(
             action="upsert",
             details={"key": key},
         )
-    except (ValueError, OSError):
+    except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key}").inc()
         _logger.exception("Audit logging failed for upsert_setting key=%s; aborting (T71.1)", key)
         return JSONResponse(
@@ -260,7 +260,7 @@ def delete_setting(
             action="delete",
             details={"key": key},
         )
-    except (ValueError, OSError):
+    except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="settings", endpoint="/settings/{key}").inc()
         _logger.exception("Audit logging failed for delete_setting key=%s; aborting (T71.1)", key)
         return JSONResponse(

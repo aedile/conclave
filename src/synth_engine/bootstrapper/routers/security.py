@@ -90,7 +90,7 @@ def _emit_shred_audit(operator: str) -> JSONResponse | None:
             details={"note": "Master KEK zeroized — all ALE ciphertext is now unrecoverable"},
         )
         return None
-    except (ValueError, OSError):
+    except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="security", endpoint="/security/shred").inc()
         _logger.exception("Audit logging failed during CRYPTO_SHRED; aborting shred (T68.3)")
         return JSONResponse(
@@ -126,7 +126,7 @@ def _emit_rotation_audit(operator: str, passphrase_provided: bool) -> JSONRespon
             },
         )
         return None
-    except (ValueError, OSError):
+    except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="security", endpoint="/security/keys/rotate").inc()
         _logger.exception("Audit logging failed during KEY_ROTATION_REQUESTED; aborting (T68.3)")
         return JSONResponse(

@@ -345,7 +345,7 @@ def _audit_and_soft_delete_webhook(
             action="deactivate",
             details={"webhook_id": webhook_id},
         )
-    except (ValueError, OSError):
+    except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="webhooks", endpoint="/webhooks/{id}").inc()
         _logger.exception("Audit logging failed for deactivate_webhook id=%s; aborting", webhook_id)
         return JSONResponse(
