@@ -645,6 +645,86 @@ CI gates:
 
 `pyproject.toml` sets `filterwarnings = ["error", ...]`. All Python warnings become test failures. If a new dependency emits warnings, add a scoped suppression entry with a written justification comment.
 
+### 10.3 Prometheus Multiprocess Mode (Multi-Worker Deployments)
+
+In single-worker deployments (`uvicorn --workers 1`), the default Prometheus registry works
+without any additional configuration. In **multi-worker deployments** (multiple uvicorn worker
+processes sharing a port), Prometheus requires a shared directory on disk to aggregate per-process
+`.db` files into a single scrape response.
+
+#### What is `PROMETHEUS_MULTIPROC_DIR`?
+
+`PROMETHEUS_MULTIPROC_DIR` is an environment variable that tells the `prometheus_client`
+library (and Conclave's multiprocess collector) where to write per-process metric files.
+Each uvicorn worker writes its own `.db` file to this directory; the Prometheus scrape endpoint
+merges them before responding to `GET /metrics`.
+
+Without this variable set in a multi-worker deployment, each worker's `/metrics` response
+contains only that worker's metrics. Scrapers will see inconsistent data depending on which
+worker handles the request.
+
+#### When to set it
+
+Set `PROMETHEUS_MULTIPROC_DIR` when:
+- Running uvicorn with `--workers N` where N > 1
+- Running Gunicorn with uvicorn workers
+- Running any process-manager that spawns multiple Python interpreter instances for the same app
+
+Do **not** set it for single-worker deployments — the multiprocess collector introduces minor
+overhead and is unnecessary when only one worker exists.
+
+#### Requirements
+
+The directory must:
+1. Be an **absolute path** (e.g. `/var/lib/conclave/prometheus`) — relative paths are
+   ambiguous across worker processes and are rejected at startup.
+2. **Exist** before the app starts — Conclave does not create it automatically.
+3. Be **writable** by the app process user — write failures prevent metric recording.
+4. **Not be inside the source tree** — placing it under `src/` risks accidentally committing
+   binary metric files to version control.
+
+Conclave validates all four requirements at startup via `validate_prometheus_multiproc_dir()`
+and raises `SystemExit` (fail-closed) if any requirement is not met.
+
+#### Stale file cleanup before worker restart
+
+When workers are restarted (e.g., rolling restart, `docker compose up -d --no-deps app`),
+old `.db` files from the previous run remain in `PROMETHEUS_MULTIPROC_DIR`. These stale
+files cause counter discontinuities and can inflate gauge readings until they are overwritten
+by the new workers.
+
+**Recommended pre-restart cleanup:**
+
+```bash
+# Clear stale Prometheus metric files before restarting workers
+rm -f /var/lib/conclave/prometheus/*.db
+
+# Then restart
+docker compose up -d --no-deps app
+```
+
+For zero-downtime rolling restarts in Kubernetes:
+1. Use a `preStop` lifecycle hook to delete the pod's own `.db` file before the process exits.
+2. Or set `PROMETHEUS_MULTIPROC_DIR` to a `emptyDir` volume scoped to the pod — it is
+   automatically cleaned when the pod is deleted.
+
+#### Example configuration
+
+In `.env`:
+
+```bash
+# Uncomment for multi-worker deployments only
+# PROMETHEUS_MULTIPROC_DIR=/var/lib/conclave/prometheus
+```
+
+In `docker-compose.yml` (app service environment section, also commented out by default):
+
+```yaml
+# Uncomment for multi-worker deployments. Create the directory first:
+#   mkdir -p /var/lib/conclave/prometheus && chmod 755 /var/lib/conclave/prometheus
+# PROMETHEUS_MULTIPROC_DIR: /var/lib/conclave/prometheus
+```
+
 ---
 
 ## 11. Data Retention and Compliance

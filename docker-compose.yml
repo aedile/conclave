@@ -89,6 +89,16 @@ services:
     env_file:
       - .env
 
+    # --- Prometheus multiprocess mode (multi-worker deployments only) ---------
+    # Uncomment PROMETHEUS_MULTIPROC_DIR when running uvicorn with --workers N > 1.
+    # The directory must be absolute, writable, and NOT inside the source tree.
+    # Create it before starting the stack:
+    #   mkdir -p /var/lib/conclave/prometheus && chmod 755 /var/lib/conclave/prometheus
+    # Clear stale .db files before each worker restart (prevents counter discontinuities):
+    #   rm -f /var/lib/conclave/prometheus/*.db
+    # environment:
+    #   PROMETHEUS_MULTIPROC_DIR: /var/lib/conclave/prometheus
+
     # --- NVIDIA GPU passthrough (T4.1) -----------------------------------------
     # GPU reservation moved to docker-compose.gpu.yml so that non-GPU hosts
     # (macOS, CI runners) can `docker compose up` without the NVIDIA runtime.
