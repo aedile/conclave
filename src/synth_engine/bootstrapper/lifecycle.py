@@ -60,7 +60,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
                 action="shutdown",
                 details={},
             )
-        except (ValueError, OSError):
+        except (ValueError, OSError, UnicodeError):
             _logger.warning("Shutdown audit event could not be recorded.", exc_info=True)
         try:
             dispose_engines()
@@ -125,6 +125,6 @@ def _register_routes(app: FastAPI) -> None:
                 action="unseal",
                 details={},
             )
-        except (ValueError, OSError):
+        except (ValueError, OSError, UnicodeError):
             _logger.warning("AUDIT_KEY not configured; vault unseal event was not audited.")
         return JSONResponse(content={"status": "unsealed"})

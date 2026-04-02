@@ -182,7 +182,7 @@ def _check_erasure_idor(body_subject_id: str, operator: str) -> JSONResponse | N
             action="erasure_blocked_idor",
             details={"reason": "subject_id does not match authenticated operator"},
         )
-    except (ValueError, OSError):
+    except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="compliance", endpoint="/compliance/erasure").inc()
         _logger.exception("Audit logging failed for IDOR erasure attempt (actor=%s).", operator)
     return JSONResponse(

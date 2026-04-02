@@ -184,7 +184,7 @@ def _audit_and_commit_legal_hold(
             action="legal_hold",
             details={"job_id": str(job_id), "enable": str(enable), "previous": str(previous)},
         )
-    except (ValueError, OSError):
+    except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(
             router="admin", endpoint="/admin/jobs/{job_id}/legal-hold"
         ).inc()

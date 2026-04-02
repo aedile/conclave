@@ -150,13 +150,13 @@ class TestUnicodeErrorCaughtInRouterAuditBlocks:
         Tests that the lifecycle startup/shutdown audit emit does not crash
         the application when UnicodeError is raised by log_event().
         """
-        import synth_engine.bootstrapper.lifecycle as lifecycle_mod
-
         # Find all exception handlers guarding log_event() calls in lifecycle.py
         # by checking the source contains (ValueError, OSError, UnicodeError)
         # after the fix. For now, verify the module is importable and the
         # pattern exists.
         import inspect
+
+        import synth_engine.bootstrapper.lifecycle as lifecycle_mod
 
         source = inspect.getsource(lifecycle_mod)
         # After fix: all audit catch blocks must include UnicodeError
@@ -190,9 +190,9 @@ class TestUrlHashFullDigest:
         from synth_engine.modules.synthesizer.jobs.webhook_delivery import _url_hash
 
         result = _url_hash("https://example.com/webhook")
-        assert all(
-            c in "0123456789abcdef" for c in result
-        ), f"Non-hex characters in digest: {result!r}"
+        assert all(c in "0123456789abcdef" for c in result), (
+            f"Non-hex characters in digest: {result!r}"
+        )
 
     def test_url_hash_is_deterministic(self) -> None:
         """Two calls with the same URL must produce identical digests."""
@@ -255,9 +255,11 @@ class TestCircuitBreakerInitNarrowCatch:
         ):
             cb = mod._get_circuit_breaker()
 
-        assert isinstance(
-            cb, WebhookCircuitBreaker
-        ), f"Expected process-local fallback, got {type(cb)}"
+        assert isinstance(cb, WebhookCircuitBreaker), (
+            f"Expected process-local fallback, got {type(cb)}"
+        )
+        # Specific-value assertion: default threshold from settings
+        assert cb.threshold == 3, f"Expected default threshold=3, got {cb.threshold}"
 
     def test_type_error_during_cb_init_falls_back_to_local_cb(self) -> None:
         """TypeError during CB init (e.g. wrong arg type) falls back to process-local CB."""
@@ -279,6 +281,7 @@ class TestCircuitBreakerInitNarrowCatch:
             cb = mod._get_circuit_breaker()
 
         assert isinstance(cb, WebhookCircuitBreaker)
+        assert cb.threshold == 3, f"Expected default threshold=3, got {cb.threshold}"
 
     def test_value_error_during_cb_init_falls_back_to_local_cb(self) -> None:
         """ValueError during CB init (e.g. invalid config) falls back to process-local CB."""
@@ -300,6 +303,7 @@ class TestCircuitBreakerInitNarrowCatch:
             cb = mod._get_circuit_breaker()
 
         assert isinstance(cb, WebhookCircuitBreaker)
+        assert cb.threshold == 3, f"Expected default threshold=3, got {cb.threshold}"
 
     def test_narrow_catch_comment_present_in_source(self) -> None:
         """The narrowed catch block must have a comment explaining the narrowing (T77.3).
@@ -343,15 +347,17 @@ class TestArtifactLogVerificationFailureUsesLogger:
 
         try:
             # Make _logger.warning raise so the fallback path executes
-            with patch.object(artifact_mod._logger, "warning", side_effect=RuntimeError("log fail")):
+            with patch.object(
+                artifact_mod._logger, "warning", side_effect=RuntimeError("log fail")
+            ):
                 # The fallback path fires — must not use sys.stderr.write
                 artifact_mod._log_verification_failure("/some/path", "test reason")
         finally:
             sys.stderr.write = original_write  # type: ignore[method-assign]
 
-        assert (
-            len(stderr_calls) == 0
-        ), f"sys.stderr.write was called {len(stderr_calls)} time(s): {stderr_calls!r}"
+        assert len(stderr_calls) == 0, (
+            f"sys.stderr.write was called {len(stderr_calls)} time(s): {stderr_calls!r}"
+        )
 
     def test_log_verification_failure_uses_logger_error_as_fallback(self) -> None:
         """When _logger.warning() raises, fallback must call _logger.error()."""
