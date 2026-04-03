@@ -83,6 +83,39 @@ backlog-compliance:     PASS/BLOCKER — <list each section's items and whether 
 
 **test-consolidation**: Are there tests that assert the same invariant from multiple angles (e.g., testing the same validation rule with 5 slightly different inputs when 2 would suffice)? Are there tests with setup blocks longer than 20 lines that could share a fixture? Flag consolidation opportunities as ADVISORY — not every instance needs fixing, but patterns of test bloat should be noted.
 
+### Test Anti-Pattern Detection (P78 — Recurring Audit Findings)
+
+These patterns have been found and fixed multiple times. They MUST be caught at review
+time to prevent recurrence. Each is a **FINDING** (not advisory).
+
+**tautological-assertions**: Scan ALL test files in the diff for:
+- `assert str(...) == "None"` — testing that None is None
+- `assert ...__name__ == "..."` — testing that a name equals itself
+- Consecutive assertions testing the same variable: `assert x is True` + `assert x`
+- `assert result is False` + `assert not result`
+Classification: **FINDING** — these are coverage gaming, not meaningful tests.
+
+**copy-paste-tests**: Scan for 3+ test functions in the same file with identical structure
+(same setup pattern, same assertion shape, different inputs). These MUST be parametrized.
+Classification: **FINDING** — the developer agent has an explicit parametrize mandate (Rule A).
+
+**fixture-duplication**: Check if any new fixture defined in the diff already exists in
+`tests/conftest.py` or `tests/unit/conftest.py`. Common duplicates to watch for:
+`_clear_settings_cache`, `_make_persons_df`, `_create_test_job`.
+Classification: **FINDING** — the developer agent has an explicit fixture-reuse mandate (Rule D).
+
+**test-file-bloat**: Any test file in the diff exceeding 800 lines without a
+`# gate-exempt:` comment on line 1 is a **FINDING**. Gate 6 will catch this at CI time,
+but the reviewer should flag it proactively.
+
+Report as:
+```
+tautological-assertions:  PASS/FINDING — <count and locations>
+copy-paste-tests:         PASS/FINDING — <files and pattern description>
+fixture-duplication:      PASS/FINDING — <fixture name and locations>
+test-file-bloat:          PASS/FINDING — <file and line count>
+```
+
 ### Documentation
 
 **docstring-accuracy**: Do docstrings in changed files accurately describe what the function actually does — including its actual return type, arguments, and exceptions raised?
@@ -121,17 +154,21 @@ for the changed files specifically.
 Return your findings in EXACTLY this format so the main agent can use it verbatim as a `review(qa):` commit body:
 
 ```
-backlog-compliance:     PASS/BLOCKER — <per AC item: satisfied/missing>
-dead-code:              PASS/FINDING — <detail if finding>
-reachable-handlers:     PASS/FINDING/SKIP — <detail if finding>
-exception-specificity:  PASS/FINDING — <detail if finding>
-silent-failures:        PASS/FINDING — <detail if finding>
-coverage-gate:          PASS/FINDING — <actual % and threshold if finding>
-edge-cases:             PASS/FINDING — <detail if finding>
-error-paths:            PASS/FINDING — <detail if finding>
-public-api-coverage:    PASS/FINDING — <detail if finding>
-meaningful-asserts:     PASS/FINDING — <detail if finding>
-docstring-accuracy:     PASS/FINDING — <detail if finding>
+backlog-compliance:       PASS/BLOCKER — <per AC item: satisfied/missing>
+dead-code:                PASS/FINDING — <detail if finding>
+reachable-handlers:       PASS/FINDING/SKIP — <detail if finding>
+exception-specificity:    PASS/FINDING — <detail if finding>
+silent-failures:          PASS/FINDING — <detail if finding>
+coverage-gate:            PASS/FINDING — <actual % and threshold if finding>
+edge-cases:               PASS/FINDING — <detail if finding>
+error-paths:              PASS/FINDING — <detail if finding>
+public-api-coverage:      PASS/FINDING — <detail if finding>
+meaningful-asserts:       PASS/FINDING — <detail if finding>
+tautological-assertions:  PASS/FINDING — <count and locations>
+copy-paste-tests:         PASS/FINDING — <files and pattern description>
+fixture-duplication:      PASS/FINDING — <fixture name and locations>
+test-file-bloat:          PASS/FINDING — <file and line count>
+docstring-accuracy:       PASS/FINDING — <detail if finding>
 type-annotation-accuracy: PASS/FINDING — <detail if finding>
 test-consolidation:       PASS/ADVISORY — <detail if advisory>
 
