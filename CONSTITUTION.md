@@ -126,8 +126,18 @@ The product progresses through maturity tiers. Each tier has objective exit crit
 | 5 | API Complete | All REST endpoints documented, versioned, tested. OpenAPI spec published. Webhook delivery reliable. |
 | 6 | Frontend MVP | React SPA: connect, configure job, monitor progress, download output. WCAG 2.1 AA. |
 | 7 | Enterprise Ready | Air-gap deployment validated. mTLS. License activation. Compliance erasure. DR tested. |
+| 8 | Enterprise Scale | Multi-tenancy with tenant isolation. RBAC (admin/operator/viewer/auditor). SSO/OIDC. API key management with rotation. Usage metering per tenant. Multi-database support (PostgreSQL + MySQL + SQL Server). Audit export for external compliance review. Horizontal scaling validated (Kubernetes, multi-pod). |
 
-Current tier: **7 (Enterprise Ready)** — All tiers 1-7 assessed COMPLETE as of 2026-04-01. See tier assessment in RETRO_LOG P74 boundary.
+Current tier: **8 (Enterprise Scale)** — Tiers 1-7 assessed COMPLETE as of 2026-04-01. Tier 8 initiated 2026-04-03 to address enterprise deployment gaps (single-operator model, no RBAC, no SSO, PostgreSQL-only).
+
+### Maintenance vs. Expansion Mode
+
+When all exit criteria for the current tier are met and no new tier is defined, the system enters **Maintenance Mode**:
+- Only BLOCKER-severity security findings from red-team review trigger new phases.
+- FINDING-severity items are batched into quarterly maintenance phases, not individual phases.
+- The full governance pipeline is replaced by a lightweight pipeline (developer → QA reviewer only) for FINDING-level work.
+
+When a new tier is added (as with Tier 8), the system re-enters **Expansion Mode** and the full governance pipeline applies to phases targeting that tier's exit criteria.
 
 ## **Final Mandate: Conflict and Blockers**
 
