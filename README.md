@@ -1,6 +1,6 @@
 # Conclave
 
-**An enterprise-grade, air-gapped synthetic data generation engine. v1.0.0**
+**A production-grade, security-hardened, air-gapped synthetic data generation engine. v1.0.0**
 
 Conclave transforms production databases into privacy-safe synthetic replicas — inside your perimeter, on your hardware, with zero network calls out. For data scientists who need statistically faithful training data, QA engineers who need a structurally intact production subset, and compliance officers who need mathematical proof that no real PII left the building.
 
@@ -83,7 +83,7 @@ graph TD
 - Cross-module database queries are forbidden. Each module owns its own data access.
 - The bootstrapper is the sole composition root. Business logic has no framework knowledge.
 
-54 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
+63 ADRs in [`docs/adr/`](docs/adr/). Full specification in [`docs/archive/ARCHITECTURAL_REQUIREMENTS.md`](docs/archive/ARCHITECTURAL_REQUIREMENTS.md).
 
 ---
 
@@ -129,7 +129,7 @@ Micro-benchmark (`scripts/benchmark_dp_quality.py`, run 2026-03-21) PASSED at al
 |--------|-------------------------------|---------------------|
 | DP scope | Direct DP-SGD on `OpacusCompatibleDiscriminator` | Proxy linear model on same preprocessed data |
 | Epsilon | End-to-end on real Discriminator gradient steps | Proportional to dataset/batch/steps; doesn't account for Discriminator updates |
-| Guarantee | Mathematically rigorous end-to-end DP | Practical approximation |
+| Guarantee | Formal DP-SGD via Opacus — not independently audited | Practical approximation |
 | Reference | ADR-0036 | ADR-0025 |
 
 The masking pipeline, privacy budget accountant, HMAC-sealed artifacts, and WORM audit log are independent of this distinction.
@@ -145,7 +145,7 @@ The masking pipeline, privacy budget accountant, HMAC-sealed artifacts, and WORM
 | Audit trail | WORM log retained 3 years (1,095 days); never deleted within retention |
 | Right to erasure (GDPR Art. 17 / CCPA § 1798.105) | `DELETE /compliance/erasure` with cascade deletion and compliance receipt |
 | Legal hold | `legal_hold` flag prevents purge regardless of TTL |
-| Formal privacy guarantee | (ε, δ)-DP on synthesized output — not PII under GDPR Recital 26 |
+| Formal privacy guarantee | (ε, δ)-DP on synthesized output — privacy strength depends on configured epsilon; consult legal counsel for GDPR Recital 26 applicability |
 
 Configurable via `JOB_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS`, `ARTIFACT_RETENTION_DAYS`. See [`docs/DATA_COMPLIANCE.md`](docs/DATA_COMPLIANCE.md).
 
@@ -256,7 +256,7 @@ Target (masked):
   2 | David      | Owens       | lauradavis@example.com       | 204-28-8133
 ```
 
-Every PII column replaced. `Johnson` always maps to `Beck` — across every row, every table, every run — so join integrity holds. Not reversible.
+Every PII column replaced. `Johnson` always maps to `Beck` — across every row, every table, every run — so join integrity holds. Computationally infeasible to reverse without the deployment-level masking key.
 
 FK traversal: 50 customers → 116 orders → 396 order items + 116 payments. Zero orphan rows. See [full E2E validation](docs/archive/E2E_VALIDATION.md).
 
@@ -335,18 +335,31 @@ Development follows attack-first TDD (Red → Green → Refactor). Every task re
 
 ## How This Was Built
 
-A human author wrote the governance documents ([`CONSTITUTION.md`](CONSTITUTION.md), [`CLAUDE.md`](CLAUDE.md), backlog tasks, architecture specifications). AI agents executed every development task: writing failing tests first, implementing minimal passing code, running all quality gates, and submitting for multi-agent review before merge. No code was written outside this process.
+A human software process architect co-designed the governance framework with AI —
+contributing quality gate design, review pipeline architecture, TDD discipline, and
+retrospective learning loops based on experience with professional software development.
+AI agents contributed domain-specific technical implementations (security controls,
+cryptographic patterns, DP-SGD integration). All production code, tests, backlog specs,
+and governance amendments were produced by AI agents operating under the framework.
+Human involvement focused on governance architecture, retrospective guidance, and
+intervention when process quality degraded. The framework evolved through the system's
+own retrospective loop, guided by human judgment at phase boundaries.
 
-**Timeline**: March 9–26, 2026 — 17 calendar days from first commit to v1.0.0 release (Phase 59).
+The system does not run autonomously — it requires human judgment at the meta-process
+level to remain on track.
 
-| Metric | Value |
-|--------|-------|
-| Commits | ~1,150 |
-| Pull requests merged | ~210 |
-| Architecture Decision Records | 56 |
-| Production source lines | ~24,000 |
-| Test lines | ~95,000 |
-| Test coverage | 96.53% |
+**Timeline**: March 9–26, 2026 — 17 calendar days from first commit to v1.0.0 release
+(Phase 59). Development ongoing past v1.0.0 (hardening, security, and test quality
+through Phase 77 as of April 2026).
+
+| Metric | Value (as of Phase 77) |
+|--------|------------------------|
+| Commits | ~1,490 |
+| Pull requests merged | ~230 |
+| Architecture Decision Records | 63 |
+| Production source lines | ~29,000 |
+| Test lines | ~119,000 |
+| Test coverage | 95%+ (enforced) |
 
 Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_STORY.md).
 
@@ -366,7 +379,7 @@ Full account in [`docs/archive/DEVELOPMENT_STORY.md`](docs/archive/DEVELOPMENT_S
 | [Dependency Audit](docs/DEPENDENCY_AUDIT.md) | Supply chain audit and dependency provenance |
 | [Business Requirements](docs/archive/BUSINESS_REQUIREMENTS.md) | Full product BRD (archived) |
 | [Architectural Requirements](docs/archive/ARCHITECTURAL_REQUIREMENTS.md) | Architecture specification (archived; see ADRs) |
-| [Architecture Decision Records](docs/adr/) | 54 ADRs covering every significant design decision |
+| [Architecture Decision Records](docs/adr/) | 63 ADRs covering every significant design decision |
 | [Retrospective Log](docs/RETRO_LOG.md) | Review findings, open advisories, development history |
 | [Development Story](docs/archive/DEVELOPMENT_STORY.md) | How this codebase was built (archived) |
 | [Constitution](CONSTITUTION.md) | Binding governance framework; security is Priority Zero |
