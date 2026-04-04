@@ -25,6 +25,9 @@ def _make_settings_app() -> Any:
     Overrides ``get_current_operator`` to bypass JWT auth in functional tests
     that are not testing authentication itself (ADV-021).
 
+    Rate limit is set to 10,000/min to prevent flaky 429s in CI — these tests
+    exercise CRUD logic, not rate limiting (P78 CI fix).
+
     Returns:
         FastAPI app instance with settings router and mocked auth.
     """
@@ -43,7 +46,24 @@ def _make_settings_app() -> Any:
     )
     SQLModel.metadata.create_all(engine)
 
-    app = create_app()
+    # Raise rate limit ceiling to prevent flaky 429s — these tests exercise
+    # settings CRUD, not rate limiting.  The in-memory rate limiter accumulates
+    # state across test functions sharing the same process, causing spurious
+    # 429s in long CI runs (P78 fix).
+    import os
+    _prev = os.environ.get("RATE_LIMIT_GENERAL_PER_MINUTE")
+    os.environ["RATE_LIMIT_GENERAL_PER_MINUTE"] = "10000"
+    try:
+        # Clear cached settings so the new env var takes effect
+        from synth_engine.shared.settings import get_settings
+        get_settings.cache_clear()
+        app = create_app()
+    finally:
+        if _prev is None:
+            os.environ.pop("RATE_LIMIT_GENERAL_PER_MINUTE", None)
+        else:
+            os.environ["RATE_LIMIT_GENERAL_PER_MINUTE"] = _prev
+        get_settings.cache_clear()
     register_error_handlers(app)
     app.include_router(settings_router)
 

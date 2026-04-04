@@ -43,6 +43,73 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # Change detection — determines which jobs need to run based on changed files.
+  # Docs-only PRs skip expensive Python/frontend jobs (saves ~2 hours CI time).
+  # Security scan and shellcheck always run regardless of changed files.
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      ci: ${{ steps.filter.outputs.ci }}
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check changed file paths
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            # Always run everything on pushes to main
+            echo "python=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "ci=true" >> "$GITHUB_OUTPUT"
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+
+          # Get changed files
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD" 2>/dev/null || git diff --name-only HEAD~1 HEAD)
+
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # Check categories
+          PYTHON=$(echo "$CHANGED" | grep -cE '\.(py|toml|lock)$|^pyproject|^poetry' || true)
+          FRONTEND=$(echo "$CHANGED" | grep -cE '^frontend/|\.tsx?$|\.css$|\.jsx?$' || true)
+          CI_FILES=$(echo "$CHANGED" | grep -cE '^\.github/' || true)
+
+          if [ "$PYTHON" -gt 0 ] || [ "$CI_FILES" -gt 0 ]; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "python=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$FRONTEND" -gt 0 ] || [ "$CI_FILES" -gt 0 ]; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "ci=$( [ "$CI_FILES" -gt 0 ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
+
+          if [ "$PYTHON" -eq 0 ] && [ "$FRONTEND" -eq 0 ] && [ "$CI_FILES" -eq 0 ]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo ">>> Docs-only change detected — skipping Python and frontend jobs"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
   # Security scan — runs first, fails fast on secrets/credential leaks
   # ---------------------------------------------------------------------------
   security:
@@ -69,7 +136,8 @@ jobs:
   lint:
     name: Lint & Static Analysis
     runs-on: ubuntu-latest
-    needs: security
+    needs: [security, changes]
+    if: needs.changes.outputs.python == 'true'
 
     steps:
       - name: Checkout
@@ -131,7 +199,8 @@ jobs:
   test:
     name: Unit Tests (Python 3.14)
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint, changes]
+    if: needs.changes.outputs.python == 'true'
 
     steps:
       - name: Checkout
@@ -163,8 +232,13 @@ jobs:
         # ADV-066: Zero-warning policy enforced via pyproject.toml filterwarnings=["error", ...].
         # Adding bare -W error to CLI conflicts with the ignore suppressors that follow "error"
         # in the config (CLI -W flags override ini ignore rules). Policy is already active.
+        #
+        # pytest-xdist (-n auto): runs tests in parallel across all available CPU cores.
+        # On ubuntu-latest (2 vCPU) this roughly halves wall-clock time.
+        # --dist worksteal: dynamic work-stealing balances load across workers.
         run: >
           poetry run pytest tests/unit/
+          -n auto --dist worksteal
           --cov=src/synth_engine
           --cov-report=term-missing
           --cov-fail-under=95
@@ -188,7 +262,8 @@ jobs:
   integration-test:
     name: Integration Tests (Python 3.14)
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, changes]
+    if: needs.changes.outputs.python == 'true'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Set up Python
@@ -229,7 +304,8 @@ jobs:
   synthesizer-integration-test:
     name: Synthesizer Integration Tests
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, changes]
+    if: needs.changes.outputs.python == 'true'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Set up Python 3.14
@@ -259,7 +335,8 @@ jobs:
   sbom:
     name: Generate SBOM
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, changes]
+    if: needs.changes.outputs.python == 'true'
 
     steps:
       - name: Checkout
@@ -309,7 +386,8 @@ jobs:
   trivy-scan:
     name: Trivy Container Scan
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, changes]
+    if: needs.changes.outputs.python == 'true'
     permissions:
       contents: read
 
@@ -345,7 +423,8 @@ jobs:
   smoke-test:
     name: Production Smoke Test
     runs-on: ubuntu-latest
-    needs: [test, frontend]
+    needs: [test, frontend, changes]
+    if: needs.changes.outputs.python == 'true' || needs.changes.outputs.frontend == 'true'
     continue-on-error: true
     permissions:
       contents: read
@@ -419,7 +498,8 @@ jobs:
   frontend:
     name: Frontend (Lint, Test, Build)
     runs-on: ubuntu-latest
-    needs: security
+    needs: [security, changes]
+    if: needs.changes.outputs.frontend == 'true'
 
     steps:
       - name: Checkout
@@ -478,7 +558,8 @@ jobs:
   e2e:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
-    needs: frontend
+    needs: [frontend, changes]
+    if: needs.changes.outputs.frontend == 'true'
 
     steps:
       - name: Checkout
@@ -598,7 +679,8 @@ jobs:
   zap-baseline:
     name: OWASP ZAP Baseline Scan
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, changes]
+    if: needs.changes.outputs.python == 'true'
     permissions:
       contents: read
 
