@@ -102,7 +102,8 @@ workflows via scoped, rotatable API keys.
 - [ ] Exceeded → 429 with Retry-After header
 - [ ] Admin-scoped keys exempt from per-key limits (still subject to global IP limits).
       Exemption based on resolved scope, not on a forgeable claim — verify the key's
-      scopes include `admin:*` after auth resolution.
+      scopes include both `admin:users` AND `admin:settings` (the concrete admin
+      permissions from P80's matrix) after auth resolution. No glob matching.
 - [ ] `.env.example` updated with rate limit config variables
 
 ---
@@ -115,7 +116,8 @@ workflows via scoped, rotatable API keys.
 - Attack tests: operator/viewer attempts force-revoke (403)
 - Attack tests: 11th key creation at limit (409 with count/limit)
 - Integration tests: full create → use → rotate → grace period → revoke lifecycle
-  against real Redis (grace period TTL relies on Redis; mocked TTL is not equivalent)
+  against real Redis (full lifecycle test requires real Redis for rate-limiting and
+  session infrastructure; mocked integration is not equivalent)
 - Key hash verification: plaintext key works, modified key doesn't
 - Timing test: format detection path (conclave_ prefix vs JWT three-dot) does not
   create measurable timing difference

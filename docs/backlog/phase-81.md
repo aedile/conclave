@@ -70,7 +70,9 @@ be written. Consider: `pytest-httpserver` or a custom fixture.
 - [ ] PKCE (S256) required — no implicit flow
 - [ ] OAuth2 `state` parameter: authorize request generates a cryptographically random
       `state` stored in Redis with TTL; callback rejects requests where `state` does not
-      match the stored value (CSRF protection)
+      match the stored value (CSRF protection). The `state` key MUST be deleted from Redis
+      after a successful match (one-time use) — replay of the callback URL within the TTL
+      window must be rejected. Attack test required: same callback URL submitted twice.
 - [ ] `OIDC_ISSUER_URL` validated through `shared/ssrf.py` at startup: external
       (non-RFC-1918, non-loopback) URLs rejected in `CONCLAVE_ENV=production` mode
 - [ ] IdP reachability check at boot: full `.well-known/openid-configuration` fetch

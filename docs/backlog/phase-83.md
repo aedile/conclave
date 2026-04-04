@@ -67,7 +67,8 @@
 - [ ] Response includes: total rows synthesized, total training time, storage consumed, API call count
 - [ ] Aggregation by day, week, or month (query parameter)
 - [ ] Export as CSV or JSON
-- [ ] Admin can query any org's usage; operator/viewer sees only their own org
+- [ ] All roles see only their own org's usage (admin included — admin is per-org,
+      not a system superadmin). No cross-org usage queries exist at this tier.
 
 ### T83.3 — Billing Webhook
 
@@ -82,6 +83,9 @@
       AND before each delivery attempt. Private IPs, loopback, and link-local rejected.
 - [ ] Webhook fires at end of billing period (configurable: daily, weekly, monthly)
 - [ ] Payload: org_id, period, usage summary, signed with HMAC for integrity
+- [ ] HMAC signing key: `BILLING_WEBHOOK_SECRET` env var (Docker secrets in production).
+      Startup validation: if webhook URL is configured, signing key must be non-empty
+      (fail-closed). `.env.example` updated with `BILLING_WEBHOOK_SECRET`.
 - [ ] Retry with exponential backoff on failure (3 attempts)
 - [ ] If no webhook configured, metering still works (just no push)
 - [ ] Circuit breaker injected via IoC callback from `bootstrapper/wiring.py` (modules
