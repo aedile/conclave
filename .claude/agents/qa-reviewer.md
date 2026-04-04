@@ -83,30 +83,12 @@ backlog-compliance:     PASS/BLOCKER — <list each section's items and whether 
 
 **test-consolidation**: Are there tests that assert the same invariant from multiple angles (e.g., testing the same validation rule with 5 slightly different inputs when 2 would suffice)? Are there tests with setup blocks longer than 20 lines that could share a fixture? Flag consolidation opportunities as ADVISORY — not every instance needs fixing, but patterns of test bloat should be noted.
 
-### Test Anti-Pattern Detection (P78 — Recurring Audit Findings)
+### Test Anti-Pattern Detection
 
-These patterns have been found and fixed multiple times. They MUST be caught at review
-time to prevent recurrence. Each is a **FINDING** (not advisory).
-
-**tautological-assertions**: Scan ALL test files in the diff for:
-- `assert str(...) == "None"` — testing that None is None
-- `assert ...__name__ == "..."` — testing that a name equals itself
-- Consecutive assertions testing the same variable: `assert x is True` + `assert x`
-- `assert result is False` + `assert not result`
-Classification: **FINDING** — these are coverage gaming, not meaningful tests.
-
-**copy-paste-tests**: Scan for 3+ test functions in the same file with identical structure
-(same setup pattern, same assertion shape, different inputs). These MUST be parametrized.
-Classification: **FINDING** — the developer agent has an explicit parametrize mandate (Rule A).
-
-**fixture-duplication**: Check if any new fixture defined in the diff already exists in
-`tests/conftest.py` or `tests/unit/conftest.py`. Common duplicates to watch for:
-`_clear_settings_cache`, `_make_persons_df`, `_create_test_job`.
-Classification: **FINDING** — the developer agent has an explicit fixture-reuse mandate (Rule D).
-
-**test-file-bloat**: Any test file in the diff exceeding 800 lines without a
-`# gate-exempt:` comment on line 1 is a **FINDING**. Gate 6 will catch this at CI time,
-but the reviewer should flag it proactively.
+Read `.claude/standards/test-quality.md` for the full detection checklist (Rules A-F and
+the QA Reviewer Detection Checklist table). All anti-patterns listed there are **FINDING**
+severity, not advisory. The standards file is the single source of truth — shared with
+the software-developer agent.
 
 Report as:
 ```

@@ -41,27 +41,28 @@ Present a plan, list files to create/modify, list tests to write, estimated comm
 
 ### PM Planning Rules
 
-**Rule 6 — Technology substitution requires PM approval and an ADR.** [sunset: Phase 60]
+**Rule 6 — Technology substitution requires PM approval and an ADR.** [sunset: never — validated P78]
 If a backlog task names a specific technology and the subagent proposes a different one, the PM
 MUST require an ADR documenting the substitution BEFORE approving. Silent substitutions are a
-process violation. (Active: ADR-0031 created in T18.2, ADR-0035 created in P28 — both per this rule.)
+process violation. Validated: prevented silent substitutions in P18, P28. Promoted from sunset P60.
 
-**Rule 8 — Operational wiring is a delivery requirement.** [sunset: Phase 60]
+**Rule 8 — Operational wiring is a delivery requirement.** [sunset: never — validated P78]
 Any IoC hook or callback introduced in a task must be wired to a concrete implementation in
 `bootstrapper/` before the task is complete. If the wiring cannot be done in the same task:
 (1) Create a TODO in bootstrapper, (2) Log as BLOCKER advisory, (3) Make it a phase-entry gate.
+Validated: prevented unwired abstractions in P22, P45. Promoted from sunset P60.
 
-**Rule 9 — Documentation gate: every PR requires a `docs:` commit.** [sunset: Phase 60]
+**Rule 9 — Documentation gate: every PR requires a `docs:` commit.** [sunset: never — validated P78]
 Every PR branch MUST contain at least one `docs:` commit. If no docs changed:
 `docs: no documentation changes required — <justification>`
 
-**Rule 11 — Advisory cadence by tier.** [sunset: Phase 60]
+**Rule 11 — Advisory cadence by tier.** [sunset: never — validated P78]
 Advisory drain is scoped to the current maturity tier. Only advisories tagged with the current
 tier or below count toward the cap of 8. Higher-tier advisories are tracked in RETRO_LOG under
 a separate "Deferred by Tier" section but do not trigger drain phases and do not block merges.
 Security advisories retain Rule 26 TTL regardless of tier.
 
-**Rule 12 — Phase execution authority.** [sunset: Phase 60]
+**Rule 12 — Phase execution authority.** [sunset: never — validated P78]
 Once user approves a phase plan, the PM has execution authority over all tasks. Human touchpoints:
 (1) phase plan approval, (2) phase retrospective sign-off, (3) architectural blockers.
 The PM merges with `gh pr merge --merge` after local CI verification (no squash — TDD commit trail must be preserved per Constitution Priority 3).
@@ -69,17 +70,17 @@ The PM merges with `gh pr merge --merge` after local CI verification (no squash 
 **Rule 15 — Rule sunset clause.** [sunset: never — meta-rule]
 Every retrospective-sourced rule carries `[sunset: Phase N+5]`. At the tagged phase, evaluate
 recurrence prevention. If the rule has not prevented a failure in 10+ phases, delete it.
-CLAUDE.md line cap: **400 lines**.
+CLAUDE.md line cap: **400 lines**. PM MUST evaluate all sunset clauses every 10 phases.
 
-**Rule 16 — Materiality threshold.** [sunset: Phase 60]
+**Rule 16 — Materiality threshold.** [sunset: never — validated P78]
 Cosmetic-only review findings get batched into a "polish" task. Standalone phases reserved for
 correctness, security, or functionality findings.
 
-**Rule 17 — Small-fix batching.** [sunset: Phase 60]
+**Rule 17 — Small-fix batching.** [sunset: never — validated P78]
 If a "phase" would have fewer than 5 meaningful commits, it becomes a task within the current
 or next phase — not a standalone phase.
 
-**Rule 18 — Two-Gate Test Policy.** [sunset: Phase 45]
+**Rule 18 — Two-Gate Test Policy.** [sunset: never — validated P78]
 Full test suite runs only twice per feature: post-GREEN (Gate #1) and pre-merge (Gate #2).
 All other checkpoints (RED, REFACTOR, review agents, fix rounds) use light gates:
 changed-file tests + dependents only. Static analysis (ruff, mypy, bandit, vulture,
@@ -97,8 +98,12 @@ The software-developer MUST write negative/attack tests (auth rejection, IDOR, i
 **Rule 23 — Full-system reviewer context.** [sunset: never — structural]
 All review agents (qa-reviewer, devops-reviewer, architecture-reviewer, red-team-reviewer) MUST review with full system context, not just the diff. The diff identifies what changed; the reviewer hunts for problems ANYWHERE that the change may have exposed or interacted with. Reviewers MUST read related files beyond the diff.
 
-**Rule 24 — Phase boundary audit.** [sunset: Phase 55]
-At the end of every phase, after all review commits and before creating the PR, the PM MUST spawn the `phase-boundary-auditor` agent. This agent: (1) audits documentation accuracy against current code, (2) audits test quality and flags bloat, (3) runs the E2E test suite, (4) cleans up merged branches and stale worktrees. Its FINDING-level issues must be resolved before the PR is created. ADVISORY items are logged to RETRO_LOG.
+**Rule 24 — Phase boundary audit.** [sunset: never — validated P78]
+At the end of every standard phase (see Rule 30), after all review commits and before creating
+the PR, the PM MUST spawn the `phase-boundary-auditor` agent. This agent: (1) audits documentation
+accuracy against current code, (2) audits test quality and flags bloat, (3) runs the E2E test
+suite, (4) cleans up merged branches and stale worktrees. Its FINDING-level issues must be resolved
+before the PR is created. ADVISORY items are logged to RETRO_LOG. Lightweight phases skip this.
 
 **Rule 26 — Security advisory TTL.** [sunset: never — structural]
 Any advisory tagged BLOCKER or classified as security-related MUST be resolved within 2 phases
@@ -131,8 +136,26 @@ The PM MUST NOT create a phase whose primary purpose is "fix review findings" un
 findings are BLOCKERs at the current tier. Review findings for higher tiers are batched into
 the tier roadmap, not actioned immediately.
 
-**Rule 25 — Complexity budget.** [sunset: Phase 55]
+**Rule 25 — Complexity budget.** [sunset: never — validated P78]
 Each phase should target a production-to-test LOC ratio no worse than 1:2.5. If a phase exceeds this, the architecture reviewer must provide written justification in their review output. Legitimate exceptions: security-critical code, protocol implementations, state machines with many edge cases. Illegitimate: verbose test setup, redundant assertions, copy-paste test patterns.
+
+**Rule 30 — Lightweight phase classification.** [sunset: Phase 90]
+Phases with < 100 production LOC changed, no new endpoints, no new dependencies, and no
+security-relevant changes are classified as **lightweight**. Pipeline: developer → QA reviewer
+only. No spec-challenger, no red-team, no boundary auditor, no architecture reviewer. The PM
+classifies at plan time. Standard phases use the full pipeline. When in doubt, classify as standard.
+
+**Rule 31 — External challenge cadence.** [sunset: Phase 90]
+Every 5 phases, the PM reads external references relevant to the current tier work (OWASP Top 10,
+CWE Top 25, relevant compliance frameworks, sibling project standards) and runs a gap analysis.
+Output: a brief checklist of "external world says X matters; we do/don't do it" logged to RETRO_LOG.
+This prevents the retrospective loop from only learning from its own failures.
+
+**Rule 32 — Domain assumption register.** [sunset: never — structural]
+For every implementation that encodes a domain-specific claim (e.g., "DP on discriminator provides
+privacy guarantee on generated output"), the developer MUST record the claim in `docs/ASSUMPTIONS.md`
+with: (a) the claim, (b) the source, (c) confidence level, (d) whether it's verifiable by the harness.
+Unverified assumptions are flagged for external domain review.
 
 ---
 
