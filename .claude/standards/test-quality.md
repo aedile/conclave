@@ -54,6 +54,22 @@ If you define a helper function (e.g., `_make_persons_df`, `_create_test_job`), 
 file and other test files for duplicates. If the same helper exists elsewhere, extract it to
 conftest or a `tests/helpers/` module. Never define the same helper function twice.
 
+## Rule G — Integration Test Isolation
+
+Integration tests must reset state between tests via fixture scope. No cross-test database
+state leakage. Specifically:
+
+- Use `pytest-postgresql` fixtures for real PostgreSQL tests (not persistent local databases)
+- Each test function or class must start with a clean database state (transaction rollback
+  or table truncation)
+- Tests must not depend on execution order — running tests in isolation or in any order
+  must produce the same result
+- Redis state used in integration tests must be namespaced and cleaned up per-test
+
+This rule exists because Tier 8 phases (multi-tenancy, RBAC, metering, multi-database)
+all require integration tests that share PostgreSQL and Redis infrastructure. Without
+isolation guarantees, the test suite becomes order-dependent.
+
 ---
 
 ## QA Reviewer Detection Checklist
