@@ -51,11 +51,13 @@ def _make_settings_app() -> Any:
     # state across test functions sharing the same process, causing spurious
     # 429s in long CI runs (P78 fix).
     import os
+
     _prev = os.environ.get("RATE_LIMIT_GENERAL_PER_MINUTE")
     os.environ["RATE_LIMIT_GENERAL_PER_MINUTE"] = "10000"
     try:
         # Clear cached settings so the new env var takes effect
         from synth_engine.shared.settings import get_settings
+
         get_settings.cache_clear()
         app = create_app()
     finally:
