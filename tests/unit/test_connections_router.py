@@ -29,6 +29,7 @@ def _make_connections_app() -> Any:
     from sqlalchemy.pool import StaticPool
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.connections import router as connections_router
@@ -48,7 +49,11 @@ def _make_connections_app() -> Any:
         with Session(engine) as session:
             yield session
 
+    def _override_user() -> TenantContext:
+        return TenantContext(org_id="", user_id="test-operator", role="admin")
+
     app.dependency_overrides[get_db_session] = _override
+    app.dependency_overrides[get_current_user] = _override_user
     return app
 
 

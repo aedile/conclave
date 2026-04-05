@@ -220,12 +220,15 @@ class TestRouterAuditCatchNotBroad:
 
         mock_job = MagicMock()
         mock_job.owner_id = "op1"
+        mock_job.org_id = "op1"
         mock_job.legal_hold = False
         mock_session = MagicMock()
         mock_session.get.return_value = mock_job
 
         mock_audit = MagicMock()
         mock_audit.log_event.side_effect = RuntimeError("audit backend crashed")
+
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 
         with patch(
             "synth_engine.bootstrapper.routers.admin.get_audit_logger",
@@ -236,7 +239,7 @@ class TestRouterAuditCatchNotBroad:
                     job_id=1,
                     body=LegalHoldRequest(enable=True),
                     session=mock_session,
-                    current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     def test_settings_router_unexpected_exception_propagates_upsert(self) -> None:

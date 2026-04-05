@@ -64,9 +64,10 @@ def settings_client(monkeypatch: pytest.MonkeyPatch) -> Any:
     from synth_engine.bootstrapper.routers.settings import router as settings_router
     from synth_engine.shared.settings import get_settings
 
-    # Development pass-through: JWT_SECRET_KEY empty → auth bypassed entirely.
+    # Development pass-through: JWT_SECRET_KEY empty + explicit opt-in → auth bypassed entirely.
     monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+    monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "true")
     get_settings.cache_clear()
 
     engine = create_engine(

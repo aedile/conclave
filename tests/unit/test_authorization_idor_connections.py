@@ -73,13 +73,23 @@ def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Any:
 # ---------------------------------------------------------------------------
 
 
+#: Operator A and B org UUIDs for JWT claims — must be valid UUIDs (P79-F3).
+_ORG_A_UUID: str = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+_ORG_B_UUID: str = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+#: Operator A and B user UUIDs for JWT sub claims — must be valid UUIDs (P79-F3).
+_USER_A_UUID: str = "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+_USER_B_UUID: str = "11111111-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+
 def _make_token(sub: str, secret: str = _TEST_SECRET, org_id: str = "") -> str:
     """Create a valid JWT token for the given sub claim.
 
     Args:
         sub: The operator subject identifier.
         secret: HMAC secret key.
-        org_id: Organization UUID claim (P79-T79.2). Defaults to sub for uniqueness.
+        org_id: Organization UUID claim (P79-T79.2). Must be a valid UUID.
+            Defaults to _ORG_A_UUID if sub is _OPERATOR_A_SUB, else _ORG_B_UUID.
 
     Returns:
         Compact JWT string.
@@ -87,8 +97,15 @@ def _make_token(sub: str, secret: str = _TEST_SECRET, org_id: str = "") -> str:
     import jwt as pyjwt
 
     now = int(time.time())
-    # Use sub as org_id if not specified — ensures each operator has a unique org
-    _org = org_id if org_id else sub
+    # Map operator subs to their org UUIDs — must be valid UUIDs (P79-F3).
+    if org_id:
+        _org = org_id
+    elif sub == _OPERATOR_A_SUB:
+        _org = _ORG_A_UUID
+    elif sub == _OPERATOR_B_SUB:
+        _org = _ORG_B_UUID
+    else:
+        _org = _ORG_A_UUID  # default fallback
     return pyjwt.encode(
         {
             "sub": sub,
@@ -141,7 +158,7 @@ def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any
             port=5432,
             database="alpha_db",
             owner_id=_OPERATOR_A_SUB,
-            org_id=_OPERATOR_A_SUB,
+            org_id=_ORG_A_UUID,
         )
         conn_b = Connection(
             name="db-beta",
@@ -149,7 +166,7 @@ def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any
             port=5432,
             database="beta_db",
             owner_id=_OPERATOR_B_SUB,
-            org_id=_OPERATOR_B_SUB,
+            org_id=_ORG_B_UUID,
         )
         session.add(conn_a)
         session.add(conn_b)

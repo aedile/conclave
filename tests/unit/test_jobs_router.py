@@ -61,7 +61,13 @@ def _make_test_app() -> Any:
         with Session(engine) as session:
             yield session
 
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
     app.dependency_overrides[get_db_session] = _override_session
+    # Override get_current_user so requests don't need a real JWT in pass-through mode.
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+    )
     return app, engine
 
 
@@ -151,7 +157,12 @@ class TestJobsListEndpoint:
             with Session(engine) as session:
                 yield session
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
 
         with (
             patch(
@@ -211,7 +222,12 @@ class TestJobsListEndpoint:
             with Session(engine) as session:
                 yield session
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
 
         with (
             patch(
@@ -785,7 +801,12 @@ class TestJobSSEEndpoint:
             with Session(engine) as session:
                 yield session
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
 
         with (
             patch(
@@ -847,7 +868,12 @@ class TestJobSSEEndpoint:
             with Session(engine) as session:
                 yield session
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
 
         with (
             patch(

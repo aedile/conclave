@@ -212,14 +212,17 @@ def _make_privacy_app(engine: Any) -> FastAPI:
 def _make_admin_app(engine: Any) -> FastAPI:
     """Build a test FastAPI app wired with the admin router.
 
+    Uses get_current_user override (P79-T79.2 migration) with org_id="" to match
+    the default org_id on SynthesisJob rows seeded without an explicit org_id.
+
     Args:
         engine: SQLAlchemy engine for the test DB.
 
     Returns:
         FastAPI instance with admin router.
     """
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.admin import router as admin_router
 
@@ -230,11 +233,12 @@ def _make_admin_app(engine: Any) -> FastAPI:
         with Session(engine) as s:
             yield s
 
-    def _override_operator() -> str:
-        return "test-operator"
+    def _override_user() -> TenantContext:
+        # org_id="" matches the default SynthesisJob.org_id so ownership check passes.
+        return TenantContext(org_id="", user_id="test-operator", role="admin")
 
     app.dependency_overrides[get_db_session] = _override_session
-    app.dependency_overrides[get_current_operator] = _override_operator
+    app.dependency_overrides[get_current_user] = _override_user
     return app
 
 

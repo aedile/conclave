@@ -363,12 +363,15 @@ class TestRouterAuditWriteCatchNarrowed:
 
         mock_job = MagicMock()
         mock_job.owner_id = "op1"
+        mock_job.org_id = "op1"
         mock_job.legal_hold = False
         mock_session = MagicMock()
         mock_session.get.return_value = mock_job
 
         mock_audit = MagicMock()
         mock_audit.log_event.side_effect = ValueError("non-JSON value in details")
+
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 
         with (
             patch(
@@ -386,7 +389,7 @@ class TestRouterAuditWriteCatchNarrowed:
                 job_id=1,
                 body=LegalHoldRequest(enable=True),
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse)
@@ -399,12 +402,15 @@ class TestRouterAuditWriteCatchNarrowed:
 
         mock_job = MagicMock()
         mock_job.owner_id = "op1"
+        mock_job.org_id = "op1"
         mock_job.legal_hold = False
         mock_session = MagicMock()
         mock_session.get.return_value = mock_job
 
         mock_audit = MagicMock()
         mock_audit.log_event.side_effect = RuntimeError("lock acquisition failed")
+
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 
         with patch(
             "synth_engine.bootstrapper.routers.admin.get_audit_logger",
@@ -415,7 +421,7 @@ class TestRouterAuditWriteCatchNarrowed:
                     job_id=1,
                     body=LegalHoldRequest(enable=True),
                     session=mock_session,
-                    current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     # --- settings.py ---

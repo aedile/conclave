@@ -542,6 +542,7 @@ class TestLegalHoldEndpoint:
         from sqlmodel import Session, SQLModel, create_engine
 
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.admin import router as admin_router
 
         app = FastAPI()
@@ -558,7 +559,11 @@ class TestLegalHoldEndpoint:
             with Session(engine) as session:
                 yield session
 
+        # org_id="" matches default SynthesisJob.org_id so ownership check passes.
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="", user_id="test-operator", role="admin"
+        )
 
         # Create a job
         with Session(engine) as session:
@@ -573,8 +578,13 @@ class TestLegalHoldEndpoint:
             session.refresh(job)
             job_id = job.id
 
+        audit_mock_ok = MagicMock()
         client = TestClient(app)
-        response = client.patch(f"/admin/jobs/{job_id}/legal-hold", json={"enable": True})
+        with patch(
+            "synth_engine.bootstrapper.routers.admin.get_audit_logger",
+            return_value=audit_mock_ok,
+        ):
+            response = client.patch(f"/admin/jobs/{job_id}/legal-hold", json={"enable": True})
         assert response.status_code == 200
         assert response.json()["legal_hold"] is True
 
@@ -591,6 +601,7 @@ class TestLegalHoldEndpoint:
         from sqlmodel import Session, SQLModel, create_engine
 
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.admin import router as admin_router
 
         app = FastAPI()
@@ -608,6 +619,9 @@ class TestLegalHoldEndpoint:
                 yield session
 
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="", user_id="test-operator", role="admin"
+        )
 
         with Session(engine) as session:
             job = SynthesisJob(
@@ -622,8 +636,13 @@ class TestLegalHoldEndpoint:
             session.refresh(job)
             job_id = job.id
 
+        audit_mock_ok = MagicMock()
         client = TestClient(app)
-        response = client.patch(f"/admin/jobs/{job_id}/legal-hold", json={"enable": False})
+        with patch(
+            "synth_engine.bootstrapper.routers.admin.get_audit_logger",
+            return_value=audit_mock_ok,
+        ):
+            response = client.patch(f"/admin/jobs/{job_id}/legal-hold", json={"enable": False})
         assert response.status_code == 200
         assert response.json()["legal_hold"] is False
 
@@ -640,6 +659,7 @@ class TestLegalHoldEndpoint:
         from sqlmodel import Session, SQLModel, create_engine
 
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.admin import router as admin_router
 
         app = FastAPI()
@@ -657,6 +677,9 @@ class TestLegalHoldEndpoint:
                 yield session
 
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="", user_id="test-operator", role="admin"
+        )
 
         client = TestClient(app)
         response = client.patch("/admin/jobs/9999/legal-hold", json={"enable": True})
@@ -681,8 +704,8 @@ class TestLegalHoldEndpoint:
         from sqlalchemy.pool import StaticPool
         from sqlmodel import Session, SQLModel, create_engine
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.admin import router as admin_router
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
@@ -701,8 +724,10 @@ class TestLegalHoldEndpoint:
                 yield session
 
         app.dependency_overrides[get_db_session] = _override
-        # T68.2: Override auth to match job owner_id so ownership check passes.
-        app.dependency_overrides[get_current_operator] = lambda: "operator-1"
+        # T68.2/P79: Override get_current_user with org_id="" to match default job org_id.
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="", user_id="operator-1", role="admin"
+        )
 
         with Session(engine) as session:
             job = SynthesisJob(

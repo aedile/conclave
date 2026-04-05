@@ -273,6 +273,7 @@ class TestPassThroughModeAllowsAccess:
 
         monkeypatch.setenv("JWT_SECRET_KEY", "")
         monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "true")
 
         from synth_engine.shared.settings import get_settings
 
@@ -320,6 +321,7 @@ class TestPassThroughModeAllowsAccess:
         monkeypatch.setenv("JWT_SECRET_KEY", "")
         monkeypatch.setenv("JWT_ALGORITHM", "HS256")
         monkeypatch.setenv("AUDIT_KEY", os.urandom(32).hex())
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "true")
 
         from synth_engine.shared.settings import get_settings
 

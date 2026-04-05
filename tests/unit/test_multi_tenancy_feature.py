@@ -400,6 +400,7 @@ def test_get_current_user_passthrough_sentinel_values(
     monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", "")
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "true")
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
@@ -414,7 +415,7 @@ def test_get_current_user_passthrough_sentinel_values(
         get_current_user,
     )
 
-    # No Authorization header — pass-through mode with empty JWT_SECRET_KEY
+    # No Authorization header — pass-through mode with empty JWT_SECRET_KEY and explicit opt-in
     scope = {
         "type": "http",
         "method": "GET",

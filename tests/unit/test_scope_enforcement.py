@@ -75,6 +75,8 @@ def _make_token(
         "sub": "test-operator",
         "iat": now,
         "exp": now + 3600,
+        "org_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+        "role": "admin",
     }
     if include_scope:
         payload["scope"] = scope

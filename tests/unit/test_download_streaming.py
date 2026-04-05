@@ -90,7 +90,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2, patch.dict(os.environ, {}, clear=False):
@@ -147,7 +152,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -203,7 +213,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -263,7 +278,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -327,7 +347,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:

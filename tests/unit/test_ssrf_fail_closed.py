@@ -165,8 +165,8 @@ class TestSSRFFailClosedFeature:
         from fastapi.testclient import TestClient
         from sqlmodel import Session
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.webhooks import router
 
         app = FastAPI()
@@ -191,11 +191,12 @@ class TestSSRFFailClosedFeature:
         def override_db_session() -> Generator[Session]:
             yield mock_session
 
-        def override_get_current_operator() -> str:
-            return "op-test"
-
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="00000000-0000-0000-0000-000000000000",
+            user_id="op-test",
+            role="admin",
+        )
         app.dependency_overrides[get_db_session] = override_db_session
-        app.dependency_overrides[get_current_operator] = override_get_current_operator
 
         callback_url = "https://hooks.example.com/webhook"
         signing_key = "a" * 32  # 32-char minimum

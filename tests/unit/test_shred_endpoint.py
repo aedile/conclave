@@ -79,7 +79,12 @@ def _make_test_app_with_job(
         with Session(engine) as session:
             yield session
 
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
     app.dependency_overrides[get_db_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+    )
     return app, engine
 
 

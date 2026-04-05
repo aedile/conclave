@@ -74,15 +74,22 @@ def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Any:
 # ---------------------------------------------------------------------------
 
 
+#: Operator A and B org UUIDs for JWT claims — must be valid UUIDs (P79-F3).
+_ORG_A_UUID: str = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+_ORG_B_UUID: str = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+
 def _make_token(sub: str, secret: str = _TEST_SECRET, org_id: str = "") -> str:
     """Create a valid JWT token for the given sub claim.
 
     Includes org_id claim required by get_current_user (P79-T79.2).
+    org_id must be a valid UUID string (P79-F3 UUID validation).
 
     Args:
         sub: The operator subject identifier.
         secret: HMAC secret key.
-        org_id: Organization UUID claim. Defaults to sub for per-operator isolation.
+        org_id: Organization UUID claim. Must be a valid UUID.
+            Defaults to _ORG_A_UUID if sub is _OPERATOR_A_SUB, else _ORG_B_UUID.
 
     Returns:
         Compact JWT string.
@@ -90,8 +97,15 @@ def _make_token(sub: str, secret: str = _TEST_SECRET, org_id: str = "") -> str:
     import jwt as pyjwt
 
     now = int(time.time())
-    # Use sub as org_id if not specified — ensures each operator has a unique org
-    _org = org_id if org_id else sub
+    # Map operator subs to their org UUIDs — must be valid UUIDs (P79-F3).
+    if org_id:
+        _org = org_id
+    elif sub == _OPERATOR_A_SUB:
+        _org = _ORG_A_UUID
+    elif sub == _OPERATOR_B_SUB:
+        _org = _ORG_B_UUID
+    else:
+        _org = _ORG_A_UUID  # default fallback
     return pyjwt.encode(
         {
             "sub": sub,
@@ -144,7 +158,7 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
             total_epochs=10,
             num_rows=100,
             owner_id=_OPERATOR_A_SUB,
-            org_id=_OPERATOR_A_SUB,
+            org_id=_ORG_A_UUID,
         )
         job_b = SynthesisJob(
             table_name="orders",
@@ -152,7 +166,7 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
             total_epochs=5,
             num_rows=50,
             owner_id=_OPERATOR_B_SUB,
-            org_id=_OPERATOR_B_SUB,
+            org_id=_ORG_B_UUID,
         )
         session.add(job_a)
         session.add(job_b)
@@ -554,7 +568,7 @@ def test_shred_job_returns_404_for_other_operators_job(
             status="COMPLETE",
             output_path="/tmp/orders-synthetic.parquet",
             owner_id=_OPERATOR_B_SUB,
-            org_id=_OPERATOR_B_SUB,
+            org_id=_ORG_B_UUID,
         )
         session.add(job_b_complete)
         session.commit()

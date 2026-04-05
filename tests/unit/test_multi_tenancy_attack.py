@@ -267,6 +267,7 @@ def test_get_current_user_passthrough_returns_default_org_sentinel(
     monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", "")
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "true")
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
@@ -281,7 +282,7 @@ def test_get_current_user_passthrough_returns_default_org_sentinel(
         get_current_user,
     )
 
-    # No Authorization header — pass-through mode returns sentinel
+    # No Authorization header — pass-through mode returns sentinel (with explicit opt-in)
     scope = {
         "type": "http",
         "method": "GET",
@@ -1275,11 +1276,15 @@ def test_huey_task_spends_correct_org_budget() -> None:
     """run_synthesis_job resolves org from SynthesisJob.org_id FK.
 
     ATTACK-04 mitigation: the Huey task must validate org_id from the
-    job record, not from any external input.
+    job record, not from any external input.  This test verifies that
+    _handle_dp_accounting reads job.org_id and passes it to spend_budget_fn.
     """
-    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+    from unittest.mock import MagicMock
 
-    # Verify org_id field exists on SynthesisJob
+    import synth_engine.modules.synthesizer.jobs.job_orchestration as _orch
+    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
+    from synth_engine.modules.synthesizer.training.dp_accounting import _handle_dp_accounting
+
     job = SynthesisJob(
         total_epochs=1,
         num_rows=10,
@@ -1287,7 +1292,35 @@ def test_huey_task_spends_correct_org_budget() -> None:
         parquet_path="/tmp/test.parquet",
         org_id=_ORG_A_UUID,
     )
-    assert job.org_id == _ORG_A_UUID
+    job.id = 42  # type: ignore[assignment]
+    job.actual_epsilon = 0.5
+
+    dp_wrapper = MagicMock()
+    dp_wrapper.epsilon_spent.return_value = 0.5
+
+    spend_calls: list[dict] = []
+
+    def _mock_spend(**kwargs):  # type: ignore[return]
+        spend_calls.append(kwargs)
+
+    saved = _orch._spend_budget_fn
+    try:
+        _orch._spend_budget_fn = _mock_spend  # type: ignore[assignment]
+        with patch(
+            "synth_engine.modules.synthesizer.jobs.job_orchestration.get_audit_logger"
+        ) as mock_audit:
+            mock_audit.return_value.log_event.return_value = None
+            _handle_dp_accounting(job=job, dp_wrapper=dp_wrapper, job_id=42)
+    finally:
+        _orch._spend_budget_fn = saved
+
+    # The org_id from the job must flow through to the spend call
+    assert len(spend_calls) == 1
+    assert spend_calls[0]["org_id"] == _ORG_A_UUID, (
+        f"org_id was not threaded through to spend_budget_fn: got {spend_calls[0].get('org_id')!r}"
+    )
+    assert spend_calls[0]["amount"] == 0.5
+    assert spend_calls[0]["job_id"] == 42
 
 
 def test_huey_task_cannot_spend_cross_org_budget() -> None:
@@ -1295,15 +1328,64 @@ def test_huey_task_cannot_spend_cross_org_budget() -> None:
 
     ATTACK-04 mitigation: mismatched org_ids must raise an error before
     any epsilon is spent. This prevents cross-tenant budget depletion.
+    Tests the sync_spend_budget cross-org validation directly.
     """
-    from synth_engine.modules.privacy.ledger import PrivacyLedger
+    from decimal import Decimal
 
-    # Verify org_id field on PrivacyLedger
-    ledger = PrivacyLedger(
-        total_allocated_epsilon=10.0,  # type: ignore[arg-type]
-        org_id=_ORG_A_UUID,
+    import sqlalchemy as _sa
+    from sqlalchemy.pool import StaticPool as SaStaticPool
+    from sqlmodel import Session as SaSession
+    from sqlmodel import SQLModel as SaModel
+
+    from synth_engine.modules.privacy.ledger import PrivacyLedger
+    from synth_engine.modules.privacy.sync_budget import sync_spend_budget
+    from synth_engine.shared.exceptions import BudgetExhaustionError
+
+    sa_create_engine = _sa.create_engine
+
+    # Build an in-memory DB with a ledger belonging to ORG_A
+    engine = sa_create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=SaStaticPool,
     )
-    assert ledger.org_id == _ORG_A_UUID
+    SaModel.metadata.create_all(engine)
+
+    with SaSession(engine) as session:
+        with session.begin():
+            ledger = PrivacyLedger(
+                total_allocated_epsilon=Decimal("10.0"),
+                total_spent_epsilon=Decimal("0.0"),
+                org_id=_ORG_A_UUID,
+            )
+            session.add(ledger)
+
+    # Attempt to spend budget for ORG_B against ORG_A's ledger — must be rejected
+    with SaSession(engine) as s2:
+        ledger_id = (
+            s2.exec(  # type: ignore[call-overload]
+                __import__("sqlmodel", fromlist=["select"]).select(PrivacyLedger)
+            )
+            .first()
+            .id
+        )
+
+    with pytest.raises(BudgetExhaustionError):
+        sync_spend_budget(
+            engine,
+            amount=0.1,
+            job_id=99,
+            ledger_id=ledger_id,
+            org_id=_ORG_B_UUID,  # cross-org: ORG_B tries to use ORG_A ledger
+        )
+
+    # Verify no epsilon was spent (ledger must remain unchanged)
+    with SaSession(engine) as s3:
+        persisted = s3.get(PrivacyLedger, ledger_id)
+        assert persisted is not None
+        assert persisted.total_spent_epsilon == Decimal("0.0"), (
+            "Epsilon must NOT be deducted when cross-org validation rejects the spend"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1439,8 +1521,10 @@ def test_erasure_scoped_to_requesting_user_within_org(
         headers={"Authorization": f"Bearer {token_a}"},
     )
 
-    # Must not be 403 (self-erasure should be permitted)
-    assert response.status_code != 403
+    # Self-erasure within org must succeed: 200 (OK) or 204 (No Content)
+    assert response.status_code in (200, 204), (
+        f"Self-erasure should return 200 or 204, got {response.status_code}: {response.text}"
+    )
 
 
 def test_org_a_cannot_erase_org_b_user(
