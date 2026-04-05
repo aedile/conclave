@@ -26,6 +26,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
+
 pytestmark = pytest.mark.unit
 
 # ---------------------------------------------------------------------------
@@ -138,7 +140,7 @@ class TestRouterAuditWriteCatchNarrowed:
             result = refresh_budget(
                 body=BudgetRefreshRequest(justification="test justification long enough"),
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse), "Must be JSONResponse"
@@ -184,7 +186,7 @@ class TestRouterAuditWriteCatchNarrowed:
             result = refresh_budget(
                 body=BudgetRefreshRequest(justification="test justification long enough"),
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse), "Must be JSONResponse"
@@ -218,7 +220,7 @@ class TestRouterAuditWriteCatchNarrowed:
                 refresh_budget(
                     body=BudgetRefreshRequest(justification="test justification long enough"),
                     session=mock_session,
-                    current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     # --- connections.py ---
@@ -231,6 +233,7 @@ class TestRouterAuditWriteCatchNarrowed:
 
         mock_conn = MagicMock()
         mock_conn.owner_id = "op1"
+        mock_conn.org_id = "op1"
         mock_session = MagicMock()
         mock_session.get.return_value = mock_conn
 
@@ -250,7 +253,9 @@ class TestRouterAuditWriteCatchNarrowed:
             mock_counter.labels.return_value = mock_labels
 
             result = delete_connection(
-                connection_id="conn-abc", session=mock_session, current_operator="op1"
+                connection_id="conn-abc",
+                session=mock_session,
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse)
@@ -263,6 +268,7 @@ class TestRouterAuditWriteCatchNarrowed:
 
         mock_conn = MagicMock()
         mock_conn.owner_id = "op1"
+        mock_conn.org_id = "op1"
         mock_session = MagicMock()
         mock_session.get.return_value = mock_conn
 
@@ -275,7 +281,9 @@ class TestRouterAuditWriteCatchNarrowed:
         ):
             with pytest.raises(RuntimeError, match="unexpected crash"):
                 delete_connection(
-                    connection_id="conn-abc", session=mock_session, current_operator="op1"
+                    connection_id="conn-abc",
+                    session=mock_session,
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     # --- jobs.py ---
@@ -288,6 +296,7 @@ class TestRouterAuditWriteCatchNarrowed:
 
         mock_job = MagicMock()
         mock_job.owner_id = "op1"
+        mock_job.org_id = "op1"
         mock_job.status = "COMPLETE"
         mock_job.table_name = "orders"
         mock_session = MagicMock()
@@ -308,7 +317,11 @@ class TestRouterAuditWriteCatchNarrowed:
             mock_labels = MagicMock()
             mock_counter.labels.return_value = mock_labels
 
-            result = shred_job(job_id=1, session=mock_session, current_operator="op1")
+            result = shred_job(
+                job_id=1,
+                session=mock_session,
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
+            )
 
         assert isinstance(result, JSONResponse)
         assert result.status_code == 500
@@ -320,6 +333,7 @@ class TestRouterAuditWriteCatchNarrowed:
 
         mock_job = MagicMock()
         mock_job.owner_id = "op1"
+        mock_job.org_id = "op1"
         mock_job.status = "COMPLETE"
         mock_job.table_name = "orders"
         mock_session = MagicMock()
@@ -333,7 +347,11 @@ class TestRouterAuditWriteCatchNarrowed:
             return_value=mock_audit,
         ):
             with pytest.raises(RuntimeError, match="unexpected error"):
-                shred_job(job_id=1, session=mock_session, current_operator="op1")
+                shred_job(
+                    job_id=1,
+                    session=mock_session,
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
+                )
 
     # --- admin.py ---
 
@@ -552,7 +570,7 @@ class TestRouterAuditWriteCatchNarrowed:
             result = deactivate_webhook(
                 webhook_id="wh-789",
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse)
@@ -581,7 +599,7 @@ class TestRouterAuditWriteCatchNarrowed:
                 deactivate_webhook(
                     webhook_id="wh-789",
                     session=mock_session,
-                    current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     # --- security.py (async routes) ---

@@ -120,14 +120,18 @@ def _make_compliance_client(
         with Session(db_engine) as session:
             yield session
 
-    def _get_operator() -> str:
-        return operator_id
-
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
+    def _get_user() -> TenantContext:
+        return TenantContext(
+            org_id="00000000-0000-0000-0000-000000000000",
+            user_id=operator_id,
+            role="admin",
+        )
 
     app.dependency_overrides[get_db_session] = _get_session
-    app.dependency_overrides[get_current_operator] = _get_operator
+    app.dependency_overrides[get_current_user] = _get_user
 
     if vault_sealed:
         monkeypatch.setattr(

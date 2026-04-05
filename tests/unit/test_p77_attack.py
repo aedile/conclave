@@ -106,9 +106,10 @@ class TestUnicodeErrorCaughtInRouterAuditBlocks:
 
         result = _write_shred_audit(
             audit=mock_audit,
-            operator="op1",
+            user_id="op1",
             job_id=42,
             table_name="customers",
+            org_id="",
         )
 
         assert result is not None, "Expected a 500 JSONResponse, got None"
@@ -136,9 +137,10 @@ class TestUnicodeErrorCaughtInRouterAuditBlocks:
         ):
             result = _shred_and_compensate(
                 audit=mock_audit,
-                operator="op1",
+                user_id="op1",
                 job_id=42,
                 job=mock_job,
+                org_id="",
             )
 
         assert result is not None, "Expected a 500 JSONResponse, got None"

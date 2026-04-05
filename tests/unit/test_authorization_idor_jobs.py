@@ -74,12 +74,15 @@ def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _make_token(sub: str, secret: str = _TEST_SECRET) -> str:
+def _make_token(sub: str, secret: str = _TEST_SECRET, org_id: str = "") -> str:
     """Create a valid JWT token for the given sub claim.
+
+    Includes org_id claim required by get_current_user (P79-T79.2).
 
     Args:
         sub: The operator subject identifier.
         secret: HMAC secret key.
+        org_id: Organization UUID claim. Defaults to sub for per-operator isolation.
 
     Returns:
         Compact JWT string.
@@ -87,8 +90,17 @@ def _make_token(sub: str, secret: str = _TEST_SECRET) -> str:
     import jwt as pyjwt
 
     now = int(time.time())
+    # Use sub as org_id if not specified — ensures each operator has a unique org
+    _org = org_id if org_id else sub
     return pyjwt.encode(
-        {"sub": sub, "iat": now, "exp": now + 3600, "scope": ["read", "write"]},
+        {
+            "sub": sub,
+            "org_id": _org,
+            "role": "admin",
+            "iat": now,
+            "exp": now + 3600,
+            "scope": ["read", "write"],
+        },
         secret,
         algorithm="HS256",
     )
@@ -124,7 +136,7 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
     )
     SQLModel.metadata.create_all(engine)
 
-    # Seed two jobs with different owners
+    # Seed two jobs with different owners and org_ids (P79-T79.2)
     with Session(engine) as session:
         job_a = SynthesisJob(
             table_name="customers",
@@ -132,6 +144,7 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
             total_epochs=10,
             num_rows=100,
             owner_id=_OPERATOR_A_SUB,
+            org_id=_OPERATOR_A_SUB,
         )
         job_b = SynthesisJob(
             table_name="orders",
@@ -139,6 +152,7 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
             total_epochs=5,
             num_rows=50,
             owner_id=_OPERATOR_B_SUB,
+            org_id=_OPERATOR_B_SUB,
         )
         session.add(job_a)
         session.add(job_b)
@@ -540,6 +554,7 @@ def test_shred_job_returns_404_for_other_operators_job(
             status="COMPLETE",
             output_path="/tmp/orders-synthetic.parquet",
             owner_id=_OPERATOR_B_SUB,
+            org_id=_OPERATOR_B_SUB,
         )
         session.add(job_b_complete)
         session.commit()
@@ -577,8 +592,3 @@ def test_shred_job_returns_404_for_other_operators_job(
         )
 
     assert response.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# AC1: GET /connections/{connection_id} — IDOR protection
-# ---------------------------------------------------------------------------

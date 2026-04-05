@@ -73,12 +73,13 @@ def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _make_token(sub: str, secret: str = _TEST_SECRET) -> str:
+def _make_token(sub: str, secret: str = _TEST_SECRET, org_id: str = "") -> str:
     """Create a valid JWT token for the given sub claim.
 
     Args:
         sub: The operator subject identifier.
         secret: HMAC secret key.
+        org_id: Organization UUID claim (P79-T79.2). Defaults to sub for uniqueness.
 
     Returns:
         Compact JWT string.
@@ -86,75 +87,20 @@ def _make_token(sub: str, secret: str = _TEST_SECRET) -> str:
     import jwt as pyjwt
 
     now = int(time.time())
+    # Use sub as org_id if not specified — ensures each operator has a unique org
+    _org = org_id if org_id else sub
     return pyjwt.encode(
-        {"sub": sub, "iat": now, "exp": now + 3600, "scope": ["read", "write"]},
+        {
+            "sub": sub,
+            "org_id": _org,
+            "role": "admin",
+            "iat": now,
+            "exp": now + 3600,
+            "scope": ["read", "write"],
+        },
         secret,
         algorithm="HS256",
     )
-
-
-def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
-    """Build a test FastAPI app with the jobs router and in-memory SQLite.
-
-    Args:
-        monkeypatch: pytest monkeypatch for env var injection.
-
-    Returns:
-        Tuple of (app, engine) for test use.
-    """
-    from sqlalchemy.pool import StaticPool
-
-    from synth_engine.bootstrapper.errors import register_error_handlers
-    from synth_engine.bootstrapper.main import create_app
-    from synth_engine.bootstrapper.routers.jobs import router as jobs_router
-    from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
-
-    monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
-    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
-
-    from synth_engine.shared.settings import get_settings
-
-    get_settings.cache_clear()
-
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    SQLModel.metadata.create_all(engine)
-
-    # Seed two jobs with different owners
-    with Session(engine) as session:
-        job_a = SynthesisJob(
-            table_name="customers",
-            parquet_path="/tmp/customers.parquet",
-            total_epochs=10,
-            num_rows=100,
-            owner_id=_OPERATOR_A_SUB,
-        )
-        job_b = SynthesisJob(
-            table_name="orders",
-            parquet_path="/tmp/orders.parquet",
-            total_epochs=5,
-            num_rows=50,
-            owner_id=_OPERATOR_B_SUB,
-        )
-        session.add(job_a)
-        session.add(job_b)
-        session.commit()
-
-    app = create_app()
-    register_error_handlers(app)
-    app.include_router(jobs_router)
-
-    from synth_engine.bootstrapper.dependencies.db import get_db_session
-
-    def _override_session() -> Any:
-        with Session(engine) as session:
-            yield session
-
-    app.dependency_overrides[get_db_session] = _override_session
-    return app, engine
 
 
 def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any, str, str]:
@@ -187,7 +133,7 @@ def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any
     )
     SQLModel.metadata.create_all(engine)
 
-    # Seed two connections with different owners
+    # Seed two connections with different owners and org_ids (P79-T79.2)
     with Session(engine) as session:
         conn_a = Connection(
             name="db-alpha",
@@ -195,6 +141,7 @@ def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any
             port=5432,
             database="alpha_db",
             owner_id=_OPERATOR_A_SUB,
+            org_id=_OPERATOR_A_SUB,
         )
         conn_b = Connection(
             name="db-beta",
@@ -202,6 +149,7 @@ def _make_connections_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any
             port=5432,
             database="beta_db",
             owner_id=_OPERATOR_B_SUB,
+            org_id=_OPERATOR_B_SUB,
         )
         session.add(conn_a)
         session.add(conn_b)

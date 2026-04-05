@@ -505,8 +505,8 @@ class TestComplianceEndpointHappy:
 
         from fastapi import FastAPI
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
 
         app = FastAPI()
@@ -516,11 +516,15 @@ class TestComplianceEndpointHappy:
             with Session(engine) as session:
                 yield session
 
-        def _override_operator() -> str:
-            return "test-operator"
+        def _override_user() -> TenantContext:
+            return TenantContext(
+                org_id="00000000-0000-0000-0000-000000000000",
+                user_id="test-operator",
+                role="admin",
+            )
 
         app.dependency_overrides[get_db_session] = _override_session
-        app.dependency_overrides[get_current_operator] = _override_operator
+        app.dependency_overrides[get_current_user] = _override_user
         return app
 
     def test_erasure_returns_200_with_compliance_receipt(self) -> None:
@@ -663,8 +667,8 @@ class TestComplianceEndpointVaultSealed:
 
         from fastapi import FastAPI
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
 
         app = FastAPI()
@@ -674,11 +678,15 @@ class TestComplianceEndpointVaultSealed:
             with Session(engine) as session:
                 yield session
 
-        def _override_operator() -> str:
-            return "test-operator"
+        def _override_user() -> TenantContext:
+            return TenantContext(
+                org_id="00000000-0000-0000-0000-000000000000",
+                user_id="test-operator",
+                role="admin",
+            )
 
         app.dependency_overrides[get_db_session] = _override_session
-        app.dependency_overrides[get_current_operator] = _override_operator
+        app.dependency_overrides[get_current_user] = _override_user
         return app
 
     def test_erasure_returns_423_when_vault_sealed(self) -> None:
@@ -798,8 +806,8 @@ class TestErasureRequestValidation:
 
         from fastapi import FastAPI
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
 
         app = FastAPI()
@@ -809,11 +817,15 @@ class TestErasureRequestValidation:
             with Session(engine) as session:
                 yield session
 
-        def _override_operator() -> str:
-            return "test-operator"
+        def _override_user() -> TenantContext:
+            return TenantContext(
+                org_id="00000000-0000-0000-0000-000000000000",
+                user_id="test-operator",
+                role="admin",
+            )
 
         app.dependency_overrides[get_db_session] = _override_session
-        app.dependency_overrides[get_current_operator] = _override_operator
+        app.dependency_overrides[get_current_user] = _override_user
         return app
 
     def test_empty_subject_id_returns_422(self) -> None:

@@ -91,8 +91,8 @@ def _make_connections_app() -> FastAPI:
     Returns:
         FastAPI instance with connections router and SQLite in-memory DB.
     """
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.connections import router as connections_router
 
@@ -110,11 +110,11 @@ def _make_connections_app() -> FastAPI:
         with Session(engine) as session:
             yield session
 
-    def _override_operator() -> str:
-        return "test-operator"
+    def _override_user() -> TenantContext:
+        return TenantContext(org_id="", user_id="test-operator", role="admin")
 
     app.dependency_overrides[get_db_session] = _override_session
-    app.dependency_overrides[get_current_operator] = _override_operator
+    app.dependency_overrides[get_current_user] = _override_user
     return app
 
 
@@ -124,8 +124,8 @@ def _make_webhooks_app() -> FastAPI:
     Returns:
         FastAPI instance with webhooks router and SQLite in-memory DB.
     """
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.webhooks import router as webhooks_router
 
@@ -143,11 +143,11 @@ def _make_webhooks_app() -> FastAPI:
         with Session(engine) as session:
             yield session
 
-    def _override_operator() -> str:
-        return "test-operator"
+    def _override_user() -> TenantContext:
+        return TenantContext(org_id="", user_id="test-operator", role="admin")
 
     app.dependency_overrides[get_db_session] = _override_session
-    app.dependency_overrides[get_current_operator] = _override_operator
+    app.dependency_overrides[get_current_user] = _override_user
     return app
 
 
@@ -160,8 +160,8 @@ def _make_jobs_app(engine: Any) -> FastAPI:
     Returns:
         FastAPI instance with jobs router.
     """
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
 
@@ -172,11 +172,11 @@ def _make_jobs_app(engine: Any) -> FastAPI:
         with Session(engine) as session:
             yield session
 
-    def _override_operator() -> str:
-        return "test-operator"
+    def _override_user() -> TenantContext:
+        return TenantContext(org_id="", user_id="test-operator", role="admin")
 
     app.dependency_overrides[get_db_session] = _override_session
-    app.dependency_overrides[get_current_operator] = _override_operator
+    app.dependency_overrides[get_current_user] = _override_user
     return app
 
 
@@ -189,8 +189,8 @@ def _make_privacy_app(engine: Any) -> FastAPI:
     Returns:
         FastAPI instance with privacy router.
     """
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.privacy import router as privacy_router
 
@@ -201,11 +201,11 @@ def _make_privacy_app(engine: Any) -> FastAPI:
         with Session(engine) as session:
             yield session
 
-    def _override_operator() -> str:
-        return "test-operator"
+    def _override_user() -> TenantContext:
+        return TenantContext(org_id="", user_id="test-operator", role="admin")
 
     app.dependency_overrides[get_db_session] = _override_session
-    app.dependency_overrides[get_current_operator] = _override_operator
+    app.dependency_overrides[get_current_user] = _override_user
     return app
 
 

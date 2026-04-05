@@ -31,6 +31,7 @@ import jwt as pyjwt
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
@@ -165,9 +166,10 @@ def _make_legacy_token(*, sub: str, secret: str = _TEST_SECRET) -> str:
 def _make_tenant_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     """Build a minimal FastAPI app with a tenant-protected endpoint.
 
-    This creates an in-memory SQLite DB, wires up a test endpoint
-    that depends on ``get_current_user``, and returns the app for
-    use with TestClient.
+    Uses ``Depends(get_current_user)`` as a parameter default (not a type
+    annotation) to avoid the ``from __future__ import annotations`` scope
+    issue where FastAPI receives lazy string annotations instead of actual
+    types and falls back to treating ``ctx`` as a query parameter.
 
     Args:
         monkeypatch: pytest monkeypatch fixture.
@@ -175,6 +177,7 @@ def _make_tenant_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     Returns:
         FastAPI application instance with tenant endpoint.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -184,17 +187,17 @@ def _make_tenant_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     app = FastAPI()
 
     # Import after env setup
+    from fastapi import Depends
+
     from synth_engine.bootstrapper.dependencies.tenant import (
         TenantContext,
         get_current_user,
     )
-    from fastapi import Depends
-    from typing import Annotated
 
+    # Use Depends as a default value (not a type annotation) to avoid the
+    # from __future__ import annotations lazy-string resolution issue.
     @app.get("/test/tenant")
-    def _test_endpoint(
-        ctx: Annotated[TenantContext, Depends(get_current_user)],
-    ) -> dict[str, str]:
+    def _test_endpoint(ctx: TenantContext = Depends(get_current_user)) -> dict[str, str]:  # type: ignore[assignment]  # noqa: B008
         return {"org_id": ctx.org_id, "user_id": ctx.user_id, "role": ctx.role}
 
     return app
@@ -257,39 +260,43 @@ def test_get_current_user_passthrough_returns_default_org_sentinel(
 
     ATTACK-02 mitigation: sentinel UUIDs are reserved all-zeros, distinct
     from any UUIDv4.  The sentinel cannot collide with real org/user IDs.
+    Calls get_current_user directly with a mocked Request to avoid the
+    from __future__ import annotations scope issue with nested FastAPI
+    Annotated[..., Depends(...)] endpoint definitions.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", "")
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
 
+    from starlette.requests import Request
+
     from synth_engine.bootstrapper.dependencies.tenant import (
+        DEFAULT_ORG_UUID,
+        DEFAULT_ROLE,
+        DEFAULT_USER_UUID,
         TenantContext,
         get_current_user,
     )
-    from fastapi import Depends
-    from fastapi import FastAPI
-    from typing import Annotated
 
-    app = FastAPI()
+    # No Authorization header — pass-through mode returns sentinel
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/test",
+        "query_string": b"",
+        "headers": [],
+    }
+    request = Request(scope)
 
-    @app.get("/test/passthrough")
-    def _passthrough_endpoint(
-        ctx: Annotated[TenantContext, Depends(get_current_user)],
-    ) -> dict[str, str]:
-        return {"org_id": ctx.org_id, "user_id": ctx.user_id, "role": ctx.role}
+    ctx = get_current_user(request)
 
-    from starlette.requests import Request as _Request
-
-    client = TestClient(app, raise_server_exceptions=False)
-    response = client.get("/test/passthrough")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["org_id"] == _DEFAULT_ORG_UUID
-    assert data["user_id"] == _DEFAULT_USER_UUID
-    assert data["role"] == "admin"
+    assert isinstance(ctx, TenantContext)
+    assert ctx.org_id == DEFAULT_ORG_UUID
+    assert ctx.user_id == DEFAULT_USER_UUID
+    assert ctx.role == DEFAULT_ROLE
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +324,9 @@ def _make_connections_tenant_app(
     from synth_engine.bootstrapper.schemas.connections import Connection
 
     # In-memory SQLite for unit tests
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     # Seed a connection owned by org A
@@ -336,24 +345,19 @@ def _make_connections_tenant_app(
         seed_session.commit()
 
     # Patch get_db_session to use our test engine
-    from contextlib import contextmanager
 
     def _get_test_session() -> Any:
         with Session(engine) as s:
             yield s
 
-    from synth_engine.bootstrapper import routers
-
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _get_test_session,
-    )
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
 
     # Build app with connections router
     from synth_engine.bootstrapper.routers.connections import router as connections_router
 
     app = FastAPI()
     app.include_router(connections_router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _get_test_session
 
     org_a_token = _make_token(sub=_USER_A_UUID, org_id=_ORG_A_UUID)
     return app, Session(engine), conn_id, org_a_token
@@ -367,6 +371,7 @@ def test_org_a_connection_returns_404_to_org_b(
     IDOR protection: cross-tenant read returns 404 (not 403) to prevent
     enumeration attacks (resource existence must not be revealed).
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -375,12 +380,13 @@ def test_org_a_connection_returns_404_to_org_b(
 
     from synth_engine.bootstrapper.schemas.connections import Connection
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     conn_id = "conn-for-org-a"
     with Session(engine) as s:
-        # org_id column will exist after migration; for unit test seed with owner_id
         conn = Connection(
             id=conn_id,
             name="org-a-private",
@@ -389,6 +395,7 @@ def test_org_a_connection_returns_404_to_org_b(
             database="orga",
             schema_name="public",
             owner_id=_USER_A_UUID,
+            org_id=_ORG_A_UUID,
         )
         s.add(conn)
         s.commit()
@@ -397,15 +404,12 @@ def test_org_a_connection_returns_404_to_org_b(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.connections import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org B token — different org and user
     token_b = _make_token(sub=_USER_B_UUID, org_id=_ORG_B_UUID)
@@ -427,6 +431,7 @@ def test_org_a_job_returns_404_to_org_b(
 
     IDOR protection: cross-tenant job read returns 404 (not 200 or 403).
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -435,7 +440,9 @@ def test_org_a_job_returns_404_to_org_b(
 
     from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as s:
@@ -445,6 +452,7 @@ def test_org_a_job_returns_404_to_org_b(
             table_name="test_table",
             parquet_path="/tmp/test.parquet",
             owner_id=_USER_A_UUID,
+            org_id=_ORG_A_UUID,
         )
         s.add(job)
         s.commit()
@@ -454,15 +462,12 @@ def test_org_a_job_returns_404_to_org_b(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.jobs import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org B token
     token_b = _make_token(sub=_USER_B_UUID, org_id=_ORG_B_UUID)
@@ -484,6 +489,7 @@ def test_org_a_cannot_download_org_b_artifact(
     IDOR protection on the download endpoint: must return 404 for
     cross-tenant artifact access.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -492,7 +498,9 @@ def test_org_a_cannot_download_org_b_artifact(
 
     from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as s:
@@ -513,16 +521,14 @@ def test_org_a_cannot_download_org_b_artifact(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
 
     # Use jobs_streaming router for download
     from synth_engine.bootstrapper.routers.jobs_streaming import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org A token tries to download org B's artifact
     token_a = _make_token(sub=_USER_A_UUID, org_id=_ORG_A_UUID)
@@ -544,6 +550,7 @@ def test_org_a_cannot_cancel_org_b_job(
     IDOR protection on mutation: shred endpoint must return 404 for
     cross-tenant job mutation.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -552,7 +559,9 @@ def test_org_a_cannot_cancel_org_b_job(
 
     from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as s:
@@ -572,15 +581,12 @@ def test_org_a_cannot_cancel_org_b_job(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.jobs import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org A token tries to shred org B's job
     token_a = _make_token(sub=_USER_A_UUID, org_id=_ORG_A_UUID)
@@ -602,6 +608,7 @@ def test_org_a_privacy_budget_not_visible_to_org_b(
     Privacy ledger must be scoped by org_id. Org B with no ledger row
     sees 404, not Org A's budget.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -610,7 +617,9 @@ def test_org_a_privacy_budget_not_visible_to_org_b(
 
     from synth_engine.modules.privacy.ledger import PrivacyLedger
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     # Seed org A's ledger (with org_id after T79.4 migration)
@@ -626,15 +635,12 @@ def test_org_a_privacy_budget_not_visible_to_org_b(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.privacy import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org B token — org B has no ledger → must get 404 (not org A's ledger)
     token_b = _make_token(sub=_USER_B_UUID, org_id=_ORG_B_UUID)
@@ -657,6 +663,7 @@ def test_org_a_cannot_reset_org_b_budget(
     POST /privacy/budget/refresh must be scoped to the requesting org.
     Org B can only reset its own ledger.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -665,7 +672,9 @@ def test_org_a_cannot_reset_org_b_budget(
 
     from synth_engine.modules.privacy.ledger import PrivacyLedger
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     # Only org A has a ledger
@@ -678,15 +687,12 @@ def test_org_a_cannot_reset_org_b_budget(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.privacy import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org B tries to refresh (no org B ledger exists)
     token_b = _make_token(sub=_USER_B_UUID, org_id=_ORG_B_UUID)
@@ -694,7 +700,7 @@ def test_org_a_cannot_reset_org_b_budget(
 
     response = client.post(
         "/api/v1/privacy/budget/refresh",
-        json={"justification": "test"},
+        json={"justification": "test-justification-for-budget-reset"},
         headers={"Authorization": f"Bearer {token_b}"},
     )
 
@@ -710,6 +716,7 @@ def test_org_a_cannot_enumerate_org_b_connections_via_pagination(
     ATTACK-03 mitigation: cursor-based pagination must scope results by
     org_id BEFORE applying cursor offset.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -718,10 +725,12 @@ def test_org_a_cannot_enumerate_org_b_connections_via_pagination(
 
     from synth_engine.bootstrapper.schemas.connections import Connection
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
-    # Seed connections for both orgs
+    # Seed connections for both orgs with org_id set
     with Session(engine) as s:
         for i in range(3):
             conn = Connection(
@@ -732,6 +741,7 @@ def test_org_a_cannot_enumerate_org_b_connections_via_pagination(
                 database="dba",
                 schema_name="public",
                 owner_id=_USER_A_UUID,
+                org_id=_ORG_A_UUID,
             )
             s.add(conn)
         for i in range(3):
@@ -743,6 +753,7 @@ def test_org_a_cannot_enumerate_org_b_connections_via_pagination(
                 database="dbb",
                 schema_name="public",
                 owner_id=_USER_B_UUID,
+                org_id=_ORG_B_UUID,
             )
             s.add(conn)
         s.commit()
@@ -751,15 +762,12 @@ def test_org_a_cannot_enumerate_org_b_connections_via_pagination(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.connections import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org B lists connections — must only see org B's 3 connections
     token_b = _make_token(sub=_USER_B_UUID, org_id=_ORG_B_UUID)
@@ -793,31 +801,30 @@ def test_sql_injection_in_org_id_path_parameter(
     Path parameters that reach DB queries must be validated.
     A crafted SQL injection string in a path param must return 422, not 500.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
 
-    from synth_engine.bootstrapper.schemas.connections import Connection
     from sqlmodel import create_engine as _create_engine
 
-    engine = _create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = _create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     def _test_session() -> Any:
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.connections import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     token = _make_token(sub=_USER_A_UUID, org_id=_ORG_A_UUID)
     client = TestClient(app, raise_server_exceptions=False)
@@ -847,6 +854,7 @@ def test_http_header_spoofing_x_org_id_ignored(
     must not gain access to the other org's resources. The system must
     derive org_id exclusively from the verified JWT claim.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -855,7 +863,9 @@ def test_http_header_spoofing_x_org_id_ignored(
 
     from synth_engine.bootstrapper.schemas.connections import Connection
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     conn_id = "org-b-private-conn"
@@ -876,15 +886,12 @@ def test_http_header_spoofing_x_org_id_ignored(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.connections import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org A token, but with X-Org-ID header spoofing org B
     token_a = _make_token(sub=_USER_A_UUID, org_id=_ORG_A_UUID)
@@ -910,6 +917,7 @@ def test_pagination_cursor_from_org_a_under_org_b_returns_only_org_b_data(
     ATTACK-03 mitigation: cursor comparison must occur AFTER org_id filtering.
     Cursor cross-tenant leakage is prevented by scoping the WHERE clause.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -918,12 +926,13 @@ def test_pagination_cursor_from_org_a_under_org_b_returns_only_org_b_data(
 
     from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
-    org_a_job_id = None
     with Session(engine) as s:
-        # Create 3 jobs for org A (IDs 1, 2, 3)
+        # Create 3 jobs for org A (IDs 1, 2, 3) with org_id
         for i in range(3):
             job = SynthesisJob(
                 total_epochs=1,
@@ -931,10 +940,11 @@ def test_pagination_cursor_from_org_a_under_org_b_returns_only_org_b_data(
                 table_name="table_a",
                 parquet_path=f"/tmp/orga_{i}.parquet",
                 owner_id=_USER_A_UUID,
+                org_id=_ORG_A_UUID,
             )
             s.add(job)
         s.flush()
-        # Create 2 jobs for org B (IDs 4, 5) — after org A's IDs
+        # Create 2 jobs for org B (IDs 4, 5) — after org A's IDs — with org_id
         for i in range(2):
             job = SynthesisJob(
                 total_epochs=1,
@@ -942,6 +952,7 @@ def test_pagination_cursor_from_org_a_under_org_b_returns_only_org_b_data(
                 table_name="table_b",
                 parquet_path=f"/tmp/orgb_{i}.parquet",
                 owner_id=_USER_B_UUID,
+                org_id=_ORG_B_UUID,
             )
             s.add(job)
         s.commit()
@@ -950,15 +961,12 @@ def test_pagination_cursor_from_org_a_under_org_b_returns_only_org_b_data(
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.jobs import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org B lists jobs with cursor=0 (start from beginning)
     # After org_id filtering: org B only sees its 2 jobs, regardless of
@@ -988,6 +996,7 @@ def test_jwt_with_forged_org_id_rejected_by_signature(
     ATTACK-01 / ATTACK-02: An attacker who base64-decodes, edits, and re-encodes
     a JWT must not gain access. PyJWT rejects mismatched signatures.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
@@ -1019,9 +1028,9 @@ def test_jwt_with_forged_org_id_rejected_by_signature(
     payload_dict["org_id"] = _ORG_B_UUID  # tamper
 
     # Re-encode without re-signing
-    tampered_payload = base64.urlsafe_b64encode(
-        json.dumps(payload_dict).encode()
-    ).rstrip(b"=").decode()
+    tampered_payload = (
+        base64.urlsafe_b64encode(json.dumps(payload_dict).encode()).rstrip(b"=").decode()
+    )
     tampered_token = f"{parts[0]}.{tampered_payload}.{parts[2]}"
 
     response = client.get(
@@ -1043,22 +1052,26 @@ def test_default_org_seed_is_idempotent() -> None:
     ATTACK-02 mitigation: the default org UUID must exist exactly once.
     Double-applying the seed must not cause IntegrityError or duplicates.
     """
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    import uuid
+
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     # Import models to trigger registration
     from synth_engine.shared.models.organization import Organization
 
     SQLModel.metadata.create_all(engine)
 
+    _default_uuid = uuid.UUID(_DEFAULT_ORG_UUID)
+
     with Session(engine) as s:
         # Simulate idempotent seed (ON CONFLICT DO NOTHING pattern)
         from sqlmodel import select
 
-        existing = s.exec(
-            select(Organization).where(Organization.id == _DEFAULT_ORG_UUID)
-        ).first()
+        existing = s.exec(select(Organization).where(Organization.id == _default_uuid)).first()
         if existing is None:
             org = Organization(
-                id=_DEFAULT_ORG_UUID,
+                id=_default_uuid,
                 name="Default Organization",
             )
             s.add(org)
@@ -1068,12 +1081,10 @@ def test_default_org_seed_is_idempotent() -> None:
         # Apply seed a second time — must not raise or create duplicates
         from sqlmodel import select
 
-        existing = s.exec(
-            select(Organization).where(Organization.id == _DEFAULT_ORG_UUID)
-        ).first()
+        existing = s.exec(select(Organization).where(Organization.id == _default_uuid)).first()
         if existing is None:
             org = Organization(
-                id=_DEFAULT_ORG_UUID,
+                id=_default_uuid,
                 name="Default Organization",
             )
             s.add(org)
@@ -1082,11 +1093,10 @@ def test_default_org_seed_is_idempotent() -> None:
     with Session(engine) as s:
         from sqlmodel import select
 
-        orgs = s.exec(
-            select(Organization).where(Organization.id == _DEFAULT_ORG_UUID)
-        ).all()
+        orgs = s.exec(select(Organization).where(Organization.id == _default_uuid)).all()
         assert len(orgs) == 1, f"Expected exactly 1 default org, found {len(orgs)}"
-        assert orgs[0].id == _DEFAULT_ORG_UUID
+        # id stored as UUID; compare with UUID object
+        assert str(orgs[0].id) == _DEFAULT_ORG_UUID
 
 
 def test_organization_model_has_required_fields() -> None:
@@ -1100,7 +1110,8 @@ def test_organization_model_has_required_fields() -> None:
         id=_DEFAULT_ORG_UUID,
         name="Test Organization",
     )
-    assert org.id == _DEFAULT_ORG_UUID
+    # Organization.id stays as string when created in-memory; compare as string
+    assert str(org.id) == _DEFAULT_ORG_UUID
     assert org.name == "Test Organization"
     assert org.created_at is not None
     # settings is optional JSON field — defaults to None or "{}"
@@ -1120,8 +1131,9 @@ def test_user_model_has_required_fields() -> None:
         email="admin@default.local",
         role="admin",
     )
-    assert user.id == _DEFAULT_USER_UUID
-    assert user.org_id == _DEFAULT_ORG_UUID
+    # id/org_id stay as strings when created in-memory; compare as strings
+    assert str(user.id) == _DEFAULT_USER_UUID
+    assert str(user.org_id) == _DEFAULT_ORG_UUID
     assert user.email == "admin@default.local"
     assert user.role == "admin"
 
@@ -1134,7 +1146,9 @@ def test_existing_single_operator_data_accessible_after_migration() -> None:
     """
     from synth_engine.bootstrapper.schemas.connections import Connection
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     # Seed a legacy record with owner_id='' (pre-T39.2 format)
@@ -1156,9 +1170,7 @@ def test_existing_single_operator_data_accessible_after_migration() -> None:
     with Session(engine) as s:
         from sqlmodel import select
 
-        result = s.exec(
-            select(Connection).where(Connection.id == "legacy-conn-id")
-        ).first()
+        result = s.exec(select(Connection).where(Connection.id == "legacy-conn-id")).first()
         assert result is not None
         assert result.owner_id == ""
         assert result.name == "legacy-connection"
@@ -1200,22 +1212,21 @@ def test_reaper_scoped_audit_event_includes_org_id() -> None:
     ATTACK-04 mitigation: reaper must emit auditable org context so
     cross-tenant reaping operations can be detected.
     """
-    from unittest.mock import MagicMock
 
     from synth_engine.shared.tasks.repository import StaleTask, TaskRepository
 
     class _FakeRepo(TaskRepository):
-        def find_stale_tasks(self, cutoff_time: object) -> list[StaleTask]:
+        def get_stale_in_progress(self, older_than: object) -> list[StaleTask]:
             return [
                 StaleTask(
                     task_id=42,
-                    status="TRAINING",
+                    status="IN_PROGRESS",
                     org_id=_ORG_A_UUID,  # org_id field required on StaleTask
                 )
             ]
 
-        def mark_failed(self, task_id: int, error_msg: str) -> None:
-            pass
+        def mark_failed(self, task_id: int, error_msg: str) -> bool:
+            return True
 
     audit_events: list[dict[str, object]] = []
 
@@ -1324,19 +1335,22 @@ def test_webhook_limit_scoped_per_org(
     An org with 10 registrations must reject the 11th, regardless of
     which user within that org makes the request.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
 
-    from synth_engine.bootstrapper.schemas.webhooks import WebhookRegistration
     from synth_engine.bootstrapper.routers.webhooks import _count_active_registrations
+    from synth_engine.bootstrapper.schemas.webhooks import WebhookRegistration
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
-    # Seed 10 webhooks for org A
+    # Seed 10 webhooks for org A with org_id set
     with Session(engine) as s:
         for i in range(10):
             wh = WebhookRegistration(
@@ -1344,14 +1358,15 @@ def test_webhook_limit_scoped_per_org(
                 callback_url=f"https://hook.example.com/{i}",
                 signing_key="test-signing-key",
                 active=True,
+                org_id=_ORG_A_UUID,
             )
             s.add(wh)
         s.commit()
 
     # After T79.2 migration: _count_active_registrations filters by org_id
-    # Count for org A (user A UUID) should be 10
+    # Count for org A should be 10
     with Session(engine) as s:
-        count = _count_active_registrations(s, org_id=_ORG_A_UUID)
+        count = _count_active_registrations(s, owner_id=_USER_A_UUID, org_id=_ORG_A_UUID)
 
     assert count == 10, f"Expected 10 active registrations for org A, got {count}"
 
@@ -1387,46 +1402,42 @@ def test_erasure_scoped_to_requesting_user_within_org(
     A user can erase their own data within their org (subject_id == user_id).
     After T79.2: erasure is scoped to the requesting user's org.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     def _test_session() -> Any:
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.compliance import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
-    from synth_engine.shared.security.vault import VaultState
-
-    salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
-    monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-    VaultState.unseal(bytearray(b"erasure-test-passphrase"))
+    # The _unseal_vault_for_ale autouse fixture has already unsealed the vault.
+    # No redundant unseal needed here.
 
     # User A requests erasure of their own data
     token_a = _make_token(sub=_USER_A_UUID, org_id=_ORG_A_UUID)
     client = TestClient(app, raise_server_exceptions=False)
 
-    response = client.delete(
+    response = client.request(
+        "DELETE",
         "/api/v1/compliance/erasure",
         json={"subject_id": _USER_A_UUID},
         headers={"Authorization": f"Bearer {token_a}"},
     )
-
-    VaultState.reset()
 
     # Must not be 403 (self-erasure should be permitted)
     assert response.status_code != 403
@@ -1441,35 +1452,36 @@ def test_org_a_cannot_erase_org_b_user(
     Cross-org erasure must return 404 (not 403) — prevents revealing
     that the other org's user exists.
     """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
     monkeypatch.setenv("JWT_ALGORITHM", "HS256")
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
 
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     def _test_session() -> Any:
         with Session(engine) as s:
             yield s
 
-    monkeypatch.setattr(
-        "synth_engine.bootstrapper.dependencies.db.get_db_session",
-        _test_session,
-    )
-
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
     from synth_engine.bootstrapper.routers.compliance import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_db_session] = _test_session
 
     # Org A token tries to erase Org B's user data
     # subject_id != user_id (cross-org, cross-user attempt)
     token_a = _make_token(sub=_USER_A_UUID, org_id=_ORG_A_UUID)
     client = TestClient(app, raise_server_exceptions=False)
 
-    response = client.delete(
+    response = client.request(
+        "DELETE",
         "/api/v1/compliance/erasure",
         json={"subject_id": _USER_B_UUID},  # trying to erase org B's user
         headers={"Authorization": f"Bearer {token_a}"},
@@ -1505,8 +1517,4 @@ def test_jwt_expiry_seconds_validator_le_900(
     import pydantic
 
     with pytest.raises((ValueError, pydantic.ValidationError)):
-        settings = get_settings()
-        # Trigger validation — validator should reject > 900 in multi-tenant mode
-        assert settings.jwt_expiry_seconds <= 900, (
-            "jwt_expiry_seconds > 900 in multi-tenant mode must be rejected"
-        )
+        get_settings()  # validator should reject jwt_expiry_seconds > 900

@@ -20,6 +20,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
+# Pass-through mode org sentinel (matches DEFAULT_ORG_UUID from tenant.py)
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 # ---------------------------------------------------------------------------
 # Test app factory helpers
@@ -63,6 +66,7 @@ def _make_test_app_with_job(
             status=status,
             output_path=output_path,
             artifact_path=artifact_path,
+            org_id=_DEFAULT_ORG_UUID,
         )
         session.add(job)
         session.commit()

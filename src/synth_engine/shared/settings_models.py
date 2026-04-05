@@ -818,8 +818,59 @@ class ConclaveSettingsFields(BaseModel):
     )
 
     # -----------------------------------------------------------------------
+    # Multi-Tenancy (P79)
+    # -----------------------------------------------------------------------
+
+    conclave_multi_tenant_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable multi-tenant mode (Phase 79+). When True, jwt_expiry_seconds "
+            "is validated to be ≤ 900 seconds (CONFIG-01 mitigation from ADR-0065). "
+            "Defaults to False for backward compatibility with single-operator deployments."
+        ),
+    )
+    per_org_max_connections: int = Field(
+        default=5,
+        gt=0,
+        le=100,
+        description=(
+            "Maximum concurrent database connections per organization (asyncio.Semaphore limit). "
+            "Prevents one tenant exhausting the database connection pool. "
+            "Must be > 0 and ≤ 100. Defaults to 5. Phase 79 T79.2."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
     # Validators
     # -----------------------------------------------------------------------
+
+    @model_validator(mode="after")
+    def _validate_jwt_expiry_multi_tenant(self) -> ConclaveSettingsFields:
+        """Reject jwt_expiry_seconds > 900 when multi-tenant mode is enabled.
+
+        CONFIG-01 mitigation from ADR-0065: unbounded token lifetime allows
+        stale org_id/role claims to persist.  In multi-tenant mode the maximum
+        token lifetime is 900 seconds (15 minutes) to bound the staleness window.
+
+        This validator fires only when conclave_multi_tenant_enabled=True.
+        Single-operator deployments (default) are unaffected.
+
+        Returns:
+            The validated instance (self).
+
+        Raises:
+            ValueError: When multi-tenant mode is enabled and
+                jwt_expiry_seconds > 900.
+        """
+        if self.conclave_multi_tenant_enabled and self.jwt_expiry_seconds > 900:
+            raise ValueError(
+                f"jwt_expiry_seconds={self.jwt_expiry_seconds} exceeds the maximum "
+                f"allowed value of 900 seconds in multi-tenant mode "
+                f"(CONCLAVE_MULTI_TENANT_ENABLED=true). "
+                f"Set JWT_EXPIRY_SECONDS to 900 or less to bound the staleness window "
+                f"on org_id and role claims. See ADR-0065 CONFIG-01."
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_production_required_fields(self) -> ConclaveSettingsFields:

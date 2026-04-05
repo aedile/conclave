@@ -99,6 +99,7 @@ Task: T47.8 — ADV-P46-01 TLS 1.3 minimum version pin for asyncpg
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import ssl
 import uuid
@@ -533,6 +534,48 @@ def _utcnow() -> datetime:
         Current UTC time as a timezone-aware :class:`datetime`.
     """
     return datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# Per-org connection semaphore (Phase 79 T79.2)
+# ---------------------------------------------------------------------------
+
+#: Module-level dict mapping org_id → asyncio.Semaphore.
+#: Each org gets its own semaphore with a limit from
+#: ConclaveSettings.per_org_max_connections (default: 5).
+#: Prevents one tenant exhausting the database connection pool.
+_org_semaphores: dict[str, asyncio.Semaphore] = {}
+
+#: Lock to protect concurrent initialisation of semaphore entries.
+_org_semaphores_lock: asyncio.Lock | None = None
+
+
+def get_org_semaphore(org_id: str) -> asyncio.Semaphore:
+    """Return (or create) the asyncio.Semaphore for the given org_id.
+
+    Each organization has its own semaphore with a connection limit set from
+    ConclaveSettings.per_org_max_connections (default: 5).  The semaphore
+    is created lazily on first access and cached for the lifetime of the process.
+
+    This is a module-level dict keyed by org_id.  Thread-safety is provided
+    by Python"s GIL for the dict lookup + insert; no explicit lock is needed for
+    CPython dict operations (which are atomic at the C level).
+
+    Args:
+        org_id: The organization UUID string to get a semaphore for.
+
+    Returns:
+        The :class: instance for this org.
+    """
+    if org_id not in _org_semaphores:
+        try:
+            from synth_engine.shared.settings import get_settings
+
+            limit = get_settings().per_org_max_connections
+        except Exception:
+            limit = 5  # safe default if settings unavailable at import time
+        _org_semaphores[org_id] = asyncio.Semaphore(limit)
+    return _org_semaphores[org_id]
 
 
 # ---------------------------------------------------------------------------

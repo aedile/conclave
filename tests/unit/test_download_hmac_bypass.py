@@ -26,6 +26,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
+# Pass-through mode org sentinel (matches DEFAULT_ORG_UUID from tenant.py)
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 def _vault_license_patches() -> tuple[Any, Any]:
     """Return patches for vault sealed and license state."""
@@ -77,6 +80,7 @@ class TestDownloadEndpointHMACBypass:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -139,6 +143,7 @@ class TestDownloadEndpointHMACBypass:
                 num_rows=50,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -199,6 +204,7 @@ class TestDownloadEndpointHMACBypass:
                 num_rows=50,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -269,6 +275,7 @@ class TestDownloadEndpointHMACBypass:
                 num_rows=50,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()

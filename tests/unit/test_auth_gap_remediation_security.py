@@ -336,10 +336,15 @@ class TestPassThroughModeAllowsAccess:
         )
         SQLModel.metadata.create_all(engine)
 
+        # In pass-through mode, get_current_user returns DEFAULT_ORG_UUID.
+        # Seed the ledger with that org_id so the org_id filter matches.
+        _default_org = "00000000-0000-0000-0000-000000000000"
+
         with Session(engine) as session:
             ledger = PrivacyLedger(
                 total_allocated_epsilon=Decimal("10.0"),
                 total_spent_epsilon=Decimal("2.0"),
+                org_id=_default_org,
             )
             session.add(ledger)
             session.commit()

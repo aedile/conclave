@@ -73,7 +73,7 @@ _logger = logging.getLogger(__name__)
 EPSILON_SPENT_TOTAL: Counter = Counter(
     "epsilon_spent_total",
     "Total epsilon budget deducted, counted per successful spend_budget() call.",
-    labelnames=["job_id", "dataset_id"],
+    labelnames=["job_id", "dataset_id", "org_id"],
 )
 
 
@@ -214,7 +214,7 @@ async def spend_budget(
         ledger.total_allocated_epsilon - ledger.total_spent_epsilon,
     )
     # T25.1: Increment only after confirmed successful commit.
-    EPSILON_SPENT_TOTAL.labels(job_id=str(job_id), dataset_id=str(ledger_id)).inc()
+    EPSILON_SPENT_TOTAL.labels(job_id=str(job_id), dataset_id=str(ledger_id), org_id="").inc()
 
 
 async def reset_budget(

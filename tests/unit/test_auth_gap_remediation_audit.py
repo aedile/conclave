@@ -37,6 +37,7 @@ _WRONG_SECRET = (  # pragma: allowlist secret
     "wrong-secret-key-that-is-long-enough-for-hs256-32chars+"
 )
 _OPERATOR_SUB = "test-operator-remediation"
+_TEST_ORG_UUID = "11111111-1111-1111-1111-111111111111"
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,7 @@ def _make_token(
     sub: str = _OPERATOR_SUB,
     secret: str = _TEST_SECRET,
     exp_offset: int = 3600,
+    org_id: str = _TEST_ORG_UUID,
 ) -> str:
     """Create a JWT token for testing.
 
@@ -55,6 +57,7 @@ def _make_token(
         sub: Subject claim value.
         secret: HMAC secret to sign with.
         exp_offset: Seconds from now for expiry (negative = already expired).
+        org_id: Organization UUID claim (P79-T79.2 multi-tenant).
 
     Returns:
         Compact JWT string.
@@ -65,6 +68,8 @@ def _make_token(
     return pyjwt.encode(
         {
             "sub": sub,
+            "org_id": org_id,
+            "role": "admin",
             "iat": now,
             "exp": now + exp_offset,
             "scope": ["read", "write", "security:admin", "settings:write"],
@@ -145,6 +150,7 @@ def _make_privacy_app(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
         ledger = PrivacyLedger(
             total_allocated_epsilon=Decimal("10.0"),
             total_spent_epsilon=Decimal("3.5"),
+            org_id=_TEST_ORG_UUID,
         )
         session.add(ledger)
         session.commit()
@@ -380,6 +386,7 @@ def _make_jobs_app_with_owned_job(
             num_rows=100,
             status="COMPLETE",
             owner_id=owner_sub,
+            org_id=_TEST_ORG_UUID,
         )
         session.add(job)
         session.commit()

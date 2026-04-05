@@ -133,12 +133,12 @@ class OrphanTaskReaper:
                 continue
 
             reaped += 1
-            self._emit_audit(task.task_id)
+            self._emit_audit(task.task_id, org_id=task.org_id)
 
         _logger.info("Reaper cycle complete: %d jobs reaped.", reaped)
         return reaped
 
-    def _emit_audit(self, task_id: int) -> None:
+    def _emit_audit(self, task_id: int, *, org_id: str = "") -> None:
         """Emit a best-effort ORPHAN_TASK_REAPED audit event.
 
         Failures are caught and logged as a WARNING.  A failed audit does NOT
@@ -146,6 +146,8 @@ class OrphanTaskReaper:
 
         Args:
             task_id: Integer primary key of the reaped job.
+            org_id: Tenant organization UUID for multi-tenant audit context
+                (T79.2, ADR-0065).  Empty string for backward compatibility.
         """
         try:
             get_audit_logger().log_event(
@@ -153,7 +155,7 @@ class OrphanTaskReaper:
                 actor="system/reaper",
                 resource=f"synthesis_job/{task_id}",
                 action="mark_failed",
-                details={"job_id": str(task_id), "reason": _REAPER_ERROR_MSG},
+                details={"job_id": str(task_id), "reason": _REAPER_ERROR_MSG, "org_id": org_id},
             )
         except Exception as exc:
             _logger.warning(

@@ -18,6 +18,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
+# Pass-through mode org sentinel (matches DEFAULT_ORG_UUID from tenant.py)
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 def _make_test_app() -> Any:
     """Build a test FastAPI app with an in-memory SQLite database."""
@@ -42,6 +45,7 @@ def _make_test_app() -> Any:
             parquet_path="/tmp/customers.parquet",
             total_epochs=10,
             num_rows=100,
+            org_id=_DEFAULT_ORG_UUID,
         )
         session.add(job)
         session.commit()
@@ -134,6 +138,7 @@ class TestJobsListEndpoint:
                     parquet_path=f"/tmp/t{i}.parquet",
                     total_epochs=10,
                     num_rows=100,
+                    org_id=_DEFAULT_ORG_UUID,
                 )
                 session.add(job)
             session.commit()
@@ -193,6 +198,7 @@ class TestJobsListEndpoint:
                     parquet_path=f"/tmp/t{i}.parquet",
                     total_epochs=10,
                     num_rows=100,
+                    org_id=_DEFAULT_ORG_UUID,
                 )
                 session.add(job)
             session.commit()
@@ -764,6 +770,7 @@ class TestJobSSEEndpoint:
                 num_rows=100,
                 status="COMPLETE",
                 current_epoch=10,
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -825,6 +832,7 @@ class TestJobSSEEndpoint:
                 num_rows=100,
                 status="FAILED",
                 error_msg="OOM error at /internal/path/to/code.py",
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
