@@ -66,15 +66,20 @@ class AuthenticationError(Exception):
         super().__init__(message)
 
 
-def create_token(*, sub: str, scope: list[str]) -> str:
+def create_token(*, sub: str, scope: list[str], org_id: str = "", role: str = "operator") -> str:
     """Create a signed JWT token for the given operator.
 
     Token claims: ``sub`` (operator ID), ``iat`` (issued-at), ``exp``
-    (expiry = now + ``jwt_expiry_seconds``), ``scope`` (permissions list).
+    (expiry = now + ``jwt_expiry_seconds``), ``scope`` (permissions list),
+    ``org_id`` (organization UUID), ``role`` (RBAC role string).
 
     Args:
         sub: Subject — the operator identifier to embed in the token.
         scope: List of permission strings granted to the operator.
+        org_id: Organization UUID to embed in the token (P79-F2).
+            Defaults to empty string for backward compatibility.
+        role: RBAC role string to embed in the token (P79-F2).
+            Defaults to ``"operator"`` for backward compatibility.
 
     Returns:
         Compact JWT string (header.payload.signature).
@@ -86,6 +91,8 @@ def create_token(*, sub: str, scope: list[str]) -> str:
         "iat": now,
         "exp": now + settings.jwt_expiry_seconds,
         "scope": scope,
+        "org_id": org_id,
+        "role": role,
     }
     return pyjwt.encode(
         payload, settings.jwt_secret_key.get_secret_value(), algorithm=settings.jwt_algorithm

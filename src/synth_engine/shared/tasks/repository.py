@@ -41,8 +41,11 @@ class StaleTask:
 
     task_id: int
     status: str
-    created_at: datetime
+    created_at: datetime | None = field(default=None)
     legal_hold: bool = field(default=False)
+    #: Tenant organization UUID for multi-tenant audit events (T79.2, ADR-0065).
+    #: Empty string for backward compatibility with pre-P79 tasks.
+    org_id: str = field(default="")
 
 
 class TaskRepository(abc.ABC):

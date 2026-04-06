@@ -8,6 +8,7 @@ imports this environment.
 CONSTITUTION Priority 0: Security — credentials are sourced from the
 environment at runtime via ``alembic.ini``; no hardcoded values here.
 Task: P2-T2.2 — Secure Database Layer
+Task: P79-T79.0b — shared/models subpackage discovery
 """
 
 from __future__ import annotations
@@ -28,10 +29,16 @@ from synth_engine.bootstrapper.schemas.settings import (
 # (rather than BaseModel) so that target_metadata is complete for autogenerate.
 from synth_engine.modules.privacy.ledger import PrivacyLedger, PrivacyTransaction  # noqa: F401
 
+# T79.0b: Import shared/models/ subpackage to register Organization and User
+# with SQLModel.metadata so Alembic autogenerate detects them.
+from synth_engine.shared import models as _shared_models  # noqa: F401  (T79.0b)
+
 # Import BaseModel to register all SQLModel table metadata.  The act of
 # importing this module causes all concrete table classes (imported transitively
 # by the application) to register with SQLModel.metadata.
 from synth_engine.shared.db import BaseModel
+from synth_engine.shared.models.organization import Organization  # noqa: F401
+from synth_engine.shared.models.user import User  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Alembic configuration object — provides access to values in alembic.ini

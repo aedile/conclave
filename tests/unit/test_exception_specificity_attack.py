@@ -32,6 +32,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
+
 pytestmark = pytest.mark.unit
 
 # ---------------------------------------------------------------------------
@@ -144,7 +146,11 @@ class TestRouterAuditCatchNotBroad:
             # If the catch is still broad (Exception), this call would return JSONResponse(500)
             # instead of raising.
             with pytest.raises(RuntimeError, match="unexpected programming error"):
-                refresh_budget(body=body, session=mock_session, current_operator="op1")
+                refresh_budget(
+                    body=body,
+                    session=mock_session,
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
+                )
 
     def test_connections_router_unexpected_exception_propagates(self) -> None:
         """RuntimeError from get_audit_logger() must propagate in delete_connection.
@@ -156,6 +162,7 @@ class TestRouterAuditCatchNotBroad:
 
         mock_conn = MagicMock()
         mock_conn.owner_id = "op1"
+        mock_conn.org_id = "op1"
         mock_session = MagicMock()
         mock_session.get.return_value = mock_conn
 
@@ -170,7 +177,7 @@ class TestRouterAuditCatchNotBroad:
                 delete_connection(
                     connection_id="conn-123",
                     session=mock_session,
-                    current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     def test_jobs_router_unexpected_exception_propagates(self) -> None:
@@ -183,6 +190,7 @@ class TestRouterAuditCatchNotBroad:
 
         mock_job = MagicMock()
         mock_job.owner_id = "op1"
+        mock_job.org_id = "op1"
         mock_job.status = "COMPLETE"
         mock_job.table_name = "customers"
         mock_session = MagicMock()
@@ -196,7 +204,11 @@ class TestRouterAuditCatchNotBroad:
             return_value=mock_audit,
         ):
             with pytest.raises(RuntimeError, match="unexpected DB error"):
-                shred_job(job_id=1, session=mock_session, current_operator="op1")
+                shred_job(
+                    job_id=1,
+                    session=mock_session,
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
+                )
 
     def test_admin_router_unexpected_exception_propagates(self) -> None:
         """RuntimeError from get_audit_logger() must propagate in set_legal_hold.
@@ -208,12 +220,15 @@ class TestRouterAuditCatchNotBroad:
 
         mock_job = MagicMock()
         mock_job.owner_id = "op1"
+        mock_job.org_id = "op1"
         mock_job.legal_hold = False
         mock_session = MagicMock()
         mock_session.get.return_value = mock_job
 
         mock_audit = MagicMock()
         mock_audit.log_event.side_effect = RuntimeError("audit backend crashed")
+
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 
         with patch(
             "synth_engine.bootstrapper.routers.admin.get_audit_logger",
@@ -224,7 +239,7 @@ class TestRouterAuditCatchNotBroad:
                     job_id=1,
                     body=LegalHoldRequest(enable=True),
                     session=mock_session,
-                    current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     def test_settings_router_unexpected_exception_propagates_upsert(self) -> None:
@@ -254,6 +269,7 @@ class TestRouterAuditCatchNotBroad:
                     body=SettingUpsertRequest(value="my-value"),
                     session=mock_session,
                     current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     def test_settings_router_unexpected_exception_propagates_delete(self) -> None:
@@ -280,6 +296,7 @@ class TestRouterAuditCatchNotBroad:
                     key="my-key",
                     session=mock_session,
                     current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     def test_webhooks_router_unexpected_exception_propagates(self) -> None:
@@ -308,7 +325,7 @@ class TestRouterAuditCatchNotBroad:
                 deactivate_webhook(
                     webhook_id="webhook-123",
                     session=mock_session,
-                    current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
 
@@ -369,7 +386,7 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
             result = refresh_budget(
                 body=BudgetRefreshRequest(justification="test justification long enough"),
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse), "Must return JSONResponse on ValueError"
@@ -410,7 +427,7 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
             result = refresh_budget(
                 body=BudgetRefreshRequest(justification="test justification long enough"),
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse), "Must return JSONResponse on OSError"
@@ -429,6 +446,7 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
 
         mock_conn = MagicMock()
         mock_conn.owner_id = "op1"
+        mock_conn.org_id = "op1"
         mock_session = MagicMock()
         mock_session.get.return_value = mock_conn
 
@@ -450,7 +468,7 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
             result = delete_connection(
                 connection_id="conn-123",
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse), "Must return JSONResponse on ValueError"
@@ -467,6 +485,7 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
 
         mock_job = MagicMock()
         mock_job.owner_id = "op1"
+        mock_job.org_id = "op1"
         mock_job.status = "COMPLETE"
         mock_job.table_name = "employees"
         mock_session = MagicMock()
@@ -487,7 +506,11 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
             mock_labels = MagicMock()
             mock_counter.labels.return_value = mock_labels
 
-            result = shred_job(job_id=1, session=mock_session, current_operator="op1")
+            result = shred_job(
+                job_id=1,
+                session=mock_session,
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
+            )
 
         assert isinstance(result, JSONResponse), "Must return JSONResponse on OSError"
         assert result.status_code == 500, f"Expected 500, got {result.status_code}"
@@ -526,6 +549,7 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
                 body=SettingUpsertRequest(value="my-value"),
                 session=mock_session,
                 current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse), "Must return JSONResponse on ValueError"
@@ -564,7 +588,7 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
             result = deactivate_webhook(
                 webhook_id="webhook-456",
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse), "Must return JSONResponse on OSError"
@@ -786,7 +810,7 @@ class TestPrivacySessionRace:
             refresh_budget(
                 body=BudgetRefreshRequest(justification="test justification long enough"),
                 session=mock_session,
-                current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         # Verify the session refreshed the ledger to get post-reset state

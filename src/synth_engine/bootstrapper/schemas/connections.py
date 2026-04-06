@@ -97,6 +97,9 @@ class Connection(SQLModel, table=True):
     )
     #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
     owner_id: str = SqlField(default="", index=True)
+    #: Tenant organization UUID for multi-tenant isolation (T79.2, ADR-0065).
+    #: Defaults to empty string for backward compatibility with pre-P79 rows.
+    org_id: str = SqlField(default="", index=True)
 
 
 class ConnectionCreateRequest(BaseModel):

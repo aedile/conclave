@@ -16,11 +16,16 @@ Task: T46.2 — Wire mTLS on All Container-to-Container Connections
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# Ensure CONCLAVE_ENV=development is set before any synth_engine imports trigger
+# module-level settings validation (task_queue.py calls get_settings() at import time).
+os.environ.setdefault("CONCLAVE_ENV", "development")
 
 pytestmark = pytest.mark.unit
 

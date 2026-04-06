@@ -5,9 +5,11 @@ Settings use ``key`` as the primary key; PUT performs an upsert.
 
 All 404 responses use RFC 7807 Problem Details format.
 
-Authentication: All endpoints require a valid JWT Bearer token via the
-:func:`~synth_engine.bootstrapper.dependencies.auth.get_current_operator`
-dependency (ADV-021).
+Authentication: All endpoints require a valid JWT Bearer token. Read
+endpoints use :func:`~synth_engine.bootstrapper.dependencies.tenant.get_current_user`;
+write endpoints use BOTH :func:`~synth_engine.bootstrapper.dependencies.auth.require_scope`
+(for scope enforcement) AND :func:`~synth_engine.bootstrapper.dependencies.tenant.get_current_user`
+(for org_id validation, UUID check, and role allowlist).
 
 Scope-based authorization (T47.3):
 - GET endpoints are NOT scope-gated — any authenticated operator can read
@@ -15,6 +17,16 @@ Scope-based authorization (T47.3):
 - PUT (upsert) and DELETE require the ``settings:write`` scope.  These
   mutations change application behavior and must be restricted to operators
   that hold the write permission.
+
+Auth consistency (RF2 — Fix Round 2):
+- Write endpoints previously only used ``require_scope()``, which chains
+  through ``get_current_operator`` (the legacy dependency).  This bypassed
+  the ``get_current_user`` validation chain: org_id UUID check, sentinel UUID
+  rejection in multi-tenant mode, and role allowlist.
+- Write endpoints now declare BOTH ``require_scope()`` and ``get_current_user``
+  as dependencies.  FastAPI resolves both independently; the request must pass
+  both checks.  Settings remain global (no org_id filtering on queries) but
+  the authentication path is consistent with all other authenticated endpoints.
 
 Audit before mutation (T71.1):
 - PUT emits ``SETTING_UPSERTED`` BEFORE the database write.
@@ -39,8 +51,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from synth_engine.bootstrapper.dependencies.auth import get_current_operator, require_scope
+from synth_engine.bootstrapper.dependencies.auth import require_scope
 from synth_engine.bootstrapper.dependencies.db import get_db_session
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.settings import (
@@ -71,7 +84,7 @@ _SettingKey = Annotated[str, Path(max_length=255)]
 )
 def list_settings(
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> SettingListResponse:
     """List all application settings.
 
@@ -79,7 +92,7 @@ def list_settings(
 
     Args:
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
+        current_user: Resolved tenant identity (injected by FastAPI DI).
 
     Returns:
         :class:`SettingListResponse` with up to 100 stored key-value pairs.
@@ -102,6 +115,7 @@ def upsert_setting(
     body: SettingUpsertRequest,
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(require_scope("settings:write"))],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> SettingResponse | JSONResponse:
     """Create or update a setting by key.
 
@@ -113,6 +127,8 @@ def upsert_setting(
     returns 500 and no mutation occurs.
 
     Requires scope: ``settings:write`` (T47.3).
+    Also requires ``get_current_user`` validation (org_id UUID check, sentinel
+    UUID rejection in multi-tenant mode, role allowlist) per RF2 fix.
 
     Args:
         key: The setting key (URL path parameter, max 255 characters).
@@ -120,6 +136,8 @@ def upsert_setting(
         session: Database session (injected by FastAPI DI).
         current_operator: Authenticated operator sub claim, verified to hold
             the ``settings:write`` scope (injected by FastAPI DI).
+        current_user: Resolved tenant identity from get_current_user,
+            ensuring org_id and role are validated consistently (RF2 fix).
 
     Returns:
         The upserted :class:`SettingResponse`, RFC 7807 500 on audit failure
@@ -182,7 +200,7 @@ def upsert_setting(
 def get_setting(
     key: _SettingKey,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> SettingResponse | JSONResponse:
     """Get a setting by key.
 
@@ -191,7 +209,7 @@ def get_setting(
     Args:
         key: The setting key to look up (max 255 characters).
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
+        current_user: Resolved tenant identity (injected by FastAPI DI).
 
     Returns:
         :class:`SettingResponse` on success, or RFC 7807 404 on not found.
@@ -220,6 +238,7 @@ def delete_setting(
     key: _SettingKey,
     session: Annotated[Session, Depends(get_db_session)],
     current_operator: Annotated[str, Depends(require_scope("settings:write"))],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> Response:
     """Delete a setting by key.
 
@@ -228,12 +247,16 @@ def delete_setting(
     returns 500 and the setting is NOT deleted.
 
     Requires scope: ``settings:write`` (T47.3).
+    Also requires ``get_current_user`` validation (org_id UUID check, sentinel
+    UUID rejection in multi-tenant mode, role allowlist) per RF2 fix.
 
     Args:
         key: The setting key to delete (max 255 characters).
         session: Database session (injected by FastAPI DI).
         current_operator: Authenticated operator sub claim, verified to hold
             the ``settings:write`` scope (injected by FastAPI DI).
+        current_user: Resolved tenant identity from get_current_user,
+            ensuring org_id and role are validated consistently (RF2 fix).
 
     Returns:
         HTTP 204 No Content on success, RFC 7807 404 on not found, RFC 7807 500

@@ -15,13 +15,21 @@ Cursor-based pagination uses the integer ``id`` column as the cursor.
 Pattern: ``GET /jobs?after=<cursor>&limit=20`` returns jobs where
 ``id > cursor``, ordered by ``id`` ascending.
 
-Authorization (T39.2):
-    All resource endpoints filter by ``owner_id`` from the JWT ``sub`` claim.
-    Accessing a resource owned by a different operator returns 404 Not Found
+Authorization (T39.2, P79):
+    All resource endpoints filter by ``org_id`` from the verified JWT claim
+    (via :func:`~synth_engine.bootstrapper.dependencies.tenant.get_current_user`).
+    Accessing a resource owned by a different organization returns 404 Not Found
     (not 403 Forbidden) to prevent resource enumeration.
 
 All 404 and error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
+
+Task: P5-T5.1 — Task Orchestration API Core
+Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
+Task: T62.1 — Wrap Database Commits in Exception Handlers
+Task: T71.1 — Add audit events to unaudited destructive endpoints
+Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
+Task: P79-T79.2 — Migrate routers to TenantContext (org_id filtering)
 """
 
 from __future__ import annotations
@@ -34,8 +42,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, select
 
-from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import (
     COMMON_ERROR_RESPONSES,
@@ -77,13 +85,13 @@ _SHREDDED_STATUS: str = "SHREDDED"
 # ---------------------------------------------------------------------------
 
 
-def _persist_new_job(session: Session, job: SynthesisJob, operator: str) -> JSONResponse | None:
+def _persist_new_job(session: Session, job: SynthesisJob, org_id: str) -> JSONResponse | None:
     """Commit the new job row; return a 409 or 500 response on DB error.
 
     Args:
         session: Open SQLModel Session with ``job`` already added.
         job: The SynthesisJob to persist.
-        operator: Authenticated operator sub claim (for logging).
+        org_id: Organization ID (for logging).
 
     Returns:
         None on success; a 409/500 JSONResponse on DB error.
@@ -94,7 +102,7 @@ def _persist_new_job(session: Session, job: SynthesisJob, operator: str) -> JSON
         return None
     except IntegrityError:
         session.rollback()
-        _logger.warning("create_job: IntegrityError for operator=%s", operator, exc_info=True)
+        _logger.warning("create_job: IntegrityError for org=%s", org_id, exc_info=True)
         return JSONResponse(
             status_code=409,
             content={
@@ -106,7 +114,7 @@ def _persist_new_job(session: Session, job: SynthesisJob, operator: str) -> JSON
         )
     except SQLAlchemyError:
         session.rollback()
-        _logger.warning("create_job: SQLAlchemyError for operator=%s", operator, exc_info=True)
+        _logger.warning("create_job: SQLAlchemyError for org=%s", org_id, exc_info=True)
         return JSONResponse(
             status_code=500,
             content={
@@ -119,7 +127,7 @@ def _persist_new_job(session: Session, job: SynthesisJob, operator: str) -> JSON
 
 
 def _write_shred_audit(
-    audit: object, operator: str, job_id: int, table_name: str
+    audit: object, user_id: str, job_id: int, table_name: str, org_id: str
 ) -> JSONResponse | None:
     """Write the pre-shred ARTIFACT_SHREDDED audit event (T70.8).
 
@@ -128,9 +136,10 @@ def _write_shred_audit(
 
     Args:
         audit: The AuditLogger instance.
-        operator: The authenticated operator ID.
+        user_id: The authenticated user ID.
         job_id: The job's integer PK.
         table_name: The job's table name (for audit details).
+        org_id: The organization ID.
 
     Returns:
         500 JSONResponse on audit failure; None on success.
@@ -138,10 +147,10 @@ def _write_shred_audit(
     try:
         audit.log_event(  # type: ignore[attr-defined]
             event_type="ARTIFACT_SHREDDED",
-            actor=operator,
+            actor=user_id,
             resource=f"synthesis_job/{job_id}",
             action="shred",
-            details={"job_id": str(job_id), "table_name": table_name},
+            details={"job_id": str(job_id), "table_name": table_name, "org_id": org_id},
         )
         return None
     except (ValueError, OSError, UnicodeError):
@@ -160,7 +169,7 @@ def _write_shred_audit(
 
 
 def _shred_and_compensate(
-    audit: object, operator: str, job_id: int, job: SynthesisJob
+    audit: object, user_id: str, job_id: int, job: SynthesisJob, org_id: str
 ) -> JSONResponse | None:
     """Run shred_artifacts(); emit a compensating event on OSError (T70.8).
 
@@ -168,9 +177,10 @@ def _shred_and_compensate(
 
     Args:
         audit: The AuditLogger instance (for the compensating event).
-        operator: The authenticated operator ID.
+        user_id: The authenticated user ID.
         job_id: The job's integer PK.
         job: The SynthesisJob ORM object.
+        org_id: The organization ID.
 
     Returns:
         500 JSONResponse on OSError; None on success.
@@ -183,10 +193,10 @@ def _shred_and_compensate(
         try:
             audit.log_event(  # type: ignore[attr-defined]
                 event_type="ARTIFACT_SHRED_FAILED",
-                actor=operator,
+                actor=user_id,
                 resource=f"synthesis_job/{job_id}",
                 action="shred",
-                details={"job_id": str(job_id), "error": exc.__class__.__name__},
+                details={"job_id": str(job_id), "error": exc.__class__.__name__, "org_id": org_id},
             )
         except (ValueError, OSError, UnicodeError):
             _logger.exception(
@@ -253,24 +263,24 @@ def _commit_shredded_status(session: Session, job: SynthesisJob, job_id: int) ->
     response_model=JobListResponse,
     summary="List synthesis jobs",
     description=(
-        "Return all synthesis jobs owned by the authenticated operator "
+        "Return all synthesis jobs owned by the authenticated organization "
         "with cursor-based pagination."
     ),
     responses=COMMON_ERROR_RESPONSES,
 )
 def list_jobs(
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
     after: int | None = Query(default=None, description="Cursor: return jobs with id > after"),
     limit: int = Query(default=_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
 ) -> JobListResponse:
     """List synthesis jobs with cursor-based pagination.
 
-    Only returns jobs owned by the authenticated operator (IDOR protection).
+    Only returns jobs scoped to the authenticated organization (IDOR protection).
 
     Args:
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
         after: Integer cursor -- only return jobs with ``id > after``.
         limit: Maximum number of results to return (default 20, max 100).
 
@@ -280,7 +290,7 @@ def list_jobs(
     """
     query = (
         select(SynthesisJob)
-        .where(SynthesisJob.owner_id == current_operator)
+        .where(SynthesisJob.org_id == current_user.org_id)
         .order_by(col(SynthesisJob.id))
     )
     if after is not None:
@@ -311,17 +321,18 @@ def list_jobs(
 def create_job(
     body: JobCreateRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> JobResponse | JSONResponse:
     """Create a new synthesis job in QUEUED status.
 
     The job is persisted but NOT enqueued.  Call ``POST /jobs/{id}/start`` to
-    begin training.  ``owner_id`` is set from the operator's JWT sub claim.
+    begin training.  ``owner_id`` is set from the user's JWT sub claim.
+    ``org_id`` is set from the organization's JWT org_id claim.
 
     Args:
         body: Job creation request payload.
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         The newly created :class:`JobResponse`, RFC 7807 409/500 on DB error.
@@ -335,10 +346,11 @@ def create_job(
         enable_dp=body.enable_dp,
         noise_multiplier=body.noise_multiplier,
         max_grad_norm=body.max_grad_norm,
-        owner_id=current_operator,
+        owner_id=current_user.user_id,
+        org_id=current_user.org_id,
     )
     session.add(job)
-    err = _persist_new_job(session, job, current_operator)
+    err = _persist_new_job(session, job, current_user.org_id)
     if err is not None:
         return err
     return JobResponse.model_validate(job)
@@ -350,31 +362,31 @@ def create_job(
     summary="Get a synthesis job",
     description=(
         "Return a single synthesis job by ID. "
-        "Returns 404 if not found or owned by another operator."
+        "Returns 404 if not found or owned by another organization."
     ),
     responses=COMMON_ERROR_RESPONSES,
 )
 def get_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> JobResponse | JSONResponse:
     """Get a synthesis job by ID.
 
-    Returns 404 if the job does not exist **or** is owned by a different
-    operator (IDOR protection — 404 prevents resource enumeration).
+    Returns 404 if the job does not exist **or** belongs to a different
+    organization (IDOR protection — 404 prevents resource enumeration).
 
     Args:
         job_id: The integer primary key of the job.
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`JobResponse` on success, or RFC 7807 404 on not found
-        or ownership mismatch.
+        or org mismatch.
     """
     job = session.get(SynthesisJob, job_id)
-    if job is None or job.owner_id != current_operator:
+    if job is None or job.org_id != current_user.org_id:
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -398,7 +410,7 @@ def get_job(
 def start_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> JSONResponse:
     """Enqueue a synthesis job for background processing.
 
@@ -406,20 +418,20 @@ def start_job(
     ``run_synthesis_job(job_id)`` to enqueue the Huey task.  Returns
     ``202 Accepted`` immediately -- the job runs asynchronously.
 
-    Returns 404 if the job does not exist **or** is owned by a different
-    operator (IDOR protection).
+    Returns 404 if the job does not exist **or** belongs to a different
+    organization (IDOR protection).
 
     Args:
         job_id: The integer primary key of the job to start.
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         ``{"status": "accepted", "job_id": <id>}`` with HTTP 202, or
-        RFC 7807 404 if the job does not exist or ownership mismatch.
+        RFC 7807 404 if the job does not exist or org mismatch.
     """
     job = session.get(SynthesisJob, job_id)
-    if job is None or job.owner_id != current_operator:
+    if job is None or job.org_id != current_user.org_id:
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -454,13 +466,13 @@ def start_job(
 def shred_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> JSONResponse:
     """Shred all synthesis artifacts for a COMPLETE job (NIST SP 800-88).
 
     Deletes Parquet output, HMAC sidecar, and model pickle.  Only COMPLETE
-    jobs owned by the authenticated operator are eligible.  Returns 404 for
-    any non-eligible job (IDOR protection).
+    jobs belonging to the authenticated organization are eligible.  Returns 404
+    for any non-eligible job (IDOR protection).
 
     Audit ordering (T70.8): audit event written BEFORE artifact deletion;
     compensating event on shred failure.  Commit BEFORE 200 (T62.1).
@@ -468,13 +480,13 @@ def shred_job(
     Args:
         job_id: The integer primary key of the job to shred.
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         200 on success; 404 if ineligible; 500 on audit/shred/commit failure.
     """
     job = session.get(SynthesisJob, job_id)
-    if job is None or job.owner_id != current_operator or job.status != _SHRED_ELIGIBLE_STATUS:
+    if job is None or job.org_id != current_user.org_id or job.status != _SHRED_ELIGIBLE_STATUS:
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -488,11 +500,13 @@ def shred_job(
         )
 
     audit = get_audit_logger()
-    audit_err = _write_shred_audit(audit, current_operator, job_id, job.table_name)
+    audit_err = _write_shred_audit(
+        audit, current_user.user_id, job_id, job.table_name, current_user.org_id
+    )
     if audit_err is not None:
         return audit_err
 
-    shred_err = _shred_and_compensate(audit, current_operator, job_id, job)
+    shred_err = _shred_and_compensate(audit, current_user.user_id, job_id, job, current_user.org_id)
     if shred_err is not None:
         return shred_err
 

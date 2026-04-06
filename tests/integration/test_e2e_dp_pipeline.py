@@ -269,6 +269,7 @@ def _build_spend_budget_fn_for_url(async_url: str) -> Any:
         job_id: int,
         ledger_id: int,
         note: str | None = None,
+        org_id: str = "",
     ) -> None:
         """Sync wrapper: calls spend_budget() via asyncio.run() in a worker thread.
 
@@ -293,6 +294,7 @@ def _build_spend_budget_fn_for_url(async_url: str) -> Any:
                     ledger_id=ledger_id,
                     session=session,
                     note=note,
+                    org_id=org_id,
                 )
             await engine.dispose()
 

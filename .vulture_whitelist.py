@@ -402,3 +402,14 @@ anchor  # unused property — ConclaveSettings.anchor sub-model accessor (shared
 
 sign_v1  # unused variable — backward-compat alias for _sign_v1 (audit_signatures.py); consumed by test imports
 sign_v2  # unused variable — backward-compat alias for _sign_v2 (audit_signatures.py); consumed by test imports
+
+# ---------------------------------------------------------------------------
+# Category X — P79 Multi-Tenancy Foundation
+# get_org_semaphore is a per-org connection concurrency limiter called by tests
+# and future production callers (T79.2). _validate_jwt_expiry_multi_tenant is
+# a Pydantic @model_validator(mode="after") — called by Pydantic at model
+# construction time, never directly (shared/settings_models.py T79.1).
+# ---------------------------------------------------------------------------
+
+get_org_semaphore  # unused function — shared/db.py; per-org connection concurrency limiter; called by tests and future production callers (P79-T79.2)
+_validate_jwt_expiry_multi_tenant  # Pydantic model_validator — jwt_expiry_seconds <= 900 enforcement in multi-tenant mode (shared/settings_models.py P79-T79.1)

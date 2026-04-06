@@ -47,6 +47,11 @@ _TEST_SECRET = (
 #: Test passphrase — well under 72-byte bcrypt limit.
 _TEST_PASSPHRASE = "test-pass-ok"
 
+#: Pass-through sentinel UUID — used as org_id in manually-crafted test JWTs.
+#: In single-tenant mode (conclave_multi_tenant_enabled=False), the sentinel is
+#: the expected org_id from /auth/token and is accepted by get_current_user.
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 # ---------------------------------------------------------------------------
 # State isolation
@@ -142,6 +147,7 @@ def _make_valid_token(secret: str = _TEST_SECRET) -> str:
     return pyjwt.encode(
         {
             "sub": "test-operator",
+            "org_id": _DEFAULT_ORG_UUID,
             "iat": now,
             "exp": now + 3600,
             "scope": ["read", "write"],

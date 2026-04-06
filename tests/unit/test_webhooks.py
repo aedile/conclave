@@ -108,9 +108,17 @@ def db_session(in_memory_engine: object) -> Generator[Session]:
         yield session
 
 
+_ORG_A_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+_ORG_B_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+_USER_A_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+_USER_B_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+
 @pytest.fixture
 def client(db_session: Session) -> TestClient:
     """Build a TestClient with the webhooks router.
+
+    Uses TenantContext (P79-T79.2 migration) with org_a identity.
 
     Args:
         db_session: Open in-memory SQLite session.
@@ -118,22 +126,26 @@ def client(db_session: Session) -> TestClient:
     Returns:
         Starlette TestClient for the minimal app.
     """
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.routers.webhooks import router
 
     app = FastAPI()
     app.include_router(router)
 
+    _ctx_a = TenantContext(org_id=_ORG_A_UUID, user_id=_USER_A_UUID, role="operator")
     app.dependency_overrides[get_db_session] = lambda: db_session
-    app.dependency_overrides[get_current_operator] = lambda: "operator-a"
+    app.dependency_overrides[get_current_user] = lambda: _ctx_a
 
     return TestClient(app)
 
 
 @pytest.fixture
 def client_operator_b(db_session: Session) -> TestClient:
-    """Build a TestClient authenticating as operator B.
+    """Build a TestClient authenticating as operator B (different org).
+
+    Uses TenantContext (P79-T79.2 migration) with org_b identity.
+    Shares the same db_session as client for cross-org isolation testing.
 
     Args:
         db_session: Open in-memory SQLite session (same as operator A for isolation tests).
@@ -141,15 +153,16 @@ def client_operator_b(db_session: Session) -> TestClient:
     Returns:
         Starlette TestClient for the minimal app authenticated as operator B.
     """
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.routers.webhooks import router
 
     app = FastAPI()
     app.include_router(router)
 
+    _ctx_b = TenantContext(org_id=_ORG_B_UUID, user_id=_USER_B_UUID, role="operator")
     app.dependency_overrides[get_db_session] = lambda: db_session
-    app.dependency_overrides[get_current_operator] = lambda: "operator-b"
+    app.dependency_overrides[get_current_user] = lambda: _ctx_b
 
     return TestClient(app)
 
@@ -380,14 +393,15 @@ class TestProductionHttpsOnly:
         Args:
             db_session: Open in-memory SQLite session.
         """
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.webhooks import router
 
         app = FastAPI()
         app.include_router(router)
+        _ctx_a = TenantContext(org_id=_ORG_A_UUID, user_id=_USER_A_UUID, role="operator")
         app.dependency_overrides[get_db_session] = lambda: db_session
-        app.dependency_overrides[get_current_operator] = lambda: "operator-a"
+        app.dependency_overrides[get_current_user] = lambda: _ctx_a
 
         with patch("synth_engine.bootstrapper.routers.webhooks.get_settings") as mock_settings:
             mock_settings.return_value.is_production.return_value = True
@@ -450,7 +464,7 @@ class TestWebhookRegistrationCRUD:
         assert len(body["items"]) >= 1
         # All items must belong to operator-a
         for item in body["items"]:
-            assert item["owner_id"] == "operator-a"
+            assert item["owner_id"] == _USER_A_UUID
 
     def test_delete_webhook_deactivates_registration(self, client: TestClient) -> None:
         """DELETE /webhooks/{id} must set active=False on the registration.

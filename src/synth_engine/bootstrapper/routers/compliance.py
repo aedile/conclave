@@ -13,12 +13,14 @@ retained, with GDPR-basis justifications for each retained category.
 
 Security posture
 ----------------
-- Requires operator authentication via ``get_current_operator`` dependency.
-- Self-erasure only: ``body.subject_id`` must equal ``current_operator`` (JWT
-  ``sub``). Cross-operator erasure returns 403 with an RFC 7807 error. The IDOR
-  check fires BEFORE the vault-sealed check to prevent information disclosure
-  about vault state to unauthorized callers (T69.6, ADV-P68-01).
-- Cross-operator attempts emit an audit event for intrusion detection. The
+- Requires JWT authentication via ``get_current_user`` dependency (P79-T79.2).
+- Self-erasure only: ``body.subject_id`` must equal ``current_user.user_id``
+  (JWT ``sub``). Cross-user erasure returns 403 with an RFC 7807 error. The
+  IDOR check fires BEFORE the vault-sealed check to prevent information
+  disclosure about vault state to unauthorized callers (T69.6, ADV-P68-01).
+- ``org_id`` is derived exclusively from the verified JWT — HTTP headers
+  (e.g., ``X-Org-ID``) are intentionally ignored (ATTACK-02 mitigation).
+- Cross-user attempts emit an audit event for intrusion detection. The
   target ``subject_id`` is intentionally omitted from the audit payload (PII).
 - Vault-sealed state returns 423 Locked — ALE-encrypted data cannot be
   reliably identified for deletion when the vault is sealed.
@@ -40,6 +42,10 @@ Boundary constraints (import-linter enforced)
 - The DI-provided ``Session`` is passed directly to ``ErasureService``,
   eliminating the ``session.get_bind()`` leaky abstraction (ARCH-F7 review fix).
 
+Task: T41.2 — GDPR erasure endpoint
+Task: T69.6 — Self-erasure IDOR guard
+Task: P79-T79.2 — Migrate routers to TenantContext (org_id filtering)
+
 CONSTITUTION Priority 0: Security — IDOR guard, vault gate, PII-safe audit
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 """
@@ -54,8 +60,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.connections import Connection
@@ -80,9 +86,9 @@ class ErasureRequest(BaseModel):
     Attributes:
         subject_id: Opaque data subject identifier (e.g. owner_id, hashed
             email).  Used as a filter key — never logged verbatim.
-            Must be at least 1 character to prevent accidental bulk-deletion
-            of all records with an empty default owner_id.
-            Must equal the authenticated operator's JWT ``sub`` claim
+            Must be at least 1 character to prevent bulk-deletion via an empty
+            identifier (QA-B1 + DevOps-B1 review fix).
+            Must equal the authenticated user's JWT ``sub`` claim
             (self-erasure only, T69.6).
     """
 
@@ -92,7 +98,7 @@ class ErasureRequest(BaseModel):
         description=(
             "Opaque data subject identifier used to locate records for deletion. "
             "Must match the owner_id stored on connection and job records. "
-            "Must equal the authenticated operator's JWT sub claim (self-erasure only)."
+            "Must equal the authenticated user's JWT sub claim (self-erasure only)."
         ),
     )
 
@@ -156,44 +162,41 @@ class ErasureResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _check_erasure_idor(body_subject_id: str, operator: str) -> JSONResponse | None:
-    """Return 403 if operator is attempting cross-operator erasure (T69.6).
+def _check_erasure_idor(body_subject_id: str, user_id: str) -> JSONResponse | None:
+    """Return 404 if user is attempting cross-user erasure (T69.6, P79-F1).
+
+    Returns 404 (not 403) to avoid leaking the existence of other users' data.
 
     Emits an audit event for intrusion detection.  The target subject_id is
     intentionally omitted (PII protection).
 
     Args:
         body_subject_id: The ``subject_id`` from the request body.
-        operator: Authenticated operator sub claim.
+        user_id: Authenticated user's JWT sub claim (from TenantContext).
 
     Returns:
-        A 403 JSONResponse if blocked; None if the check passes.
+        A 404 JSONResponse if blocked; None if the check passes.
     """
-    if body_subject_id == operator:
+    if body_subject_id == user_id:
         return None
-    _logger.warning(
-        "Cross-operator erasure attempt blocked: actor=%s (subject_id withheld)", operator
-    )
+    _logger.warning("Cross-user erasure attempt blocked: actor=%s (subject_id withheld)", user_id)
     try:
         get_audit_logger().log_event(
             event_type="COMPLIANCE_ERASURE_IDOR_ATTEMPT",
-            actor=operator,
+            actor=user_id,
             resource="data_subject",
             action="erasure_blocked_idor",
-            details={"reason": "subject_id does not match authenticated operator"},
+            details={"reason": "subject_id does not match authenticated user"},
         )
     except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="compliance", endpoint="/compliance/erasure").inc()
-        _logger.exception("Audit logging failed for IDOR erasure attempt (actor=%s).", operator)
+        _logger.exception("Audit logging failed for IDOR erasure attempt (actor=%s).", user_id)
     return JSONResponse(
-        status_code=403,
+        status_code=404,
         content=problem_detail(
-            status=403,
-            title="Forbidden",
-            detail=(
-                "Erasure is restricted to self-erasure only. "
-                "The subject_id must match your authenticated operator identity."
-            ),
+            status=404,
+            title="Not Found",
+            detail="The requested data subject was not found.",
         ),
         media_type="application/problem+json",
     )
@@ -217,7 +220,7 @@ def _check_erasure_idor(body_subject_id: str, operator: str) -> JSONResponse | N
     description=(
         "Delete all synthesis jobs and artifacts for a data subject. "
         "Emits a WORM-audited compliance event. "
-        "Subject ID must equal the authenticated operator's own identity (self-erasure only)."
+        "Subject ID must equal the authenticated user's own identity (self-erasure only)."
     ),
     responses=COMMON_ERROR_RESPONSES,
     response_model=ErasureResponse,
@@ -225,22 +228,23 @@ def _check_erasure_idor(body_subject_id: str, operator: str) -> JSONResponse | N
 def erasure(
     body: ErasureRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> ErasureResponse | JSONResponse:
     """Execute a GDPR Right-to-Erasure / CCPA deletion request.
 
-    IDOR check fires first (T69.6).  Vault-sealed check second.  Audit failure
-    does not abort erasure.
+    IDOR check fires first (T69.6): ``subject_id`` must equal the
+    authenticated user's ``user_id`` (JWT ``sub`` claim).
+    Vault-sealed check second.  Audit failure does not abort erasure.
 
     Args:
-        body: JSON body with ``subject_id`` (must match operator sub claim).
+        body: JSON body with ``subject_id`` (must match user's JWT sub claim).
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected).
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`ErasureResponse` on success, RFC 7807 403 on IDOR, 423 if sealed.
     """
-    idor_err = _check_erasure_idor(body.subject_id, current_operator)
+    idor_err = _check_erasure_idor(body.subject_id, current_user.user_id)
     if idor_err is not None:
         return idor_err
 
@@ -261,7 +265,8 @@ def erasure(
 
     manifest = ErasureService(session=session, connection_model=Connection).execute_erasure(
         subject_id=body.subject_id,
-        actor=current_operator,
+        actor=current_user.user_id,
+        org_id=current_user.org_id,
     )
     response = ErasureResponse.from_manifest(manifest)
     if not manifest.audit_logged:

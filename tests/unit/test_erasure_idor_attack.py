@@ -1,7 +1,7 @@
 """Negative/attack tests for compliance erasure IDOR fix (T69.6).
 
 Covers:
-- Cross-operator erasure returns 403 (not 404 — per spec, IDOR on self-erasure is 403)
+- Cross-operator erasure returns 404 (IDOR protection avoids leaking resource existence; P79-F1)
 - Own subject_id returns 200 and data is deleted
 - Cross-operator attempt emits an audit event (intrusion detection)
 - Cross-operator audit event does NOT contain target subject_id (PII protection)
@@ -120,14 +120,18 @@ def _make_compliance_client(
         with Session(db_engine) as session:
             yield session
 
-    def _get_operator() -> str:
-        return operator_id
-
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
+    def _get_user() -> TenantContext:
+        return TenantContext(
+            org_id="00000000-0000-0000-0000-000000000000",
+            user_id=operator_id,
+            role="admin",
+        )
 
     app.dependency_overrides[get_db_session] = _get_session
-    app.dependency_overrides[get_current_operator] = _get_operator
+    app.dependency_overrides[get_current_user] = _get_user
 
     if vault_sealed:
         monkeypatch.setattr(
@@ -162,7 +166,7 @@ def _patch_audit_logger() -> MagicMock:
 class TestErasureIDORProtection:
     """DELETE /compliance/erasure IDOR attack tests (T69.6, ADV-P68-01)."""
 
-    def test_erasure_cross_operator_subject_id_returns_403(
+    def test_erasure_cross_operator_subject_id_returns_404(
         self,
         monkeypatch: pytest.MonkeyPatch,
         db_engine: Any,
@@ -171,7 +175,8 @@ class TestErasureIDORProtection:
 
         Arrange: authenticated as operator-a.
         Act: DELETE /compliance/erasure with subject_id = "operator-b".
-        Assert: 403 Forbidden — callers may only erase their own data.
+        Assert: 404 Not Found — IDOR protection returns 404 to avoid leaking
+        the existence of other users' data (P79-F1, T69.6 update).
         """
         audit_mock = _patch_audit_logger()
         client = _make_compliance_client(monkeypatch, db_engine, operator_id="operator-a")
@@ -186,8 +191,9 @@ class TestErasureIDORProtection:
                 json={"subject_id": "operator-b"},
             )
 
-        assert response.status_code == 403, (
-            f"Cross-operator erasure must return 403; got {response.status_code}. "
+        assert response.status_code == 404, (
+            f"Cross-operator erasure must return 404 (IDOR protection, avoids "
+            f"leaking resource existence); got {response.status_code}. "
             f"Body: {response.json()}"
         )
 
@@ -212,6 +218,9 @@ class TestErasureIDORProtection:
                 parquet_path="/data/users.parquet",
                 total_epochs=5,
                 num_rows=10,
+                # org_id must match the TenantContext.org_id set in _make_compliance_client
+                # (00000000-0000-0000-0000-000000000000) so org-scoped erasure finds the job.
+                org_id="00000000-0000-0000-0000-000000000000",
             )
             session.add(job)
             session.commit()
@@ -307,7 +316,7 @@ class TestErasureIDORProtection:
             f"(PII protection). Call args: {call_args_str}"
         )
 
-    def test_erasure_cross_operator_returns_403_even_when_vault_is_sealed(
+    def test_erasure_cross_operator_returns_404_even_when_vault_is_sealed(
         self,
         monkeypatch: pytest.MonkeyPatch,
         db_engine: Any,
@@ -315,11 +324,12 @@ class TestErasureIDORProtection:
         """IDOR check fires BEFORE vault-sealed check to prevent information disclosure.
 
         A sealed vault must not be used to distinguish valid vs invalid subject_ids.
-        Even when the vault is sealed, cross-operator attempts return 403 (not 423).
+        Even when the vault is sealed, cross-operator attempts return 404 (not 423).
+        Note: 404 (not 403) to avoid leaking resource existence (P79-F1, T69.6 update).
 
         Arrange: authenticate as operator-a, seal vault.
         Act: DELETE /compliance/erasure with subject_id = "operator-b".
-        Assert: 403 Forbidden (not 423 Locked — IDOR check is first).
+        Assert: 404 Not Found (not 423 Locked — IDOR check is first).
         """
         audit_mock = _patch_audit_logger()
         client = _make_compliance_client(
@@ -339,8 +349,8 @@ class TestErasureIDORProtection:
                 json={"subject_id": "operator-b"},
             )
 
-        assert response.status_code == 403, (
-            f"IDOR check must fire BEFORE vault-sealed check; expected 403 got "
+        assert response.status_code == 404, (
+            f"IDOR check must fire BEFORE vault-sealed check; expected 404 got "
             f"{response.status_code}. Body: {response.json()}"
         )
 

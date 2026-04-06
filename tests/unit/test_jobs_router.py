@@ -18,6 +18,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
+# Pass-through mode org sentinel (matches DEFAULT_ORG_UUID from tenant.py)
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 def _make_test_app() -> Any:
     """Build a test FastAPI app with an in-memory SQLite database."""
@@ -42,6 +45,7 @@ def _make_test_app() -> Any:
             parquet_path="/tmp/customers.parquet",
             total_epochs=10,
             num_rows=100,
+            org_id=_DEFAULT_ORG_UUID,
         )
         session.add(job)
         session.commit()
@@ -57,7 +61,13 @@ def _make_test_app() -> Any:
         with Session(engine) as session:
             yield session
 
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
     app.dependency_overrides[get_db_session] = _override_session
+    # Override get_current_user so requests don't need a real JWT in pass-through mode.
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+    )
     return app, engine
 
 
@@ -134,6 +144,7 @@ class TestJobsListEndpoint:
                     parquet_path=f"/tmp/t{i}.parquet",
                     total_epochs=10,
                     num_rows=100,
+                    org_id=_DEFAULT_ORG_UUID,
                 )
                 session.add(job)
             session.commit()
@@ -146,7 +157,12 @@ class TestJobsListEndpoint:
             with Session(engine) as session:
                 yield session
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
 
         with (
             patch(
@@ -193,6 +209,7 @@ class TestJobsListEndpoint:
                     parquet_path=f"/tmp/t{i}.parquet",
                     total_epochs=10,
                     num_rows=100,
+                    org_id=_DEFAULT_ORG_UUID,
                 )
                 session.add(job)
             session.commit()
@@ -205,7 +222,12 @@ class TestJobsListEndpoint:
             with Session(engine) as session:
                 yield session
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
 
         with (
             patch(
@@ -764,6 +786,7 @@ class TestJobSSEEndpoint:
                 num_rows=100,
                 status="COMPLETE",
                 current_epoch=10,
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -778,7 +801,12 @@ class TestJobSSEEndpoint:
             with Session(engine) as session:
                 yield session
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
 
         with (
             patch(
@@ -825,6 +853,7 @@ class TestJobSSEEndpoint:
                 num_rows=100,
                 status="FAILED",
                 error_msg="OOM error at /internal/path/to/code.py",
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -839,7 +868,12 @@ class TestJobSSEEndpoint:
             with Session(engine) as session:
                 yield session
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
 
         with (
             patch(

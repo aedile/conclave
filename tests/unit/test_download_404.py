@@ -22,6 +22,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
+# Pass-through mode org sentinel (matches DEFAULT_ORG_UUID from tenant.py)
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 def _make_test_app() -> Any:
     """Build a test FastAPI app with an in-memory SQLite database."""
@@ -48,6 +51,7 @@ def _make_test_app() -> Any:
             total_epochs=10,
             num_rows=100,
             status="QUEUED",
+            org_id=_DEFAULT_ORG_UUID,
         )
         session.add(job)
         session.commit()
@@ -60,7 +64,12 @@ def _make_test_app() -> Any:
         with Session(engine) as s:
             yield s
 
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
     app.dependency_overrides[get_db_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+    )
     return app, engine
 
 
@@ -122,6 +131,7 @@ class TestDownloadEndpoint404Cases:
                 total_epochs=10,
                 num_rows=100,
                 status="QUEUED",
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -136,7 +146,12 @@ class TestDownloadEndpoint404Cases:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -172,6 +187,7 @@ class TestDownloadEndpoint404Cases:
                 total_epochs=10,
                 num_rows=100,
                 status="TRAINING",
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -186,7 +202,12 @@ class TestDownloadEndpoint404Cases:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -223,6 +244,7 @@ class TestDownloadEndpoint404Cases:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=None,
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -237,7 +259,12 @@ class TestDownloadEndpoint404Cases:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -274,6 +301,7 @@ class TestDownloadEndpoint404Cases:
                 num_rows=100,
                 status="COMPLETE",
                 output_path="/nonexistent/path/file.parquet",
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -288,7 +316,12 @@ class TestDownloadEndpoint404Cases:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -324,6 +357,7 @@ class TestDownloadEndpoint404Cases:
                 total_epochs=5,
                 num_rows=50,
                 status="SHREDDED",
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -338,7 +372,12 @@ class TestDownloadEndpoint404Cases:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:

@@ -71,6 +71,8 @@ class WebhookRegistration(SQLModel, table=True):
 
     id: str = SqlField(default_factory=_uuid_str, primary_key=True)
     owner_id: str = SqlField(default="", index=True)
+    #: Tenant organization UUID for multi-tenant isolation (T79.2, ADR-0065).
+    org_id: str = SqlField(default="", index=True)
     callback_url: str = SqlField(...)
     signing_key: str = SqlField(...)
     #: JSON-encoded list of event types (SQLite stores as text)

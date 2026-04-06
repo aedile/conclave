@@ -41,6 +41,12 @@ _TEST_SECRET = (  # pragma: allowlist secret
 _OPERATOR_A_SUB = "operator-alpha"
 _OPERATOR_B_SUB = "operator-beta"
 
+#: Org UUIDs for IDOR test operators — different orgs enforce org-level isolation.
+#: These are deterministic fake UUIDs that cannot collide with UUIDv4 (all zeros/ones
+#: in version nibble position are reserved; real UUIDv4 has version nibble = 4).
+_ORG_A_UUID: str = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+_ORG_B_UUID: str = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
 _VAULT_PATCH = "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed"
 _LICENSE_PATCH = "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed"
 
@@ -107,11 +113,17 @@ def _unseal_vault_for_ale(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
 # ---------------------------------------------------------------------------
 
 
-def _make_token(sub: str, secret: str = _TEST_SECRET) -> str:
-    """Create a valid JWT token for the given sub.
+def _make_token(
+    sub: str,
+    org_id: str = _ORG_A_UUID,
+    secret: str = _TEST_SECRET,
+) -> str:
+    """Create a valid JWT token for the given sub and org_id.
 
     Args:
         sub: Operator subject identifier.
+        org_id: Organization UUID embedded in the JWT org_id claim.
+            Required by P79 get_current_user; defaults to org A's UUID.
         secret: HMAC secret key.
 
     Returns:
@@ -119,7 +131,13 @@ def _make_token(sub: str, secret: str = _TEST_SECRET) -> str:
     """
     now = int(time.time())
     return pyjwt.encode(
-        {"sub": sub, "iat": now, "exp": now + 3600, "scope": ["read", "write"]},
+        {
+            "sub": sub,
+            "org_id": org_id,
+            "iat": now,
+            "exp": now + 3600,
+            "scope": ["read", "write"],
+        },
         secret,
         algorithm="HS256",
     )
@@ -170,6 +188,7 @@ def _make_full_app(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any, dict[str,
             total_epochs=5,
             num_rows=100,
             owner_id=_OPERATOR_A_SUB,
+            org_id=_ORG_A_UUID,
         )
         job_b = SynthesisJob(
             table_name="orders",
@@ -177,6 +196,7 @@ def _make_full_app(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any, dict[str,
             total_epochs=5,
             num_rows=50,
             owner_id=_OPERATOR_B_SUB,
+            org_id=_ORG_B_UUID,
         )
         conn_a = Connection(
             name="db-alpha",
@@ -184,6 +204,7 @@ def _make_full_app(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any, dict[str,
             port=5432,
             database="alpha_db",
             owner_id=_OPERATOR_A_SUB,
+            org_id=_ORG_A_UUID,
         )
         conn_b = Connection(
             name="db-beta",
@@ -191,6 +212,7 @@ def _make_full_app(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any, dict[str,
             port=5432,
             database="beta_db",
             owner_id=_OPERATOR_B_SUB,
+            org_id=_ORG_B_UUID,
         )
         for obj in (job_a, job_b, conn_a, conn_b):
             session.add(obj)
@@ -365,6 +387,7 @@ async def test_integration_shred_job_idor_returns_404(
             status="COMPLETE",
             output_path="/tmp/orders-synthetic.parquet",
             owner_id=_OPERATOR_B_SUB,
+            org_id=_ORG_B_UUID,
         )
         session.add(job_b)
         session.commit()
@@ -380,7 +403,7 @@ async def test_integration_shred_job_idor_returns_404(
             yield s
 
     app.dependency_overrides[get_db_session] = _override_session
-    token_a = _make_token(_OPERATOR_A_SUB)
+    token_a = _make_token(_OPERATOR_A_SUB, org_id=_ORG_A_UUID)
 
     with (
         patch(_VAULT_PATCH, return_value=False),
@@ -475,6 +498,7 @@ async def test_integration_download_job_idor_returns_404(
             status="COMPLETE",
             output_path="/tmp/orders-synthetic.parquet",
             owner_id=_OPERATOR_B_SUB,
+            org_id=_ORG_B_UUID,
         )
         session.add(job_b)
         session.commit()
@@ -490,7 +514,7 @@ async def test_integration_download_job_idor_returns_404(
             yield s
 
     app.dependency_overrides[get_db_session] = _override_session
-    token_a = _make_token(_OPERATOR_A_SUB)
+    token_a = _make_token(_OPERATOR_A_SUB, org_id=_ORG_A_UUID)
 
     with (
         patch(_VAULT_PATCH, return_value=False),

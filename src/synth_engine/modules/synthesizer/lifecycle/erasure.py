@@ -18,6 +18,9 @@ Security properties
 - Audit logging uses ``get_audit_logger()`` singleton for WORM chain
   integrity.  Audit failure is caught and logged; it must never abort a
   deletion that has already committed to the database.
+- ``org_id`` is scoped at the query level (P79-F1): deletion queries include
+  ``org_id`` filtering so that cross-org erasure attempts are silently
+  bounded to zero rows rather than affecting another tenant's data.
 
 Boundary constraints (import-linter enforced)
 ---------------------------------------------
@@ -31,10 +34,11 @@ Boundary constraints (import-linter enforced)
   :class:`~synth_engine.shared.protocols.OwnedRecordModel` Protocol,
   replacing the prior ``Any`` type annotation (ARCH-F6 review fix).
 
-CONSTITUTION Priority 0: Security — PII-safe audit, cascade deletion
+CONSTITUTION Priority 0: Security — PII-safe audit, cascade deletion, org-scoped
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T41.2 — Implement GDPR Right-to-Erasure & CCPA Deletion Endpoint
 Task: T57.7 — Erasure Error Handling Hardening (audit_logged field)
+Task: P79-F1 — Add org_id scoping to erasure queries
 """
 
 from __future__ import annotations
@@ -113,7 +117,8 @@ class ErasureService:
     """Service that executes GDPR / CCPA data subject erasure requests.
 
     Cascades deletion through all connection metadata and synthesis job
-    records whose ``owner_id`` matches the given subject identifier.
+    records whose ``owner_id`` matches the given subject identifier AND
+    whose ``org_id`` matches the requester's org (P79-F1: org-scoped).
     Synthesized output files and the WORM audit trail are always preserved.
 
     The caller (compliance router) provides both the ``session`` and the
@@ -147,14 +152,16 @@ class ErasureService:
         *,
         subject_id: str,
         actor: str,
+        org_id: str = "",
     ) -> DeletionManifest:
         """Delete all records referencing the data subject and return a manifest.
 
         Deletes:
         - :class:`~synth_engine.modules.synthesizer.jobs.job_models.SynthesisJob`
-          records whose ``owner_id == subject_id``.
-        - Connection records whose ``owner_id == subject_id`` (when a
-          ``connection_model`` was provided at construction).
+          records whose ``owner_id == subject_id`` AND ``org_id == org_id``
+          (when ``org_id`` is non-empty).
+        - Connection records whose ``owner_id == subject_id`` AND
+          ``org_id == org_id`` (P79-F1: org-scoped deletion).
 
         Preserves:
         - Synthesized output files (DP-protected, non-attributable).
@@ -172,6 +179,10 @@ class ErasureService:
                 hashed email).  Used only as a DB filter — never logged.
             actor: Identity of the operator or system performing the request.
                 Written into the audit event ``actor`` field.
+            org_id: Organization UUID of the requesting user (P79-F1).
+                When non-empty, deletion queries are scoped to this org so
+                that cross-org erasure attempts affect only the requester's
+                own records.
 
         Returns:
             A :class:`DeletionManifest` documenting the counts of deleted
@@ -181,18 +192,25 @@ class ErasureService:
         deleted_connections: int = 0
 
         # --- Delete matching SynthesisJobs ---
-        jobs_to_delete = self._session.exec(
-            select(SynthesisJob).where(SynthesisJob.owner_id == subject_id)
-        ).all()
+        job_stmt = select(SynthesisJob).where(SynthesisJob.owner_id == subject_id)
+        if org_id:
+            job_stmt = job_stmt.where(SynthesisJob.org_id == org_id)
+        jobs_to_delete = self._session.exec(job_stmt).all()
         for job in jobs_to_delete:
             self._session.delete(job)
             deleted_jobs += 1
 
         # --- Delete matching Connections (if model is available) ---
         if self._connection_model is not None:
-            conns_to_delete = self._session.exec(
-                select(self._connection_model).where(self._connection_model.owner_id == subject_id)
-            ).all()
+            conn_stmt = select(self._connection_model).where(
+                self._connection_model.owner_id == subject_id
+            )
+            if org_id:
+                # Apply org_id filter only if the model has an org_id attribute.
+                conn_model_org_id = getattr(self._connection_model, "org_id", None)
+                if conn_model_org_id is not None:
+                    conn_stmt = conn_stmt.where(conn_model_org_id == org_id)
+            conns_to_delete = self._session.exec(conn_stmt).all()
             for conn in conns_to_delete:
                 self._session.delete(conn)
                 deleted_connections += 1

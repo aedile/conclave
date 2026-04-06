@@ -99,6 +99,7 @@ Task: T47.8 — ADV-P46-01 TLS 1.3 minimum version pin for asyncpg
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import ssl
 import uuid
@@ -533,6 +534,54 @@ def _utcnow() -> datetime:
         Current UTC time as a timezone-aware :class:`datetime`.
     """
     return datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# Per-org connection semaphore (Phase 79 T79.2)
+# ---------------------------------------------------------------------------
+
+#: Module-level dict mapping org_id → asyncio.Semaphore.
+#: Each org gets its own semaphore with a limit from
+#: ConclaveSettings.per_org_max_connections (default: 5).
+#: Prevents one tenant exhausting the database connection pool.
+_org_semaphores: dict[str, asyncio.Semaphore] = {}
+
+
+def get_org_semaphore(org_id: str) -> asyncio.Semaphore:
+    """Return (or create) the :class:`asyncio.Semaphore` for the given org_id.
+
+    Each organization has its own semaphore with a connection limit set from
+    ConclaveSettings.per_org_max_connections (default: 5).  The semaphore
+    is created lazily on first access and cached for the lifetime of the process.
+
+    This is a module-level dict keyed by org_id.  Thread-safety is provided
+    by Python's GIL for the dict lookup + insert; no explicit lock is needed for
+    CPython dict operations (which are atomic at the C level).
+
+    NOTE: This semaphore is process-local. In multi-worker deployments,
+    effective limit is N_workers x per_org_max_connections.
+
+    # TODO(P80): Wire get_org_semaphore into DB session dependency or middleware
+
+    Args:
+        org_id: The organization UUID string to get a semaphore for.
+
+    Returns:
+        The :class:`asyncio.Semaphore` instance for this org.
+    """
+    # F11: Use setdefault for atomic CPython dict insertion (no race on first access).
+    try:
+        from synth_engine.shared.settings import get_settings
+
+        limit = get_settings().per_org_max_connections
+    except (ImportError, AttributeError, TypeError, ValueError) as exc:
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "Failed to load per_org_max_connections from settings, using default: %s", exc
+        )
+        limit = 5  # safe default if settings unavailable at import time
+    return _org_semaphores.setdefault(org_id, asyncio.Semaphore(limit))
 
 
 # ---------------------------------------------------------------------------

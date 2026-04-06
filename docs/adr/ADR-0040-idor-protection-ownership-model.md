@@ -2,7 +2,7 @@
 
 > **Amendment (Phase 56):** File paths updated to reflect synthesizer sub-package decomposition.
 
-**Status**: Accepted
+**Status**: Superseded by ADR-0065
 **Date**: 2026-03-20
 **Task**: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 **Deciders**: Engineering team

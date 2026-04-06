@@ -25,6 +25,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
+# Pass-through mode org sentinel (matches DEFAULT_ORG_UUID from tenant.py)
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 def _vault_license_patches() -> tuple[Any, Any]:
     """Return patches for vault sealed and license state."""
@@ -72,6 +75,7 @@ class TestDownloadEndpointSuccess:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -86,7 +90,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2, patch.dict(os.environ, {}, clear=False):
@@ -128,6 +137,7 @@ class TestDownloadEndpointSuccess:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -142,7 +152,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -183,6 +198,7 @@ class TestDownloadEndpointSuccess:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -197,7 +213,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -242,6 +263,7 @@ class TestDownloadEndpointSuccess:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -256,7 +278,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:
@@ -305,6 +332,7 @@ class TestDownloadEndpointSuccess:
                 num_rows=50,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -319,7 +347,12 @@ class TestDownloadEndpointSuccess:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2:

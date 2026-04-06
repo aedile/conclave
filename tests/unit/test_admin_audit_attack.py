@@ -28,6 +28,13 @@ from sqlmodel import Session, SQLModel, create_engine
 pytestmark = pytest.mark.unit
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+#: Organization UUID used in test fixtures for operator-a.
+_TEST_ORG_UUID: str = "aaaaaaaa-0000-0000-0000-000000000000"
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -85,7 +92,10 @@ def admin_client(
     monkeypatch: pytest.MonkeyPatch,
     db_engine: Any,
 ) -> TestClient:
-    """Build a minimal FastAPI app with the admin router (pass-through auth).
+    """Build a minimal FastAPI app with the admin router (TenantContext auth).
+
+    Overrides get_current_user to return a TenantContext for org-A so that
+    ownership checks against job.org_id work correctly (P79-T79.2 migration).
 
     Args:
         monkeypatch: pytest monkeypatch fixture.
@@ -96,6 +106,8 @@ def admin_client(
     """
     monkeypatch.setenv("CONCLAVE_ENV", "development")
 
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.routers.admin import router as admin_router
 
     app = FastAPI()
@@ -105,24 +117,27 @@ def admin_client(
         with Session(db_engine) as session:
             yield session
 
-    def _get_operator() -> str:
-        return "operator-a"
-
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
-    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    def _get_user() -> TenantContext:
+        return TenantContext(
+            org_id=_TEST_ORG_UUID,
+            user_id="operator-a",
+            role="admin",
+        )
 
     app.dependency_overrides[get_db_session] = _get_session
-    app.dependency_overrides[get_current_operator] = _get_operator
+    app.dependency_overrides[get_current_user] = _get_user
 
     return TestClient(app, raise_server_exceptions=False)
 
 
-def _create_job_for_owner(session: Session, owner_id: str) -> int:
+def _create_job_for_owner(session: Session, owner_id: str, org_id: str = "") -> int:
     """Insert a SynthesisJob owned by owner_id and return its primary key.
 
     Args:
         session: Active SQLModel session.
         owner_id: The operator sub claim that owns the job.
+        org_id: The organization UUID for the job (P79-T79.2).
+            Defaults to empty string (different from any real org UUID).
 
     Returns:
         The integer primary key of the created job.
@@ -136,6 +151,7 @@ def _create_job_for_owner(session: Session, owner_id: str) -> int:
         parquet_path="/data/users.parquet",
         total_epochs=10,
         num_rows=100,
+        org_id=org_id,
     )
     session.add(job)
     session.commit()
@@ -227,7 +243,7 @@ class TestAdminRBACOwnershipCheck:
         Assert: 200 with updated legal_hold value.
         """
         with Session(db_engine) as session:
-            job_id = _create_job_for_owner(session, owner_id="operator-a")
+            job_id = _create_job_for_owner(session, owner_id="operator-a", org_id=_TEST_ORG_UUID)
 
         with patch(
             "synth_engine.bootstrapper.routers.admin.get_audit_logger",
@@ -392,8 +408,8 @@ class TestAuditBeforeDestructiveLegalHold:
         """
         monkeypatch.setenv("CONCLAVE_ENV", "development")
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.admin import router as admin_router
 
         app = FastAPI()
@@ -403,11 +419,15 @@ class TestAuditBeforeDestructiveLegalHold:
             with Session(db_engine) as session:
                 yield session
 
-        def _get_operator() -> str:
-            return "operator-a"
+        def _get_user() -> TenantContext:
+            return TenantContext(
+                org_id=_TEST_ORG_UUID,
+                user_id="operator-a",
+                role="admin",
+            )
 
         app.dependency_overrides[get_db_session] = _get_session
-        app.dependency_overrides[get_current_operator] = _get_operator
+        app.dependency_overrides[get_current_user] = _get_user
 
         return TestClient(app, raise_server_exceptions=False)
 
@@ -426,7 +446,7 @@ class TestAuditBeforeDestructiveLegalHold:
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with Session(db_engine) as session:
-            job_id = _create_job_for_owner(session, owner_id="operator-a")
+            job_id = _create_job_for_owner(session, owner_id="operator-a", org_id=_TEST_ORG_UUID)
 
         with patch(
             "synth_engine.bootstrapper.routers.admin.get_audit_logger",
@@ -462,7 +482,7 @@ class TestAuditBeforeDestructiveLegalHold:
         e.g. IOError, OSError, ConnectionError.
         """
         with Session(db_engine) as session:
-            job_id = _create_job_for_owner(session, owner_id="operator-a")
+            job_id = _create_job_for_owner(session, owner_id="operator-a", org_id=_TEST_ORG_UUID)
 
         for exc_type in (IOError, OSError, ConnectionError, ValueError):
             with patch(
@@ -521,7 +541,7 @@ class TestAuditBeforeDestructiveLegalHold:
         from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
 
         with Session(db_engine) as session:
-            job_id = _create_job_for_owner(session, owner_id="operator-a")
+            job_id = _create_job_for_owner(session, owner_id="operator-a", org_id=_TEST_ORG_UUID)
 
         # Audit raises immediately — if DB was already committed, job would be changed
         with patch(

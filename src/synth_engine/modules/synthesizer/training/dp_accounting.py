@@ -46,6 +46,7 @@ and intentional — P72 regression fix.
 
 Task: T43.1 — Extract dp_accounting.py from job_orchestration.py
 Task: T50.1 — DP Budget Deduction: Fail Closed (ADR-0050)
+Task: P79-B5 — Cross-org budget validation before spend
 """
 
 from __future__ import annotations
@@ -81,6 +82,10 @@ _BUDGET_SPEND_FAILED_MSG: str = (
     "Budget spend failed with unexpected error — manual reconciliation required"
 )
 
+_CROSS_ORG_BUDGET_MSG: str = (
+    "Cross-org budget violation: job org_id does not match ledger org_id — refusing spend"
+)
+
 
 # ---------------------------------------------------------------------------
 # Core DP accounting function
@@ -114,13 +119,20 @@ def _handle_dp_accounting(
     which catches it and returns ``StepResult(success=False)`` with a sanitised
     sentinel message.  This is the fail-closed guarantee (T50.1 / ADR-0050).
 
+    Cross-org validation (P79-B5): ``job.org_id`` is passed to
+    ``spend_budget_fn`` so that the budget implementation can verify the
+    ledger belongs to the same org before deducting epsilon.  If the org_ids
+    do not match, ``BudgetExhaustionError`` is raised (treated as a job
+    failure, not a reconciliation error).
+
     Args:
         job: The ``SynthesisJob`` record being updated (mutated in place).
         dp_wrapper: The DP training wrapper.
         job_id: Job primary key (for logging and audit details).
 
     Raises:
-        BudgetExhaustionError: Re-raised when the privacy budget is exhausted.
+        BudgetExhaustionError: Re-raised when the privacy budget is exhausted
+            or when cross-org budget validation fails (P79-B5).
         EpsilonMeasurementError: Raised when dp_wrapper.epsilon_spent() fails —
             if we cannot measure the privacy cost, the job must be marked FAILED
             (Constitution Priority 0: security over availability).
@@ -149,18 +161,23 @@ def _handle_dp_accounting(
     if spend_budget_fn is None or job.actual_epsilon is None:
         return
 
+    # P79-B5: Resolve job.org_id for cross-org validation in the spend path.
+    job_org_id: str = getattr(job, "org_id", "") or ""
+
     try:
         spend_budget_fn(
             amount=job.actual_epsilon,
             job_id=job_id,
             ledger_id=_DEFAULT_LEDGER_ID,
             note=f"DP synthesis job {job_id}",
+            org_id=job_org_id,
         )
         _logger.info(
-            "Job %d: budget deducted (epsilon=%.4f, ledger_id=%d).",
+            "Job %d: budget deducted (epsilon=%.4f, ledger_id=%d, org_id=%s).",
             job_id,
             job.actual_epsilon,
             _DEFAULT_LEDGER_ID,
+            job_org_id,
         )
     except BudgetExhaustionError:
         _logger.error("Job %d: Privacy budget exhausted — marking FAILED.", job_id)

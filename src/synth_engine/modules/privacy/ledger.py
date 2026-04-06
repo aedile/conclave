@@ -155,6 +155,9 @@ class PrivacyLedger(SQLModel, table=True):
             onupdate=_utcnow,
         ),
     )
+    #: Tenant organization UUID for multi-tenant isolation (T79.4, ADR-0065).
+    #: Defaults to empty string for backward compat with pre-P79 single-operator ledgers.
+    org_id: str = Field(default="", index=True)
 
 
 class PrivacyTransaction(SQLModel, table=True):
@@ -215,3 +218,6 @@ class PrivacyTransaction(SQLModel, table=True):
         ),
     )
     note: str | None = Field(default=None)
+    #: Tenant organization UUID as defense-in-depth (T79.4 ATTACK-06, ADR-0065).
+    #: Defaults to empty string for backward compat with pre-P79 transactions.
+    org_id: str = Field(default="", index=True)

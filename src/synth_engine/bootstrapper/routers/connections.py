@@ -5,10 +5,14 @@ resources.
 
 All 404 responses use RFC 7807 Problem Details format.
 
-Authorization (T39.2):
-    All resource endpoints filter by ``owner_id`` from the JWT ``sub`` claim.
-    Accessing a resource owned by a different operator returns 404 Not Found
+Authorization (T39.2, P79):
+    All resource endpoints filter by ``org_id`` from the verified JWT claim
+    (via :func:`~synth_engine.bootstrapper.dependencies.tenant.get_current_user`).
+    Accessing a resource owned by a different organization returns 404 Not Found
     (not 403 Forbidden) to prevent resource enumeration.
+
+    ``org_id`` is derived exclusively from the verified JWT — HTTP headers
+    (e.g., ``X-Org-ID``) are intentionally ignored (ATTACK-02 mitigation).
 
 Audit before mutation (T71.1):
     DELETE emits a ``CONNECTION_DELETED`` WORM audit event BEFORE the database
@@ -21,6 +25,7 @@ Task: T39.2 — Add Authorization & IDOR Protection on All Resource Endpoints
 Task: T62.1 — Wrap Database Commits in Exception Handlers
 Task: T71.1 — Add audit events to unaudited destructive endpoints
 Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
+Task: P79-T79.2 — Migrate routers to TenantContext (org_id filtering)
 """
 
 from __future__ import annotations
@@ -33,8 +38,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, select
 
-from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.connections import (
@@ -58,27 +63,27 @@ _DEFAULT_PAGE_SIZE: int = 20
     "",
     response_model=ConnectionListResponse,
     summary="List database connections",
-    description="Return all stored database connections owned by the authenticated operator.",
+    description="Return all stored database connections owned by the authenticated organization.",
     responses=COMMON_ERROR_RESPONSES,
 )
 def list_connections(
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> ConnectionListResponse:
-    """List all stored database connections owned by the authenticated operator.
+    """List all stored database connections owned by the authenticated organization.
 
-    Only returns connections owned by the authenticated operator (IDOR protection).
+    Only returns connections scoped to the authenticated org (IDOR protection).
 
     Args:
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`ConnectionListResponse` with up to 100 connections owned by the
-        operator (hard limit prevents unbounded DB reads, P59 Red-team F4).
+        org (hard limit prevents unbounded DB reads, P59 Red-team F4).
     """
     connections = session.exec(
-        select(Connection).where(Connection.owner_id == current_operator).limit(100)
+        select(Connection).where(Connection.org_id == current_user.org_id).limit(100)
     ).all()
     return ConnectionListResponse(
         items=[ConnectionResponse.model_validate(c) for c in connections],
@@ -100,16 +105,17 @@ def list_connections(
 def create_connection(
     body: ConnectionCreateRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> ConnectionResponse | JSONResponse:
     """Create a new database connection configuration.
 
-    The ``owner_id`` is set from the authenticated operator's JWT sub claim.
+    The ``owner_id`` is set from the authenticated user's ``user_id`` claim.
+    The ``org_id`` is set from the authenticated organization's JWT ``org_id`` claim.
 
     Args:
         body: Connection creation request payload.
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         The newly created :class:`ConnectionResponse`, RFC 7807 409 on
@@ -121,7 +127,8 @@ def create_connection(
         port=body.port,
         database=body.database,
         schema_name=body.schema_name,
-        owner_id=current_operator,
+        owner_id=current_user.user_id,
+        org_id=current_user.org_id,
     )
     session.add(conn)
     try:
@@ -130,7 +137,10 @@ def create_connection(
     except IntegrityError:
         session.rollback()
         _logger.warning(
-            "create_connection: IntegrityError for operator=%s", current_operator, exc_info=True
+            "create_connection: IntegrityError for org=%s user=%s",
+            current_user.org_id,
+            current_user.user_id,
+            exc_info=True,
         )
         return JSONResponse(
             status_code=409,
@@ -144,7 +154,10 @@ def create_connection(
     except SQLAlchemyError:
         session.rollback()
         _logger.warning(
-            "create_connection: SQLAlchemyError for operator=%s", current_operator, exc_info=True
+            "create_connection: SQLAlchemyError for org=%s user=%s",
+            current_user.org_id,
+            current_user.user_id,
+            exc_info=True,
         )
         return JSONResponse(
             status_code=500,
@@ -163,7 +176,7 @@ def create_connection(
     summary="Get a database connection",
     description=(
         "Return a single database connection by ID. "
-        "Returns 404 if not found or owned by another operator."
+        "Returns 404 if not found or owned by another organization."
     ),
     responses=COMMON_ERROR_RESPONSES,
     response_model=ConnectionResponse,
@@ -171,24 +184,24 @@ def create_connection(
 def get_connection(
     connection_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> ConnectionResponse | JSONResponse:
     """Get a database connection by ID.
 
-    Returns 404 if the connection does not exist **or** is owned by a
-    different operator (IDOR protection — 404 prevents enumeration).
+    Returns 404 if the connection does not exist **or** belongs to a
+    different organization (IDOR protection — 404 prevents enumeration).
 
     Args:
         connection_id: String UUID primary key of the connection.
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`ConnectionResponse` on success, or RFC 7807 404 on not found
-        or ownership mismatch.
+        or org mismatch.
     """
     conn = session.get(Connection, connection_id)
-    if conn is None or conn.owner_id != current_operator:
+    if conn is None or conn.org_id != current_user.org_id:
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -210,7 +223,7 @@ def get_connection(
 def delete_connection(
     connection_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> Response:
     """Delete a database connection by ID.
 
@@ -219,21 +232,21 @@ def delete_connection(
     the connection is NOT deleted.  If the DB commit fails after a successful
     audit, a compensating ``CONNECTION_DELETE_ABORTED`` event is emitted.
 
-    Returns 404 if the connection does not exist **or** is owned by a
-    different operator (IDOR protection — 404 prevents enumeration).
+    Returns 404 if the connection does not exist **or** belongs to a
+    different organization (IDOR protection — 404 prevents enumeration).
 
     Args:
         connection_id: String UUID primary key of the connection to delete.
         session: Database session (injected by FastAPI DI).
-        current_operator: JWT sub claim of the authenticated operator.
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         HTTP 204 No Content on success, RFC 7807 404 on not found or
-        ownership mismatch, RFC 7807 500 on audit failure (no mutation), or
+        org mismatch, RFC 7807 500 on audit failure (no mutation), or
         RFC 7807 500 on database errors.
     """
     conn = session.get(Connection, connection_id)
-    if conn is None or conn.owner_id != current_operator:
+    if conn is None or conn.org_id != current_user.org_id:
         return JSONResponse(
             status_code=404,
             content=problem_detail(
@@ -249,10 +262,10 @@ def delete_connection(
         audit = get_audit_logger()
         audit.log_event(
             event_type="CONNECTION_DELETED",
-            actor=current_operator,
+            actor=current_user.user_id,
             resource=f"connection/{connection_id}",
             action="delete",
-            details={"connection_id": connection_id},
+            details={"connection_id": connection_id, "org_id": current_user.org_id},
         )
     except (ValueError, OSError, UnicodeError):
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="connections", endpoint="/connections/{id}").inc()
@@ -277,20 +290,22 @@ def delete_connection(
     except SQLAlchemyError:
         session.rollback()
         _logger.warning(
-            "delete_connection: SQLAlchemyError for connection_id=%s operator=%s",
+            "delete_connection: SQLAlchemyError for connection_id=%s org=%s user=%s",
             connection_id,
-            current_operator,
+            current_user.org_id,
+            current_user.user_id,
             exc_info=True,
         )
         # T71.1: Emit compensating event when DB fails after successful audit.
         try:
             audit.log_event(
                 event_type="CONNECTION_DELETE_ABORTED",
-                actor=current_operator,
+                actor=current_user.user_id,
                 resource=f"connection/{connection_id}",
                 action="delete",
                 details={
                     "connection_id": connection_id,
+                    "org_id": current_user.org_id,
                     "reason": "db_commit_failed",
                 },
             )

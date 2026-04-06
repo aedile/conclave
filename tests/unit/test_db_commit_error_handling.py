@@ -39,6 +39,7 @@ def _make_connections_app() -> tuple[Any, Any]:
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.connections import router as connections_router
@@ -59,6 +60,9 @@ def _make_connections_app() -> tuple[Any, Any]:
             yield session
 
     app.dependency_overrides[get_db_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="", user_id="test-operator", role="admin"
+    )
     return app, engine
 
 
@@ -72,6 +76,7 @@ def _make_jobs_app() -> tuple[Any, Any]:
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
@@ -106,6 +111,9 @@ def _make_jobs_app() -> tuple[Any, Any]:
             yield session
 
     app.dependency_overrides[get_db_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="", user_id="operator-1", role="admin"
+    )
     return app, engine
 
 
@@ -119,6 +127,7 @@ def _make_settings_app() -> tuple[Any, Any]:
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.settings import router as settings_router
@@ -139,6 +148,9 @@ def _make_settings_app() -> tuple[Any, Any]:
             yield session
 
     app.dependency_overrides[get_db_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="", user_id="test-operator", role="admin"
+    )
     return app, engine
 
 
@@ -152,6 +164,7 @@ def _make_webhooks_app() -> tuple[Any, Any]:
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.webhooks import router as webhooks_router
@@ -172,6 +185,9 @@ def _make_webhooks_app() -> tuple[Any, Any]:
             yield session
 
     app.dependency_overrides[get_db_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="", user_id="test-operator", role="admin"
+    )
     return app, engine
 
 
@@ -185,6 +201,7 @@ def _make_admin_app() -> tuple[Any, Any]:
     from sqlmodel import Session, SQLModel, create_engine
 
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.admin import router as admin_router
@@ -216,7 +233,11 @@ def _make_admin_app() -> tuple[Any, Any]:
         with Session(engine) as session:
             yield session
 
+    # org_id="" matches default SynthesisJob.org_id so ownership check passes.
     app.dependency_overrides[get_db_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="", user_id="operator-1", role="admin"
+    )
     return app, engine
 
 
@@ -454,17 +475,20 @@ class TestConnectionsCommitErrors:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("disk full"))
         mock_session.rollback = MagicMock()
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 
         def _bad_session() -> Any:
             yield mock_session
 
-        def _mock_operator() -> str:
-            return "operator-1"
+        # Set org_id on mock to match TenantContext (IDOR check)
+        mock_conn.org_id = ""
+
+        def _mock_user() -> TenantContext:
+            return TenantContext(org_id="", user_id="operator-1", role="admin")
 
         app.dependency_overrides[get_db_session] = _bad_session
-        app.dependency_overrides[get_current_operator] = _mock_operator
+        app.dependency_overrides[get_current_user] = _mock_user
 
         vault_p, license_p = _vault_license_patches()
         with vault_p, license_p:
@@ -609,17 +633,17 @@ class TestShredCommitFailure:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("commit failed"))
         mock_session.rollback = MagicMock()
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 
         def _bad_session() -> Any:
             yield mock_session
 
-        def _mock_operator() -> str:
-            return "operator-1"
+        def _mock_user() -> TenantContext:
+            return TenantContext(org_id="", user_id="operator-1", role="admin")
 
         app.dependency_overrides[get_db_session] = _bad_session
-        app.dependency_overrides[get_current_operator] = _mock_operator
+        app.dependency_overrides[get_current_user] = _mock_user
 
         vault_p, license_p = _vault_license_patches()
         with (
@@ -670,17 +694,17 @@ class TestShredCommitFailure:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("commit failed"))
         mock_session.rollback = MagicMock()
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 
         def _bad_session() -> Any:
             yield mock_session
 
-        def _mock_operator() -> str:
-            return "operator-1"
+        def _mock_user() -> TenantContext:
+            return TenantContext(org_id="", user_id="operator-1", role="admin")
 
         app.dependency_overrides[get_db_session] = _bad_session
-        app.dependency_overrides[get_current_operator] = _mock_operator
+        app.dependency_overrides[get_current_user] = _mock_user
 
         vault_p, license_p = _vault_license_patches()
         with (

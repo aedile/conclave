@@ -115,6 +115,7 @@ def _make_job(
         owner_id=owner_id,
         status=status,
         output_path=output_path,
+        org_id="default-org",
     )
 
 
@@ -135,6 +136,7 @@ def _make_connection(*, name: str = "conn", owner_id: str = "op1") -> Connection
         database="testdb",
         schema_name="public",
         owner_id=owner_id,
+        org_id="default-org",
     )
 
 
@@ -168,6 +170,7 @@ def _build_app(engine: Any, operator_id: str = "subject-A") -> Any:
 
     from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.routers.compliance import router as compliance_router
 
     _ensure_vault_unsealed()
@@ -186,8 +189,12 @@ def _build_app(engine: Any, operator_id: str = "subject-A") -> Any:
     def _override_operator() -> str:
         return operator_id
 
+    def _override_user() -> TenantContext:
+        return TenantContext(org_id="default-org", user_id=operator_id, role="admin")
+
     app.dependency_overrides[get_db_session] = _override
     app.dependency_overrides[get_current_operator] = _override_operator
+    app.dependency_overrides[get_current_user] = _override_user
     return app
 
 
@@ -409,6 +416,7 @@ class TestErasureVaultSealedGate:
 
         from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
         from synth_engine.shared.security.vault import VaultState
 
@@ -425,8 +433,12 @@ class TestErasureVaultSealedGate:
         def _override_operator() -> str:
             return "sub-sealed"
 
+        def _override_user() -> TenantContext:
+            return TenantContext(org_id="default-org", user_id="sub-sealed", role="admin")
+
         app.dependency_overrides[get_db_session] = _override
         app.dependency_overrides[get_current_operator] = _override_operator
+        app.dependency_overrides[get_current_user] = _override_user
 
         VaultState.reset()
         assert VaultState.is_sealed()
@@ -448,6 +460,7 @@ class TestErasureVaultSealedGate:
 
         from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
         from synth_engine.shared.security.vault import VaultState
 
@@ -464,8 +477,12 @@ class TestErasureVaultSealedGate:
         def _override_operator() -> str:
             return "sub-sealed"
 
+        def _override_user() -> TenantContext:
+            return TenantContext(org_id="default-org", user_id="sub-sealed", role="admin")
+
         app.dependency_overrides[get_db_session] = _override
         app.dependency_overrides[get_current_operator] = _override_operator
+        app.dependency_overrides[get_current_user] = _override_user
 
         VaultState.reset()
 
@@ -488,6 +505,7 @@ class TestErasureVaultSealedGate:
 
         from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.compliance import router as compliance_router
         from synth_engine.shared.security.vault import VaultState
 
@@ -506,8 +524,12 @@ class TestErasureVaultSealedGate:
         def _override_operator() -> str:
             return "sub-sealed"
 
+        def _override_user() -> TenantContext:
+            return TenantContext(org_id="default-org", user_id="sub-sealed", role="admin")
+
         app.dependency_overrides[get_db_session] = _override
         app.dependency_overrides[get_current_operator] = _override_operator
+        app.dependency_overrides[get_current_user] = _override_user
 
         VaultState.reset()
 

@@ -7,9 +7,11 @@ Implements:
 
 Security posture
 ----------------
-- All endpoints require JWT authentication (``get_current_operator``).
-- All CRUD operations are scoped to ``owner_id`` (IDOR protection).
+- All endpoints require JWT authentication (``get_current_user``, P79-T79.2).
+- All CRUD operations are scoped to ``org_id`` (IDOR protection, T79.2).
 - DELETE returns 404 for any ID not owned by the caller (prevents enumeration).
+- ``org_id`` is derived exclusively from the verified JWT — HTTP headers
+  (e.g., ``X-Org-ID``) are intentionally ignored (ATTACK-02 mitigation).
 - ``signing_key`` is accepted at registration but never returned in responses.
 - SSRF validation on ``callback_url`` at registration time (strict=True,
   fail-closed: DNS failures cause rejection).
@@ -22,6 +24,8 @@ RFC 7807 Problem Details format for all error responses.
 
 Boundary constraints (import-linter enforced):
     - bootstrapper/ may import from shared/ and modules/.
+
+Task: P79-T79.2 — Migrate routers to TenantContext (org_id filtering)
 
 CONSTITUTION Priority 0: Security — SSRF, IDOR, key write-only, safe logging
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
@@ -39,8 +43,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 from synth_engine.bootstrapper.errors.formatter import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.webhooks import (
@@ -79,20 +83,31 @@ def _safe_url_for_log(url: str) -> str:
     return urlparse(url)._replace(query="", fragment="").geturl()
 
 
-def _count_active_registrations(session: Session, owner_id: str) -> int:
-    """Count active webhook registrations for ``owner_id``.
+def _count_active_registrations(session: Session, owner_id: str, org_id: str = "") -> int:
+    """Count active webhook registrations scoped to ``org_id`` (T79.2).
+
+    When ``org_id`` is provided and non-empty, filters by ``org_id`` (per-org
+    limit enforcement, T79.2 ADR-0065).  Falls back to ``owner_id`` filtering
+    for backward compatibility with pre-P79 deployments where ``org_id`` is empty.
 
     Args:
         session: Open SQLModel Session.
         owner_id: Operator sub claim.
+        org_id: Tenant organization UUID (T79.2).  Empty string = legacy mode.
 
     Returns:
-        Number of active registrations for this operator.
+        Number of active registrations for this operator/org.
     """
-    stmt = select(WebhookRegistration).where(
-        WebhookRegistration.owner_id == owner_id,
-        WebhookRegistration.active.is_(True),  # type: ignore[attr-defined]
-    )
+    if org_id:
+        stmt = select(WebhookRegistration).where(
+            WebhookRegistration.org_id == org_id,
+            WebhookRegistration.active.is_(True),  # type: ignore[attr-defined]
+        )
+    else:
+        stmt = select(WebhookRegistration).where(
+            WebhookRegistration.owner_id == owner_id,
+            WebhookRegistration.active.is_(True),  # type: ignore[attr-defined]
+        )
     results = session.exec(stmt).all()
     return len(results)
 
@@ -100,7 +115,8 @@ def _count_active_registrations(session: Session, owner_id: str) -> int:
 def _check_registration_preconditions(
     callback_url: str,
     session: Session,
-    operator: str,
+    owner_id: str,
+    org_id: str = "",
 ) -> JSONResponse | None:
     """Check HTTPS, SSRF, and registration limit before persisting.
 
@@ -109,7 +125,8 @@ def _check_registration_preconditions(
     Args:
         callback_url: The proposed callback URL.
         session: Database session for registration count query.
-        operator: Authenticated operator sub claim.
+        owner_id: Authenticated user sub claim.
+        org_id: Authenticated organization UUID (T79.2).
 
     Returns:
         JSONResponse with an RFC 7807 body on failure; None on success.
@@ -130,7 +147,7 @@ def _check_registration_preconditions(
     try:
         validate_callback_url(callback_url, strict=True)
     except ValueError as exc:
-        _logger.warning("SSRF validation rejected callback URL for operator %s: %s", operator, exc)
+        _logger.warning("SSRF validation rejected callback URL for user %s: %s", owner_id, exc)
         return JSONResponse(
             status_code=400,
             content=problem_detail(
@@ -143,7 +160,7 @@ def _check_registration_preconditions(
             ),
         )
     max_reg = settings.webhook_max_registrations
-    if _count_active_registrations(session, operator) >= max_reg:
+    if _count_active_registrations(session, owner_id, org_id=org_id) >= max_reg:
         return JSONResponse(
             status_code=409,
             content=problem_detail(
@@ -239,31 +256,35 @@ def _commit_registration(
 def register_webhook(
     body: WebhookRegistrationRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> WebhookRegistrationResponse | JSONResponse:
     """Register a new webhook callback URL.
 
     Validates the callback URL for SSRF risk before persisting.  In
     production mode, only ``https://`` URLs are accepted.
+    Scoped to the authenticated organization (T79.2).
 
     Args:
         body: Registration request with ``callback_url``, ``signing_key``, and ``events``.
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected).
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`WebhookRegistrationResponse` on success, RFC 7807 400/409/500 on failure.
     """
-    err = _check_registration_preconditions(body.callback_url, session, current_operator)
+    err = _check_registration_preconditions(
+        body.callback_url, session, current_user.user_id, org_id=current_user.org_id
+    )
     if err is not None:
         return err
 
-    pinned_json, pin_err = _pin_ips_for_url(body.callback_url, current_operator)
+    pinned_json, pin_err = _pin_ips_for_url(body.callback_url, current_user.user_id)
     if pin_err is not None:
         return pin_err
 
     reg = WebhookRegistration(
-        owner_id=current_operator,
+        owner_id=current_user.user_id,
+        org_id=current_user.org_id,
         callback_url=body.callback_url,
         signing_key=body.signing_key,
         events=json.dumps(body.events),
@@ -271,14 +292,15 @@ def register_webhook(
         pinned_ips=pinned_json,
     )
     session.add(reg)
-    db_err = _commit_registration(session, reg, current_operator)
+    db_err = _commit_registration(session, reg, current_user.user_id)
     if db_err is not None:
         return db_err
 
     _logger.info(
-        "Webhook registered: id=%s owner=%s url=%s",
+        "Webhook registered: id=%s owner=%s org=%s url=%s",
         reg.id,
-        current_operator,
+        current_user.user_id,
+        current_user.org_id,
         _safe_url_for_log(reg.callback_url),
     )
     return WebhookRegistrationResponse.from_orm_model(reg)
@@ -293,23 +315,23 @@ def register_webhook(
 )
 def list_webhooks(
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> WebhookRegistrationListResponse:
-    """List all webhook registrations owned by the authenticated operator.
+    """List all webhook registrations owned by the authenticated organization.
 
-    Returns both active and inactive registrations.  The ``signing_key`` is
-    never included in responses.
+    Returns both active and inactive registrations scoped to the org.
+    The ``signing_key`` is never included in responses (write-only).
 
     Args:
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected).
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
-        :class:`WebhookRegistrationListResponse` with up to 100 owner-scoped items.
+        :class:`WebhookRegistrationListResponse` with up to 100 org-scoped items.
     """
     stmt = (
         select(WebhookRegistration)
-        .where(WebhookRegistration.owner_id == current_operator)
+        .where(WebhookRegistration.org_id == current_user.org_id)
         .limit(100)
     )
     registrations = session.exec(stmt).all()
@@ -391,23 +413,23 @@ def _audit_and_soft_delete_webhook(
 def deactivate_webhook(
     webhook_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> Response:
     """Deactivate a webhook registration by ID.
 
-    Returns 404 for any ID not owned by the caller (IDOR protection, no 403).
+    Returns 404 for any ID not owned by the caller's org (IDOR protection, no 403).
 
     Args:
         webhook_id: UUID string primary key of the registration to deactivate.
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected).
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         HTTP 204 No Content on success, RFC 7807 404 if not found, or 500 on error.
     """
     stmt = select(WebhookRegistration).where(
         WebhookRegistration.id == webhook_id,
-        WebhookRegistration.owner_id == current_operator,
+        WebhookRegistration.org_id == current_user.org_id,
     )
     reg = session.exec(stmt).first()
     if reg is None:
@@ -424,10 +446,10 @@ def deactivate_webhook(
             ),
             media_type="application/problem+json",
         )
-    err = _audit_and_soft_delete_webhook(session, reg, webhook_id, current_operator)
+    err = _audit_and_soft_delete_webhook(session, reg, webhook_id, current_user.user_id)
     if err is not None:
         return err
-    _logger.info("Webhook deactivated: id=%s owner=%s", webhook_id, current_operator)
+    _logger.info("Webhook deactivated: id=%s org=%s", webhook_id, current_user.org_id)
     return Response(status_code=204)
 
 
@@ -444,26 +466,26 @@ def deactivate_webhook(
 def list_webhook_deliveries(
     webhook_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> WebhookDeliveryListResponse | JSONResponse:
     """List delivery attempts for a webhook registration.
 
     Returns up to 100 most recent delivery attempts, ordered by creation
     date descending.  Returns 404 for any ``webhook_id`` not owned by the
-    authenticated operator (IDOR protection).
+    authenticated organization (IDOR protection).
 
     Args:
         webhook_id: UUID string primary key of the parent registration.
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected).
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`WebhookDeliveryListResponse` with up to 100 delivery records,
-        or RFC 7807 404 if the registration is not found or not owned by the caller.
+        or RFC 7807 404 if the registration is not found or not owned by the caller's org.
     """
     reg_stmt = select(WebhookRegistration).where(
         WebhookRegistration.id == webhook_id,
-        WebhookRegistration.owner_id == current_operator,
+        WebhookRegistration.org_id == current_user.org_id,
     )
     reg = session.exec(reg_stmt).first()
     if reg is None:

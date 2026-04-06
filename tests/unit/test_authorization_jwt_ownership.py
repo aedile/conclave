@@ -34,6 +34,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
+# Pass-through mode org sentinel (matches DEFAULT_ORG_UUID from tenant.py)
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -144,6 +147,7 @@ def _make_jobs_app(monkeypatch: pytest.MonkeyPatch) -> tuple[FastAPI, Any]:
             total_epochs=5,
             num_rows=50,
             owner_id=_OPERATOR_B_SUB,
+            org_id=_DEFAULT_ORG_UUID,
         )
         session.add(job_a)
         session.add(job_b)

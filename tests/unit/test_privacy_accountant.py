@@ -829,7 +829,7 @@ async def test_spend_budget_increments_epsilon_counter_on_success(
         await setup_session.refresh(ledger)
         ledger_id = ledger.id
 
-    labels = {"job_id": str(7), "dataset_id": str(ledger_id)}
+    labels = {"job_id": str(7), "dataset_id": str(ledger_id), "org_id": ""}
 
     before = prometheus_client.REGISTRY.get_sample_value(
         "epsilon_spent_total",
@@ -878,7 +878,7 @@ async def test_spend_budget_does_not_increment_counter_on_exhaustion(
         await setup_session.refresh(ledger)
         ledger_id = ledger.id
 
-    labels = {"job_id": str(99), "dataset_id": str(ledger_id)}
+    labels = {"job_id": str(99), "dataset_id": str(ledger_id), "org_id": ""}
 
     before = prometheus_client.REGISTRY.get_sample_value(
         "epsilon_spent_total",

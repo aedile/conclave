@@ -450,8 +450,8 @@ def jobs_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from sqlalchemy.pool import StaticPool
     from sqlmodel import Session, SQLModel, create_engine
 
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.routers.jobs import router as jobs_router
 
     engine = create_engine(
@@ -473,7 +473,9 @@ def jobs_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
             yield session
 
     app.dependency_overrides[get_db_session] = _get_session
-    app.dependency_overrides[get_current_operator] = lambda: "test-operator"
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="00000000-0000-0000-0000-000000000000", user_id="test-operator", role="admin"
+    )
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -493,8 +495,8 @@ def webhooks_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from sqlalchemy.pool import StaticPool
     from sqlmodel import Session, SQLModel, create_engine
 
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.routers.webhooks import router as webhooks_router
 
     engine = create_engine(
@@ -518,7 +520,9 @@ def webhooks_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
             yield session
 
     app.dependency_overrides[get_db_session] = _get_session
-    app.dependency_overrides[get_current_operator] = lambda: "test-operator"
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="00000000-0000-0000-0000-000000000000", user_id="test-operator", role="admin"
+    )
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -538,8 +542,8 @@ def privacy_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from sqlalchemy.pool import StaticPool
     from sqlmodel import Session, SQLModel, create_engine
 
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.routers.privacy import router as privacy_router
 
     engine = create_engine(
@@ -560,7 +564,9 @@ def privacy_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
             yield session
 
     app.dependency_overrides[get_db_session] = _get_session
-    app.dependency_overrides[get_current_operator] = lambda: "test-operator"
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="00000000-0000-0000-0000-000000000000", user_id="test-operator", role="admin"
+    )
 
     return TestClient(app, raise_server_exceptions=False)
 

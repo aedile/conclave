@@ -78,18 +78,21 @@ def _make_webhook_client(
 ) -> TestClient:
     """Build a minimal FastAPI app with the webhooks router.
 
-    Auth is overridden to return operator_id without touching JWT.
+    Auth is overridden with a TenantContext where org_id == operator_id.
+    This ensures cross-operator tests have different org_ids (P79-T79.2).
 
     Args:
         monkeypatch: pytest monkeypatch fixture.
         db_engine: SQLite in-memory engine.
-        operator_id: The JWT sub claim returned by the overridden auth dependency.
+        operator_id: Used as both user_id and org_id for the TenantContext override.
 
     Returns:
         TestClient wrapping the webhooks-router app.
     """
     monkeypatch.setenv("CONCLAVE_ENV", "development")
 
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.routers.webhooks import router as webhooks_router
 
     app = FastAPI()
@@ -99,14 +102,11 @@ def _make_webhook_client(
         with Session(db_engine) as session:
             yield session
 
-    def _get_operator() -> str:
-        return operator_id
-
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
-    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    def _get_user() -> TenantContext:
+        return TenantContext(org_id=operator_id, user_id=operator_id, role="admin")
 
     app.dependency_overrides[get_db_session] = _get_session
-    app.dependency_overrides[get_current_operator] = _get_operator
+    app.dependency_overrides[get_current_user] = _get_user
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -139,6 +139,7 @@ class TestWebhookDeliveriesIDOR:
         with Session(db_engine) as session:
             reg_b = WebhookRegistration(
                 owner_id="operator-b",
+                org_id="operator-b",
                 callback_url="https://example.com/webhook",
                 signing_key="operator-b-signing-key-at-least-32!",
                 active=True,
@@ -239,6 +240,7 @@ class TestWebhookDeliveriesIDOR:
         with Session(db_engine) as session:
             reg_b = WebhookRegistration(
                 owner_id="operator-b",
+                org_id="operator-b",
                 callback_url="https://example.com/hook",
                 signing_key="operator-b-signing-key-at-least-32!",
                 active=True,
@@ -284,6 +286,7 @@ class TestWebhookDeliveriesIDOR:
         with Session(db_engine) as session:
             reg_a = WebhookRegistration(
                 owner_id="operator-a",
+                org_id="operator-a",
                 callback_url="https://example.com/hook",
                 signing_key="operator-a-signing-key-at-least-32!",
                 active=True,

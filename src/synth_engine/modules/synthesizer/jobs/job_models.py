@@ -153,6 +153,9 @@ class SynthesisJob(SQLModel, table=True):
     actual_epsilon: float | None = Field(default=None)
     #: Operator identity for IDOR protection (T39.2). Empty string = legacy/unconfigured.
     owner_id: str = Field(default="", index=True)
+    #: Tenant organization UUID for multi-tenant isolation (T79.2, ADR-0065).
+    #: Defaults to empty string for backward compatibility with pre-P79 rows.
+    org_id: str = Field(default="", index=True)
     #: Legal hold flag — prevents routine retention purge (T41.1).
     legal_hold: bool = Field(default=False, index=True)
     #: UTC creation timestamp for retention TTL calculations (T41.1).

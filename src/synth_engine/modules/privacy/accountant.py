@@ -41,6 +41,22 @@ The privacy ledger currently assumes a single operator.  Queries do not filter
 by ``owner_id`` — they match the ledger row by primary key only.
 See ADR-0062 for the documented assumption and the migration path.
 
+Cross-org budget validation (RF1 — Fix Round 2)
+------------------------------------------------
+``spend_budget()`` now validates that the calling job's ``org_id`` matches the
+ledger's ``org_id`` before deducting epsilon.  This prevents cross-org budget
+violations where a job from Org B could silently deplete Org A's privacy budget.
+
+The check fires inside the transaction, after fetching the ledger under lock,
+so the validation is atomic with the spend.  A mismatch raises
+:exc:`~synth_engine.shared.exceptions.BudgetExhaustionError` — treating it
+as a budget failure rather than an auth error keeps the fail-closed guarantee
+consistent with budget exhaustion handling (T50.1 / ADR-0050).
+
+The check is skipped when either ``org_id`` (the caller) or ``ledger.org_id``
+is empty — this preserves backward compatibility with pre-P79 single-operator
+ledgers that carry an empty ``org_id``.
+
 Import boundaries:
   Must NOT import from any other module in ``modules/``, from
   ``bootstrapper/``, or from application-layer code.
@@ -66,14 +82,16 @@ _logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # T25.1 — Custom Prometheus business metric: epsilon_spent_total Counter.
-# Cardinality note: labels are (job_id, dataset_id). Cardinality is bounded by
-# the number of synthesis jobs and ledgers, which are operator-scoped and
-# finite. One time-series per (job, ledger) pair — acceptable for production.
+# Cardinality note: labels are (job_id, dataset_id, org_id). Cardinality is
+# bounded by the number of synthesis jobs x ledgers x orgs.  In single-tenant
+# deployments org_id is always the default UUID so cardinality is effectively
+# (job, ledger).  In multi-tenant deployments cardinality grows by a factor
+# of the number of active orgs — acceptable for bounded org counts. (P79-F5)
 # ---------------------------------------------------------------------------
 EPSILON_SPENT_TOTAL: Counter = Counter(
     "epsilon_spent_total",
     "Total epsilon budget deducted, counted per successful spend_budget() call.",
-    labelnames=["job_id", "dataset_id"],
+    labelnames=["job_id", "dataset_id", "org_id"],
 )
 
 
@@ -172,6 +190,7 @@ async def spend_budget(
     ledger_id: int,
     session: AsyncSession,
     note: str | None = None,
+    org_id: str = "",
 ) -> None:
     """Atomically deduct epsilon from the global privacy budget.
 
@@ -179,12 +198,21 @@ async def spend_budget(
     :class:`PrivacyLedger` row, checks budget, deducts epsilon, and writes a
     :class:`PrivacyTransaction` record — all atomically.
 
+    Cross-org validation (RF1 — Fix Round 2): If both ``org_id`` (the caller's
+    org) and ``ledger.org_id`` are non-empty, they must match.  A mismatch
+    raises :exc:`BudgetExhaustionError` to prevent cross-org budget depletion.
+    The check is skipped when either value is empty, preserving backward
+    compatibility with pre-P79 single-operator ledgers.
+
     Args:
         amount: The epsilon to deduct.  Must be positive.
         job_id: Synthesis job PK — stored in the PrivacyTransaction record.
         ledger_id: Primary key of the PrivacyLedger row to debit.
         session: Fresh AsyncSession per call (not shared across concurrency).
         note: Optional human-readable annotation for the transaction record.
+        org_id: Organization UUID of the requesting job (P79-F5).
+            Used both for cross-org validation (RF1) and as the Prometheus
+            ``EPSILON_SPENT_TOTAL`` label for per-org spend dashboards.
 
     Returns:
         None on success.
@@ -192,7 +220,9 @@ async def spend_budget(
     Raises:
         ValueError: If ``amount`` is not positive.
         LedgerNotFoundError: If no PrivacyLedger row exists for ``ledger_id``.
-        BudgetExhaustionError: If ``total_spent + amount > total_allocated``.
+        BudgetExhaustionError: If ``total_spent + amount > total_allocated``,
+            or if ``org_id`` does not match ``ledger.org_id`` when both are
+            non-empty (cross-org budget violation).
     """  # noqa: DOC503
     decimal_amount: Decimal = amount if isinstance(amount, Decimal) else Decimal(str(amount))
     if decimal_amount <= 0:
@@ -200,6 +230,25 @@ async def spend_budget(
 
     async with session.begin():
         ledger = await _fetch_ledger_or_raise(session, ledger_id, "spend_budget")
+
+        # RF1 — Cross-org budget guard: validate org_id matches ledger.org_id.
+        # The check is skipped when either side is empty to preserve backward
+        # compatibility with pre-P79 single-operator ledgers (ledger.org_id="").
+        if org_id and ledger.org_id and ledger.org_id != org_id:
+            _logger.warning(
+                "Cross-org budget violation: job org_id=%r does not match "
+                "ledger org_id=%r (ledger_id=%d, job_id=%d) — refusing spend.",
+                org_id,
+                ledger.org_id,
+                ledger_id,
+                job_id,
+            )
+            raise BudgetExhaustionError(
+                requested_epsilon=decimal_amount,
+                total_spent=ledger.total_spent_epsilon,
+                total_allocated=ledger.total_allocated_epsilon,
+            )
+
         await _deduct_epsilon_in_transaction(
             session, ledger, decimal_amount, ledger_id, job_id, note
         )
@@ -214,7 +263,7 @@ async def spend_budget(
         ledger.total_allocated_epsilon - ledger.total_spent_epsilon,
     )
     # T25.1: Increment only after confirmed successful commit.
-    EPSILON_SPENT_TOTAL.labels(job_id=str(job_id), dataset_id=str(ledger_id)).inc()
+    EPSILON_SPENT_TOTAL.labels(job_id=str(job_id), dataset_id=str(ledger_id), org_id=org_id).inc()
 
 
 async def reset_budget(

@@ -40,6 +40,9 @@ from synth_engine.shared.settings import get_settings
 
 pytestmark = pytest.mark.unit
 
+# Pass-through mode org sentinel (matches DEFAULT_ORG_UUID from tenant.py)
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 def _vault_license_patches() -> tuple[Any, Any]:
     """Return patches for vault sealed and license state."""
@@ -94,6 +97,7 @@ class TestDownloadEndpointHMACSigningActive:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -108,7 +112,12 @@ class TestDownloadEndpointHMACSigningActive:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         with p1, p2, patch.dict(os.environ, {"ARTIFACT_SIGNING_KEY": signing_key.hex()}):
@@ -154,6 +163,7 @@ class TestDownloadEndpointHMACSigningActive:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -168,7 +178,12 @@ class TestDownloadEndpointHMACSigningActive:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         # Use a valid key — but the stored signature is wrong
@@ -215,6 +230,7 @@ class TestDownloadEndpointHMACSigningActive:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -229,7 +245,12 @@ class TestDownloadEndpointHMACSigningActive:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         signing_key = b"\xcd" * 32
@@ -275,6 +296,7 @@ class TestDownloadEndpointHMACSigningActive:
                 num_rows=100,
                 status="COMPLETE",
                 output_path=str(parquet_path),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -289,7 +311,12 @@ class TestDownloadEndpointHMACSigningActive:
             with Session(engine) as s:
                 yield s
 
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+
         app.dependency_overrides[get_db_session] = _override
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id=_DEFAULT_ORG_UUID, user_id="test-operator", role="admin"
+        )
         p1, p2 = _vault_license_patches()
 
         signing_key = b"\xef" * 32

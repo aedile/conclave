@@ -63,8 +63,8 @@ def _make_test_app() -> tuple[Any, Any]:
     """
     from sqlalchemy.pool import StaticPool
 
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.privacy import router as privacy_router
@@ -96,7 +96,9 @@ def _make_test_app() -> tuple[Any, Any]:
 
     app.dependency_overrides[get_db_session] = _override_session
     # Override auth for non-auth-focused tests — they test budget logic, not authn
-    app.dependency_overrides[get_current_operator] = lambda: "test-operator"
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="", user_id="test-operator", role="admin"
+    )
     return app, engine
 
 
@@ -111,8 +113,8 @@ def _make_empty_app() -> tuple[Any, Any]:
     """
     from sqlalchemy.pool import StaticPool
 
-    from synth_engine.bootstrapper.dependencies.auth import get_current_operator
     from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
     from synth_engine.bootstrapper.errors import register_error_handlers
     from synth_engine.bootstrapper.main import create_app
     from synth_engine.bootstrapper.routers.privacy import router as privacy_router
@@ -134,7 +136,9 @@ def _make_empty_app() -> tuple[Any, Any]:
 
     app.dependency_overrides[get_db_session] = _override_session
     # Override auth for non-auth-focused tests
-    app.dependency_overrides[get_current_operator] = lambda: "test-operator"
+    app.dependency_overrides[get_current_user] = lambda: TenantContext(
+        org_id="", user_id="test-operator", role="admin"
+    )
     return app, engine
 
 
@@ -262,8 +266,8 @@ class TestBudgetQueryEndpoint:
         """GET /privacy/budget must set is_exhausted=True when spent >= allocated."""
         from sqlalchemy.pool import StaticPool
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.privacy import router as privacy_router
@@ -293,7 +297,9 @@ class TestBudgetQueryEndpoint:
                 yield s
 
         app.dependency_overrides[get_db_session] = _override
-        app.dependency_overrides[get_current_operator] = lambda: "test-operator"
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="", user_id="test-operator", role="admin"
+        )
 
         patches = _common_patches()
         with patches[0], patches[1]:
@@ -313,8 +319,8 @@ class TestBudgetQueryEndpoint:
         """GET /privacy/budget must set is_exhausted=True when spent > allocated (overspend)."""
         from sqlalchemy.pool import StaticPool
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.privacy import router as privacy_router
@@ -344,7 +350,9 @@ class TestBudgetQueryEndpoint:
                 yield s
 
         app.dependency_overrides[get_db_session] = _override
-        app.dependency_overrides[get_current_operator] = lambda: "test-operator"
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="", user_id="test-operator", role="admin"
+        )
 
         patches = _common_patches()
         with patches[0], patches[1]:
@@ -583,8 +591,8 @@ class TestBudgetRefreshEndpoint:
         """
         from sqlalchemy.pool import StaticPool
 
-        from synth_engine.bootstrapper.dependencies.auth import get_current_operator
         from synth_engine.bootstrapper.dependencies.db import get_db_session
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.errors import register_error_handlers
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.privacy import router as privacy_router
@@ -615,7 +623,9 @@ class TestBudgetRefreshEndpoint:
 
         app.dependency_overrides[get_db_session] = _override_session
         # Inject a specific operator identity via dependency override
-        app.dependency_overrides[get_current_operator] = lambda: "specific-operator-id"
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="", user_id="specific-operator-id", role="admin"
+        )
 
         mock_audit = MagicMock()
         mock_audit.log_event = MagicMock()

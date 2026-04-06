@@ -35,6 +35,8 @@ _WRONG_SECRET = (  # pragma: allowlist secret
     "wrong-secret-key-that-is-long-enough-for-hs256-32chars+"
 )
 _OPERATOR_SUB = "test-operator-remediation"
+#: Valid org UUID for JWT org_id claim — must pass P79-F3 UUID validation.
+_ORG_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +50,9 @@ def _make_token(
     exp_offset: int = 3600,
 ) -> str:
     """Create a JWT token for testing.
+
+    Includes org_id (valid UUID) and role claims required by get_current_user
+    (P79-T79.2 migration).
 
     Args:
         sub: Subject claim value.
@@ -63,6 +68,8 @@ def _make_token(
     return pyjwt.encode(
         {
             "sub": sub,
+            "org_id": _ORG_UUID,
+            "role": "admin",
             "iat": now,
             "exp": now + exp_offset,
             "scope": ["read", "write", "security:admin", "settings:write"],

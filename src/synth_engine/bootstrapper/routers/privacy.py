@@ -16,8 +16,8 @@ All error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
 
 Authentication: Both endpoints require a valid JWT Bearer token via the
-:func:`~synth_engine.bootstrapper.dependencies.auth.get_current_operator`
-dependency (ADV-024).  The authenticated operator's JWT sub claim is used
+:func:`~synth_engine.bootstrapper.dependencies.tenant.get_current_user`
+dependency (P79-T79.2, ADV-024).  The authenticated operator's JWT sub claim is used
 as the audit actor identity — replacing the previous ``X-Operator-Id``
 header fallback.
 
@@ -60,8 +60,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
-from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import (
     COMMON_ERROR_RESPONSES,
@@ -282,23 +282,26 @@ def _run_reset_with_compensation(
 )
 def get_budget(
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> BudgetResponse | JSONResponse:
-    """Return the current privacy budget ledger state.
+    """Return the current privacy budget ledger state scoped to the authenticated org.
 
-    Reads the first available ``PrivacyLedger`` row and returns its
-    current state including the computed ``remaining_epsilon`` and the
-    ``is_exhausted`` flag.
+    Reads the ``PrivacyLedger`` row for the authenticated organization and
+    returns its current state including the computed ``remaining_epsilon`` and
+    the ``is_exhausted`` flag.
 
     Args:
         session: Database session injected by FastAPI DI.
-        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`BudgetResponse` on success, or RFC 7807 404
-        :class:`fastapi.responses.JSONResponse` if no ledger row exists.
+        :class:`fastapi.responses.JSONResponse` if no ledger row exists for
+        the authenticated organization.
     """
-    ledger = session.exec(select(PrivacyLedger)).first()
+    ledger = session.exec(
+        select(PrivacyLedger).where(PrivacyLedger.org_id == current_user.org_id)
+    ).first()
     if ledger is None:
         return JSONResponse(
             status_code=404,
@@ -321,22 +324,25 @@ def get_budget(
 def refresh_budget(
     body: BudgetRefreshRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> BudgetResponse | JSONResponse:
     """Reset the privacy budget and emit a WORM audit event.
 
     T70.8 audit-before-mutation: audit is emitted BEFORE the reset.  If the
     audit write fails, 500 is returned and the budget is NOT reset.
+    Scoped to the authenticated organization (org_id filtering).
 
     Args:
         body: Refresh request with justification and optional new allocation.
         session: Database session injected by FastAPI DI.
-        current_operator: Authenticated operator sub claim (injected).
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`BudgetResponse` on success, RFC 7807 404/500 on failure.
     """
-    ledger = session.exec(select(PrivacyLedger)).first()
+    ledger = session.exec(
+        select(PrivacyLedger).where(PrivacyLedger.org_id == current_user.org_id)
+    ).first()
     if ledger is None:
         return JSONResponse(
             status_code=404,
@@ -353,12 +359,12 @@ def refresh_budget(
         Decimal(str(body.new_allocated_epsilon)) if body.new_allocated_epsilon is not None else None
     )
     audit_err = _emit_pre_reset_audit(
-        current_operator, ledger_id, prev_allocated, prev_spent, new_alloc, body.justification
+        current_user.user_id, ledger_id, prev_allocated, prev_spent, new_alloc, body.justification
     )
     if audit_err is not None:
         return audit_err
     reset_err = _run_reset_with_compensation(
-        ledger_id, new_alloc, current_operator, prev_allocated, prev_spent, body.justification
+        ledger_id, new_alloc, current_user.user_id, prev_allocated, prev_spent, body.justification
     )
     if reset_err is not None:
         return reset_err
