@@ -457,6 +457,7 @@ class TestRouterAuditWriteCatchNarrowed:
                 body=SettingUpsertRequest(value="true"),
                 session=mock_session,
                 current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse)
@@ -486,6 +487,7 @@ class TestRouterAuditWriteCatchNarrowed:
                     body=SettingUpsertRequest(value="true"),
                     session=mock_session,
                     current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     def test_settings_delete_value_error_returns_500(self) -> None:
@@ -516,6 +518,7 @@ class TestRouterAuditWriteCatchNarrowed:
                 key="old-setting",
                 session=mock_session,
                 current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse)
@@ -542,6 +545,7 @@ class TestRouterAuditWriteCatchNarrowed:
                     key="old-setting",
                     session=mock_session,
                     current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     # --- webhooks.py ---

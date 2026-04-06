@@ -549,6 +549,7 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
                 body=SettingUpsertRequest(value="my-value"),
                 session=mock_session,
                 current_operator="op1",
+                current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
         assert isinstance(result, JSONResponse), "Must return JSONResponse on ValueError"
