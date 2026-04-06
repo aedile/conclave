@@ -300,6 +300,11 @@ jobs:
         # a silent skip-all when PostgreSQL is unavailable.
         run: bash scripts/verify_integration_count.sh
       - name: Run integration tests
+        env:
+          # P79-F12: pass-through auth requires explicit opt-in. Set here so
+          # tests that rely on no JWT secret are not blocked by 401 responses.
+          CONCLAVE_PASS_THROUGH_ENABLED: "true"
+          CONCLAVE_ENV: "development"
         run: poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql -m "not synthesizer"
 
   # ---------------------------------------------------------------------------
