@@ -4,9 +4,9 @@ Implements:
 - PATCH /admin/jobs/{id}/legal-hold — toggle the legal hold flag on a job.
 
 Security posture:
-- Ownership-scoped: only the authenticated operator who owns the job may toggle
-  its legal hold flag.  Requests from any other operator return 404 (not 403) to
-  avoid leaking the existence of resources owned by other operators.
+- Ownership-scoped: only the authenticated operator whose org owns the job may
+  toggle its legal hold flag.  Requests from any other org return 404 (not 403)
+  to avoid leaking the existence of resources owned by other orgs.
 - Audit events are emitted BEFORE the database commit (T68.3).  If the audit
   write fails, the request returns 500 and the database change is not applied.
 - Every toggle emits a ``LEGAL_HOLD_SET`` or ``LEGAL_HOLD_CLEARED`` WORM audit
@@ -32,8 +32,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
-from synth_engine.bootstrapper.dependencies.auth import get_current_operator
 from synth_engine.bootstrapper.dependencies.db import get_db_session
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
@@ -80,20 +80,21 @@ class LegalHoldResponse(BaseModel):
 def _check_job_ownership(
     job: SynthesisJob | None,
     job_id: int,
-    current_operator: str,
+    current_user: TenantContext,
 ) -> JSONResponse | None:
-    """Return a 404 JSONResponse if the job is absent or owned by someone else.
+    """Return a 404 JSONResponse if the job is absent or owned by a different org.
 
     T68.2: Ownership check — emit WARNING for intrusion detection, return 404
-    to avoid leaking the existence of other operators' resources.
+    to avoid leaking the existence of other orgs' resources.
 
     Args:
         job: The fetched SynthesisJob, or None if not found.
         job_id: Integer PK (for response body and logging).
-        current_operator: Authenticated operator sub claim.
+        current_user: Authenticated TenantContext carrying org_id.
 
     Returns:
-        A 404 JSONResponse if the job is missing or not owned; else None.
+        A 404 JSONResponse if the job is missing or belongs to a different org;
+        else None.
     """
     not_found_body = problem_detail(
         status=404,
@@ -102,13 +103,14 @@ def _check_job_ownership(
     )
     if job is None:
         return JSONResponse(status_code=404, content=not_found_body)
-    if job.owner_id != current_operator:
+    if job.org_id != current_user.org_id:
         _logger.warning(
-            "set_legal_hold: operator=%s attempted to access job id=%d owned by operator=%s "
-            "(IDOR attempt detected)",
-            current_operator,
+            "set_legal_hold: user=%s (org=%s) attempted to access job id=%d "
+            "owned by org=%s (IDOR attempt detected)",
+            current_user.user_id,
+            current_user.org_id,
             job_id,
-            job.owner_id,
+            job.org_id,
         )
         return JSONResponse(status_code=404, content=not_found_body)
     return None
@@ -123,7 +125,7 @@ def _commit_legal_hold_change(
         session: Open SQLModel Session.
         job: The SynthesisJob row to update.
         job_id: Integer PK (for logging).
-        operator: Authenticated operator sub claim (for logging).
+        operator: Authenticated user identity string (for logging).
         enable: New legal hold value.
 
     Returns:
@@ -168,7 +170,7 @@ def _audit_and_commit_legal_hold(
         session: Open SQLModel Session.
         job: The SynthesisJob row to update.
         job_id: Integer PK (for audit and logging).
-        operator: Authenticated operator sub claim.
+        operator: Authenticated user identity string.
         enable: New legal hold value to set.
         previous: The previous legal hold value (for audit record).
 
@@ -221,7 +223,7 @@ def set_legal_hold(
     job_id: int,
     body: LegalHoldRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(get_current_operator)],
+    current_user: Annotated[TenantContext, Depends(get_current_user)],
 ) -> LegalHoldResponse | JSONResponse:
     """Toggle the legal hold flag on a synthesis job.
 
@@ -229,13 +231,13 @@ def set_legal_hold(
         job_id: Integer primary key of the job to update.
         body: JSON body with a single boolean ``enable`` field.
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim (injected by FastAPI DI).
+        current_user: Resolved tenant identity (org_id, user_id, role) from JWT.
 
     Returns:
         :class:`LegalHoldResponse` on success, RFC 7807 404 or 500 on failure.
     """
     job = session.get(SynthesisJob, job_id)
-    ownership_err = _check_job_ownership(job, job_id, current_operator)
+    ownership_err = _check_job_ownership(job, job_id, current_user)
     if ownership_err is not None:
         return ownership_err
 
@@ -250,7 +252,7 @@ def set_legal_hold(
         )
     previous = job.legal_hold
     err = _audit_and_commit_legal_hold(
-        session, job, job_id, current_operator, body.enable, previous
+        session, job, job_id, current_user.user_id, body.enable, previous
     )
     if err is not None:
         return err

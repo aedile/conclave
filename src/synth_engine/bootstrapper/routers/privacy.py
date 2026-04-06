@@ -16,8 +16,8 @@ All error responses use RFC 7807 Problem Details format via
 :func:`synth_engine.bootstrapper.errors.problem_detail`.
 
 Authentication: Both endpoints require a valid JWT Bearer token via the
-:func:`~synth_engine.bootstrapper.dependencies.auth.get_current_operator`
-dependency (ADV-024).  The authenticated operator's JWT sub claim is used
+:func:`~synth_engine.bootstrapper.dependencies.tenant.get_current_user`
+dependency (P79-T79.2, ADV-024).  The authenticated operator's JWT sub claim is used
 as the audit actor identity — replacing the previous ``X-Operator-Id``
 header fallback.
 

@@ -109,9 +109,12 @@ def _dispatch_to_registrations(
     event_type: str,
     payload: dict[str, Any],
     timeout_seconds: int,
-    owner_id: str,
+    org_id: str,
 ) -> None:
     """Deliver and persist audit rows for all qualifying registrations.
+
+    Filters webhook registrations by ``org_id`` so that deliveries are scoped
+    to the organization that owns the job (B2 — P79 review fix).
 
     Args:
         session: Open SQLModel Session.
@@ -119,10 +122,10 @@ def _dispatch_to_registrations(
         event_type: Event string (e.g. ``"job.completed"``).
         payload: Dict payload to deliver.
         timeout_seconds: HTTP timeout per attempt.
-        owner_id: The job owner — used to filter registrations.
+        org_id: The org that owns the job — used to filter registrations.
     """
     stmt = select(WebhookRegistration).where(
-        WebhookRegistration.owner_id == owner_id,
+        WebhookRegistration.org_id == org_id,
         WebhookRegistration.active.is_(True),  # type: ignore[attr-defined]
     )
     registrations = session.exec(stmt).all()
@@ -160,9 +163,12 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
     """Build the concrete webhook delivery callback for IoC injection.
 
     Returns a closure that, when called with ``(job_id, status)``:
-    opens a DB session, resolves the job owner, dispatches to qualifying
+    opens a DB session, resolves the job org, dispatches to qualifying
     webhook registrations, and persists audit rows.  Errors are caught and
     logged so delivery never affects the job lifecycle outcome.
+
+    Webhook registrations are filtered by ``job.org_id`` (not ``owner_id``)
+    to ensure tenant-scoped delivery (B2 — P79 review fix).
 
     Returns:
         A callable ``(job_id: int, status: str) -> None``.
@@ -195,7 +201,7 @@ def _build_webhook_delivery_fn() -> Callable[[int, str], None]:
                     return
                 payload: dict[str, Any] = {"job_id": str(job_id), "status": status}
                 _dispatch_to_registrations(
-                    session, job_id, event_type, payload, timeout_seconds, job.owner_id
+                    session, job_id, event_type, payload, timeout_seconds, job.org_id
                 )
         except (SQLAlchemyError, ConnectionError, OSError, httpx.HTTPError) as exc:
             _logger.exception(

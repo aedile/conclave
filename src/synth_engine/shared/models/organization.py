@@ -29,20 +29,9 @@ Phase: 79 — Multi-Tenancy Foundation (T79.1)
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from sqlmodel import Field
 
 from synth_engine.shared.db import BaseModel
-
-
-def _utcnow() -> datetime:
-    """Return the current UTC time as a timezone-aware datetime.
-
-    Returns:
-        Current UTC time as a timezone-aware :class:`datetime`.
-    """
-    return datetime.now(UTC)
 
 
 class Organization(BaseModel, table=True):

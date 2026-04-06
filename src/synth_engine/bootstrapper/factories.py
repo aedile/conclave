@@ -302,6 +302,7 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
         job_id: int,
         ledger_id: int,
         note: str | None = None,
+        org_id: str = "",
     ) -> None:
         """Delegate budget deduction to sync_spend_budget (T60.4).
 
@@ -314,10 +315,13 @@ def build_spend_budget_fn() -> SpendBudgetProtocol:
             job_id: Synthesis job identifier written to the audit trail.
             ledger_id: Privacy ledger row primary key to debit.
             note: Optional human-readable annotation for the transaction.
+            org_id: Organization UUID of the requesting job (P79-B5).
         """
         from synth_engine.modules.privacy.sync_budget import sync_spend_budget
 
-        sync_spend_budget(engine, amount=amount, job_id=job_id, ledger_id=ledger_id, note=note)
+        sync_spend_budget(
+            engine, amount=amount, job_id=job_id, ledger_id=ledger_id, note=note, org_id=org_id
+        )
 
     _logger.info("spend_budget sync wrapper built (P28-F4: uses sync engine, no asyncio.run).")
     return _sync_wrapper

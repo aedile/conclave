@@ -839,6 +839,17 @@ class ConclaveSettingsFields(BaseModel):
             "Must be > 0 and ≤ 100. Defaults to 5. Phase 79 T79.2."
         ),
     )
+    conclave_pass_through_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable JWT pass-through mode explicitly (P79-F12). "
+            "When True AND jwt_secret_key is empty AND NOT in production, "
+            "get_current_user() returns the default-org sentinel instead of 401. "
+            "When False (default), an empty jwt_secret_key in non-production mode "
+            "requires this flag to be set explicitly. "
+            "Production mode always enforces auth regardless of this setting."
+        ),
+    )
 
     # -----------------------------------------------------------------------
     # Validators

@@ -8,9 +8,12 @@ IoC wiring; domain accounting belongs in ``modules/privacy/``.
 as the async ``spend_budget()`` in :mod:`accountant`:
 
 1. ``SELECT ... FOR UPDATE`` on the ``PrivacyLedger`` row.
-2. Budget exhaustion check — raises :exc:`BudgetExhaustionError` if exceeded.
-3. Deduct epsilon and write a ``PrivacyTransaction`` audit row.
-4. Commit (or rollback on error — delegated to the Session context manager).
+2. Cross-org validation (P79-B5): if ``org_id`` is non-empty, the ledger's
+   ``org_id`` must match.  Mismatch raises ``BudgetExhaustionError`` to
+   prevent cross-tenant budget depletion.
+3. Budget exhaustion check — raises :exc:`BudgetExhaustionError` if exceeded.
+4. Deduct epsilon and write a ``PrivacyTransaction`` audit row.
+5. Commit (or rollback on error — delegated to the Session context manager).
 
 The sync path is required for Huey workers which are not spawned in a
 greenlet context.  Using a synchronous SQLAlchemy engine (psycopg2 for
@@ -25,8 +28,9 @@ enforced in CI.  All SQLAlchemy imports are deferred inside the function
 body to avoid import errors in environments where the database is not
 available at startup.
 
-CONSTITUTION Priority 0: Security — budget enforcement, no bypass
+CONSTITUTION Priority 0: Security — budget enforcement, no bypass, cross-org guard
 Task: T60.4 — Extract domain transaction logic from factories.py
+Task: P79-B5 — Cross-org budget validation before spend
 """
 
 from __future__ import annotations
@@ -48,6 +52,7 @@ def sync_spend_budget(
     job_id: int,
     ledger_id: int,
     note: str | None = None,
+    org_id: str = "",
 ) -> None:
     """Deduct epsilon from the PrivacyLedger atomically (sync / Huey context).
 
@@ -59,6 +64,12 @@ def sync_spend_budget(
     All SQLAlchemy and ORM imports are deferred inside this function to
     avoid import errors in environments without a live database.
 
+    Cross-org validation (P79-B5): when ``org_id`` is non-empty, the ledger
+    row's ``org_id`` is compared to ``org_id`` before any deduction occurs.
+    If they do not match, ``BudgetExhaustionError`` is raised to prevent
+    cross-tenant budget depletion.  An empty ``org_id`` (legacy pre-P79
+    ledgers) bypasses this check for backward compatibility.
+
     Args:
         engine: A synchronous SQLAlchemy engine (NullPool recommended for
             Huey workers — single call per job, no pooling benefit).
@@ -66,11 +77,15 @@ def sync_spend_budget(
         job_id: Synthesis job identifier written to the audit trail.
         ledger_id: Primary key of the PrivacyLedger row to debit.
         note: Optional human-readable annotation for the transaction row.
+        org_id: Organization UUID of the requesting job (P79-B5).
+            When non-empty, the ledger's ``org_id`` must match.
 
     Raises:
         ValueError: If ``amount`` is not strictly positive.
         BudgetExhaustionError: If deducting ``amount`` would exceed the
-            allocated budget on the targeted ``PrivacyLedger`` row.
+            allocated budget on the targeted ``PrivacyLedger`` row, OR if
+            ``org_id`` is non-empty and does not match the ledger's ``org_id``
+            (P79-B5 cross-org budget violation).
     """
     # Deferred imports — keeps startup fast and avoids import errors in
     # environments where psycopg2 or the ORM models are not installed.
@@ -94,6 +109,26 @@ def sync_spend_budget(
             )
             result = session.execute(stmt)
             ledger = result.scalar_one()
+
+            # P79-B5: Cross-org validation — only when org_id is non-empty.
+            # Empty org_id is accepted for backward compatibility with pre-P79
+            # ledgers that carry org_id="" (migration 009 backfills to default
+            # org UUID, so "" only arises in tests or legacy deployments).
+            ledger_org_id: str = getattr(ledger, "org_id", "") or ""
+            if org_id and ledger_org_id and org_id != ledger_org_id:
+                _logger.error(
+                    "Cross-org budget violation: job org_id=%s does not match "
+                    "ledger id=%d org_id=%s — refusing epsilon spend for job %d",
+                    org_id,
+                    ledger_id,
+                    ledger_org_id,
+                    job_id,
+                )
+                raise BudgetExhaustionError(
+                    requested_epsilon=decimal_amount,
+                    total_spent=ledger.total_spent_epsilon,
+                    total_allocated=ledger.total_allocated_epsilon,
+                )
 
             if ledger.total_spent_epsilon + decimal_amount > ledger.total_allocated_epsilon:
                 _logger.warning(

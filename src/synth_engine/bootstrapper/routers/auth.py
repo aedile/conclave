@@ -42,6 +42,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from synth_engine.bootstrapper.dependencies.auth import create_token, verify_operator_credentials
+from synth_engine.bootstrapper.dependencies.tenant import DEFAULT_ORG_UUID
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 
@@ -206,6 +207,11 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = create_token(sub=body.username, scope=_DEFAULT_OPERATOR_SCOPES)
+    token = create_token(
+        sub=body.username,
+        scope=_DEFAULT_OPERATOR_SCOPES,
+        org_id=DEFAULT_ORG_UUID,
+        role="admin",
+    )
     _logger.info("Issued JWT token for operator_id=%s", opaque_id)
     return TokenResponse(access_token=token, token_type=_TOKEN_SCHEME)

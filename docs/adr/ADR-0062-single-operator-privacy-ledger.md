@@ -1,6 +1,6 @@
 # ADR-0062: Single-Operator Privacy Ledger Assumption
 
-**Status**: Accepted
+**Status**: Superseded by ADR-0065
 **Date**: 2026-03-28
 **Task**: T66.6 — Document Single-Operator Privacy Ledger Assumption
 **Advisory**: ADV-P63-03 — Privacy ledger assumes single-operator model without documentation

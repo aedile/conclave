@@ -12,6 +12,7 @@ Task: P22-T22.3 — Wire spend_budget() into Synthesis Pipeline (F6 review fix)
 Task: P26-T26.3 — Protocol Typing + DP-SGD Hardening (complete DPWrapperProtocol)
 Task: T41.2 — GDPR Erasure Endpoint (ARCH-F6: OwnedRecordModel Protocol)
 Task: P45 review — F6: WebhookDeliveryCallback + WebhookRegistrationProtocol
+Task: P79-B5 — Thread org_id through spend_budget for cross-tenant validation
 """
 
 from __future__ import annotations
@@ -105,6 +106,10 @@ class SpendBudgetProtocol(Protocol):
     (producer) and ``modules/synthesizer/tasks.py`` (consumer) to reference
     the same structural contract without creating a cross-module import
     violation.
+
+    ``org_id`` is threaded through the protocol (P79-B5) so that the budget
+    implementation can validate that the job's org matches the ledger's org
+    before deducting epsilon — preventing cross-tenant budget depletion.
     """
 
     def __call__(
@@ -114,6 +119,7 @@ class SpendBudgetProtocol(Protocol):
         job_id: int,
         ledger_id: int,
         note: str | None = None,
+        org_id: str = "",
     ) -> None:
         """Deduct epsilon from the privacy budget ledger synchronously.
 
@@ -122,6 +128,10 @@ class SpendBudgetProtocol(Protocol):
             job_id: Synthesis job identifier written to the audit trail.
             ledger_id: Primary key of the PrivacyLedger row to debit.
             note: Optional human-readable annotation for the transaction.
+            org_id: Organization UUID of the requesting job (P79-B5).
+                When non-empty, the implementation MUST validate that the
+                ledger's ``org_id`` matches before deducting.  Empty string
+                is accepted for backward compatibility with pre-P79 ledgers.
 
         """
         ...  # pragma: no cover — abstract Protocol stub; body is never executed
