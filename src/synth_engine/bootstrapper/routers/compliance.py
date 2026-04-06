@@ -163,7 +163,9 @@ class ErasureResponse(BaseModel):
 
 
 def _check_erasure_idor(body_subject_id: str, user_id: str) -> JSONResponse | None:
-    """Return 403 if user is attempting cross-user erasure (T69.6).
+    """Return 404 if user is attempting cross-user erasure (T69.6, P79-F1).
+
+    Returns 404 (not 403) to avoid leaking the existence of other users' data.
 
     Emits an audit event for intrusion detection.  The target subject_id is
     intentionally omitted (PII protection).
@@ -173,7 +175,7 @@ def _check_erasure_idor(body_subject_id: str, user_id: str) -> JSONResponse | No
         user_id: Authenticated user's JWT sub claim (from TenantContext).
 
     Returns:
-        A 403 JSONResponse if blocked; None if the check passes.
+        A 404 JSONResponse if blocked; None if the check passes.
     """
     if body_subject_id == user_id:
         return None
@@ -190,14 +192,11 @@ def _check_erasure_idor(body_subject_id: str, user_id: str) -> JSONResponse | No
         AUDIT_WRITE_FAILURE_TOTAL.labels(router="compliance", endpoint="/compliance/erasure").inc()
         _logger.exception("Audit logging failed for IDOR erasure attempt (actor=%s).", user_id)
     return JSONResponse(
-        status_code=403,
+        status_code=404,
         content=problem_detail(
-            status=403,
-            title="Forbidden",
-            detail=(
-                "Erasure is restricted to self-erasure only. "
-                "The subject_id must match your authenticated user identity."
-            ),
+            status=404,
+            title="Not Found",
+            detail="The requested data subject was not found.",
         ),
         media_type="application/problem+json",
     )
@@ -267,6 +266,7 @@ def erasure(
     manifest = ErasureService(session=session, connection_model=Connection).execute_erasure(
         subject_id=body.subject_id,
         actor=current_user.user_id,
+        org_id=current_user.org_id,
     )
     response = ErasureResponse.from_manifest(manifest)
     if not manifest.audit_logged:
