@@ -274,7 +274,8 @@ def test_org_a_connection_not_visible_to_org_b(
 
     salt = base64.urlsafe_b64encode(os.urandom(16)).decode()
     monkeypatch.setenv("VAULT_SEAL_SALT", salt)
-    VaultState.unseal(bytearray(b"test-tenant-isolation-passphrase"))
+    if VaultState.is_sealed():
+        VaultState.unseal(bytearray(b"test-tenant-isolation-passphrase"))
 
     try:
         # Seed a connection for Org A
