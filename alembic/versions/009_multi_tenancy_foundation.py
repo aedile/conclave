@@ -191,9 +191,7 @@ def upgrade() -> None:
     # Step 6: Backfill all existing rows to the default org UUID
     # ------------------------------------------------------------------
     for table in _ORG_ID_TABLES:
-        op.execute(
-            f"UPDATE {table} SET org_id = '{_DEFAULT_ORG_UUID}' WHERE org_id IS NULL"
-        )
+        op.execute(f"UPDATE {table} SET org_id = '{_DEFAULT_ORG_UUID}' WHERE org_id IS NULL")
 
     # ------------------------------------------------------------------
     # Step 7: Alter org_id to NOT NULL on all resource tables
@@ -227,22 +225,38 @@ def downgrade() -> None:
     """Drop org_id columns, FK constraints, users table, and organizations table.
 
     WARNING: This downgrade is DATA-LOSSY.  All tenant assignment data stored
-    in ``org_id`` columns is permanently deleted.  The ``users`` and
-    ``organizations`` tables and all their rows are dropped.
+    in org_id columns is permanently deleted.  The users and
+    organizations tables and all their rows are dropped.
 
     Document this explicitly in your production runbook before executing.
+
+    Resilient FK drops
+    ------------------
+    FK constraints are dropped with raw ALTER TABLE ... DROP CONSTRAINT IF EXISTS
+    SQL rather than op.drop_constraint().  This is necessary because the
+    constraints may not exist when the migration is run after create_all() +
+    stamp head (the deployment pattern documented in :mod:).
+    In that flow, create_all() creates the columns but not the FK constraints,
+    so a plain DROP CONSTRAINT would fail with UndefinedObject.
     """
-    # Drop indexes and FK constraints first (reverse order of upgrade)
+    # Drop indexes and FK constraints first (reverse order of upgrade).
+    # Use IF EXISTS for FK drops so that downgrade is resilient when the schema
+    # was bootstrapped via create_all() + stamp rather than via upgrade().
     for table in reversed(_ORG_ID_TABLES):
-        op.drop_index(f"ix_{table}_org_id", table_name=table)
-        op.drop_constraint(f"fk_{table}_org_id", table, type_="foreignkey")
+        op.drop_index(f"ix_{table}_org_id", table_name=table, if_exists=True)
+        op.execute(
+            f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS fk_{table}_org_id"  # nosec B608
+        )
         op.drop_column(table, "org_id")
 
-    # Drop users table (has FK to organizations)
-    op.drop_index("ix_users_email", table_name="users")
-    op.drop_index("ix_users_org_id", table_name="users")
-    op.drop_table("users")
+    # Drop users table (has FK to organizations).
+    # Use IF EXISTS because this table is created only by the migration upgrade()
+    # — it does not exist when the schema was bootstrapped via create_all() + stamp.
+    op.drop_index("ix_users_email", table_name="users", if_exists=True)
+    op.drop_index("ix_users_org_id", table_name="users", if_exists=True)
+    op.execute("DROP TABLE IF EXISTS users")  # nosec B608
 
-    # Drop organizations table
-    op.drop_index("ix_organizations_name", table_name="organizations")
-    op.drop_table("organizations")
+    # Drop organizations table.
+    # Same rationale as users: only exists when upgrade() was run, not after stamp.
+    op.drop_index("ix_organizations_name", table_name="organizations", if_exists=True)
+    op.execute("DROP TABLE IF EXISTS organizations")  # nosec B608

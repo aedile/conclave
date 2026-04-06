@@ -31,6 +31,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.integration
 
+#: Pass-through sentinel UUID — must match DEFAULT_ORG_UUID in tenant.py.
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 def _make_integration_app(engine: Any) -> Any:
     """Build a fully-wired FastAPI app for integration tests.
@@ -99,6 +102,7 @@ class TestSSEProgressStreaming:
                 total_epochs=10,
                 num_rows=100,
                 status="QUEUED",
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -221,6 +225,7 @@ class TestSSEProgressStreaming:
                 num_rows=100,
                 status="TRAINING",
                 current_epoch=5,
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()

@@ -64,6 +64,9 @@ pytestmark = pytest.mark.integration
 _VAULT_PATCH = "synth_engine.bootstrapper.dependencies.vault.VaultState.is_sealed"
 _LICENSE_PATCH = "synth_engine.bootstrapper.dependencies.licensing.LicenseState.is_licensed"
 
+#: Pass-through sentinel UUID — must match DEFAULT_ORG_UUID in tenant.py.
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 #: Header name for Content-Security-Policy assertions.
 _CSP_HEADER = "Content-Security-Policy"
 
@@ -227,6 +230,7 @@ async def test_job_listing_returns_correct_shape_and_pagination_cursor(
                     parquet_path=f"/tmp/table_{i}.parquet",
                     total_epochs=1,
                     num_rows=10,
+                    org_id=_DEFAULT_ORG_UUID,
                 )
             )
         session.commit()
@@ -299,6 +303,7 @@ async def test_get_job_by_id_returns_response_matching_db_record(
             parquet_path="/tmp/orders.parquet",
             total_epochs=10,
             num_rows=50,
+            org_id=_DEFAULT_ORG_UUID,
         )
         session.add(job)
         session.commit()

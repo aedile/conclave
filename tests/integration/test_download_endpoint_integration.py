@@ -28,6 +28,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from synth_engine.shared.settings import get_settings
 
+#: Pass-through sentinel UUID — must match DEFAULT_ORG_UUID in tenant.py.
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 pytestmark = pytest.mark.integration
 
 
@@ -97,6 +100,7 @@ class TestDownloadAfterSynthesis:
                 num_rows=50,
                 status="COMPLETE",
                 output_path=str(parquet_file),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -142,6 +146,7 @@ class TestDownloadAfterSynthesis:
                 num_rows=50,
                 status="COMPLETE",
                 output_path=str(parquet_file),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -194,6 +199,7 @@ class TestDownloadAfterSynthesis:
                 num_rows=50,
                 status="COMPLETE",
                 output_path=str(parquet_file),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -244,6 +250,7 @@ class TestDownloadAfterSynthesis:
                 num_rows=50,
                 status="COMPLETE",
                 output_path=str(parquet_file),
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()
@@ -291,6 +298,7 @@ class TestDownloadAfterSynthesis:
                 num_rows=50,
                 status="FAILED",
                 error_msg="Training failed",
+                org_id=_DEFAULT_ORG_UUID,
             )
             session.add(job)
             session.commit()

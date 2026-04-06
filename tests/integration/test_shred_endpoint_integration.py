@@ -33,6 +33,9 @@ from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.integration
 
+#: Pass-through sentinel UUID — must match DEFAULT_ORG_UUID in tenant.py.
+_DEFAULT_ORG_UUID: str = "00000000-0000-0000-0000-000000000000"
+
 
 # ---------------------------------------------------------------------------
 # Shared app factory
@@ -132,6 +135,7 @@ async def test_shred_deletes_real_artifact_files_and_transitions_to_shredded(
             status="COMPLETE",
             output_path=str(parquet_file),
             artifact_path=str(pickle_file),
+            org_id=_DEFAULT_ORG_UUID,
         )
         session.add(job)
         session.commit()
@@ -203,6 +207,7 @@ async def test_shred_emits_worm_audit_event_with_correct_fields(
             num_rows=50,
             status="COMPLETE",
             output_path=str(parquet_file),
+            org_id=_DEFAULT_ORG_UUID,
         )
         session.add(job)
         session.commit()

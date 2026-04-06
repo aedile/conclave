@@ -115,6 +115,7 @@ def _make_job(
         owner_id=owner_id,
         status=status,
         output_path=output_path,
+        org_id="default-org",
     )
 
 
@@ -135,6 +136,7 @@ def _make_connection(*, name: str = "conn", owner_id: str = "op1") -> Connection
         database="testdb",
         schema_name="public",
         owner_id=owner_id,
+        org_id="default-org",
     )
 
 
