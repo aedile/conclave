@@ -1491,6 +1491,15 @@ def test_erasure_scoped_to_requesting_user_within_org(
 
     get_settings.cache_clear()
 
+    # Import models before create_all so SQLModel.metadata includes all required tables.
+    # ErasureService queries synthesis_job; Connection is injected by the compliance router.
+    from synth_engine.bootstrapper.schemas.connections import (
+        Connection as _Connection,  # noqa: F401
+    )
+    from synth_engine.modules.synthesizer.jobs.job_models import (
+        SynthesisJob as _SynthesisJob,  # noqa: F401
+    )
+
     engine = create_engine(
         "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
