@@ -19,7 +19,8 @@ Updated after each task's review phase completes.
 
 | ID | Advisory | Phase |
 |----|----------|-------|
-| (none) | All advisories drained to zero as of P76. | — |
+| ADV-P79-01 | IDOR test setup duplication: ~15 inline SQLite-engine builders in test_multi_tenancy_attack.py. Shared conftest fixture would reduce ~200 lines. Low priority — each test correctly isolates its own DB. | P79 |
+| ADV-P79-02 | ADR-0049 section 4 references "future multi-operator support" — that future has arrived (P79/ADR-0065). Section is stale but not incorrect. Amend when ADR-0049 is next touched. | P79 |
 
 ### Deferred by Tier
 
@@ -30,6 +31,26 @@ the system enters their target tier.
 | ID | Target Tier | Summary | Raised Phase |
 |----|-------------|---------|--------------|
 | _(No deferred items — all 7 tiers assessed COMPLETE as of 2026-04-01. All open advisories are at-tier.)_ | | | |
+
+### [2026-04-04] Phase 79 — Multi-Tenancy Foundation
+
+**Tasks**: T79.0b (shared/models subpackage), T79.0 (ADR-0065 JWT identity), T79.1 (Organization/User models, migration 009), T79.2 (tenant-scoped queries, TenantContext), T79.3 (tenant isolation tests), T79.4 (per-tenant privacy ledger)
+
+**Summary**: Transforms single-operator model into multi-tenant with org-level data isolation. New `TenantContext` frozen dataclass replaces `get_current_operator` across all routers. `org_id` FK added to Connection, SynthesisJob, WebhookRegistration, PrivacyLedger, PrivacyTransaction. JWT Option C (short-lived embed, ≤900s expiry). Per-org connection semaphore. Alembic migration 009 with idempotent default org/user seeding. ADR-0065 supersedes ADR-0040 and ADR-0062. Assumption A-014 registered (application-level tenant isolation).
+
+**Spec-challenger findings**: 12 missing ACs, 27 negative tests, 7 attack vectors, 4 config risks — all incorporated into developer brief.
+
+**Review findings fixed**: 5 BLOCKERs (admin.py IDOR, webhook dispatch cross-org, missing migration, missing integration tests, Huey org_id validation) and 18 FINDINGs (erasure org_id scoping, create_token org_id/role, UUID validation, role allowlist, Prometheus org_id label, .env.example, settings router migration, ADR status updates, dead code, semaphore race fix, pass-through opt-in, docstring accuracy, rubber-stamp assertions, cross-org budget guard) across 2 fix rounds.
+
+**Production-to-test LOC ratio**: 1:3.35. Exceeds 1:2.5 threshold. Justified: security-critical IDOR boundary enforcement requires per-endpoint isolation tests that cannot be parametrized without sacrificing fault localization. The `fix:` commit updating ~30 pre-existing test files to `TenantContext` is a one-time migration cost, not ongoing test verbosity.
+
+**Gate #2**: 3709 passed, 7 skipped, 96.20% coverage. All static analysis green.
+
+**E2E**: Playwright 36 passed, 0 failed.
+
+**Boundary audit**: PASS. 2 ADVISORYs noted (ADV-P79-01 test setup duplication, ADV-P79-02 ADR-0049 stale section). 8 merged branches cleaned up.
+
+**Advisory count**: 2 open (ADV-P79-01, ADV-P79-02). Below Rule 11 threshold of 8.
 
 **CLOSED (P76 — advisory drain & polish)**
 
