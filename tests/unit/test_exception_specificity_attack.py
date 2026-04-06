@@ -269,6 +269,7 @@ class TestRouterAuditCatchNotBroad:
                     body=SettingUpsertRequest(value="my-value"),
                     session=mock_session,
                     current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     def test_settings_router_unexpected_exception_propagates_delete(self) -> None:
@@ -295,6 +296,7 @@ class TestRouterAuditCatchNotBroad:
                     key="my-key",
                     session=mock_session,
                     current_operator="op1",
+                    current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
     def test_webhooks_router_unexpected_exception_propagates(self) -> None:
