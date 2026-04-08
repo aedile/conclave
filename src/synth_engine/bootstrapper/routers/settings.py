@@ -51,9 +51,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
-from synth_engine.bootstrapper.dependencies.auth import require_scope
 from synth_engine.bootstrapper.dependencies.db import get_db_session
-from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+from synth_engine.bootstrapper.dependencies.permissions import require_permission
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.settings import (
@@ -84,7 +84,7 @@ _SettingKey = Annotated[str, Path(max_length=255)]
 )
 def list_settings(
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("settings:read"))],
 ) -> SettingListResponse:
     """List all application settings.
 
@@ -114,8 +114,7 @@ def upsert_setting(
     key: _SettingKey,
     body: SettingUpsertRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(require_scope("settings:write"))],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("settings:write"))],
 ) -> SettingResponse | JSONResponse:
     """Create or update a setting by key.
 
@@ -134,10 +133,8 @@ def upsert_setting(
         key: The setting key (URL path parameter, max 255 characters).
         body: Request body containing the new value.
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim, verified to hold
-            the ``settings:write`` scope (injected by FastAPI DI).
-        current_user: Resolved tenant identity from get_current_user,
-            ensuring org_id and role are validated consistently (RF2 fix).
+        current_user: Resolved tenant identity from ``require_permission("settings:write")``,
+            ensuring org_id, role, and permission are validated (P80 RBAC).
 
     Returns:
         The upserted :class:`SettingResponse`, RFC 7807 500 on audit failure
@@ -148,7 +145,7 @@ def upsert_setting(
     try:
         get_audit_logger().log_event(
             event_type="SETTING_UPSERTED",
-            actor=current_operator,
+            actor=current_user.user_id,
             resource=f"setting/{key}",
             action="upsert",
             details={"key": key},
@@ -181,7 +178,7 @@ def upsert_setting(
         _logger.warning(
             "upsert_setting: SQLAlchemyError for key=%s operator=%s",
             key,
-            current_operator,
+            current_user.user_id,
             exc_info=True,
         )
         return JSONResponse(
@@ -200,7 +197,7 @@ def upsert_setting(
 def get_setting(
     key: _SettingKey,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("settings:read"))],
 ) -> SettingResponse | JSONResponse:
     """Get a setting by key.
 
@@ -237,8 +234,7 @@ def get_setting(
 def delete_setting(
     key: _SettingKey,
     session: Annotated[Session, Depends(get_db_session)],
-    current_operator: Annotated[str, Depends(require_scope("settings:write"))],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("settings:write"))],
 ) -> Response:
     """Delete a setting by key.
 
@@ -253,10 +249,8 @@ def delete_setting(
     Args:
         key: The setting key to delete (max 255 characters).
         session: Database session (injected by FastAPI DI).
-        current_operator: Authenticated operator sub claim, verified to hold
-            the ``settings:write`` scope (injected by FastAPI DI).
-        current_user: Resolved tenant identity from get_current_user,
-            ensuring org_id and role are validated consistently (RF2 fix).
+        current_user: Resolved tenant identity from ``require_permission("settings:write")``,
+            ensuring org_id, role, and permission are validated (P80 RBAC).
 
     Returns:
         HTTP 204 No Content on success, RFC 7807 404 on not found, RFC 7807 500
@@ -278,7 +272,7 @@ def delete_setting(
     try:
         get_audit_logger().log_event(
             event_type="SETTING_DELETED",
-            actor=current_operator,
+            actor=current_user.user_id,
             resource=f"setting/{key}",
             action="delete",
             details={"key": key},
@@ -305,7 +299,7 @@ def delete_setting(
         _logger.warning(
             "delete_setting: SQLAlchemyError for key=%s operator=%s",
             key,
-            current_operator,
+            current_user.user_id,
             exc_info=True,
         )
         return JSONResponse(

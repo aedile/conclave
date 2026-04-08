@@ -61,7 +61,8 @@ from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.dependencies.db import get_db_session
-from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+from synth_engine.bootstrapper.dependencies.permissions import require_permission
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import (
     COMMON_ERROR_RESPONSES,
@@ -282,7 +283,7 @@ def _run_reset_with_compensation(
 )
 def get_budget(
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("privacy:read"))],
 ) -> BudgetResponse | JSONResponse:
     """Return the current privacy budget ledger state scoped to the authenticated org.
 
@@ -324,7 +325,7 @@ def get_budget(
 def refresh_budget(
     body: BudgetRefreshRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("privacy:reset"))],
 ) -> BudgetResponse | JSONResponse:
     """Reset the privacy budget and emit a WORM audit event.
 

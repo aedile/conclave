@@ -43,7 +43,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, select
 
 from synth_engine.bootstrapper.dependencies.db import get_db_session
-from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+from synth_engine.bootstrapper.dependencies.permissions import require_permission
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import (
     COMMON_ERROR_RESPONSES,
@@ -270,7 +271,7 @@ def _commit_shredded_status(session: Session, job: SynthesisJob, job_id: int) ->
 )
 def list_jobs(
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("jobs:read"))],
     after: int | None = Query(default=None, description="Cursor: return jobs with id > after"),
     limit: int = Query(default=_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
 ) -> JobListResponse:
@@ -321,7 +322,7 @@ def list_jobs(
 def create_job(
     body: JobCreateRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("jobs:create"))],
 ) -> JobResponse | JSONResponse:
     """Create a new synthesis job in QUEUED status.
 
@@ -369,7 +370,7 @@ def create_job(
 def get_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("jobs:read"))],
 ) -> JobResponse | JSONResponse:
     """Get a synthesis job by ID.
 
@@ -410,7 +411,7 @@ def get_job(
 def start_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("jobs:create"))],
 ) -> JSONResponse:
     """Enqueue a synthesis job for background processing.
 
@@ -466,7 +467,7 @@ def start_job(
 def shred_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("jobs:shred"))],
 ) -> JSONResponse:
     """Shred all synthesis artifacts for a COMPLETE job (NIST SP 800-88).
 

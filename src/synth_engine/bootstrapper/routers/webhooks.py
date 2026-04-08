@@ -44,7 +44,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.dependencies.db import get_db_session
-from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+from synth_engine.bootstrapper.dependencies.permissions import require_permission
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 from synth_engine.bootstrapper.errors.formatter import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.webhooks import (
@@ -256,7 +257,7 @@ def _commit_registration(
 def register_webhook(
     body: WebhookRegistrationRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("webhooks:write"))],
 ) -> WebhookRegistrationResponse | JSONResponse:
     """Register a new webhook callback URL.
 
@@ -315,7 +316,7 @@ def register_webhook(
 )
 def list_webhooks(
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("webhooks:read"))],
 ) -> WebhookRegistrationListResponse:
     """List all webhook registrations owned by the authenticated organization.
 
@@ -413,7 +414,7 @@ def _audit_and_soft_delete_webhook(
 def deactivate_webhook(
     webhook_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("webhooks:write"))],
 ) -> Response:
     """Deactivate a webhook registration by ID.
 
@@ -466,7 +467,7 @@ def deactivate_webhook(
 def list_webhook_deliveries(
     webhook_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("webhooks:read"))],
 ) -> WebhookDeliveryListResponse | JSONResponse:
     """List delivery attempts for a webhook registration.
 

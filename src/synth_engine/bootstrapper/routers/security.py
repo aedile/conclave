@@ -35,7 +35,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from synth_engine.bootstrapper.dependencies.auth import require_scope
+from synth_engine.bootstrapper.dependencies.permissions import require_permission
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.shared.observability import AUDIT_WRITE_FAILURE_TOTAL
@@ -178,7 +179,7 @@ def _enqueue_rotation_task() -> None:
     tags=["security"],
 )
 async def shred_vault(
-    current_operator: Annotated[str, Depends(require_scope("security:admin"))],
+    current_user: Annotated[TenantContext, Depends(require_permission("security:admin"))],
 ) -> JSONResponse:
     """Zeroize the master wrapping key, rendering all ALE ciphertext unrecoverable.
 
@@ -186,12 +187,12 @@ async def shred_vault(
     returned and the vault is NOT sealed. Requires ``security:admin`` scope.
 
     Args:
-        current_operator: Authenticated operator sub claim (security:admin scope).
+        current_user: Resolved tenant identity from ``require_permission("security:admin")``.
 
     Returns:
         ``{"status": "shredded"}`` with HTTP 200, or RFC 7807 500 on audit failure.
     """
-    audit_err = _emit_shred_audit(current_operator)
+    audit_err = _emit_shred_audit(current_user.user_id)
     if audit_err is not None:
         return audit_err
     VaultState.seal()
@@ -225,7 +226,7 @@ async def shred_vault(
 )
 async def rotate_keys(
     body: RotateRequest,
-    current_operator: Annotated[str, Depends(require_scope("security:admin"))],
+    current_user: Annotated[TenantContext, Depends(require_permission("security:admin"))],
 ) -> JSONResponse:
     """Enqueue a Huey background task to re-encrypt all ALE-encrypted columns.
 
@@ -233,7 +234,7 @@ async def rotate_keys(
 
     Args:
         body: JSON body containing ``new_passphrase``.
-        current_operator: Authenticated operator sub claim (security:admin scope).
+        current_user: Resolved tenant identity from ``require_permission("security:admin")``.
 
     Returns:
         HTTP 202 on success; RFC 7807 423 if vault sealed; 500 on audit failure.
@@ -247,7 +248,7 @@ async def rotate_keys(
                 detail="Key rotation requires an unsealed vault. POST /unseal first.",
             ),
         )
-    audit_err = _emit_rotation_audit(current_operator, bool(body.new_passphrase))
+    audit_err = _emit_rotation_audit(current_user.user_id, bool(body.new_passphrase))
     if audit_err is not None:
         return audit_err
     _enqueue_rotation_task()
