@@ -150,18 +150,14 @@ def _make_settings_app() -> FastAPI:
     def _override_operator() -> str:
         return "test-operator"
 
-    def _override_scope_write() -> str:
-        return "test-operator"
-
     def _override_user() -> TenantContext:
         return TenantContext(org_id="test-org", user_id="test-operator", role="admin")
-
-    from synth_engine.bootstrapper.dependencies.auth import require_scope
 
     app.dependency_overrides[get_db_session] = _override_session
     app.dependency_overrides[get_current_operator] = _override_operator
     app.dependency_overrides[get_current_user] = _override_user
-    app.dependency_overrides[require_scope("settings:write")] = _override_scope_write
+    # P80: require_permission("settings:write") calls get_current_user internally.
+    # No require_scope override needed — get_current_user admin override is sufficient.
     return app
 
 

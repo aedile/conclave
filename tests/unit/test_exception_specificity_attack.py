@@ -268,7 +268,6 @@ class TestRouterAuditCatchNotBroad:
                     key="my-key",
                     body=SettingUpsertRequest(value="my-value"),
                     session=mock_session,
-                    current_operator="op1",
                     current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
@@ -295,7 +294,6 @@ class TestRouterAuditCatchNotBroad:
                 delete_setting(
                     key="my-key",
                     session=mock_session,
-                    current_operator="op1",
                     current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
@@ -548,7 +546,6 @@ class TestRouterAuditCatchHandlesExpectedExceptions:
                 key="my-key",
                 body=SettingUpsertRequest(value="my-value"),
                 session=mock_session,
-                current_operator="op1",
                 current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 

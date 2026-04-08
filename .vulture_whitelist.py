@@ -413,3 +413,19 @@ sign_v2  # unused variable — backward-compat alias for _sign_v2 (audit_signatu
 
 get_org_semaphore  # unused function — shared/db.py; per-org connection concurrency limiter; called by tests and future production callers (P79-T79.2)
 _validate_jwt_expiry_multi_tenant  # Pydantic model_validator — jwt_expiry_seconds <= 900 enforcement in multi-tenant mode (shared/settings_models.py P79-T79.1)
+
+# ---------------------------------------------------------------------------
+# Category Y — P80 RBAC (Role-Based Access Control)
+# FastAPI route handlers registered via @router decorators in admin_users.py
+# and compliance.py. require_scope is kept in auth.py for backward compat
+# with external consumers (not removed even though all internal usage migrated).
+# _check_erasure_admin_idor is called from compliance.py's erasure endpoint.
+# ---------------------------------------------------------------------------
+
+create_user  # unused function — FastAPI route handler (routers/admin_users.py P80-T80.3)
+list_users  # unused function — FastAPI route handler (routers/admin_users.py P80-T80.3)
+patch_user  # unused function — FastAPI route handler (routers/admin_users.py P80-T80.3)
+delete_user  # unused function — FastAPI route handler (routers/admin_users.py P80-T80.3)
+get_audit_log  # unused function — FastAPI route handler (routers/compliance.py P80-T80.4)
+require_scope  # unused function — kept for external backward compat (dependencies/auth.py); all internal usage migrated to require_permission (P80-T80.2)
+_check_erasure_admin_idor  # unused function — called from erasure() endpoint (routers/compliance.py P80-T80.5)

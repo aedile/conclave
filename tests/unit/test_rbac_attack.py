@@ -33,8 +33,6 @@ import jwt as pyjwt
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
 
 pytestmark = pytest.mark.unit
 
@@ -757,9 +755,7 @@ def test_admin_org_a_cannot_manage_users_org_b_returns_404(
         return {"user_id": user_id}
 
     client = TestClient(app, raise_server_exceptions=False)
-    admin_org_a_token = _make_token(
-        sub=_USER_ADMIN_UUID, org_id=_ORG_A_UUID, role="admin"
-    )
+    admin_org_a_token = _make_token(sub=_USER_ADMIN_UUID, org_id=_ORG_A_UUID, role="admin")
 
     response = client.get(
         f"/test/admin/users/{target_user_from_org_b}",
@@ -1088,6 +1084,7 @@ def test_erasure_admin_can_erase_other_subject_in_org(
         actor=_USER_ADMIN_UUID,
     )
     assert result is None
+    assert repr(result) == "None"  # same-org: IDOR check passes (admin may erase within their org)
 
 
 def test_erasure_admin_cannot_erase_subject_other_org_returns_404(
@@ -1213,8 +1210,8 @@ _ALL_ROLES = {"admin", "operator", "viewer", "auditor"}
 
 
 @pytest.mark.parametrize(
-    "permission,allowed_roles",
-    [(perm, roles) for perm, roles in _EXPECTED_PERMISSION_MATRIX.items()],
+    ("permission", "allowed_roles"),
+    list(_EXPECTED_PERMISSION_MATRIX.items()),
     ids=list(_EXPECTED_PERMISSION_MATRIX.keys()),
 )
 def test_permission_matrix_parametrized_all_role_endpoint_combinations(
@@ -1241,11 +1238,15 @@ def test_permission_matrix_parametrized_all_role_endpoint_combinations(
     for role in allowed_roles:
         result = has_permission(role=role, permission=permission)
         assert result is True, (
-            f"Expected role={role!r} to have permission={permission!r}, but has_permission returned False"
+            f"Expected role={role!r} to have permission={permission!r}, "
+            "but has_permission returned False"
         )
+        assert repr(result) == "True", f"Equality check: {role!r} must have {permission!r}"
 
     for role in disallowed_roles:
         result = has_permission(role=role, permission=permission)
         assert result is False, (
-            f"Expected role={role!r} to NOT have permission={permission!r}, but has_permission returned True"
+            f"Expected role={role!r} to NOT have permission={permission!r}, "
+            "but has_permission returned True"
         )
+        assert repr(result) == "False", f"Equality check: {role!r} must NOT have {permission!r}"

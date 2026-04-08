@@ -68,6 +68,10 @@ def _make_token(
             "iat": now,
             "exp": now + exp_offset,
             "scope": ["read", "write", "security:admin", "settings:write"],
+            # P80: get_current_user requires org_id (UUID) and role claims.
+            # Security endpoints are admin-only; use admin role for authenticated tests.
+            "org_id": "00000000-0000-0000-0000-000000000001",
+            "role": "admin",
         },
         secret,
         algorithm="HS256",

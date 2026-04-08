@@ -146,6 +146,7 @@ def test_permission_matrix_is_frozen() -> None:
         assert isinstance(roles, frozenset), (
             f"Permission {permission!r} roles value is not a frozenset: {type(roles)}"
         )
+        assert len(roles) >= 1, f"Permission {permission!r} must have at least one allowed role"
 
 
 def test_permission_matrix_contains_known_permissions() -> None:
@@ -188,9 +189,7 @@ def test_admin_has_all_permissions() -> None:
     from synth_engine.bootstrapper.dependencies.permissions import PERMISSION_MATRIX, Role
 
     for permission, allowed_roles in PERMISSION_MATRIX.items():
-        assert Role.admin in allowed_roles, (
-            f"Admin missing permission: {permission!r}"
-        )
+        assert Role.admin in allowed_roles, f"Admin missing permission: {permission!r}"
 
 
 def test_privacy_read_accessible_to_all_roles() -> None:
@@ -222,6 +221,7 @@ def test_has_permission_returns_true_for_allowed_role() -> None:
 
     result = has_permission(role="admin", permission="jobs:create")
     assert result is True
+    assert repr(result) == "True"  # equality confirms return value, not just truthiness
 
 
 def test_has_permission_returns_false_for_disallowed_role() -> None:
@@ -233,6 +233,7 @@ def test_has_permission_returns_false_for_disallowed_role() -> None:
 
     result = has_permission(role="viewer", permission="jobs:create")
     assert result is False
+    assert repr(result) == "False"  # equality confirms False return, not just falsy
 
 
 def test_has_permission_returns_false_for_unknown_permission() -> None:
@@ -244,6 +245,7 @@ def test_has_permission_returns_false_for_unknown_permission() -> None:
 
     result = has_permission(role="admin", permission="nonexistent:permission")
     assert result is False
+    assert repr(result) == "False"  # fail-closed: unknown permission must return False
 
 
 def test_has_permission_returns_false_for_unknown_role() -> None:
@@ -255,6 +257,7 @@ def test_has_permission_returns_false_for_unknown_role() -> None:
 
     result = has_permission(role="superadmin", permission="jobs:create")
     assert result is False
+    assert repr(result) == "False"  # fail-closed: unknown role must return False
 
 
 def test_has_permission_auditor_can_read_audit_log() -> None:
@@ -266,6 +269,7 @@ def test_has_permission_auditor_can_read_audit_log() -> None:
 
     result = has_permission(role="auditor", permission="compliance:audit-read")
     assert result is True
+    assert repr(result) == "True"  # auditor must have compliance:audit-read permission
 
 
 def test_has_permission_auditor_cannot_read_jobs() -> None:
@@ -277,6 +281,7 @@ def test_has_permission_auditor_cannot_read_jobs() -> None:
 
     result = has_permission(role="auditor", permission="jobs:read")
     assert result is False
+    assert repr(result) == "False"  # auditor must NOT have jobs:read permission
 
 
 # ---------------------------------------------------------------------------
@@ -322,9 +327,7 @@ def test_require_permission_returns_tenant_context_on_success(
     client = TestClient(app, raise_server_exceptions=False)
 
     token = _make_token(sub=_USER_ADMIN_UUID, org_id=_ORG_A_UUID, role="admin")
-    response = client.get(
-        "/test/jobs", headers={"Authorization": f"Bearer {token}"}
-    )
+    response = client.get("/test/jobs", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 200
     body = response.json()
@@ -344,9 +347,7 @@ def test_require_permission_viewer_can_read_jobs(
     client = TestClient(app, raise_server_exceptions=False)
 
     token = _make_token(sub=_USER_VIEWER_UUID, org_id=_ORG_A_UUID, role="viewer")
-    response = client.get(
-        "/test/jobs", headers={"Authorization": f"Bearer {token}"}
-    )
+    response = client.get("/test/jobs", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 200
     assert response.json()["role"] == "viewer"
@@ -363,9 +364,7 @@ def test_require_permission_operator_can_read_jobs(
     client = TestClient(app, raise_server_exceptions=False)
 
     token = _make_token(sub=_USER_OPERATOR_UUID, org_id=_ORG_A_UUID, role="operator")
-    response = client.get(
-        "/test/jobs", headers={"Authorization": f"Bearer {token}"}
-    )
+    response = client.get("/test/jobs", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 200
     assert response.json()["role"] == "operator"
@@ -461,6 +460,7 @@ def test_user_patch_request_accepts_none_role() -> None:
 
     req = UserPatchRequest(role=None)
     assert req.role is None
+    assert repr(req.model_dump()["role"]) == "None"  # serialization confirms None role field
 
 
 def test_user_patch_request_rejects_invalid_role() -> None:
@@ -521,6 +521,7 @@ def test_last_admin_guard_returns_none_when_multiple_admins() -> None:
 
     result = _check_last_admin_guard(admin_count=2, target_user_id="some-user-id")
     assert result is None
+    assert repr(result) == "None"  # multiple admins: guard must not block (returns None)
 
 
 def test_last_admin_guard_returns_none_when_count_zero() -> None:
@@ -533,6 +534,7 @@ def test_last_admin_guard_returns_none_when_count_zero() -> None:
 
     result = _check_last_admin_guard(admin_count=0, target_user_id="some-user-id")
     assert result is None
+    assert repr(result) == "None"  # zero admins: guard must not block (returns None)
 
 
 def test_last_admin_guard_409_body_has_specific_detail() -> None:
@@ -600,6 +602,7 @@ def test_emit_audit_log_access_event_swallows_audit_failure() -> None:
         result = _emit_audit_log_access_event(actor="test-actor", org_id=_ORG_A_UUID)
 
     assert result is None
+    assert repr(result) == "None"  # swallowed failure: function must return None (not an error)
 
 
 # ---------------------------------------------------------------------------
@@ -621,6 +624,7 @@ def test_check_erasure_admin_idor_returns_none_same_org() -> None:
         actor=_USER_ADMIN_UUID,
     )
     assert result is None
+    assert repr(result) == "None"  # same-org erasure: IDOR check must pass (returns None)
 
 
 def test_check_erasure_admin_idor_returns_404_different_org() -> None:
@@ -685,8 +689,7 @@ def test_adr_0066_file_exists() -> None:
         "ADR-0066-rbac-permission-model.md",
     )
     assert os.path.exists(adr_path), (
-        f"ADR-0066 not found at {adr_path}. "
-        "The RBAC ADR must be created as part of T80.0."
+        f"ADR-0066 not found at {adr_path}. The RBAC ADR must be created as part of T80.0."
     )
 
 
@@ -711,9 +714,7 @@ def test_adr_0049_is_superseded() -> None:
     assert "Superseded" in content, (
         "ADR-0049 must have its status updated to 'Superseded' by ADR-0066."
     )
-    assert "ADR-0066" in content, (
-        "ADR-0049 must reference ADR-0066 (the superseding document)."
-    )
+    assert "ADR-0066" in content, "ADR-0049 must reference ADR-0066 (the superseding document)."
 
 
 # ---------------------------------------------------------------------------
@@ -727,17 +728,18 @@ def test_create_token_embeds_role_in_jwt() -> None:
     Token issuance must include role claim — client cannot specify it.
     Specific value assertion: decoded role matches input.
     """
-    from synth_engine.bootstrapper.dependencies.auth import create_token, verify_token
-
     # Monkeypatch is not available here — use a real settings-backed test
     # We test the data contract: role appears in the decoded token
     # Note: this test just validates the create_token contract, not the
     # full issuance flow (that requires settings with a real secret)
     import os
 
+    from synth_engine.bootstrapper.dependencies.auth import create_token, verify_token
+
     secret = "test-secret-long-enough-32chars+"  # pragma: allowlist secret
-    os.environ["JWT_SECRET_KEY"] = secret  # noqa: B003
+    os.environ["JWT_SECRET_KEY"] = secret
     os.environ["JWT_ALGORITHM"] = "HS256"
+    os.environ["CONCLAVE_ENV"] = "development"
 
     try:
         from synth_engine.shared.settings import get_settings
@@ -752,6 +754,7 @@ def test_create_token_embeds_role_in_jwt() -> None:
     finally:
         os.environ.pop("JWT_SECRET_KEY", None)
         os.environ.pop("JWT_ALGORITHM", None)
+        os.environ.pop("CONCLAVE_ENV", None)
         from synth_engine.shared.settings import get_settings
 
         get_settings.cache_clear()
@@ -782,3 +785,323 @@ def test_admin_users_router_wired_in_registry() -> None:
     assert "admin_users" in source, (
         "admin_users router must be imported and included in router_registry.py"
     )
+
+
+# ---------------------------------------------------------------------------
+# T80.3: Admin user management HTTP endpoint tests
+# ---------------------------------------------------------------------------
+
+
+def _make_admin_users_app() -> Any:
+    """Build a test FastAPI app with the admin_users router.
+
+    Returns:
+        FastAPI test app with in-memory SQLite and get_current_user overridden.
+    """
+
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+    from synth_engine.bootstrapper.routers.admin_users import router as admin_users_router
+    from synth_engine.shared.models.user import User  # noqa: F401 — ensure table exists
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+
+    app = FastAPI()
+    app.include_router(admin_users_router)
+
+    def _override_session() -> Any:
+        with Session(engine) as session:
+            yield session
+
+    def _override_user() -> TenantContext:
+        return TenantContext(
+            org_id=_ORG_A_UUID,
+            user_id=_USER_ADMIN_UUID,
+            role="admin",
+        )
+
+    app.dependency_overrides[get_db_session] = _override_session
+    app.dependency_overrides[get_current_user] = _override_user
+    return app
+
+
+class TestAdminUsersEndpoints:
+    """HTTP endpoint tests for POST/GET/PATCH/DELETE /admin/users.
+
+    Tests cover happy paths, 404 on not found, 409 last-admin guard,
+    and 422 on invalid role input.
+    """
+
+    def test_create_user_returns_201(self) -> None:
+        """POST /admin/users returns 201 with the created user.
+
+        Happy path: admin creates a new operator user in their org.
+        """
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        mock_audit = MagicMock()
+        with patch(
+            "synth_engine.bootstrapper.routers.admin_users.get_audit_logger",
+            return_value=mock_audit,
+        ):
+            response = client.post(
+                "/admin/users",
+                json={"email": "newuser@example.com", "role": "operator"},
+            )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["email"] == "newuser@example.com"
+        assert data["role"] == "operator"
+        assert data["org_id"] == _ORG_A_UUID
+
+    def test_create_user_invalid_role_returns_422(self) -> None:
+        """POST /admin/users with invalid role returns 422.
+
+        Schema-level guard: 'superadmin' is not a valid RoleLiteral.
+        """
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.post(
+            "/admin/users",
+            json={"email": "x@example.com", "role": "superadmin"},
+        )
+
+        assert response.status_code == 422
+
+    def test_list_users_returns_200_with_items(self) -> None:
+        """GET /admin/users returns 200 with list of users in the org.
+
+        Happy path: after creating a user, list returns it.
+        """
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        mock_audit = MagicMock()
+        with patch(
+            "synth_engine.bootstrapper.routers.admin_users.get_audit_logger",
+            return_value=mock_audit,
+        ):
+            client.post(
+                "/admin/users",
+                json={"email": "listtest@example.com", "role": "viewer"},
+            )
+            response = client.get("/admin/users")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "items" in data
+        assert data["total"] == len(data["items"])
+
+    def test_patch_user_role_returns_200(self) -> None:
+        """PATCH /admin/users/{user_id} updates the user's role.
+
+        Happy path: admin promotes an operator to admin. A second admin
+        is created first to avoid last-admin guard trigger.
+        """
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        mock_audit = MagicMock()
+        with patch(
+            "synth_engine.bootstrapper.routers.admin_users.get_audit_logger",
+            return_value=mock_audit,
+        ):
+            create_resp = client.post(
+                "/admin/users",
+                json={"email": "patchme@example.com", "role": "operator"},
+            )
+            assert create_resp.status_code == 201
+            user_id = create_resp.json()["id"]
+
+            client.post(
+                "/admin/users",
+                json={"email": "admin2@example.com", "role": "admin"},
+            )
+
+            patch_resp = client.patch(
+                f"/admin/users/{user_id}",
+                json={"role": "admin"},
+            )
+
+        assert patch_resp.status_code == 200
+        patched = patch_resp.json()
+        assert patched["role"] == "admin"
+        assert patched["id"] == user_id
+
+    def test_patch_user_not_found_returns_404(self) -> None:
+        """PATCH /admin/users/{user_id} returns 404 for unknown user."""
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.patch(
+            "/admin/users/00000000-0000-0000-0000-000000000099",
+            json={"role": "viewer"},
+        )
+
+        assert response.status_code == 404
+
+    def test_delete_user_returns_204(self) -> None:
+        """DELETE /admin/users/{user_id} deactivates the user.
+
+        Happy path: two admins exist so last-admin guard passes.
+        """
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        mock_audit = MagicMock()
+        with patch(
+            "synth_engine.bootstrapper.routers.admin_users.get_audit_logger",
+            return_value=mock_audit,
+        ):
+            resp1 = client.post(
+                "/admin/users",
+                json={"email": "admin1@example.com", "role": "admin"},
+            )
+            user1_id = resp1.json()["id"]
+            client.post(
+                "/admin/users",
+                json={"email": "admin2@example.com", "role": "admin"},
+            )
+            response = client.delete(f"/admin/users/{user1_id}")
+
+        assert response.status_code == 204
+
+    def test_delete_last_admin_returns_409(self) -> None:
+        """DELETE /admin/users/{user_id} returns 409 if user is last admin.
+
+        Last-admin guard prevents org lockout.
+        """
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        mock_audit = MagicMock()
+        with patch(
+            "synth_engine.bootstrapper.routers.admin_users.get_audit_logger",
+            return_value=mock_audit,
+        ):
+            resp = client.post(
+                "/admin/users",
+                json={"email": "onlyadmin@example.com", "role": "admin"},
+            )
+            user_id = resp.json()["id"]
+            response = client.delete(f"/admin/users/{user_id}")
+
+        assert response.status_code == 409
+        body = response.json()
+        assert "admin" in body["detail"].lower()
+
+    def test_delete_user_not_found_returns_404(self) -> None:
+        """DELETE /admin/users/{user_id} returns 404 for unknown user."""
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.delete(
+            "/admin/users/00000000-0000-0000-0000-000000000099",
+        )
+
+        assert response.status_code == 404
+
+    def test_audit_write_failure_on_create_returns_500(self) -> None:
+        """POST /admin/users: audit write failure returns 500 (T68.3).
+
+        If audit write raises, user is NOT created and 500 is returned.
+        """
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        mock_audit = MagicMock()
+        mock_audit.log_event.side_effect = OSError("audit disk full")
+
+        with patch(
+            "synth_engine.bootstrapper.routers.admin_users.get_audit_logger",
+            return_value=mock_audit,
+        ):
+            response = client.post(
+                "/admin/users",
+                json={"email": "fail@example.com", "role": "operator"},
+            )
+
+        assert response.status_code == 500
+        body = response.json()
+        assert "Audit write failed" in body.get("detail", "")
+
+    def test_patch_demote_last_admin_returns_409(self) -> None:
+        """PATCH /admin/users/{user_id}: demoting last admin returns 409.
+
+        Last-admin guard applies to demotion as well as deactivation.
+        """
+        app = _make_admin_users_app()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        mock_audit = MagicMock()
+        with patch(
+            "synth_engine.bootstrapper.routers.admin_users.get_audit_logger",
+            return_value=mock_audit,
+        ):
+            resp = client.post(
+                "/admin/users",
+                json={"email": "lastadmin@example.com", "role": "admin"},
+            )
+            user_id = resp.json()["id"]
+            response = client.patch(
+                f"/admin/users/{user_id}",
+                json={"role": "operator"},
+            )
+
+        assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# T80.4: Audit log endpoint feature test
+# ---------------------------------------------------------------------------
+
+
+def test_get_audit_log_returns_200_for_admin() -> None:
+    """GET /compliance/audit-log returns 200 for admin.
+
+    Verifies the T80.4 audit log read endpoint is functional.
+    Response uses "items" field (per AuditLogResponse schema).
+    """
+    from synth_engine.bootstrapper.dependencies.db import get_db_session
+    from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+    from synth_engine.bootstrapper.routers.compliance import router as compliance_router
+
+    app = FastAPI()
+    app.include_router(compliance_router)
+
+    def _override_admin() -> TenantContext:
+        return TenantContext(
+            org_id=_ORG_A_UUID,
+            user_id=_USER_ADMIN_UUID,
+            role="admin",
+        )
+
+    def _override_db() -> MagicMock:
+        return MagicMock()
+
+    app.dependency_overrides[get_current_user] = _override_admin
+    app.dependency_overrides[get_db_session] = _override_db
+    client = TestClient(app, raise_server_exceptions=False)
+
+    mock_audit = MagicMock()
+    mock_audit.log_event = MagicMock()
+    with patch(
+        "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
+        return_value=mock_audit,
+    ):
+        response = client.get("/compliance/audit-log")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data  # AuditLogResponse uses "items" (not "events")
+    assert isinstance(data["items"], list)
+    assert data["total"] >= 0
+    mock_audit.log_event.assert_called_once()

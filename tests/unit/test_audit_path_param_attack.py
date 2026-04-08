@@ -607,17 +607,20 @@ class TestAuditWriteFailureCounter:
 
     def test_audit_write_failure_increments_counter_in_security_shred(self) -> None:
         """Audit failure in security.py (shred_vault) must increment AUDIT_WRITE_FAILURE_TOTAL."""
-        from synth_engine.bootstrapper.dependencies.auth import require_scope
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.main import create_app
         from synth_engine.bootstrapper.routers.security import router as security_router
 
         app = create_app()
         app.include_router(security_router)
 
-        def _override_scope_dep() -> str:
-            return "test-operator"
-
-        app.dependency_overrides[require_scope("security:admin")] = _override_scope_dep
+        # P80: override get_current_user to return admin TenantContext.
+        # require_permission("security:admin") calls get_current_user internally.
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="00000000-0000-0000-0000-000000000000",
+            user_id="test-operator",
+            role="admin",
+        )
 
         mock_audit = MagicMock()
         # ValueError is the canonical audit-write failure (sign_v3 oversized details).
