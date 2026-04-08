@@ -1,6 +1,6 @@
 # ADR-0049: Scope-Based Authorization Model
 
-**Status**: Accepted
+**Status**: Superseded by ADR-0066 (RBAC Permission Model — Phase 80)
 **Date**: 2026-03-23
 **Deciders**: Engineering team
 **Task**: T47.1 — Scope-based auth for security endpoints; T47.3 — Scope-based auth for settings write endpoints
