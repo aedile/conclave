@@ -5,28 +5,15 @@ Settings use ``key`` as the primary key; PUT performs an upsert.
 
 All 404 responses use RFC 7807 Problem Details format.
 
-Authentication: All endpoints require a valid JWT Bearer token. Read
-endpoints use :func:`~synth_engine.bootstrapper.dependencies.tenant.get_current_user`;
-write endpoints use BOTH :func:`~synth_engine.bootstrapper.dependencies.auth.require_scope`
-(for scope enforcement) AND :func:`~synth_engine.bootstrapper.dependencies.tenant.get_current_user`
-(for org_id validation, UUID check, and role allowlist).
+Authorization (P80 — F7 update):
+All endpoints use :func:`~synth_engine.bootstrapper.dependencies.permissions.require_permission`
+from the RBAC permission matrix (ADR-0066):
+- GET endpoints require ``settings:read`` (admin, operator, viewer).
+- PUT (upsert) and DELETE require ``settings:write`` (admin only).
 
-Scope-based authorization (T47.3):
-- GET endpoints are NOT scope-gated — any authenticated operator can read
-  settings.  This ensures read-only observability is broadly available.
-- PUT (upsert) and DELETE require the ``settings:write`` scope.  These
-  mutations change application behavior and must be restricted to operators
-  that hold the write permission.
-
-Auth consistency (RF2 — Fix Round 2):
-- Write endpoints previously only used ``require_scope()``, which chains
-  through ``get_current_operator`` (the legacy dependency).  This bypassed
-  the ``get_current_user`` validation chain: org_id UUID check, sentinel UUID
-  rejection in multi-tenant mode, and role allowlist.
-- Write endpoints now declare BOTH ``require_scope()`` and ``get_current_user``
-  as dependencies.  FastAPI resolves both independently; the request must pass
-  both checks.  Settings remain global (no org_id filtering on queries) but
-  the authentication path is consistent with all other authenticated endpoints.
+This replaces the previous dual-dependency pattern of ``require_scope()`` +
+``get_current_user``.  The ``require_permission()`` factory calls
+``get_current_user()`` internally, performing all auth/validation in one step.
 
 Audit before mutation (T71.1):
 - PUT emits ``SETTING_UPSERTED`` BEFORE the database write.
@@ -39,6 +26,7 @@ Task: T62.1 — Wrap Database Commits in Exception Handlers
 Task: T67.1 — Add max_length=255 to key path parameter (ADV-P66-01)
 Task: T71.1 — Add audit events to unaudited destructive endpoints
 Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
+Task: P80-F7 — Update docstring to reflect require_permission() usage
 """
 
 from __future__ import annotations
@@ -88,11 +76,11 @@ def list_settings(
 ) -> SettingListResponse:
     """List all application settings.
 
-    No scope restriction — any authenticated operator may read settings.
+    Requires ``settings:read`` permission (admin, operator, viewer).
 
     Args:
         session: Database session (injected by FastAPI DI).
-        current_user: Resolved tenant identity (injected by FastAPI DI).
+        current_user: Resolved tenant identity from ``require_permission("settings:read")``.
 
     Returns:
         :class:`SettingListResponse` with up to 100 stored key-value pairs.
@@ -106,7 +94,7 @@ def list_settings(
 @router.put(
     "/{key}",
     summary="Upsert a setting",
-    description="Create or update an application setting. Requires the settings:write scope.",
+    description="Create or update an application setting. Requires the settings:write permission.",
     responses=COMMON_ERROR_RESPONSES,
     response_model=SettingResponse,
 )
@@ -125,16 +113,13 @@ def upsert_setting(
     (T71.1 audit-before-mutation).  If the audit write fails, the endpoint
     returns 500 and no mutation occurs.
 
-    Requires scope: ``settings:write`` (T47.3).
-    Also requires ``get_current_user`` validation (org_id UUID check, sentinel
-    UUID rejection in multi-tenant mode, role allowlist) per RF2 fix.
+    Requires ``settings:write`` permission (admin only — ADR-0066).
 
     Args:
         key: The setting key (URL path parameter, max 255 characters).
         body: Request body containing the new value.
         session: Database session (injected by FastAPI DI).
-        current_user: Resolved tenant identity from ``require_permission("settings:write")``,
-            ensuring org_id, role, and permission are validated (P80 RBAC).
+        current_user: Resolved tenant identity from ``require_permission("settings:write")``.
 
     Returns:
         The upserted :class:`SettingResponse`, RFC 7807 500 on audit failure
@@ -201,12 +186,12 @@ def get_setting(
 ) -> SettingResponse | JSONResponse:
     """Get a setting by key.
 
-    No scope restriction — any authenticated operator may read settings.
+    Requires ``settings:read`` permission (admin, operator, viewer).
 
     Args:
         key: The setting key to look up (max 255 characters).
         session: Database session (injected by FastAPI DI).
-        current_user: Resolved tenant identity (injected by FastAPI DI).
+        current_user: Resolved tenant identity from ``require_permission("settings:read")``.
 
     Returns:
         :class:`SettingResponse` on success, or RFC 7807 404 on not found.
@@ -227,7 +212,7 @@ def get_setting(
 @router.delete(
     "/{key}",
     summary="Delete a setting",
-    description="Delete an application setting. Requires the settings:write scope.",
+    description="Delete an application setting. Requires the settings:write permission.",
     responses=COMMON_ERROR_RESPONSES,
     status_code=204,
 )
@@ -242,15 +227,12 @@ def delete_setting(
     (T71.1 audit-before-mutation).  If the audit write fails, the endpoint
     returns 500 and the setting is NOT deleted.
 
-    Requires scope: ``settings:write`` (T47.3).
-    Also requires ``get_current_user`` validation (org_id UUID check, sentinel
-    UUID rejection in multi-tenant mode, role allowlist) per RF2 fix.
+    Requires ``settings:write`` permission (admin only — ADR-0066).
 
     Args:
         key: The setting key to delete (max 255 characters).
         session: Database session (injected by FastAPI DI).
-        current_user: Resolved tenant identity from ``require_permission("settings:write")``,
-            ensuring org_id, role, and permission are validated (P80 RBAC).
+        current_user: Resolved tenant identity from ``require_permission("settings:write")``.
 
     Returns:
         HTTP 204 No Content on success, RFC 7807 404 on not found, RFC 7807 500

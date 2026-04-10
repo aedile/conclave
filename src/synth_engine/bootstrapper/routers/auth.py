@@ -22,6 +22,16 @@ Security rationale
   invoked — a CPU/memory DoS vector.  bcrypt truncates at 72 bytes but
   FastAPI deserialization still processes the full input.
 
+Role resolution (P80 — B1 fix)
+-------------------------------
+When ``conclave_multi_tenant_enabled=True``, the user's role is resolved from
+the DB ``users`` table by matching the ``username`` (JWT ``sub``) against stored
+user records.  The client cannot supply a role claim — it is always DB-authoritative.
+
+When ``conclave_multi_tenant_enabled=False`` (single-tenant backward compat),
+the token is issued with ``role="admin"`` because the single seeded operator
+record always holds the admin role.  No DB lookup is performed.
+
 CONSTITUTION Priority 0: Security — credentials never logged, bcrypt verify
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
 Task: T47.1 — Scope-based auth for security endpoints
@@ -29,6 +39,7 @@ Task: T47.3 — Scope-based auth for settings write endpoints
 Task: T59.3 — OpenAPI Documentation Enrichment
 Task: T66.1 — Replace PII logging with keyed HMAC identifier
 Task: T67.2 — Add max_length=1024 to TokenRequest.passphrase (ADV-P66-02)
+Task: P80-B1 — DB-resolved role in token issuance
 """
 
 from __future__ import annotations
@@ -75,6 +86,10 @@ _DEFAULT_OPERATOR_SCOPES: list[str] = [
     "settings:write",
 ]
 
+#: Default role for single-tenant backward compatibility.
+#: When multi-tenancy is disabled, the single seeded operator is always admin.
+_SINGLE_TENANT_DEFAULT_ROLE: str = "admin"
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -105,6 +120,42 @@ def _opaque_identifier(username: str) -> str:
     key: bytes = audit_key_raw.encode() if audit_key_raw else _DEV_LOG_SALT
     digest = hmac.new(key, username.encode(), hashlib.sha256).hexdigest()
     return digest[:_OPAQUE_ID_HEX_CHARS]
+
+
+def _resolve_role_from_db(username: str) -> str:
+    """Look up the user's role from the DB ``users`` table by username.
+
+    Used in multi-tenant mode to derive the authoritative role for the JWT.
+    The client cannot specify a role claim — it is always DB-authoritative.
+
+    Falls back to ``_SINGLE_TENANT_DEFAULT_ROLE`` if the user record is not
+    found (e.g. legacy operator not yet migrated to the users table) or if
+    any DB error occurs — this prevents the token endpoint from failing due
+    to a transient DB issue.
+
+    Args:
+        username: The operator's username (JWT ``sub``).
+
+    Returns:
+        The role string from the DB record, or ``"admin"`` as fallback.
+    """
+    try:
+        from sqlmodel import Session, select
+
+        from synth_engine.bootstrapper.dependencies.db import _engine  # type: ignore[attr-defined]
+        from synth_engine.shared.models.user import User
+
+        with Session(_engine()) as session:
+            stmt = select(User).where(User.email == username)
+            user = session.exec(stmt).first()
+            if user is not None:
+                return user.role
+    except Exception:
+        _logger.warning(
+            "DB role lookup failed for user (username withheld) — falling back to admin role",
+            exc_info=True,
+        )
+    return _SINGLE_TENANT_DEFAULT_ROLE
 
 
 class TokenRequest(BaseModel):
@@ -161,12 +212,15 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
 
     Verifies the supplied ``passphrase`` against the bcrypt hash stored in
     ``ConclaveSettings.operator_credentials_hash``.  On success, issues a
-    short-lived HS256 JWT containing ``sub``, ``exp``, ``iat``, and
-    ``scope`` claims.
+    short-lived HS256 JWT containing ``sub``, ``exp``, ``iat``, ``scope``,
+    ``org_id``, and ``role`` claims.
 
-    The issued token scope list is :data:`_DEFAULT_OPERATOR_SCOPES`, granting
-    all permissions to the single configured operator including
-    ``security:admin`` and ``settings:write`` for T47.1/T47.3 endpoints.
+    Role resolution (P80-B1):
+    - When ``conclave_multi_tenant_enabled=True``: role is resolved from the
+      DB ``users`` table by matching ``username``.  The client cannot supply
+      a role claim.  Falls back to ``admin`` on DB error.
+    - When ``conclave_multi_tenant_enabled=False`` (single-tenant): role is
+      always ``"admin"`` (backward compatibility — the seeded operator is admin).
 
     The issued token can be used as ``Authorization: Bearer <token>`` on all
     subsequent requests to authenticated endpoints.
@@ -190,7 +244,11 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
         The raw username is never logged (T66.1 PII protection).
         The passphrase is bounded to 1024 characters (T67.2) to prevent
         a CPU/memory DoS via oversized request bodies.
+        The role claim is always DB-authoritative in multi-tenant mode —
+        clients cannot escalate privileges via token claim manipulation (P80-B1).
     """
+    from synth_engine.shared.settings import get_settings
+
     opaque_id = _opaque_identifier(body.username)
     if not verify_operator_credentials(body.passphrase):
         _logger.warning(
@@ -207,11 +265,20 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    settings = get_settings()
+
+    # P80-B1: Resolve role from DB in multi-tenant mode; default to admin in
+    # single-tenant mode for backward compatibility.
+    if settings.conclave_multi_tenant_enabled:
+        role = _resolve_role_from_db(body.username)
+    else:
+        role = _SINGLE_TENANT_DEFAULT_ROLE
+
     token = create_token(
         sub=body.username,
         scope=_DEFAULT_OPERATOR_SCOPES,
         org_id=DEFAULT_ORG_UUID,
-        role="admin",
+        role=role,
     )
     _logger.info("Issued JWT token for operator_id=%s", opaque_id)
     return TokenResponse(access_token=token, token_type=_TOKEN_SCHEME)

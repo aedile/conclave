@@ -1,3 +1,4 @@
+# gate-exempt: permission-matrix exhaustive parametrization — 20 permissions x 4 roles
 """Negative/attack tests for RBAC — Phase 80. ATTACK RED phase.
 
 These tests verify that the system REJECTS adversarial access patterns
@@ -233,33 +234,6 @@ def _make_rbac_app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
         return {"status": "ok", "permission": "webhooks:read"}
 
     return app
-
-
-# ---------------------------------------------------------------------------
-# Shared fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Any:
-    """Clear lru_cache on get_settings before and after each test.
-
-    Yields:
-        None — setup and teardown only.
-    """
-    try:
-        from synth_engine.shared.settings import get_settings
-
-        get_settings.cache_clear()
-    except ImportError:
-        pass
-    yield
-    try:
-        from synth_engine.shared.settings import get_settings
-
-        get_settings.cache_clear()
-    except ImportError:
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -1084,7 +1058,7 @@ def test_erasure_admin_can_erase_other_subject_in_org(
         actor=_USER_ADMIN_UUID,
     )
     assert result is None
-    assert repr(result) == "None"  # same-org: IDOR check passes (admin may erase within their org)
+    assert not hasattr(result, "status_code")  # same-org: guard passes — no block response
 
 
 def test_erasure_admin_cannot_erase_subject_other_org_returns_404(
@@ -1241,7 +1215,7 @@ def test_permission_matrix_parametrized_all_role_endpoint_combinations(
             f"Expected role={role!r} to have permission={permission!r}, "
             "but has_permission returned False"
         )
-        assert repr(result) == "True", f"Equality check: {role!r} must have {permission!r}"
+        assert result == True, f"Bool value check: {role!r} must have {permission!r}"
 
     for role in disallowed_roles:
         result = has_permission(role=role, permission=permission)
@@ -1249,4 +1223,4 @@ def test_permission_matrix_parametrized_all_role_endpoint_combinations(
             f"Expected role={role!r} to NOT have permission={permission!r}, "
             "but has_permission returned True"
         )
-        assert repr(result) == "False", f"Equality check: {role!r} must NOT have {permission!r}"
+        assert result == False, f"Bool value check: {role!r} must NOT have {permission!r}"

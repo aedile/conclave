@@ -2,7 +2,7 @@
 
 Implements:
 - POST /admin/users — create user in org (admin only)
-- GET /admin/users — list users in org (admin only)
+- GET /admin/users — list users in org (admin only, paginated)
 - PATCH /admin/users/{user_id} — update role (admin only)
 - DELETE /admin/users/{user_id} — deactivate user (admin only)
 
@@ -13,8 +13,10 @@ Security posture
 - All operations are scoped to the authenticated admin's org_id.
   Cross-org user management returns 404 (IDOR protection, ADR-0066 section 4).
 - Last-admin guard: deactivation and demotion check
-  ``SELECT COUNT(*) FROM users WHERE org_id = :org_id AND role = 'admin'``.
+  ``SELECT COUNT(*) FROM users WHERE org_id = :org_id AND role = 'admin' FOR UPDATE``.
   If count == 1 and target is admin, return 409 Conflict.
+  The ``FOR UPDATE`` row lock prevents TOCTOU races where two concurrent requests
+  each see count=2 and both proceed — leaving zero admins (B2 fix).
 - Audit events emitted BEFORE mutations (T68.3 audit-before-commit).
 - Role escalation is prevented at schema level: ``UserPatchRequest.role`` is a
   ``Literal["admin","operator","viewer","auditor"]`` — unknown roles are rejected
@@ -38,7 +40,7 @@ import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, col, select
@@ -64,6 +66,12 @@ router = APIRouter(prefix="/admin", tags=["admin-users"])
 
 #: Type alias for the validated user_id path parameter.
 _UserIdPath = Annotated[str, Path(min_length=1, max_length=36)]
+
+#: Default page size for GET /admin/users.
+_DEFAULT_USER_PAGE_SIZE: int = 100
+
+#: Maximum page size a caller may request for GET /admin/users.
+_MAX_USER_PAGE_SIZE: int = 200
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +116,12 @@ def _check_last_admin_guard(*, admin_count: int, target_user_id: str) -> JSONRes
 
 
 def _get_org_admin_count(session: Session, org_id: str) -> int:
-    """Count the number of admin users in an org (for last-admin guard).
+    """Count admin users in an org using a pessimistic row lock (FOR UPDATE).
+
+    The ``SELECT ... FOR UPDATE`` lock prevents a TOCTOU race where two concurrent
+    demotion/deactivation requests each see count=2 and both proceed — leaving the
+    org with zero admins.  The lock is released when the outer transaction commits
+    or rolls back (per standard PostgreSQL behavior).
 
     Args:
         session: Open SQLModel Session.
@@ -121,9 +134,13 @@ def _get_org_admin_count(session: Session, org_id: str) -> int:
         org_uuid = uuid.UUID(org_id)
     except ValueError:
         return 0
-    stmt = select(col(User.id)).where(
-        User.org_id == org_uuid,
-        User.role == "admin",
+    stmt = (
+        select(col(User.id))
+        .where(
+            User.org_id == org_uuid,
+            User.role == "admin",
+        )
+        .with_for_update()
     )
     results = session.exec(stmt).all()
     return len(results)
@@ -323,29 +340,45 @@ def create_user(
 @router.get(
     "/users",
     summary="List users in the org",
-    description="Return all users in the authenticated admin's organization.",
+    description=(
+        "Return users in the authenticated admin's organization. "
+        "Supports pagination via limit and offset query parameters."
+    ),
     responses=COMMON_ERROR_RESPONSES,
     response_model=UserListResponse,
 )
 def list_users(
     session: Annotated[Session, Depends(get_db_session)],
     ctx: Annotated[TenantContext, Depends(require_permission("admin:users"))],
+    limit: int = Query(
+        default=_DEFAULT_USER_PAGE_SIZE,
+        ge=1,
+        le=_MAX_USER_PAGE_SIZE,
+        description="Maximum number of users to return (1-200, default 100).",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of users to skip for pagination.",
+    ),
 ) -> UserListResponse:
-    """List all users in the authenticated admin's organization.
+    """List users in the authenticated admin's organization with pagination.
 
     Args:
         session: Database session (injected by FastAPI DI).
         ctx: Resolved tenant context from ``require_permission("admin:users")``.
+        limit: Maximum number of users to return (1-200, default 100).
+        offset: Number of users to skip (for pagination).
 
     Returns:
-        :class:`UserListResponse` with all users in the org.
+        :class:`UserListResponse` with paginated users in the org.
     """
     try:
         org_uuid = uuid.UUID(ctx.org_id)
     except ValueError:
         return UserListResponse(items=[], total=0)
 
-    stmt = select(User).where(User.org_id == org_uuid)
+    stmt = select(User).where(User.org_id == org_uuid).offset(offset).limit(limit)
     users = session.exec(stmt).all()
     return UserListResponse(
         items=[UserResponse.model_validate(u) for u in users],
@@ -378,7 +411,8 @@ def patch_user(
     """Update a user's role within the authenticated admin's organization.
 
     Applies last-admin guard when the new role is not ``admin`` and the
-    target user is currently admin.
+    target user is currently admin.  Uses ``SELECT ... FOR UPDATE`` to
+    prevent TOCTOU races in concurrent demotion requests.
 
     T68.3: Emits ``RBAC_ROLE_CHANGED`` audit event BEFORE the DB update.
 
@@ -477,7 +511,8 @@ def delete_user(
     """Deactivate a user in the authenticated admin's organization.
 
     Applies last-admin guard: if the target user is the last admin, returns
-    409 Conflict. T68.3: emits ``USER_DEACTIVATED`` audit event BEFORE deletion.
+    409 Conflict.  Uses ``SELECT ... FOR UPDATE`` to prevent TOCTOU races.
+    T68.3: emits ``USER_DEACTIVATED`` audit event BEFORE deletion.
 
     Args:
         user_id: UUID of the target user (path parameter).

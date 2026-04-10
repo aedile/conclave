@@ -2,8 +2,9 @@
 
 Provides:
 - :class:`Role`: Enum of the four RBAC roles (admin, operator, viewer, auditor).
-- :data:`PERMISSION_MATRIX`: Static frozen dict mapping permission strings to the
+- :data:`PERMISSION_MATRIX`: Static frozen mapping of permission strings to the
   frozenset of :class:`Role` values that are allowed to perform that operation.
+  Wrapped in :class:`types.MappingProxyType` to prevent runtime mutation.
 - :func:`has_permission`: Pure function for testing whether a role has a permission.
 - :func:`require_permission`: FastAPI dependency factory that enforces a permission
   requirement and returns the :class:`~synth_engine.bootstrapper.dependencies.tenant.TenantContext`.
@@ -46,6 +47,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import types
 from collections.abc import Callable
 
 from fastapi import Depends, HTTPException
@@ -86,38 +88,42 @@ class Role(str, enum.Enum):
 #: This is the canonical authorization policy for the Conclave Engine at Tier 8.
 #: Changes to this matrix must be documented in ADR-0066.
 #:
-#: Security: values are frozensets (immutable). The dict itself is not frozen
-#: but mutation at runtime would be detected by the linter and test suite.
-PERMISSION_MATRIX: dict[str, frozenset[Role]] = {
-    # Connection management
-    "connections:create": frozenset({Role.admin, Role.operator}),
-    "connections:read": frozenset({Role.admin, Role.operator, Role.viewer}),
-    "connections:delete": frozenset({Role.admin, Role.operator}),
-    # Synthesis job lifecycle
-    "jobs:create": frozenset({Role.admin, Role.operator}),
-    "jobs:read": frozenset({Role.admin, Role.operator, Role.viewer}),
-    "jobs:cancel": frozenset({Role.admin, Role.operator}),
-    "jobs:download": frozenset({Role.admin, Role.operator, Role.viewer}),
-    "jobs:shred": frozenset({Role.admin, Role.operator}),
-    "jobs:legal-hold": frozenset({Role.admin}),
-    # Webhook management
-    "webhooks:write": frozenset({Role.admin, Role.operator}),
-    "webhooks:read": frozenset({Role.admin, Role.operator, Role.viewer}),
-    # Privacy budget
-    "privacy:read": frozenset({Role.admin, Role.operator, Role.viewer, Role.auditor}),
-    "privacy:reset": frozenset({Role.admin}),
-    # Compliance
-    "compliance:erasure": frozenset({Role.admin}),
-    "compliance:audit-read": frozenset({Role.admin, Role.auditor}),
-    # Security operations
-    "security:admin": frozenset({Role.admin}),
-    # Administrative
-    "admin:users": frozenset({Role.admin}),
-    "admin:settings": frozenset({Role.admin}),
-    # Settings
-    "settings:read": frozenset({Role.admin, Role.operator, Role.viewer}),
-    "settings:write": frozenset({Role.admin}),
-}
+#: Security: wrapped in :class:`types.MappingProxyType` to prevent runtime
+#: mutation.  Values are frozensets (immutable inner collections).
+PERMISSION_MATRIX: types.MappingProxyType[str, frozenset[Role]] = types.MappingProxyType(
+    {
+        # Connection management
+        "connections:create": frozenset({Role.admin, Role.operator}),
+        "connections:read": frozenset({Role.admin, Role.operator, Role.viewer}),
+        "connections:delete": frozenset({Role.admin, Role.operator}),
+        # Synthesis job lifecycle
+        "jobs:create": frozenset({Role.admin, Role.operator}),
+        "jobs:read": frozenset({Role.admin, Role.operator, Role.viewer}),
+        # jobs:cancel is reserved for future endpoint implementation — currently documented
+        # in ADR-0066 as a planned permission. No cancel endpoint exists yet.
+        "jobs:cancel": frozenset({Role.admin, Role.operator}),
+        "jobs:download": frozenset({Role.admin, Role.operator, Role.viewer}),
+        "jobs:shred": frozenset({Role.admin, Role.operator}),
+        "jobs:legal-hold": frozenset({Role.admin}),
+        # Webhook management
+        "webhooks:write": frozenset({Role.admin, Role.operator}),
+        "webhooks:read": frozenset({Role.admin, Role.operator, Role.viewer}),
+        # Privacy budget
+        "privacy:read": frozenset({Role.admin, Role.operator, Role.viewer, Role.auditor}),
+        "privacy:reset": frozenset({Role.admin}),
+        # Compliance
+        "compliance:erasure": frozenset({Role.admin}),
+        "compliance:audit-read": frozenset({Role.admin, Role.auditor}),
+        # Security operations
+        "security:admin": frozenset({Role.admin}),
+        # Administrative
+        "admin:users": frozenset({Role.admin}),
+        "admin:settings": frozenset({Role.admin}),
+        # Settings
+        "settings:read": frozenset({Role.admin, Role.operator, Role.viewer}),
+        "settings:write": frozenset({Role.admin}),
+    }
+)
 
 
 def has_permission(*, role: str, permission: str) -> bool:
