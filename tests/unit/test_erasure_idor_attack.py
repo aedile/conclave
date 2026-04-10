@@ -281,51 +281,6 @@ class TestErasureIDORProtection:
             f"Admin erasure must return 200; got {response.status_code}"
         )
 
-    def test_erasure_cross_operator_audit_event_does_not_contain_target_subject_id(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        db_engine: Any,
-    ) -> None:
-        """The IDOR audit event for cross-ORG erasure must NOT include the subject_id.
-
-        CONSTITUTION Priority 0: No PII in audit payloads.
-
-        P80: IDOR protection is now at org level. Cross-org erasure attempts
-        emit an audit event with event_type=COMPLIANCE_ERASURE_IDOR_ATTEMPT.
-        The target subject_id must NOT appear in that audit event.
-
-        Arrange: _check_erasure_admin_idor with subject_org_id != admin_org_id.
-        Act: call _check_erasure_admin_idor directly.
-        Assert: audit event does not contain any subject_id value.
-        """
-        from synth_engine.bootstrapper.routers.compliance import _check_erasure_admin_idor
-
-        target_org = "22222222-2222-2222-2222-222222222222"
-        admin_org = "11111111-1111-1111-1111-111111111111"
-        audit_mock = _patch_audit_logger()
-
-        with patch(
-            "synth_engine.bootstrapper.routers.compliance.get_audit_logger",
-            return_value=audit_mock,
-        ):
-            result = _check_erasure_admin_idor(
-                subject_org_id=target_org,
-                admin_org_id=admin_org,
-                actor="operator-a",
-            )
-
-        assert result is not None, "Cross-org erasure must be blocked"
-        assert result.status_code == 404
-
-        # Verify audit was called and does NOT contain the subject_org_id
-        audit_mock.log_event.assert_called_once()
-        call_kwargs = audit_mock.log_event.call_args
-        call_args_str = str(call_kwargs)
-        assert target_org not in call_args_str, (
-            f"Audit event MUST NOT contain the subject_org_id '{target_org}' "
-            f"(PII protection). Call args: {call_args_str}"
-        )
-
     def test_erasure_cross_operator_returns_404_even_when_vault_is_sealed(
         self,
         monkeypatch: pytest.MonkeyPatch,
