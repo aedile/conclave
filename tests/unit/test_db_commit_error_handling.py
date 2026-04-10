@@ -745,17 +745,14 @@ class TestSettingsCommitErrors:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("db error"))
         mock_session.rollback = MagicMock()
 
-        from synth_engine.bootstrapper.dependencies.auth import require_scope
         from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
 
-        def _noop_scope() -> str:
-            return "test-operator"
-
+        # P80: _make_settings_app() already overrides get_current_user with admin.
+        # require_permission("settings:write") passes because admin holds this permission.
         app.dependency_overrides[get_db_session] = _bad_session
-        app.dependency_overrides[require_scope("settings:write")] = _noop_scope
 
         vault_p, license_p = _vault_license_patches()
         with vault_p, license_p:
@@ -789,17 +786,14 @@ class TestSettingsCommitErrors:
         mock_session.commit = MagicMock(side_effect=SQLAlchemyError("disk full"))
         mock_session.rollback = MagicMock()
 
-        from synth_engine.bootstrapper.dependencies.auth import require_scope
         from synth_engine.bootstrapper.dependencies.db import get_db_session
 
         def _bad_session() -> Any:
             yield mock_session
 
-        def _noop_scope() -> str:
-            return "test-operator"
-
+        # P80: _make_settings_app() already overrides get_current_user with admin.
+        # require_permission("settings:write") passes because admin holds this permission.
         app.dependency_overrides[get_db_session] = _bad_session
-        app.dependency_overrides[require_scope("settings:write")] = _noop_scope
 
         vault_p, license_p = _vault_license_patches()
         with vault_p, license_p:

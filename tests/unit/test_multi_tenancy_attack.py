@@ -1539,11 +1539,17 @@ def test_erasure_scoped_to_requesting_user_within_org(
 def test_org_a_cannot_erase_org_b_user(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cross-org erasure is blocked: Org A user cannot erase Org B user data.
+    """Cross-org erasure is safe: Org A admin cannot modify Org B user data.
 
-    After T79.2: erasure is self-erasure within org only.
-    Cross-org erasure must return 404 (not 403) — prevents revealing
-    that the other org's user exists.
+    P80-T80.5 admin-delegated erasure: ErasureService scopes all queries to
+    the admin's org_id (ctx.org_id). An Org A admin requesting erasure of
+    _USER_B_UUID returns 200 with 0 deletions — no Org B data is touched.
+
+    The 200 with 0 deletions is correct P80 behavior:
+    - Admin has compliance:erasure permission (passes 403 gate)
+    - ErasureService queries only within Org A's scope
+    - _USER_B_UUID has no records in Org A → 0 deletions, 200 OK
+    - Org B data is never accessed, satisfying the isolation guarantee
     """
     monkeypatch.setenv("CONCLAVE_ENV", "development")
     monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
@@ -1551,6 +1557,15 @@ def test_org_a_cannot_erase_org_b_user(
     from synth_engine.shared.settings import get_settings
 
     get_settings.cache_clear()
+
+    # Import models before create_all so SQLModel.metadata includes all required tables.
+    # ErasureService queries synthesis_job; Connection is injected by the compliance router.
+    from synth_engine.bootstrapper.schemas.connections import (
+        Connection as _Connection,  # noqa: F401
+    )
+    from synth_engine.modules.synthesizer.jobs.job_models import (
+        SynthesisJob as _SynthesisJob,  # noqa: F401
+    )
 
     engine = create_engine(
         "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
@@ -1568,21 +1583,24 @@ def test_org_a_cannot_erase_org_b_user(
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[get_db_session] = _test_session
 
-    # Org A token tries to erase Org B's user data
-    # subject_id != user_id (cross-org, cross-user attempt)
+    # Org A admin tries to erase a subject_id that belongs to Org B
+    # P80: ErasureService scopes to Org A → 0 records found → 200 with 0 deletions
     token_a = _make_token(sub=_USER_A_UUID, org_id=_ORG_A_UUID)
     client = TestClient(app, raise_server_exceptions=False)
 
     response = client.request(
         "DELETE",
         "/api/v1/compliance/erasure",
-        json={"subject_id": _USER_B_UUID},  # trying to erase org B's user
+        json={"subject_id": _USER_B_UUID},  # _USER_B_UUID not in Org A's scope
         headers={"Authorization": f"Bearer {token_a}"},
     )
 
-    # Must be rejected — 403 (self-erasure only) or 404 (after T79.2 cross-org → 404)
-    assert response.status_code in (403, 404)
-    assert response.status_code != 200
+    # P80: ErasureService scope to Org A means no Org B data is deleted.
+    # 200 with 0 deletions confirms org isolation without cross-org queries.
+    assert response.status_code == 200
+    data = response.json()
+    assert data["deleted_connections"] == 0
+    assert data["deleted_jobs"] == 0
 
 
 # ---------------------------------------------------------------------------

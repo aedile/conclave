@@ -59,13 +59,15 @@ def _make_token(
     *,
     include_scope: bool = True,
     secret: str = _JWT_SECRET,
+    role: str = "admin",
 ) -> str:
-    """Mint a test JWT with controllable scope.
+    """Mint a test JWT with controllable scope and role.
 
     Args:
         scope: The value to use for the ``scope`` claim.
         include_scope: When ``False``, the ``scope`` key is omitted entirely.
         secret: HMAC secret to sign the token.
+        role: RBAC role to embed in the JWT (P80). Defaults to ``"admin"``.
 
     Returns:
         Compact JWT string.
@@ -76,7 +78,7 @@ def _make_token(
         "iat": now,
         "exp": now + 3600,
         "org_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
-        "role": "admin",
+        "role": role,
     }
     if include_scope:
         payload["scope"] = scope
@@ -173,30 +175,33 @@ def settings_client(jwt_env: None) -> TestClient:
 # Attack tests: require_scope() — security and settings endpoints
 # ---------------------------------------------------------------------------
 
-# scope values that must all return 403 on /security/shred (admin-only endpoint)
-_INSUFFICIENT_SCOPE_CASES = [
-    pytest.param(None, False, id="missing_scope_claim"),
-    pytest.param([], True, id="empty_scope_list"),
-    pytest.param(["read"], True, id="wrong_scope"),
-    pytest.param("security:admin", True, id="string_not_list"),
-    pytest.param(["security:admin_extra"], True, id="substring_no_match"),
+# Under P80 RBAC, access is role-based not scope-based.
+# Security endpoints (security:admin permission) require the admin role.
+# Non-admin roles (operator, viewer, auditor) must be rejected with 403.
+_INSUFFICIENT_ROLE_CASES = [
+    pytest.param("operator", id="operator_role_lacks_security_admin"),
+    pytest.param("viewer", id="viewer_role_lacks_security_admin"),
+    pytest.param("auditor", id="auditor_role_lacks_security_admin"),
 ]
 
 
-@pytest.mark.parametrize(("scope_value", "include_scope"), _INSUFFICIENT_SCOPE_CASES)
+@pytest.mark.parametrize("role_value", _INSUFFICIENT_ROLE_CASES)
 def test_shred_rejects_insufficient_scope(
-    scope_value: Any,
-    include_scope: bool,
+    role_value: str,
     security_client: TestClient,
 ) -> None:
-    """POST /security/shred must return 403 for tokens lacking security:admin scope.
+    """POST /security/shred must return 403 for tokens with non-admin role.
+
+    Under P80 RBAC, ``require_permission("security:admin")`` checks the
+    JWT ``role`` claim.  Non-admin roles (operator, viewer, auditor) must be
+    rejected with 403 regardless of the scope claim.
 
     Args:
-        scope_value: The scope claim value to embed in the token.
-        include_scope: When False, omit the scope key from the token entirely.
+        role_value: The role to embed in the JWT token.
         security_client: TestClient for a minimal security app with JWT configured.
     """
-    token = _make_token(scope=scope_value, include_scope=include_scope)
+    # P80: the denial is role-based; scope is ignored by require_permission
+    token = _make_token(scope=["security:admin"], role=role_value)
     response = security_client.post("/security/shred", headers=_auth_header(token))
     assert response.status_code == 403
 
@@ -241,7 +246,10 @@ def test_settings_scope_enforcement(
         expected_status: Expected HTTP status code.
         settings_client: TestClient for a minimal settings app with JWT configured.
     """
-    token = _make_token(scope=["read"])
+    # P80: settings:write is admin-only per PERMISSION_MATRIX.
+    # Use viewer role for denied cases (expected_status=403); admin for allowed.
+    token_role = "viewer" if expected_status == 403 else "admin"
+    token = _make_token(scope=["read"], role=token_role)
     kwargs: dict[str, Any] = {"headers": _auth_header(token)}
     if body is not None:
         kwargs["json"] = body
@@ -250,11 +258,14 @@ def test_settings_scope_enforcement(
 
 
 def test_rotate_rejects_wrong_scope(security_client: TestClient) -> None:
-    """POST /security/keys/rotate with scope=["read"] must return 403.
+    """POST /security/keys/rotate with non-admin role must return 403.
 
-    The keys/rotate endpoint is also guarded by security:admin.
+    Under P80 RBAC, the keys/rotate endpoint requires the admin role.
+    An operator with any scope is rejected because their role lacks
+    the ``security:admin`` permission.
     """
-    token = _make_token(scope=["read"])
+    # P80: rejection is role-based; viewer role lacks security:admin permission
+    token = _make_token(scope=["security:admin"], role="viewer")
     response = security_client.post(
         "/security/keys/rotate",
         json={"new_passphrase": "some-passphrase"},
@@ -402,6 +413,14 @@ class TestScopeFeatures:
         """
         monkeypatch.setenv("JWT_SECRET_KEY", "")
         monkeypatch.setenv("JWT_ALGORITHM", _JWT_ALGORITHM)
+        # P79-F12: Pass-through mode requires explicit opt-in (CONCLAVE_PASS_THROUGH_ENABLED=true).
+        # P80: require_permission calls get_current_user which checks this flag.
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "true")
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
 
         from synth_engine.bootstrapper.routers.security import router
 
@@ -409,5 +428,8 @@ class TestScopeFeatures:
         app.include_router(router)
         client = TestClient(app, raise_server_exceptions=False)
 
-        response = client.post("/security/shred")
-        assert response.status_code == 200
+        try:
+            response = client.post("/security/shred")
+            assert response.status_code == 200
+        finally:
+            get_settings.cache_clear()

@@ -456,7 +456,6 @@ class TestRouterAuditWriteCatchNarrowed:
                 key="feature-flag",
                 body=SettingUpsertRequest(value="true"),
                 session=mock_session,
-                current_operator="op1",
                 current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
@@ -486,7 +485,6 @@ class TestRouterAuditWriteCatchNarrowed:
                     key="feature-flag",
                     body=SettingUpsertRequest(value="true"),
                     session=mock_session,
-                    current_operator="op1",
                     current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
@@ -517,7 +515,6 @@ class TestRouterAuditWriteCatchNarrowed:
             result = delete_setting(
                 key="old-setting",
                 session=mock_session,
-                current_operator="op1",
                 current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
             )
 
@@ -544,7 +541,6 @@ class TestRouterAuditWriteCatchNarrowed:
                 delete_setting(
                     key="old-setting",
                     session=mock_session,
-                    current_operator="op1",
                     current_user=TenantContext(org_id="op1", user_id="op1", role="admin"),
                 )
 
@@ -637,7 +633,15 @@ class TestRouterAuditWriteCatchNarrowed:
             mock_labels = MagicMock()
             mock_counter.labels.return_value = mock_labels
 
-            result = asyncio.run(shred_vault(current_operator="op1"))
+            result = asyncio.run(
+                shred_vault(
+                    current_user=TenantContext(
+                        org_id="00000000-0000-0000-0000-000000000000",
+                        user_id="op1",
+                        role="admin",
+                    )
+                )
+            )
 
         assert isinstance(result, JSONResponse)
         assert result.status_code == 500
@@ -668,7 +672,15 @@ class TestRouterAuditWriteCatchNarrowed:
             mock_labels = MagicMock()
             mock_counter.labels.return_value = mock_labels
 
-            result = asyncio.run(shred_vault(current_operator="op1"))
+            result = asyncio.run(
+                shred_vault(
+                    current_user=TenantContext(
+                        org_id="00000000-0000-0000-0000-000000000000",
+                        user_id="op1",
+                        role="admin",
+                    )
+                )
+            )
 
         assert isinstance(result, JSONResponse)
         assert result.status_code == 500
@@ -688,7 +700,15 @@ class TestRouterAuditWriteCatchNarrowed:
             return_value=mock_audit,
         ):
             with pytest.raises(RuntimeError, match="unexpected"):
-                asyncio.run(shred_vault(current_operator="op1"))
+                asyncio.run(
+                    shred_vault(
+                        current_user=TenantContext(
+                            org_id="00000000-0000-0000-0000-000000000000",
+                            user_id="op1",
+                            role="admin",
+                        )
+                    )
+                )
 
 
 # ---------------------------------------------------------------------------

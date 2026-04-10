@@ -33,7 +33,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from synth_engine.bootstrapper.dependencies.db import get_db_session
-from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+from synth_engine.bootstrapper.dependencies.permissions import require_permission
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
@@ -223,7 +224,7 @@ def set_legal_hold(
     job_id: int,
     body: LegalHoldRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("jobs:legal-hold"))],
 ) -> LegalHoldResponse | JSONResponse:
     """Toggle the legal hold flag on a synthesis job.
 

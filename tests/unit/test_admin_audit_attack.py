@@ -275,15 +275,22 @@ class TestAuditBeforeDestructiveShred:
     def security_client(self) -> TestClient:
         """Build a minimal FastAPI app with only the security router.
 
+        Overrides ``get_current_user`` to return an admin TenantContext, enabling
+        ``require_permission("security:admin")`` to pass without a real JWT.
+
         Returns:
             TestClient wrapping the security-router app.
         """
-        from synth_engine.bootstrapper.dependencies.auth import require_scope
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.security import router as security_router
 
         app = FastAPI()
         app.include_router(security_router)
-        app.dependency_overrides[require_scope("security:admin")] = lambda: "test-operator"
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="00000000-0000-0000-0000-000000000000",
+            user_id="test-operator",
+            role="admin",
+        )
 
         return TestClient(app, raise_server_exceptions=False)
 
@@ -328,15 +335,22 @@ class TestAuditBeforeDestructiveKeyRotation:
     def security_client(self) -> TestClient:
         """Build a minimal FastAPI app with only the security router.
 
+        Overrides ``get_current_user`` to return an admin TenantContext, enabling
+        ``require_permission("security:admin")`` to pass without a real JWT.
+
         Returns:
             TestClient wrapping the security-router app.
         """
-        from synth_engine.bootstrapper.dependencies.auth import require_scope
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
         from synth_engine.bootstrapper.routers.security import router as security_router
 
         app = FastAPI()
         app.include_router(security_router)
-        app.dependency_overrides[require_scope("security:admin")] = lambda: "test-operator"
+        app.dependency_overrides[get_current_user] = lambda: TenantContext(
+            org_id="00000000-0000-0000-0000-000000000000",
+            user_id="test-operator",
+            role="admin",
+        )
 
         return TestClient(app, raise_server_exceptions=False)
 

@@ -60,7 +60,8 @@ from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
 from synth_engine.bootstrapper.dependencies.db import get_db_session
-from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+from synth_engine.bootstrapper.dependencies.permissions import require_permission
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.sse import job_event_stream
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob
@@ -234,7 +235,7 @@ def _make_session_factory(session: Session) -> SessionFactory:
 async def stream_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("jobs:read"))],
 ) -> EventSourceResponse | JSONResponse:
     """Stream real-time progress for a synthesis job via Server-Sent Events.
 
@@ -286,7 +287,7 @@ async def stream_job(
 def download_job(
     job_id: int,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("jobs:download"))],
 ) -> StreamingResponse | JSONResponse:
     """Stream the synthetic Parquet artifact for a completed job.
 

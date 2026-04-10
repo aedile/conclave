@@ -19,8 +19,9 @@ Updated after each task's review phase completes.
 
 | ID | Advisory | Phase |
 |----|----------|-------|
-| ADV-P79-01 | IDOR test setup duplication: ~15 inline SQLite-engine builders in test_multi_tenancy_attack.py. Shared conftest fixture would reduce ~200 lines. Low priority — each test correctly isolates its own DB. | P79 |
-| ADV-P79-02 | ADR-0049 section 4 references "future multi-operator support" — that future has arrived (P79/ADR-0065). Section is stale but not incorrect. Amend when ADR-0049 is next touched. | P79 |
+| ADV-P80-01 | DB-error-path tests in test_rbac_feature.py have setup-to-assertion ratios approaching 7:1-8:1. Justified by multi-patch context management for SQLAlchemy error simulation. Track for refactor opportunity. | P80 |
+| ADV-P80-02 | Shared passphrase model (`verify_operator_credentials`) is structurally incompatible with multi-tenant role isolation. Per-user credentials or SSO-only auth needed for true multi-tenant RBAC. Architectural — future phase. | P80 |
+| ADV-P80-03 | Rate limiter uses per-process `MemoryStorage` during Redis failover. In N-worker K8s deployments, effective rate limit multiplies by pod count. Pre-existing (carried from P75). | P80 |
 
 ### Deferred by Tier
 
@@ -31,6 +32,31 @@ the system enters their target tier.
 | ID | Target Tier | Summary | Raised Phase |
 |----|-------------|---------|--------------|
 | _(No deferred items — all 7 tiers assessed COMPLETE as of 2026-04-01. All open advisories are at-tier.)_ | | | |
+
+### [2026-04-09] Phase 80 — Role-Based Access Control (RBAC)
+
+**Tasks**: T80.0 (ADR-0066), T80.1 (Role model, permission matrix), T80.2 (Permission middleware on all endpoints), T80.3 (Admin user management endpoints), T80.4 (Auditor role, audit log endpoint), T80.5 (Erasure semantics update)
+
+**Summary**: Replaces single "operator" role with 4-role hierarchy (admin, operator, viewer, auditor) and 20-permission matrix. `require_permission()` FastAPI dependency factory enforces permissions on all endpoints, replacing `get_current_operator`. Admin user management CRUD endpoints with last-admin guard (SELECT FOR UPDATE). Audit log endpoint with auditor-access logging. Admin-delegated erasure. DB role resolution in auth/token for multi-tenant mode. Alembic migration 010 for UniqueConstraint(org_id, email). ADR-0066 supersedes ADR-0049. MappingProxyType for immutable permission matrix. Prometheus counter for role resolution failures.
+
+**Spec-challenger findings**: 12 missing ACs, 37 negative tests, 7 attack vectors — all incorporated into developer brief.
+
+**Review findings fixed**: 6 BLOCKERs across 2 fix rounds: B1 (auth/token hardcoded role="admin"), B2 (last-admin TOCTOU race — no FOR UPDATE), B3 (erasure IDOR guard dead code), B4 (zero integration tests), B5 (auth.py imports non-existent `_engine` — silent privilege escalation via `# type: ignore`), B6 (missing Alembic migration for UniqueConstraint). 22 FINDINGs: stale JWT doc, email uniqueness, jobs:cancel orphan, admin/users pagination, audit log org-scoping, MappingProxyType, settings docstring, cryptography CVE, tautological assertions, fixture duplication, gate-exempt placement, docstring accuracy, DB error path tests, unreachable handler, role query org_id filter, Prometheus counter, erasure IDOR no-op removal, exception narrowing, admin fallback tests, list_users total docstring, duplicate assertions, schema assertion specificity.
+
+**Production-to-test LOC ratio**: 1:2.65. Marginally exceeds 1:2.5 threshold. Justified: RBAC requires per-permission, per-role endpoint isolation tests (20 permissions × 4 roles = 80 combinations). Consistent with P79 precedent for security-critical enforcement code.
+
+**E2E**: Playwright 36 passed, 0 failed.
+
+**Boundary audit**: PASS. 1 FINDING resolved (schema assertion specificity). 2 ADVISORYs logged (ADV-P80-01, ADV-P80-02). 1 merged branch cleaned up.
+
+**Advisory count**: 3 open (ADV-P80-01, ADV-P80-02, ADV-P80-03). Below Rule 11 threshold of 8.
+
+**CLOSED (P80 — RBAC)**
+
+| ID | Resolution | Closed |
+|----|-----------|--------|
+| ADV-P79-01 | CLOSED — Test setup duplication resolved in refactor commit `de10341`. Shared IDOR test fixture extracted. | P80 |
+| ADV-P79-02 | CLOSED — ADR-0049 superseded by ADR-0066. Stale section 4 is moot. Status header updated. | P80 |
 
 ### [2026-04-04] Phase 79 — Multi-Tenancy Foundation
 

@@ -853,15 +853,20 @@ class TestErasureRequestValidation:
 
         assert response.status_code == 422
 
-    def test_whitespace_only_subject_id_returns_404_idor(self) -> None:
-        """DELETE /compliance/erasure with subject_id="   " returns 403 (T69.6 IDOR).
+    def test_whitespace_only_subject_id_returns_200_zero_deletions(self) -> None:
+        """DELETE /compliance/erasure with subject_id="   " returns 200 (P80 admin-delegated
+        erasure).
 
         Pydantic's min_length constraint applies to the raw string value.
         A whitespace-only string has length >= 1 and passes min_length=1.
 
-        With the T69.6 self-erasure-only constraint, a whitespace-only
-        subject_id does NOT match the authenticated operator identity
-        ("test-operator"), so the IDOR guard returns 403 Forbidden.
+        Under P80 admin-delegated erasure (T80.5), the IDOR guard no longer
+        checks that subject_id == user_id.  An admin may erase any subject_id
+        within their org.  A whitespace-only subject_id passes permission
+        enforcement and proceeds to the ErasureService — which finds no
+        matching records and returns 200 with records_deleted=0.
+
+        T69.6 self-erasure-only behavior is superseded by T80.5.
         """
         from fastapi.testclient import TestClient
 
@@ -880,8 +885,12 @@ class TestErasureRequestValidation:
                 json={"subject_id": "   "},
             )
 
-        # "   " != "test-operator" → IDOR guard returns 404 (P79-F1: avoids leaking existence)
-        assert response.status_code == 404
+        # P80: admin can erase any subject_id within org. Whitespace subject_id passes
+        # permission check → ErasureService finds no records → 200 with 0 deletions.
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted_connections"] == 0
+        assert data["deleted_jobs"] == 0
 
 
 class TestComplianceEndpointAuthGuard:

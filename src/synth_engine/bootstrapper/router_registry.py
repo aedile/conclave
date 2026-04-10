@@ -119,6 +119,7 @@ def _include_routers(app: FastAPI) -> None:
         app: The FastAPI instance to attach routers to.
     """
     from synth_engine.bootstrapper.routers.admin import router as admin_router
+    from synth_engine.bootstrapper.routers.admin_users import router as admin_users_router
     from synth_engine.bootstrapper.routers.auth import router as auth_router
     from synth_engine.bootstrapper.routers.compliance import router as compliance_router
     from synth_engine.bootstrapper.routers.connections import router as connections_router
@@ -145,6 +146,7 @@ def _include_routers(app: FastAPI) -> None:
     api_v1.include_router(webhooks_router)
     api_v1.include_router(privacy_router)
     api_v1.include_router(admin_router)
+    api_v1.include_router(admin_users_router)
     api_v1.include_router(compliance_router)
     app.include_router(api_v1)
 

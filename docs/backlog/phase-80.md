@@ -52,7 +52,7 @@ operator, viewer, and auditor permissions.
 - [ ] ADR superseding ADR-0049 documenting the RBAC permission model, the 403/404
       boundary rule, and the role resolution mechanism
 
-Permission matrix:
+Permission matrix (amended with spec-challenger findings):
 
 | Permission | admin | operator | viewer | auditor |
 |-----------|-------|----------|--------|---------|
@@ -63,14 +63,35 @@ Permission matrix:
 | jobs:read | yes | yes | yes | no |
 | jobs:cancel | yes | yes | no | no |
 | jobs:download | yes | yes | yes | no |
+| jobs:shred | yes | yes | no | no |
+| jobs:legal-hold | yes | no | no | no |
+| webhooks:write | yes | yes | no | no |
+| webhooks:read | yes | yes | yes | no |
 | privacy:read | yes | yes | yes | yes |
 | privacy:reset | yes | no | no | no |
 | compliance:erasure | yes | no | no | no |
 | compliance:audit-read | yes | no | no | yes |
+| security:admin | yes | no | no | no |
 | admin:users | yes | no | no | no |
 | admin:settings | yes | no | no | no |
 | settings:read | yes | yes | yes | no |
 | settings:write | yes | no | no | no |
+
+Additional ACs from spec-challenger (MISSING-AC-01 through MISSING-AC-12):
+- [ ] `PATCH /admin/jobs/{id}/legal-hold` gated at `jobs:legal-hold` (admin only)
+- [ ] `POST /security/shred` and `POST /security/keys/rotate` migrated from `require_scope`
+      to `require_permission("security:admin")`
+- [ ] `POST /privacy/budget/refresh` gated at `privacy:reset` (admin only)
+- [ ] `DELETE /compliance/erasure`: admin can erase any subject within their org (not just
+      self-erasure); non-admin returns 403; cross-org returns 404
+- [ ] Settings endpoints: `GET /settings` requires `settings:read`; auditor blocked
+- [ ] `POST /auth/token` resolves role from DB `User` record; client cannot specify role claim
+- [ ] Role change emits audit event; stale JWT window (≤15 min) is accepted and documented
+- [ ] Last-admin guard covers both deactivation AND demotion (`SELECT FOR UPDATE`)
+- [ ] Webhook CRUD gated: create/delete at `webhooks:write`, list/deliveries at `webhooks:read`
+- [ ] `POST /jobs/{id}/shred` gated at `jobs:shred`
+- [ ] `POST /jobs/{id}/start` gated at `jobs:create` (same permission covers both)
+- [ ] Background tasks (Huey, reaper) explicitly exempt from RBAC; audit events use system actor
 
 ### T80.2 — Permission Middleware
 

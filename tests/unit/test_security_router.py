@@ -52,8 +52,22 @@ def unsealed_vault(vault_salt: str) -> None:
 
 
 @pytest.fixture
-def security_client() -> TestClient:
-    """Build a minimal FastAPI app with only the security router."""
+def security_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """Build a minimal FastAPI app with only the security router.
+
+    Enables pass-through auth mode (no JWT secret) so tests can call
+    security endpoints without a token — consistent with how the security
+    router was previously gated via require_scope in pass-through mode.
+    P80: migrated to require_permission; pass-through sentinel (role=admin)
+    satisfies the security:admin permission check.
+    """
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("JWT_SECRET_KEY", "")
+    monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "true")
+    from synth_engine.shared.settings import get_settings
+
+    get_settings.cache_clear()
+
     from synth_engine.bootstrapper.routers.security import router
 
     app = FastAPI()

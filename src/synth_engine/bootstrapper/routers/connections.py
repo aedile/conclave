@@ -26,6 +26,7 @@ Task: T62.1 — Wrap Database Commits in Exception Handlers
 Task: T71.1 — Add audit events to unaudited destructive endpoints
 Task: T71.5 — Use shared AUDIT_WRITE_FAILURE_TOTAL counter
 Task: P79-T79.2 — Migrate routers to TenantContext (org_id filtering)
+Task: P80-T80.2 — Annotate endpoints with require_permission()
 """
 
 from __future__ import annotations
@@ -39,7 +40,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, select
 
 from synth_engine.bootstrapper.dependencies.db import get_db_session
-from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
+from synth_engine.bootstrapper.dependencies.permissions import require_permission
+from synth_engine.bootstrapper.dependencies.tenant import TenantContext
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
 from synth_engine.bootstrapper.schemas.connections import (
@@ -68,7 +70,7 @@ _DEFAULT_PAGE_SIZE: int = 20
 )
 def list_connections(
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("connections:read"))],
 ) -> ConnectionListResponse:
     """List all stored database connections owned by the authenticated organization.
 
@@ -105,7 +107,7 @@ def list_connections(
 def create_connection(
     body: ConnectionCreateRequest,
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("connections:create"))],
 ) -> ConnectionResponse | JSONResponse:
     """Create a new database connection configuration.
 
@@ -184,7 +186,7 @@ def create_connection(
 def get_connection(
     connection_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("connections:read"))],
 ) -> ConnectionResponse | JSONResponse:
     """Get a database connection by ID.
 
@@ -223,7 +225,7 @@ def get_connection(
 def delete_connection(
     connection_id: Annotated[str, Path(max_length=255)],
     session: Annotated[Session, Depends(get_db_session)],
-    current_user: Annotated[TenantContext, Depends(get_current_user)],
+    current_user: Annotated[TenantContext, Depends(require_permission("connections:delete"))],
 ) -> Response:
     """Delete a database connection by ID.
 
