@@ -26,6 +26,7 @@ This module imports only ``prometheus_client`` — no violation.
 CONSTITUTION Priority 0: Security — unified audit failure visibility
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Task: T71.5 — Unify audit failure Prometheus counter (ADV-P70-03)
+Task: P80-F17 — Role resolution failure counter for DB fallback observability
 """
 
 from __future__ import annotations
@@ -52,4 +53,18 @@ AUDIT_WRITE_FAILURE_TOTAL: Counter = Counter(
     "audit_write_failure_total",
     "Total number of WORM audit write failures across all routers.",
     ["router", "endpoint"],
+)
+
+#: Counter incremented whenever ``_resolve_role_from_db`` falls back to the
+#: default ``"admin"`` role due to a DB error or user-not-found condition.
+#:
+#: A non-zero value indicates that the token endpoint is issuing tokens with
+#: an inferred role rather than the DB-authoritative role, which warrants
+#: investigation.  This can occur during transient DB connectivity issues or
+#: when a user record has not yet been migrated to the ``users`` table.
+#:
+#: No labels — the counter is per-process and cardinality is naturally bounded.
+ROLE_RESOLUTION_FAILURE_TOTAL: Counter = Counter(
+    "role_resolution_failure_total",
+    "Total number of DB role lookups that fell back to the default admin role.",
 )

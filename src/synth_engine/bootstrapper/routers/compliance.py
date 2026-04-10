@@ -10,12 +10,17 @@ Security posture
   - Requires ``compliance:erasure`` permission (admin only) via
     ``require_permission()`` (P80 — replaces ``get_current_user`` direct use).
   - Admin-delegated erasure: admin can erase any subject within their org
-    (not just self). The ``_check_erasure_admin_idor()`` guard verifies the
-    subject's org matches the admin's org. Cross-org → 404.
+    (not just self). Cross-org protection is enforced by ErasureService, which
+    scopes all queries to ``ctx.org_id`` — a subject from another org yields
+    0 deletions in the admin's org (no data leakage, no cross-org mutation).
+    The ``_check_erasure_admin_idor`` pre-check was removed (P80-F18) because
+    it was called with identical ``subject_org_id == admin_org_id`` arguments,
+    making the 404 branch permanently unreachable (a permanent no-op).
+    ErasureService's own org_id scoping is the active IDOR defence.
   - Previously self-erasure-only (T69.6). Now admin-delegated (P80-T80.5).
-  - Non-admin callers → 403 from ``require_permission`` before IDOR check.
-  - The IDOR check fires BEFORE the vault-sealed check.
-  - Cross-org attempts emit an audit event for intrusion detection.
+  - Non-admin callers → 403 from ``require_permission`` before any deletion.
+  - The vault-sealed check fires BEFORE the deletion attempt.
+  - Cross-org attempts by definition yield 0 deletions — no secret data exposed.
 
 - GET /compliance/audit-log:
   - Requires ``compliance:audit-read`` permission (admin + auditor) via
@@ -45,8 +50,9 @@ Task: T69.6 — Self-erasure IDOR guard (superseded by P80-T80.5)
 Task: P79-T79.2 — Migrate routers to TenantContext (org_id filtering)
 Task: P80-T80.4 — Audit log endpoint (auditor role)
 Task: P80-T80.5 — Admin-delegated erasure semantics
+Task: P80-F18 — Remove no-op IDOR pre-check; ErasureService enforces org scoping
 
-CONSTITUTION Priority 0: Security — IDOR guard, vault gate, PII-safe audit
+CONSTITUTION Priority 0: Security — vault gate, PII-safe audit, org scoping
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 """
 
@@ -232,60 +238,6 @@ def _emit_audit_log_access_event(*, actor: str, org_id: str) -> None:
         )
 
 
-def _check_erasure_admin_idor(
-    *,
-    subject_org_id: str,
-    admin_org_id: str,
-    actor: str,
-) -> JSONResponse | None:
-    """Return 404 if the subject is in a different org than the admin (IDOR).
-
-    P80-T80.5: Admin-delegated erasure allows admin to erase any subject in
-    their org. Cross-org attempts are blocked with 404 to prevent org existence
-    leakage. An audit event is emitted for intrusion detection.
-
-    The subject_org_id is looked up from the DB by the caller before invoking
-    this function. If the subject does not exist in the DB, the caller should
-    also return 404 (the subject_org_id would be None in that case).
-
-    Args:
-        subject_org_id: The org_id of the data subject being erased.
-        admin_org_id: The org_id from the admin's JWT (TenantContext.org_id).
-        actor: The admin's user_id for audit logging.
-
-    Returns:
-        None if the check passes (same org); a 404 JSONResponse if blocked.
-    """
-    if subject_org_id == admin_org_id:
-        return None
-
-    _logger.warning(
-        "Cross-org erasure attempt blocked: actor=%s admin_org=%s (subject_org withheld)",
-        actor,
-        admin_org_id,
-    )
-    try:
-        get_audit_logger().log_event(
-            event_type="COMPLIANCE_ERASURE_IDOR_ATTEMPT",
-            actor=actor,
-            resource="data_subject",
-            action="erasure_blocked_idor",
-            details={"reason": "subject is not in admin's organization"},
-        )
-    except (ValueError, OSError, UnicodeError):
-        AUDIT_WRITE_FAILURE_TOTAL.labels(router="compliance", endpoint="/compliance/erasure").inc()
-        _logger.exception("Audit logging failed for IDOR erasure attempt (actor=%s).", actor)
-    return JSONResponse(
-        status_code=404,
-        content=problem_detail(
-            status=404,
-            title="Not Found",
-            detail="The requested data subject was not found.",
-        ),
-        media_type="application/problem+json",
-    )
-
-
 # ---------------------------------------------------------------------------
 # DELETE /compliance/erasure
 # ---------------------------------------------------------------------------
@@ -318,12 +270,17 @@ def erasure(
 
     P80-T80.5 admin-delegated erasure: admin can erase any subject in their org.
 
+    Cross-org protection is enforced by ErasureService, which scopes all DB
+    queries to ``ctx.org_id``.  A subject from another org will yield
+    0 deletions in the admin's org — no data leakage, no cross-org mutation.
+    The caller does not need a pre-check because ErasureService is the
+    authoritative org boundary.
+
     Flow:
     1. ``require_permission("compliance:erasure")`` → 403 for non-admin callers.
-    2. ``_check_erasure_admin_idor()`` → 404 if subject_id has no records in the
-       admin's org (cross-org IDOR protection fires before vault check).
-    3. Vault-sealed check → 423 if the vault is sealed.
-    4. ``ErasureService.execute_erasure()`` → delete subject records.
+    2. Vault-sealed check → 423 if the vault is sealed.
+    3. ``ErasureService.execute_erasure()`` → delete subject records scoped to
+       ``ctx.org_id``.
 
     Args:
         body: JSON body with ``subject_id`` (any subject in admin's org).
@@ -331,29 +288,8 @@ def erasure(
         ctx: Resolved tenant context from ``require_permission("compliance:erasure")``.
 
     Returns:
-        :class:`ErasureResponse` on success; RFC 7807 404/423/500 on error.
+        :class:`ErasureResponse` on success; RFC 7807 423/500 on error.
     """
-    # P80-T80.5 IDOR guard: verify the subject has records in the admin's org.
-    # ErasureService scopes its queries to org_id; we pre-check here to
-    # return 404 before the expensive erasure path when the subject is absent
-    # or in a different org.  The subject_org_id is effectively the admin's
-    # org_id because ErasureService only finds records in that org — if the
-    # subject has no records in ctx.org_id, we treat it as cross-org (404).
-    # We pass ctx.org_id as both arguments: ErasureService will scope to it,
-    # so if no records exist in ctx.org_id, _check_erasure_admin_idor returns 404.
-    idor_err = _check_erasure_admin_idor(
-        subject_org_id=ctx.org_id,
-        admin_org_id=ctx.org_id,
-        actor=ctx.user_id,
-    )
-    # Note: subject_org_id == admin_org_id always passes the IDOR check (returns None).
-    # The actual cross-org protection here is that ErasureService only deletes records
-    # scoped to ctx.org_id — a subject from another org will yield 0 deletions.
-    # For a hard 404-before-execution guard, callers should pre-query the DB.
-    # This call is kept for explicit documentation of the IDOR requirement.
-    if idor_err is not None:
-        return idor_err
-
     if VaultState.is_sealed():
         return JSONResponse(
             status_code=423,

@@ -419,7 +419,7 @@ _validate_jwt_expiry_multi_tenant  # Pydantic model_validator — jwt_expiry_sec
 # FastAPI route handlers registered via @router decorators in admin_users.py
 # and compliance.py. require_scope is kept in auth.py for backward compat
 # with external consumers (not removed even though all internal usage migrated).
-# _check_erasure_admin_idor is called from compliance.py's erasure endpoint.
+# Note: _check_erasure_admin_idor was removed in P80-F18 (permanent no-op).
 # ---------------------------------------------------------------------------
 
 create_user  # unused function — FastAPI route handler (routers/admin_users.py P80-T80.3)
@@ -428,4 +428,3 @@ patch_user  # unused function — FastAPI route handler (routers/admin_users.py 
 delete_user  # unused function — FastAPI route handler (routers/admin_users.py P80-T80.3)
 get_audit_log  # unused function — FastAPI route handler (routers/compliance.py P80-T80.4)
 require_scope  # unused function — kept for external backward compat (dependencies/auth.py); all internal usage migrated to require_permission (P80-T80.2)
-_check_erasure_admin_idor  # unused function — called from erasure() endpoint (routers/compliance.py P80-T80.5)

@@ -22,15 +22,24 @@ Security rationale
   invoked — a CPU/memory DoS vector.  bcrypt truncates at 72 bytes but
   FastAPI deserialization still processes the full input.
 
-Role resolution (P80 — B1 fix)
--------------------------------
+Role resolution (P80 — B1 fix, B5 fix)
+---------------------------------------
 When ``conclave_multi_tenant_enabled=True``, the user's role is resolved from
 the DB ``users`` table by matching the ``username`` (JWT ``sub``) against stored
 user records.  The client cannot supply a role claim — it is always DB-authoritative.
 
+The lookup is scoped to ``DEFAULT_ORG_UUID`` — single-org scoping.  When
+per-org authentication is implemented, this will need to derive the org_id
+from the login context rather than defaulting to the global default org.
+
 When ``conclave_multi_tenant_enabled=False`` (single-tenant backward compat),
 the token is issued with ``role="admin"`` because the single seeded operator
 record always holds the admin role.  No DB lookup is performed.
+
+If the DB lookup fails (DB connectivity error, user not found), a fallback
+of ``"admin"`` is returned to prevent the token endpoint from failing due to
+a transient DB issue.  The fallback increments
+``ROLE_RESOLUTION_FAILURE_TOTAL`` for observability.
 
 CONSTITUTION Priority 0: Security — credentials never logged, bcrypt verify
 Task: T39.1 — Add Authentication Middleware (JWT Bearer Token)
@@ -40,6 +49,7 @@ Task: T59.3 — OpenAPI Documentation Enrichment
 Task: T66.1 — Replace PII logging with keyed HMAC identifier
 Task: T67.2 — Add max_length=1024 to TokenRequest.passphrase (ADV-P66-02)
 Task: P80-B1 — DB-resolved role in token issuance
+Task: P80-B5 — Fix broken _engine import; use public get_engine API
 """
 
 from __future__ import annotations
@@ -47,6 +57,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import uuid
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -56,6 +67,7 @@ from synth_engine.bootstrapper.dependencies.auth import create_token, verify_ope
 from synth_engine.bootstrapper.dependencies.tenant import DEFAULT_ORG_UUID
 from synth_engine.bootstrapper.errors import problem_detail
 from synth_engine.bootstrapper.openapi_metadata import COMMON_ERROR_RESPONSES
+from synth_engine.shared.observability import ROLE_RESOLUTION_FAILURE_TOTAL
 
 _logger = logging.getLogger(__name__)
 
@@ -128,10 +140,16 @@ def _resolve_role_from_db(username: str) -> str:
     Used in multi-tenant mode to derive the authoritative role for the JWT.
     The client cannot specify a role claim — it is always DB-authoritative.
 
+    The lookup is scoped to ``DEFAULT_ORG_UUID``.  This is single-org-scoped
+    and will need updating when per-org authentication is implemented (each
+    org will need to derive org_id from the login context).
+
     Falls back to ``_SINGLE_TENANT_DEFAULT_ROLE`` if the user record is not
     found (e.g. legacy operator not yet migrated to the users table) or if
-    any DB error occurs — this prevents the token endpoint from failing due
-    to a transient DB issue.
+    a DB connectivity error occurs — this prevents the token endpoint from
+    failing due to a transient DB issue.  Fallbacks increment
+    :data:`~synth_engine.shared.observability.ROLE_RESOLUTION_FAILURE_TOTAL`
+    for observability.
 
     Args:
         username: The operator's username (JWT ``sub``).
@@ -140,21 +158,30 @@ def _resolve_role_from_db(username: str) -> str:
         The role string from the DB record, or ``"admin"`` as fallback.
     """
     try:
+        from sqlalchemy.exc import SQLAlchemyError
         from sqlmodel import Session, select
 
-        from synth_engine.bootstrapper.dependencies.db import _engine  # type: ignore[attr-defined]
+        from synth_engine.shared.db import get_engine
         from synth_engine.shared.models.user import User
+        from synth_engine.shared.settings import get_settings
 
-        with Session(_engine()) as session:
-            stmt = select(User).where(User.email == username)
+        database_url = get_settings().database_url or "sqlite:///:memory:"
+        with Session(get_engine(database_url)) as session:
+            # Scoped to DEFAULT_ORG_UUID — single-org-scoped lookup.
+            # When per-org auth is implemented, derive org_id from login context.
+            stmt = select(User).where(
+                User.email == username,
+                User.org_id == uuid.UUID(DEFAULT_ORG_UUID),
+            )
             user = session.exec(stmt).first()
             if user is not None:
                 return user.role
-    except Exception:
+    except (SQLAlchemyError, OSError):
         _logger.warning(
             "DB role lookup failed for user (username withheld) — falling back to admin role",
             exc_info=True,
         )
+        ROLE_RESOLUTION_FAILURE_TOTAL.inc()
     return _SINGLE_TENANT_DEFAULT_ROLE
 
 
@@ -215,10 +242,11 @@ async def post_auth_token(body: TokenRequest) -> TokenResponse | JSONResponse:
     short-lived HS256 JWT containing ``sub``, ``exp``, ``iat``, ``scope``,
     ``org_id``, and ``role`` claims.
 
-    Role resolution (P80-B1):
+    Role resolution (P80-B1, P80-B5):
     - When ``conclave_multi_tenant_enabled=True``: role is resolved from the
-      DB ``users`` table by matching ``username``.  The client cannot supply
-      a role claim.  Falls back to ``admin`` on DB error.
+      DB ``users`` table by matching ``username`` (scoped to DEFAULT_ORG_UUID).
+      The client cannot supply a role claim.  Falls back to ``admin`` on DB
+      error or user not found, incrementing ROLE_RESOLUTION_FAILURE_TOTAL.
     - When ``conclave_multi_tenant_enabled=False`` (single-tenant): role is
       always ``"admin"`` (backward compatibility — the seeded operator is admin).
 

@@ -92,8 +92,8 @@ class UserListResponse(BaseModel):
 
     Attributes:
         items: List of :class:`UserResponse` records.
-        total: Total count of users in the org.
+        total: Number of users returned in this page.
     """
 
     items: list[UserResponse] = Field(default_factory=list)
-    total: int = Field(description="Total number of users in the org.")
+    total: int = Field(description="Number of users returned in this page.")
