@@ -29,6 +29,7 @@ import time
 import uuid
 from collections.abc import Generator
 from typing import Any
+from unittest.mock import MagicMock
 
 import jwt as pyjwt
 import pytest
@@ -45,7 +46,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from synth_engine.bootstrapper.schemas.connections import Connection  # noqa: F401
 from synth_engine.modules.privacy.ledger import PrivacyLedger  # noqa: F401
 from synth_engine.modules.synthesizer.jobs.job_models import SynthesisJob  # noqa: F401
-from synth_engine.shared.models.organization import Organization  # noqa: F401
+from synth_engine.shared.models.organization import Organization
 from synth_engine.shared.models.user import User
 from tests.conftest_types import PostgreSQLProc
 
@@ -125,6 +126,7 @@ def pg_sync_engine(
     """Provide a sync SQLAlchemy engine against an ephemeral PostgreSQL instance.
 
     Creates all SQLModel tables (all models imported at module level above),
+    seeds the two test organizations required by FK constraints on ``users.org_id``,
     yields the engine, then drops all tables and disposes the engine.
 
     Args:
@@ -147,6 +149,17 @@ def pg_sync_engine(
     ):
         engine = create_engine(db_url)
         SQLModel.metadata.create_all(engine)
+
+        # Seed the two test organizations.  All User inserts in these tests carry
+        # org_id FK references to _ORG_A_UUID or _ORG_B_UUID.  Without these rows
+        # the DB raises ForeignKeyViolation → 500 on every user creation request.
+        with Session(engine) as session:
+            org_a = Organization(id=uuid.UUID(_ORG_A_UUID), name="Test Org A")
+            org_b = Organization(id=uuid.UUID(_ORG_B_UUID), name="Test Org B")
+            session.add(org_a)
+            session.add(org_b)
+            session.commit()
+
         yield engine
         SQLModel.metadata.drop_all(engine)
         engine.dispose()
@@ -195,9 +208,13 @@ def _make_admin_users_client(
 ) -> TestClient:
     """Build a TestClient wired to the admin_users router with a real DB session.
 
+    Uses ``monkeypatch.setattr`` for the audit logger mock so that pytest's
+    monkeypatch machinery handles teardown automatically — no manual
+    ``patch.stop()`` call is needed and test pollution is prevented.
+
     Args:
         engine: SQLAlchemy engine from pg_sync_engine fixture.
-        monkeypatch: pytest monkeypatch for env var injection.
+        monkeypatch: pytest monkeypatch for env var injection and mock teardown.
 
     Returns:
         Configured :class:`TestClient` for the admin_users router.
@@ -222,18 +239,15 @@ def _make_admin_users_client(
 
     app.dependency_overrides[get_db_session] = _session_override
 
-    # Patch audit logger to avoid filesystem writes in integration tests
-    from unittest.mock import MagicMock, patch
-
+    # Use monkeypatch.setattr so pytest automatically reverses the patch after
+    # each test — prevents the audit mock from leaking into subsequent tests.
     mock_audit = MagicMock()
-    app.state.audit_patch = patch(
+    monkeypatch.setattr(
         "synth_engine.bootstrapper.routers.admin_users.get_audit_logger",
-        return_value=mock_audit,
+        lambda *_args, **_kwargs: mock_audit,
     )
-    app.state.audit_patch.start()
 
-    client = TestClient(app, raise_server_exceptions=False)
-    return client
+    return TestClient(app, raise_server_exceptions=False)
 
 
 # ---------------------------------------------------------------------------
