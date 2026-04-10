@@ -81,6 +81,7 @@ FROM python:3.14-slim@sha256:fb83750094b46fd6b8adaa80f66e2302ecbe45d513f6cece637
 # ---- Security: install tini (PID-1 init) and gosu (privilege drop) ---------
 # tini reaps zombie processes; gosu drops from root to appuser before exec.
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         tini \
         gosu \
