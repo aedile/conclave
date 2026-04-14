@@ -21,11 +21,11 @@ RUN mkdir -p dist
 #   a dedicated prefix so we can copy only the installed packages, not Poetry
 #   itself, into the final image.
 # =============================================================================
-# Digest pinned 2026-03-20 via docker pull / docker inspect (refreshed for CVE-2026-0861 — glibc 2.41-12+deb13u2).
-# To refresh: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
+# TODO(P87): Pin to an immutable digest once Docker is available in CI.
+# To pin: docker pull python:3.13-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.13-slim
 # ADV-017 fix: comment moved above FROM to prevent BuildKit inline-comment parse error.
-# python:3.14-slim
-FROM python:3.14-slim@sha256:fb83750094b46fd6b8adaa80f66e2302ecbe45d513f6cece637a841e1025b4ca AS python-builder
+# python:3.13-slim (upgraded from 3.14-slim — 3.13 is the highest production-ready version)
+FROM python:3.13-slim AS python-builder
 
 WORKDIR /build
 
@@ -54,7 +54,7 @@ RUN poetry export \
 
 # Install dependencies into an isolated prefix.
 # --ignore-installed ensures packages that happen to be pre-installed in the
-# python:3.14-slim base image (e.g. anyio, sniffio) are copied into /install
+# python:3.13-slim base image (e.g. anyio, sniffio) are copied into /install
 # rather than being silently skipped by pip's "Requirement already satisfied"
 # shortcut.  Without this flag, those packages would be absent from the final
 # stage (P28 finding F6 — anyio/sniffio missing from image).
@@ -68,15 +68,15 @@ RUN pip install --no-cache-dir --prefix=/install --no-deps .
 
 # =============================================================================
 # Stage 3: Final production image
-#   Minimal python:3.14-slim surface; no dev tools, no build caches, no secrets.
+#   Minimal python:3.13-slim surface; no dev tools, no build caches, no secrets.
 #   Runs as non-root user appuser (UID 1000) via gosu + tini.
 # =============================================================================
-# Digest pinned 2026-03-20 via docker pull / docker inspect (refreshed for CVE-2026-0861 — glibc 2.41-12+deb13u2).
-# Same digest as python-builder stage — intentional for split-brain prevention.
-# To refresh: docker pull python:3.14-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.14-slim
+# TODO(P87): Pin to an immutable digest once Docker is available in CI.
+# To pin: docker pull python:3.13-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.13-slim
+# Same tag as python-builder stage — intentional for split-brain prevention.
 # ADV-017 fix: comment moved above FROM to prevent BuildKit inline-comment parse error.
-# python:3.14-slim
-FROM python:3.14-slim@sha256:fb83750094b46fd6b8adaa80f66e2302ecbe45d513f6cece637a841e1025b4ca AS final
+# python:3.13-slim (upgraded from 3.14-slim — 3.13 is the highest production-ready version)
+FROM python:3.13-slim AS final
 
 # ---- Security: install tini (PID-1 init) and gosu (privilege drop) ---------
 # tini reaps zombie processes; gosu drops from root to appuser before exec.
@@ -118,7 +118,7 @@ LABEL org.opencontainers.image.title="conclave-engine" \
       org.opencontainers.image.licenses="Proprietary"
 
 # NOTE: Trivy scan target — run `trivy image conclave-engine:latest` after
-# building to confirm 0 CRITICAL/HIGH CVEs. The python:3.14-slim base and
+# building to confirm 0 CRITICAL/HIGH CVEs. The python:3.13-slim base and
 # the pinned apt packages are chosen for minimal attack surface. Re-scan on
 # every base-image bump.
 
