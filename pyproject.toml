@@ -6,7 +6,12 @@ authors = []
 license = "AGPL-3.0-or-later"
 readme = "README.md"
 packages = [{ include = "synth_engine", from = "src" }]
-
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 # ---------------------------------------------------------------------------
 # CLI entrypoints
 # ---------------------------------------------------------------------------
@@ -16,7 +21,7 @@ conclave-audit = "synth_engine.bootstrapper.cli:audit_group"
 generate-ts-types = "scripts.generate_ts_types:main"
 
 [tool.poetry.dependencies]
-python = "^3.14"
+python = ">=3.12,<3.15"
 click = ">=8.0.0,<9.0.0"
 fastapi = ">=0.115.0,<0.136.0"
 uvicorn = {version = ">=0.32.0,<0.42.0", extras = ["standard"]}
@@ -138,10 +143,10 @@ pytest-postgresql = "^7.0"
 # synthesizer group to avoid redundancy (T4.1 fix).
 # ---------------------------------------------------------------------------
 [tool.poetry.group.synthesizer.dependencies]
-torch = {version = ">=2.5.0,<3.0.0", python = ">=3.14,<3.15"}
+torch = {version = ">=2.5.0,<3.0.0", python = ">=3.12,<3.15"}
 pyarrow = ">=22.0.0,<24.0.0"
 boto3 = ">=1.35.0,<2.0.0"
-sdv = {version = ">=1.17.0,<2.0.0", python = ">=3.14,<3.15"}
+sdv = {version = ">=1.17.0,<2.0.0", python = ">=3.12,<3.15"}
 # opacus 1.5.4 — Differential Privacy for PyTorch (DP-SGD via PrivacyEngine).
 # Verified compatible: opacus>=1.4.0 requires torch>=2.0; our env has torch 2.10.0.
 # No Python version constraint needed — opacus requires python>=3.7.5.
@@ -179,7 +184,7 @@ build-backend = "poetry.core.masonry.api"
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py312"
 src = ["src"]
 
 [tool.ruff.lint]
@@ -259,7 +264,7 @@ external = ["DOC"]
 # ---------------------------------------------------------------------------
 [tool.mypy]
 strict = true
-python_version = "3.14"
+python_version = "3.12"
 mypy_path = "src"
 packages = ["synth_engine"]
 

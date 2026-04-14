@@ -168,6 +168,7 @@ files = [
 
 [package.dependencies]
 frozenlist = ">=1.1.0"
+typing-extensions = {version = ">=4.2", markers = "python_version < \"3.13\""}
 
 [[package]]
 name = "aiosqlite"
@@ -258,6 +259,7 @@ files = [
 
 [package.dependencies]
 idna = ">=2.8"
+typing_extensions = {version = ">=4.5", markers = "python_version < \"3.13\""}
 
 [package.extras]
 trio = ["trio (>=0.31.0) ; python_version < \"3.10\"", "trio (>=0.32.0) ; python_version >= \"3.10\""]
@@ -342,7 +344,10 @@ files = [
 ]
 
 [package.dependencies]
-cffi = {version = ">=2.0.0b1", markers = "python_version >= \"3.14\""}
+cffi = [
+    {version = ">=2.0.0b1", markers = "python_version >= \"3.14\""},
+    {version = ">=1.0.1", markers = "python_version < \"3.14\""},
+]
 
 [[package]]
 name = "arrow"
@@ -1514,7 +1519,6 @@ description = "Pickler class to extend the standard pickle.Pickler functionality
 optional = false
 python-versions = ">=3.8"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a"},
     {file = "cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414"},
@@ -1531,7 +1535,7 @@ files = [
     {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
-markers = {main = "platform_system == \"Windows\" or sys_platform == \"win32\"", demos = "sys_platform == \"win32\"", dev = "platform_system == \"Windows\" or sys_platform == \"win32\"", integration = "sys_platform == \"win32\"", synthesizer = "python_version == \"3.14\" and platform_system == \"Windows\""}
+markers = {main = "platform_system == \"Windows\" or sys_platform == \"win32\"", demos = "sys_platform == \"win32\"", dev = "platform_system == \"Windows\" or sys_platform == \"win32\"", integration = "sys_platform == \"win32\"", synthesizer = "platform_system == \"Windows\""}
 
 [[package]]
 name = "comm"
@@ -1647,17 +1651,31 @@ description = "Create tabular synthetic data using copulas-based modeling."
 optional = false
 python-versions = "<3.15,>=3.9"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "copulas-0.14.1-py3-none-any.whl", hash = "sha256:6f010444385a304274e7587b45f56b860ca38b621529ad0f9bbd4024de91dd1d"},
     {file = "copulas-0.14.1.tar.gz", hash = "sha256:adec8f65c98f16816bde5a03e9e7e7b3df91f3fb22ef9fd5023ebba8dd1628c8"},
 ]
 
 [package.dependencies]
-numpy = {version = ">=2.3.2", markers = "python_version >= \"3.14\""}
-pandas = {version = ">=2.3.3,<3", markers = "python_version >= \"3.14\""}
-plotly = {version = ">=5.12.0", markers = "python_version >= \"3.13\""}
-scipy = {version = ">=1.16.1", markers = "python_version >= \"3.14\""}
+numpy = [
+    {version = ">=2.3.2", markers = "python_version >= \"3.14\""},
+    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.1.0", markers = "python_version == \"3.13\""},
+]
+pandas = [
+    {version = ">=2.3.3,<3", markers = "python_version >= \"3.14\""},
+    {version = ">=2.1.1,<3", markers = "python_version == \"3.12\""},
+    {version = ">=2.2.3,<3", markers = "python_version == \"3.13\""},
+]
+plotly = [
+    {version = ">=5.12.0", markers = "python_version >= \"3.13\""},
+    {version = ">=5.10.0", markers = "python_version < \"3.13\""},
+]
+scipy = [
+    {version = ">=1.16.1", markers = "python_version >= \"3.14\""},
+    {version = ">=1.12.0", markers = "python_version == \"3.12\""},
+    {version = ">=1.14.1", markers = "python_version == \"3.13\""},
+]
 
 [package.extras]
 dev = ["Jinja2 (>=3.1.6,<3.2)", "Sphinx (>=7.4.7,<7.5)", "alabaster (>=0.7.16,<0.8)", "boto3 (>=1.37.18,<1.38)", "build (>=1.0.0)", "bump-my-version (>=0.18.3)", "copulas[test,tutorials]", "coverage (>=7.7.1,<7.8)", "docutils (>=0.21.2,<0.22)", "invoke", "lxml-html-clean (>=0.4.1,<0.5)", "myst_parser (>=3.0.1,<4.1)", "nbsphinx (>=0.9.7,<0.10)", "pip (>=9.0.1)", "ruff (>=0.3.2,<1)", "sphinx_rtd_theme (>=3.0.2,<3.1)", "sphinxcontrib-devhelp (>=2.0.0,<2.1)", "sphinxcontrib-htmlhelp (>=2.1.0,<2.2)", "sphinxcontrib_applehelp (>=2.0.0,<2.1)", "sphinxcontrib_qthelp (>=2.0.0,<2.1)", "sphinxcontrib_serializinghtml (>=2.0.0,<2.1)", "tabulate (>=0.9.0,<0.10)", "twine (>=1.10.0)", "urllib3 (>=1.26.20,<2.4)", "watchdog (>=1.0.1)", "wheel (>=0.30.0)"]
@@ -1891,17 +1909,31 @@ description = "Create tabular synthetic data using a conditional GAN"
 optional = false
 python-versions = "<3.15,>=3.9"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "ctgan-0.12.1-py3-none-any.whl", hash = "sha256:38a3b83432643caa8381c74c49e6a079166efa40f8f6c3b7204db44d6d2c8f18"},
     {file = "ctgan-0.12.1.tar.gz", hash = "sha256:e545c2b1a752affba3de2933a5f8037228e837f7a73f5593399b52cfe9611bc7"},
 ]
 
 [package.dependencies]
-numpy = {version = ">=2.3.2", markers = "python_version >= \"3.14\""}
-pandas = {version = ">=2.3.3", markers = "python_version >= \"3.14\""}
-rdt = {version = ">=1.20.0", markers = "python_version >= \"3.14\""}
-torch = {version = ">=2.9.0", markers = "python_version >= \"3.14\""}
+numpy = [
+    {version = ">=2.3.2", markers = "python_version >= \"3.14\""},
+    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.1.0", markers = "python_version == \"3.13\""},
+]
+pandas = [
+    {version = ">=2.3.3", markers = "python_version >= \"3.14\""},
+    {version = ">=2.1.1", markers = "python_version == \"3.12\""},
+    {version = ">=2.2.3", markers = "python_version == \"3.13\""},
+]
+rdt = [
+    {version = ">=1.20.0", markers = "python_version >= \"3.14\""},
+    {version = ">=1.14.0", markers = "python_version < \"3.14\""},
+]
+torch = [
+    {version = ">=2.9.0", markers = "python_version >= \"3.14\""},
+    {version = ">=2.3.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.6.0", markers = "python_version == \"3.13\""},
+]
 tqdm = ">=4.29"
 
 [package.extras]
@@ -2018,6 +2050,7 @@ packageurl-python = ">=0.11,<2"
 py-serializable = ">=2.0.0,<3.0.0"
 referencing = {version = ">=0.28.4", optional = true, markers = "extra == \"validation\" or extra == \"json-validation\""}
 sortedcontainers = ">=2.4.0,<3.0.0"
+typing_extensions = {version = ">=4.6,<5.0", markers = "python_version < \"3.13\""}
 
 [package.extras]
 json-validation = ["jsonschema[format-nongpl] (>=4.25,<5.0)", "referencing (>=0.28.4)"]
@@ -2043,7 +2076,10 @@ genson = ">=1.2.1,<2"
 inflect = ">=4.1,<8"
 isort = ">=4.3.21,<9"
 jinja2 = ">=2.10.1,<4"
-pydantic = {version = ">=2.12,<3", markers = "python_version >= \"3.14\""}
+pydantic = [
+    {version = ">=2.12,<3", markers = "python_version >= \"3.14\""},
+    {version = ">=2,<3", markers = "python_version < \"3.14\""},
+]
 pyyaml = ">=6.0.1"
 
 [package.extras]
@@ -2114,16 +2150,27 @@ description = "Create sequential synthetic data of mixed types using a GAN."
 optional = false
 python-versions = "<3.15,>=3.9"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "deepecho-0.8.1-py3-none-any.whl", hash = "sha256:1706f85e479b8be5cedfbb14d9823eee5fddff9f3d13e73691241af7bd874e84"},
     {file = "deepecho-0.8.1.tar.gz", hash = "sha256:7589d9b1be1a482a879caca7f674acf1195441de0c8ae020dd1c17a726472f86"},
 ]
 
 [package.dependencies]
-numpy = {version = ">=2.3.2", markers = "python_version >= \"3.14\""}
-pandas = {version = ">=2.3.3", markers = "python_version >= \"3.14\""}
-torch = {version = ">=2.9.0", markers = "python_version >= \"3.14\""}
+numpy = [
+    {version = ">=2.3.2", markers = "python_version >= \"3.14\""},
+    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.1.0", markers = "python_version == \"3.13\""},
+]
+pandas = [
+    {version = ">=2.3.3", markers = "python_version >= \"3.14\""},
+    {version = ">=2.1.1", markers = "python_version == \"3.12\""},
+    {version = ">=2.2.3", markers = "python_version == \"3.13\""},
+]
+torch = [
+    {version = ">=2.9.0", markers = "python_version >= \"3.14\""},
+    {version = ">=2.2.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.6.0", markers = "python_version == \"3.13\""},
+]
 tqdm = ">=4.29"
 
 [package.extras]
@@ -2660,7 +2707,6 @@ description = "Simple Python interface for Graphviz"
 optional = false
 python-versions = ">=3.9"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "graphviz-0.21-py3-none-any.whl", hash = "sha256:54f33de9f4f911d7e84e4191749cac8cc5653f815b06738c54db9a15ab8b1e42"},
     {file = "graphviz-0.21.tar.gz", hash = "sha256:20743e7183be82aaaa8ad6c93f8893c923bd6658a04c32ee115edb3c8a835f78"},
@@ -3980,7 +4026,11 @@ files = [
 ]
 
 [package.dependencies]
-pyyaml = {version = ">=6.0.3", markers = "python_version >= \"3.14\""}
+pyyaml = [
+    {version = ">=6.0.3", markers = "python_version >= \"3.14\""},
+    {version = ">=5.2", markers = "python_version < \"3.13\""},
+]
+pyyaml-ft = {version = ">=8.0.0", markers = "python_version == \"3.13\""}
 
 [[package]]
 name = "librt"
@@ -4964,7 +5014,6 @@ description = "Extremely lightweight compatibility layer between dataframe libra
 optional = false
 python-versions = ">=3.9"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "narwhals-2.18.0-py3-none-any.whl", hash = "sha256:68378155ee706ac9c5b25868ef62ecddd62947b6df7801a0a156bc0a615d2d0d"},
     {file = "narwhals-2.18.0.tar.gz", hash = "sha256:1de5cee338bc17c338c6278df2c38c0dd4290499fcf70d75e0a51d5f22a6e960"},
@@ -5539,7 +5588,11 @@ files = [
 
 [package.dependencies]
 googleapis-common-protos = ">=1.57,<2.0"
-grpcio = {version = ">=1.75.1,<2.0.0", markers = "python_version >= \"3.14\""}
+grpcio = [
+    {version = ">=1.75.1,<2.0.0", markers = "python_version >= \"3.14\""},
+    {version = ">=1.63.2,<2.0.0", markers = "python_version < \"3.13\""},
+    {version = ">=1.66.2,<2.0.0", markers = "python_version == \"3.13\""},
+]
 opentelemetry-api = ">=1.15,<2.0"
 opentelemetry-exporter-otlp-proto-common = "1.40.0"
 opentelemetry-proto = "1.40.0"
@@ -5712,7 +5765,6 @@ files = [
     {file = "packaging-25.0-py3-none-any.whl", hash = "sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"},
     {file = "packaging-25.0.tar.gz", hash = "sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f"},
 ]
-markers = {synthesizer = "python_version == \"3.14\""}
 
 [[package]]
 name = "pandas"
@@ -6085,7 +6137,6 @@ files = [
     {file = "platformdirs-4.9.4-py3-none-any.whl", hash = "sha256:68a9a4619a666ea6439f2ff250c12a853cd1cbd5158d258bd824a7df6be2f868"},
     {file = "platformdirs-4.9.4.tar.gz", hash = "sha256:1ec356301b7dc906d83f371c8f487070e99d3ccf9e501686456394622a01a934"},
 ]
-markers = {synthesizer = "python_version == \"3.14\""}
 
 [[package]]
 name = "plotly"
@@ -6094,7 +6145,6 @@ description = "An open-source interactive data visualization library for Python"
 optional = false
 python-versions = ">=3.8"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "plotly-6.6.0-py3-none-any.whl", hash = "sha256:8d6daf0f87412e0c0bfe72e809d615217ab57cc715899a1e5145135a7800d1d0"},
     {file = "plotly-6.6.0.tar.gz", hash = "sha256:b897f15f3b02028d69f755f236be890ba950d0a42d7dfc619b44e2d8cea8748c"},
@@ -6391,6 +6441,7 @@ files = [
 ]
 
 [package.dependencies]
+typing-extensions = {version = ">=4.6", markers = "python_version < \"3.13\""}
 tzdata = {version = "*", markers = "sys_platform == \"win32\""}
 
 [package.extras]
@@ -6877,6 +6928,7 @@ files = [
 
 [package.dependencies]
 pytest = ">=8.2,<10"
+typing-extensions = {version = ">=4.12", markers = "python_version < \"3.13\""}
 
 [package.extras]
 docs = ["sphinx (>=5.3)", "sphinx-rtd-theme (>=1)"]
@@ -7183,7 +7235,34 @@ files = [
     {file = "pyyaml-6.0.3-cp39-cp39-win_amd64.whl", hash = "sha256:2e71d11abed7344e42a8849600193d15b6def118602c4c176f748e4583246007"},
     {file = "pyyaml-6.0.3.tar.gz", hash = "sha256:d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"},
 ]
-markers = {synthesizer = "python_version == \"3.14\""}
+
+[[package]]
+name = "pyyaml-ft"
+version = "8.0.0"
+description = "YAML parser and emitter for Python with support for free-threading"
+optional = false
+python-versions = ">=3.13"
+groups = ["dev"]
+markers = "python_version == \"3.13\""
+files = [
+    {file = "pyyaml_ft-8.0.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:8c1306282bc958bfda31237f900eb52c9bedf9b93a11f82e1aab004c9a5657a6"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:30c5f1751625786c19de751e3130fc345ebcba6a86f6bddd6e1285342f4bbb69"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3fa992481155ddda2e303fcc74c79c05eddcdbc907b888d3d9ce3ff3e2adcfb0"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:cec6c92b4207004b62dfad1f0be321c9f04725e0f271c16247d8b39c3bf3ea42"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:06237267dbcab70d4c0e9436d8f719f04a51123f0ca2694c00dd4b68c338e40b"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:8a7f332bc565817644cdb38ffe4739e44c3e18c55793f75dddb87630f03fc254"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:7d10175a746be65f6feb86224df5d6bc5c049ebf52b89a88cf1cd78af5a367a8"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313-win_amd64.whl", hash = "sha256:58e1015098cf8d8aec82f360789c16283b88ca670fe4275ef6c48c5e30b22a96"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:e64fa5f3e2ceb790d50602b2fd4ec37abbd760a8c778e46354df647e7c5a4ebb"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:8d445bf6ea16bb93c37b42fdacfb2f94c8e92a79ba9e12768c96ecde867046d1"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8c56bb46b4fda34cbb92a9446a841da3982cdde6ea13de3fbd80db7eeeab8b49"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313t-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:dab0abb46eb1780da486f022dce034b952c8ae40753627b27a626d803926483b"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bd48d639cab5ca50ad957b6dd632c7dd3ac02a1abe0e8196a3c24a52f5db3f7a"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:052561b89d5b2a8e1289f326d060e794c21fa068aa11255fe71d65baf18a632e"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:3bb4b927929b0cb162fb1605392a321e3333e48ce616cdcfa04a839271373255"},
+    {file = "pyyaml_ft-8.0.0-cp313-cp313t-win_amd64.whl", hash = "sha256:de04cfe9439565e32f178106c51dd6ca61afaa2907d143835d501d84703d3793"},
+    {file = "pyyaml_ft-8.0.0.tar.gz", hash = "sha256:0c947dce03954c7b5d38869ed4878b2e6ff1d44b08a0d84dc83fdad205ae39ab"},
+]
 
 [[package]]
 name = "pyzmq"
@@ -7332,7 +7411,6 @@ description = "Reversible Data Transforms"
 optional = false
 python-versions = "<3.15,>=3.9"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "rdt-1.20.0-py3-none-any.whl", hash = "sha256:e239edde36fd2bc1de51c119d93105a074adc8fdd6aa1941fa50af61ccb65dac"},
     {file = "rdt-1.20.0.tar.gz", hash = "sha256:2f68e62f1a722cccea8b2ac44cfb2b1ade6e632f54684d84cf6e86c2c5fce773"},
@@ -7340,11 +7418,27 @@ files = [
 
 [package.dependencies]
 Faker = ">=17,<37.11.0 || >37.11.0"
-numpy = {version = ">=2.3.2", markers = "python_version >= \"3.14\""}
-pandas = {version = ">=2.3.3,<3", markers = "python_version >= \"3.14\""}
+numpy = [
+    {version = ">=2.3.2", markers = "python_version >= \"3.14\""},
+    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.1.0", markers = "python_version == \"3.13\""},
+]
+pandas = [
+    {version = ">=2.3.3,<3", markers = "python_version >= \"3.14\""},
+    {version = ">=2.1.1,<3", markers = "python_version == \"3.12\""},
+    {version = ">=2.2.3,<3", markers = "python_version == \"3.13\""},
+]
 python-dateutil = ">=2.9"
-scikit-learn = {version = ">=1.8.0", markers = "python_version >= \"3.14\""}
-scipy = {version = ">=1.16.1", markers = "python_version >= \"3.14\""}
+scikit-learn = [
+    {version = ">=1.8.0", markers = "python_version >= \"3.14\""},
+    {version = ">=1.3.1", markers = "python_version == \"3.12\""},
+    {version = ">=1.5.2", markers = "python_version == \"3.13\""},
+]
+scipy = [
+    {version = ">=1.16.1", markers = "python_version >= \"3.14\""},
+    {version = ">=1.12.0", markers = "python_version == \"3.12\""},
+    {version = ">=1.14.1", markers = "python_version == \"3.13\""},
+]
 
 [package.extras]
 copulas = ["copulas (>=0.12.1) ; python_version < \"3.14\"", "copulas (>=0.14.0) ; python_version >= \"3.14\""]
@@ -7387,6 +7481,7 @@ files = [
 [package.dependencies]
 attrs = ">=22.2.0"
 rpds-py = ">=0.7.0"
+typing-extensions = {version = ">=4.4.0", markers = "python_version < \"3.13\""}
 
 [[package]]
 name = "requests"
@@ -7794,19 +7889,37 @@ description = "Metrics for Synthetic Data Generation Projects"
 optional = false
 python-versions = "<3.15,>=3.9"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "sdmetrics-0.27.2-py3-none-any.whl", hash = "sha256:c6ebb17850716bd290e7fb39c6bc520b2752c85961e5bafd63ca1fb55aa0adc1"},
     {file = "sdmetrics-0.27.2.tar.gz", hash = "sha256:afb5b5b7084b62dbcecb3fdaeeac67e1c4ba4ed05f760342336bf67ea4e5cc52"},
 ]
 
 [package.dependencies]
-copulas = {version = ">=0.14.0", markers = "python_version >= \"3.14\""}
-numpy = {version = ">=2.3.2", markers = "python_version >= \"3.14\""}
-pandas = {version = ">=2.3.3,<3.0.0", markers = "python_version >= \"3.14\""}
+copulas = [
+    {version = ">=0.14.0", markers = "python_version >= \"3.14\""},
+    {version = ">=0.12.1", markers = "python_version < \"3.14\""},
+]
+numpy = [
+    {version = ">=2.3.2", markers = "python_version >= \"3.14\""},
+    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.1.0", markers = "python_version == \"3.13\""},
+]
+pandas = [
+    {version = ">=2.3.3,<3.0.0", markers = "python_version >= \"3.14\""},
+    {version = ">=2.1.1,<3.0.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.2.3,<3.0.0", markers = "python_version == \"3.13\""},
+]
 plotly = ">=5.19.0"
-scikit-learn = {version = ">=1.8.0", markers = "python_version >= \"3.14\""}
-scipy = {version = ">=1.16.1", markers = "python_version >= \"3.14\""}
+scikit-learn = [
+    {version = ">=1.8.0", markers = "python_version >= \"3.14\""},
+    {version = ">=1.3.1", markers = "python_version == \"3.12\""},
+    {version = ">=1.5.2", markers = "python_version == \"3.13\""},
+]
+scipy = [
+    {version = ">=1.16.1", markers = "python_version >= \"3.14\""},
+    {version = ">=1.12.0", markers = "python_version == \"3.12\""},
+    {version = ">=1.14.1", markers = "python_version == \"3.13\""},
+]
 tqdm = ">=4.29"
 
 [package.extras]
@@ -7824,7 +7937,6 @@ description = "Generate synthetic data for single table, multi table and sequent
 optional = false
 python-versions = "<3.15,>=3.9"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "sdv-1.34.3-py3-none-any.whl", hash = "sha256:19e89eb0f48baf971a30b2dd5fcb9272d9939a7206813277542da4c50d5d238e"},
     {file = "sdv-1.34.3.tar.gz", hash = "sha256:e85238b9bbde276a9386c9221b7749f35a4e02ba53467674ee8123afb85be474"},
@@ -7833,17 +7945,43 @@ files = [
 [package.dependencies]
 boto3 = ">=1.28,<2.0.0"
 botocore = ">=1.31,<2.0.0"
-cloudpickle = {version = ">=3.1.1", markers = "python_version >= \"3.14\""}
-copulas = {version = ">=0.14.0", markers = "python_version >= \"3.14\""}
-ctgan = {version = ">=0.12.0", markers = "python_version >= \"3.14\""}
-deepecho = {version = ">=0.8.0", markers = "python_version >= \"3.14\""}
+cloudpickle = [
+    {version = ">=3.1.1", markers = "python_version >= \"3.14\""},
+    {version = ">=2.1.0", markers = "python_version < \"3.14\""},
+]
+copulas = [
+    {version = ">=0.14.0", markers = "python_version >= \"3.14\""},
+    {version = ">=0.12.1", markers = "python_version < \"3.14\""},
+]
+ctgan = [
+    {version = ">=0.12.0", markers = "python_version >= \"3.14\""},
+    {version = ">=0.11.1", markers = "python_version < \"3.14\""},
+]
+deepecho = [
+    {version = ">=0.8.0", markers = "python_version >= \"3.14\""},
+    {version = ">=0.7.0", markers = "python_version < \"3.14\""},
+]
 graphviz = ">=0.13.2"
-numpy = {version = ">=2.3.2", markers = "python_version >= \"3.14\""}
-pandas = {version = ">=2.3.3,<3", markers = "python_version >= \"3.14\""}
+numpy = [
+    {version = ">=2.3.2", markers = "python_version >= \"3.14\""},
+    {version = ">=1.26.0", markers = "python_version == \"3.12\""},
+    {version = ">=2.1.0", markers = "python_version == \"3.13\""},
+]
+pandas = [
+    {version = ">=2.3.3,<3", markers = "python_version >= \"3.14\""},
+    {version = ">=2.1.1,<3", markers = "python_version == \"3.12\""},
+    {version = ">=2.2.3,<3", markers = "python_version == \"3.13\""},
+]
 platformdirs = ">=4.0"
 pyyaml = ">=6.0.1"
-rdt = {version = ">=1.20.0", markers = "python_version >= \"3.14\""}
-sdmetrics = {version = ">=0.26.0", markers = "python_version >= \"3.14\""}
+rdt = [
+    {version = ">=1.20.0", markers = "python_version >= \"3.14\""},
+    {version = ">=1.18.2", markers = "python_version < \"3.14\""},
+]
+sdmetrics = [
+    {version = ">=0.26.0", markers = "python_version >= \"3.14\""},
+    {version = ">=0.21.0", markers = "python_version < \"3.14\""},
+]
 tqdm = ">=4.29"
 
 [package.extras]
@@ -8244,6 +8382,7 @@ files = [
 
 [package.dependencies]
 anyio = ">=3.6.2,<5"
+typing-extensions = {version = ">=4.10.0", markers = "python_version < \"3.13\""}
 
 [package.extras]
 full = ["httpx (>=0.27.0,<0.29.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.18)", "pyyaml"]
@@ -8542,7 +8681,6 @@ description = "Fast, Extensible Progress Meter"
 optional = false
 python-versions = ">=3.7"
 groups = ["synthesizer"]
-markers = "python_version == \"3.14\""
 files = [
     {file = "tqdm-4.67.3-py3-none-any.whl", hash = "sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf"},
     {file = "tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb"},
@@ -8661,11 +8799,12 @@ version = "4.15.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
 optional = false
 python-versions = ">=3.9"
-groups = ["main", "demos", "dev", "synthesizer"]
+groups = ["main", "demos", "dev", "integration", "synthesizer"]
 files = [
     {file = "typing_extensions-4.15.0-py3-none-any.whl", hash = "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"},
     {file = "typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466"},
 ]
+markers = {integration = "python_version == \"3.12\""}
 
 [[package]]
 name = "typing-inspection"
@@ -9389,5 +9528,5 @@ type = ["pytest-mypy"]
 
 [metadata]
 lock-version = "2.1"
-python-versions = "^3.14"
-content-hash = "fb62d79bc17f72077572594d7eeca10afff7dcf4deb131a93b3d615b502fe33d"
+python-versions = ">=3.12,<3.15"
+content-hash = "2bb6789e7665e64fbd7e2c0e20978e5f2e8e97ad9c7ca30b36cf12615c9ef0f6"
