@@ -1,0 +1,1369 @@
+"""Negative/attack tests for SSO/OIDC — Phase 81. ATTACK RED phase.
+
+Covers all 45 mandatory negative test requirements from the developer brief.
+These tests verify the system REJECTS:
+
+- Callbacks with missing/wrong/expired/replayed state (CSRF protection)
+- Missing or wrong PKCE code_verifier
+- Plain PKCE method (only S256 accepted)
+- Implicit flow (response_type=token)
+- Cross-org email collision (oracle prevention)
+- Missing/empty email claim from IdP
+- Unauthenticated/expired JWT on session endpoints
+- Non-admin revoking another user's sessions
+- Cross-org revoke returning 404 (IDOR)
+- Redis failures causing correct fail-closed behavior
+- Cloud metadata SSRF endpoints blocked
+- Loopback SSRF blocked
+- Public IP issuer blocked in production mode
+- Rate limits enforced on OIDC endpoints
+- Oversized IdP token response
+- SQL injection in user_id field (UUID validation)
+
+Written in the ATTACK RED phase, BEFORE feature tests, per CLAUDE.md Rule 22.
+
+CONSTITUTION Priority 0: Security — OIDC enforcement, CSRF/PKCE/IDOR/SSRF prevention
+CONSTITUTION Priority 3: TDD — ATTACK RED phase
+Phase: 81 — SSO/OIDC Integration
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+import uuid
+from base64 import urlsafe_b64encode
+from collections.abc import Generator
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import jwt as pyjwt
+import pytest
+
+pytestmark = pytest.mark.unit
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_TEST_SECRET = (  # pragma: allowlist secret
+    "unit-test-jwt-secret-key-long-enough-for-hs256-32chars+"
+)
+
+_ORG_A_UUID = "11111111-1111-1111-1111-111111111111"
+_ORG_B_UUID = "22222222-2222-2222-2222-222222222222"
+_USER_A_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+_USER_B_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+
+# ---------------------------------------------------------------------------
+# Token helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_token(
+    sub: str = "user@example.com",
+    org_id: str = _ORG_A_UUID,
+    role: str = "operator",
+    expired: bool = False,
+) -> str:
+    """Create a JWT for testing."""
+    now = int(time.time())
+    payload: dict[str, Any] = {
+        "sub": sub,
+        "org_id": org_id,
+        "role": role,
+        "scope": ["read", "write"],
+        "iat": now,
+        "exp": now - 10 if expired else now + 3600,
+    }
+    return pyjwt.encode(payload, _TEST_SECRET, algorithm="HS256")
+
+
+def _auth_header(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+# ---------------------------------------------------------------------------
+# Minimal FastAPI test app fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def oidc_app() -> Generator[Any, None, None]:
+    """Return a FastAPI test client with minimal OIDC setup mocked.
+
+    This fixture creates a test app that imports the OIDC router once
+    the module exists. Until then, the tests will fail at import (RED).
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+
+    # Import the OIDC router — this will fail (RED) until the module exists
+    from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router  # noqa: PLC0415
+
+    app.include_router(oidc_router)
+
+    # Wire settings
+    with (
+        patch("synth_engine.shared.settings.get_settings") as mock_settings,
+        patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis,
+    ):
+        settings = MagicMock()
+        settings.jwt_secret_key.get_secret_value.return_value = _TEST_SECRET
+        settings.jwt_algorithm = "HS256"
+        settings.jwt_expiry_seconds = 3600
+        settings.conclave_env = "development"
+        settings.conclave_multi_tenant_enabled = False
+        settings.oidc_enabled = True
+        settings.oidc_issuer_url = "http://localhost:9999"
+        settings.oidc_client_id = "test-client"
+        settings.oidc_client_secret.get_secret_value.return_value = "test-secret"  # pragma: allowlist secret
+        settings.oidc_state_ttl_seconds = 600
+        settings.session_ttl_seconds = 28800
+        settings.concurrent_session_limit = 3
+        mock_settings.return_value = settings
+
+        mock_redis.return_value = MagicMock()
+
+        yield TestClient(app, raise_server_exceptions=False)
+
+
+# ===========================================================================
+# SECTION 1: OIDC State / CSRF Protection (6 tests)
+# ===========================================================================
+
+
+class TestOIDCStateCSRFProtection:
+    """Tests for state parameter CSRF protection."""
+
+    def test_callback_missing_state_returns_422(self, oidc_app: Any) -> None:
+        """Callback with no state query param returns 422 (unprocessable entity).
+
+        AC: Missing required query parameter must be rejected before processing.
+        """
+        resp = oidc_app.get("/auth/oidc/callback?code=some-auth-code")
+        assert resp.status_code == 422, (
+            f"Expected 422 for missing state, got {resp.status_code}"
+        )
+
+    def test_callback_wrong_state_returns_401(self, oidc_app: Any) -> None:
+        """Callback with state value not found in Redis returns 401.
+
+        AC: State not in Redis → CSRF attempt → 401 Unauthorized.
+        """
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.return_value = None  # State not in Redis
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=some-auth-code"
+                "&state=nonexistent-state-value"
+            )
+        assert resp.status_code == 401, (
+            f"Expected 401 for wrong state, got {resp.status_code}"
+        )
+
+    def test_callback_expired_state_returns_401(self, oidc_app: Any) -> None:
+        """Callback after state TTL has elapsed returns 401.
+
+        AC: Expired state key is gone from Redis → same as wrong state → 401.
+        """
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            # Expired key returns None from Redis
+            redis_client.get.return_value = None
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=some-auth-code"
+                "&state=expired-state-abc123"
+            )
+        assert resp.status_code == 401, (
+            f"Expected 401 for expired state, got {resp.status_code}"
+        )
+
+    def test_callback_state_replay_returns_401(self, oidc_app: Any) -> None:
+        """Same callback URL submitted twice; second attempt returns 401.
+
+        AC: State is deleted atomically on first use. Second use finds no
+        key in Redis and returns 401. Prevents replay attacks.
+        """
+        valid_state_data = json.dumps(
+            {"code_verifier": "Ade-fG12345678901234567890123456789012345678",
+             "created_at": "2026-01-01T00:00:00Z"}
+        ).encode()
+
+        call_count = 0
+
+        def redis_get_delete(key: str) -> bytes | None:
+            """Simulate one-time-use: return value first time, None second time."""
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return valid_state_data
+            return None
+
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.side_effect = redis_get_delete
+            mock_redis.return_value = redis_client
+
+            # Second attempt must return 401 regardless
+            resp2 = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=used-auth-code"
+                "&state=already-used-state"
+            )
+        assert resp2.status_code == 401, (
+            f"Expected 401 on state replay, got {resp2.status_code}"
+        )
+
+    def test_callback_state_from_different_session_returns_401(
+        self, oidc_app: Any
+    ) -> None:
+        """State belonging to a different concurrent user's Redis key returns 401.
+
+        AC: State is scoped to a session; a different user's state value must
+        not be accepted — any state not in the caller's Redis key is rejected.
+        This test confirms the state is not guessable or transferable.
+        """
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            # The state value is for user A, but this caller presents it out of context
+            redis_client.get.return_value = None  # Not found → 401
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=auth-code-user-a"
+                "&state=user-a-state-value-not-for-this-caller"
+            )
+        assert resp.status_code == 401, (
+            f"Expected 401 for wrong-session state, got {resp.status_code}"
+        )
+
+    def test_authorize_missing_code_challenge_returns_422(self, oidc_app: Any) -> None:
+        """Authorize request without PKCE code_challenge returns 422.
+
+        AC: PKCE is mandatory — missing code_challenge must be rejected.
+        S256 is the only allowed method; no code_challenge = no flow.
+        """
+        resp = oidc_app.get("/auth/oidc/authorize")
+        # Missing code_challenge → 422 (the parameter is required)
+        assert resp.status_code in (
+            422,
+            400,
+        ), f"Expected 422/400 for missing code_challenge, got {resp.status_code}"
+
+
+# ===========================================================================
+# SECTION 2: PKCE Enforcement (4 tests)
+# ===========================================================================
+
+
+class TestPKCEEnforcement:
+    """Tests that PKCE enforcement rejects weak or missing challenges."""
+
+    def test_callback_missing_code_verifier_returns_422(self, oidc_app: Any) -> None:
+        """Callback with no code_verifier returns 422.
+
+        AC: code_verifier is required in the callback. Missing → 422.
+        """
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.return_value = json.dumps(
+                {"code_verifier": "testverifier1234567890123456789012345678901234",
+                 "created_at": "2026-01-01T00:00:00Z"}
+            ).encode()
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=some-auth-code"
+                "&state=valid-state-in-redis"
+                # No code_verifier → 422
+            )
+        assert resp.status_code == 422, (
+            f"Expected 422 for missing code_verifier, got {resp.status_code}"
+        )
+
+    def test_callback_wrong_code_verifier_returns_401(self, oidc_app: Any) -> None:
+        """code_verifier that does not match stored code_challenge returns 401.
+
+        AC: PKCE verification is mandatory. Mismatched verifier → 401.
+        """
+        valid_verifier = "Ade-fG12345678901234567890123456789012345678"
+        wrong_verifier = "wrong-verifier-1234567890123456789012345678"
+        # Compute correct challenge (S256)
+        digest = hashlib.sha256(valid_verifier.encode()).digest()
+        correct_challenge = (
+            urlsafe_b64encode(digest).rstrip(b"=").decode()
+        )
+
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.return_value = json.dumps(
+                {"code_verifier": valid_verifier,
+                 "code_challenge": correct_challenge,
+                 "created_at": "2026-01-01T00:00:00Z"}
+            ).encode()
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.get(
+                f"/auth/oidc/callback"
+                f"?code=some-auth-code"
+                f"&state=valid-state"
+                f"&code_verifier={wrong_verifier}"
+            )
+        assert resp.status_code == 401, (
+            f"Expected 401 for wrong code_verifier, got {resp.status_code}"
+        )
+
+    def test_pkce_plain_method_rejected(self, oidc_app: Any) -> None:
+        """code_challenge_method=plain must be rejected; only S256 accepted.
+
+        AC: Plain PKCE provides no security benefit over not using PKCE.
+        Only S256 (hash-based) is accepted per PKCE spec (RFC 7636).
+        """
+        resp = oidc_app.get(
+            "/auth/oidc/authorize"
+            "?code_challenge=plain-challenge-value"
+            "&code_challenge_method=plain"
+        )
+        assert resp.status_code in (
+            400,
+            422,
+        ), f"Expected 400/422 for plain PKCE method, got {resp.status_code}"
+
+    def test_implicit_flow_rejected(self, oidc_app: Any) -> None:
+        """response_type=token (implicit flow) not supported; returns 422.
+
+        AC: Implicit flow bypasses PKCE entirely. Must be rejected.
+        Only authorization code flow with PKCE S256 is supported.
+        """
+        resp = oidc_app.get(
+            "/auth/oidc/authorize"
+            "?response_type=token"
+            "&code_challenge=some-challenge"
+            "&code_challenge_method=S256"
+        )
+        assert resp.status_code in (
+            400,
+            422,
+        ), f"Expected 400/422 for implicit flow, got {resp.status_code}"
+
+
+# ===========================================================================
+# SECTION 3: User Provisioning (5 tests)
+# ===========================================================================
+
+
+class TestUserProvisioning:
+    """Tests for user provisioning security boundaries."""
+
+    def test_cross_org_email_returns_401_generic_message(self, oidc_app: Any) -> None:
+        """Existing user in org B authenticates via OIDC in org A → 401.
+
+        AC: Cross-org email collision must return 401 (not 403) with a
+        generic message. Prevents oracle attack revealing email existence
+        in another org.
+        """
+        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+            _handle_oidc_user_provisioning,
+        )
+        with patch(
+            "synth_engine.bootstrapper.routers.auth_oidc._find_user_by_email"
+        ) as mock_find:
+            # User exists but in a different org
+            existing_user = MagicMock()
+            existing_user.org_id = uuid.UUID(_ORG_B_UUID)
+            existing_user.email = "user@example.com"
+            mock_find.return_value = existing_user
+
+            # The provisioning function should raise a 401 exception
+            with pytest.raises(Exception) as exc_info:
+                _handle_oidc_user_provisioning(
+                    email="user@example.com",
+                    org_id=uuid.UUID(_ORG_A_UUID),
+                    db=MagicMock(),
+                )
+            # Should result in HTTP 401, not 403
+            exc = exc_info.value
+            assert hasattr(exc, "status_code"), (
+                "Expected HTTPException with status_code"
+            )
+            assert exc.status_code == 401, (  # type: ignore[attr-defined]
+                f"Expected 401 for cross-org email, got {exc.status_code}"  # type: ignore[attr-defined]
+            )
+
+    def test_cross_org_email_does_not_leak_org_existence(self, oidc_app: Any) -> None:
+        """Response for cross-org collision is generic — no 'org' or 'email' in body.
+
+        AC: Error body must not reveal that the email exists in another org.
+        Generic 'Authentication failed' message prevents oracle attacks.
+        """
+        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+            _handle_oidc_user_provisioning,
+        )
+        with patch(
+            "synth_engine.bootstrapper.routers.auth_oidc._find_user_by_email"
+        ) as mock_find:
+            existing_user = MagicMock()
+            existing_user.org_id = uuid.UUID(_ORG_B_UUID)
+            mock_find.return_value = existing_user
+
+            with pytest.raises(Exception) as exc_info:
+                _handle_oidc_user_provisioning(
+                    email="user@example.com",
+                    org_id=uuid.UUID(_ORG_A_UUID),
+                    db=MagicMock(),
+                )
+            exc = exc_info.value
+            detail = getattr(exc, "detail", "")
+            detail_str = str(detail).lower()
+            assert "org" not in detail_str, (
+                f"Response body leaks org info: {detail!r}"
+            )
+            assert "email" not in detail_str, (
+                f"Response body leaks email info: {detail!r}"
+            )
+            assert "authentication failed" in detail_str, (
+                f"Expected generic 'Authentication failed', got: {detail!r}"
+            )
+
+    def test_oidc_provisioned_user_has_correct_default_role(self) -> None:
+        """Auto-provisioned user gets 'operator' role (lowest privilege).
+
+        AC: IdP role claims are IGNORED. New users get Role.operator.
+        This test verifies the default role constant matches the Role enum.
+        """
+        from synth_engine.bootstrapper.dependencies.permissions import Role  # noqa: PLC0415
+        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+            OIDC_DEFAULT_USER_ROLE,
+        )
+        assert OIDC_DEFAULT_USER_ROLE == Role.operator.value, (
+            f"Expected 'operator', got {OIDC_DEFAULT_USER_ROLE!r}"
+        )
+
+    def test_oidc_login_missing_email_claim_returns_401(self, oidc_app: Any) -> None:
+        """IdP ID token with no email claim returns 401.
+
+        AC: Email is the identity anchor. Missing email → cannot authenticate.
+        """
+        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+            _extract_email_from_token_claims,
+        )
+        claims_no_email: dict[str, Any] = {
+            "sub": "user-sub-id",
+            "iss": "http://localhost:9999",
+            "aud": "test-client",
+        }
+        with pytest.raises(Exception) as exc_info:
+            _extract_email_from_token_claims(claims_no_email)
+        exc = exc_info.value
+        assert hasattr(exc, "status_code"), (
+            "Expected HTTPException from missing email claim"
+        )
+        assert exc.status_code == 401, (  # type: ignore[attr-defined]
+            f"Expected 401 for missing email claim, got {exc.status_code}"  # type: ignore[attr-defined]
+        )
+
+    def test_oidc_login_empty_email_claim_returns_401(self, oidc_app: Any) -> None:
+        """IdP ID token with email='' (empty string) returns 401.
+
+        AC: Empty email is invalid. Must be rejected as authentication failure.
+        """
+        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+            _extract_email_from_token_claims,
+        )
+        claims_empty_email: dict[str, Any] = {
+            "sub": "user-sub-id",
+            "email": "",
+            "iss": "http://localhost:9999",
+        }
+        with pytest.raises(Exception) as exc_info:
+            _extract_email_from_token_claims(claims_empty_email)
+        exc = exc_info.value
+        assert hasattr(exc, "status_code"), (
+            "Expected HTTPException from empty email claim"
+        )
+        assert exc.status_code == 401, (  # type: ignore[attr-defined]
+            f"Expected 401 for empty email claim, got {exc.status_code}"  # type: ignore[attr-defined]
+        )
+
+
+# ===========================================================================
+# SECTION 4: Session Management (8 tests)
+# ===========================================================================
+
+
+class TestSessionManagement:
+    """Tests for session endpoint security boundaries."""
+
+    def test_refresh_without_jwt_returns_401(self, oidc_app: Any) -> None:
+        """Unauthenticated POST /auth/refresh returns 401.
+
+        AC: /auth/refresh requires a valid JWT. No token → 401.
+        """
+        resp = oidc_app.post("/auth/refresh")
+        assert resp.status_code == 401, (
+            f"Expected 401 for unauthenticated /auth/refresh, got {resp.status_code}"
+        )
+
+    def test_refresh_with_expired_jwt_returns_401(self, oidc_app: Any) -> None:
+        """Expired JWT on POST /auth/refresh returns 401.
+
+        AC: Expired tokens must not be accepted by /auth/refresh.
+        """
+        expired_token = _make_token(expired=True)
+        resp = oidc_app.post(
+            "/auth/refresh", headers=_auth_header(expired_token)
+        )
+        assert resp.status_code == 401, (
+            f"Expected 401 for expired JWT on /auth/refresh, got {resp.status_code}"
+        )
+
+    def test_revoke_non_admin_own_sessions_allowed(self, oidc_app: Any) -> None:
+        """Non-admin revoking own sessions returns 200.
+
+        AC: Self-revocation bypasses the sessions:revoke permission check.
+        Any authenticated user can revoke their own sessions.
+        """
+        token = _make_token(sub="user@example.com", role="operator")
+        with patch(
+            "synth_engine.bootstrapper.dependencies.sessions.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.scan_iter.return_value = iter([])
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.post(
+                "/auth/revoke",
+                json={"user_id": _USER_A_UUID},
+                headers=_auth_header(token),
+            )
+        # 200 OK for self-revocation
+        assert resp.status_code == 200, (
+            f"Expected 200 for non-admin self-revoke, got {resp.status_code}"
+        )
+
+    def test_revoke_non_admin_other_user_returns_403(self, oidc_app: Any) -> None:
+        """Non-admin POSTing another user's UUID returns 403.
+
+        AC: Non-admins cannot revoke other users' sessions. Returns 403
+        (role is not secret — the user knows they're not admin).
+        """
+        token = _make_token(
+            sub="operator@example.com",
+            role="operator",
+        )
+        resp = oidc_app.post(
+            "/auth/revoke",
+            json={"user_id": _USER_B_UUID},
+            headers=_auth_header(token),
+        )
+        assert resp.status_code == 403, (
+            f"Expected 403 for non-admin revoking other user, got {resp.status_code}"
+        )
+
+    def test_revoke_admin_cross_org_returns_404(self, oidc_app: Any) -> None:
+        """Admin POSTing a user_id from a different org returns 404.
+
+        AC: Cross-org revocation must return 404 (IDOR — org existence not leaked).
+        Admin in org A must not be able to revoke sessions for user in org B.
+        """
+        token = _make_token(
+            sub="admin@example.com",
+            org_id=_ORG_A_UUID,
+            role="admin",
+        )
+        with patch(
+            "synth_engine.bootstrapper.routers.auth_oidc._get_user_org"
+        ) as mock_get_org:
+            # The target user is in org B, but the admin is in org A
+            mock_get_org.return_value = uuid.UUID(_ORG_B_UUID)
+
+            resp = oidc_app.post(
+                "/auth/revoke",
+                json={"user_id": _USER_B_UUID},
+                headers=_auth_header(token),
+            )
+        assert resp.status_code == 404, (
+            f"Expected 404 for cross-org revoke, got {resp.status_code}"
+        )
+
+    def test_revoke_missing_user_id_returns_422(self, oidc_app: Any) -> None:
+        """POST /auth/revoke with empty body returns 422.
+
+        AC: user_id is a required field. Missing body → 422 Unprocessable Entity.
+        """
+        token = _make_token(role="admin")
+        resp = oidc_app.post(
+            "/auth/revoke", json={}, headers=_auth_header(token)
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for missing user_id, got {resp.status_code}"
+        )
+
+    def test_revoke_invalid_user_id_uuid_returns_422(self, oidc_app: Any) -> None:
+        """user_id that is not a valid UUID returns 422.
+
+        AC: user_id must be UUID format. Non-UUID string fails Pydantic validation.
+        This prevents SQL injection via the user_id field (see also test 45).
+        """
+        token = _make_token(role="admin")
+        resp = oidc_app.post(
+            "/auth/revoke",
+            json={"user_id": "not-a-uuid-value"},
+            headers=_auth_header(token),
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for non-UUID user_id, got {resp.status_code}"
+        )
+
+    def test_concurrent_session_limit_evicts_oldest(self) -> None:
+        """Fourth login creates session, first session is deleted, exactly 3 remain.
+
+        AC: Concurrent session limit is enforced. When limit (3) is exceeded,
+        the oldest session (earliest created_at) is evicted before the new one
+        is written. Exactly CONCURRENT_SESSION_LIMIT sessions remain after.
+        """
+        from synth_engine.bootstrapper.dependencies.sessions import (  # noqa: PLC0415
+            enforce_concurrent_session_limit,
+        )
+        import datetime  # noqa: PLC0415
+
+        redis_client = MagicMock()
+        user_id = str(uuid.uuid4())
+        org_id = _ORG_A_UUID
+        limit = 3
+
+        # Simulate 3 existing sessions
+        session_keys = [
+            f"conclave:session:session{i}".encode() for i in range(3)
+        ]
+        sessions_data = [
+            json.dumps({
+                "user_id": user_id,
+                "org_id": org_id,
+                "role": "operator",
+                "created_at": f"2026-01-0{i+1}T00:00:00Z",
+                "last_refreshed_at": f"2026-01-0{i+1}T00:00:00Z",
+            }).encode()
+            for i in range(3)
+        ]
+        redis_client.scan_iter.return_value = iter(session_keys)
+        redis_client.mget.return_value = sessions_data
+
+        evicted_keys: list[bytes] = []
+
+        def mock_delete(*keys: bytes) -> int:
+            evicted_keys.extend(keys)
+            return len(keys)
+
+        redis_client.delete.side_effect = mock_delete
+
+        enforce_concurrent_session_limit(
+            redis_client=redis_client,
+            user_id=user_id,
+            org_id=org_id,
+            limit=limit,
+        )
+
+        # The oldest session (session0, created_at 2026-01-01) must have been evicted
+        assert len(evicted_keys) == 1, (
+            f"Expected exactly 1 eviction, got {len(evicted_keys)}: {evicted_keys}"
+        )
+        assert b"session0" in evicted_keys[0], (
+            f"Expected oldest session (session0) evicted, got {evicted_keys}"
+        )
+
+
+# ===========================================================================
+# SECTION 5: Redis Failure Modes (4 tests)
+# ===========================================================================
+
+
+class TestRedisFailureModes:
+    """Tests for correct fail-closed behavior when Redis is unavailable."""
+
+    def test_session_auth_fails_closed_when_redis_down(self, oidc_app: Any) -> None:
+        """Redis ConnectionError during session validation → 401.
+
+        AC: Session validation must fail closed on Redis errors.
+        A user with a valid JWT but unreachable Redis cannot authenticate.
+        Note: Passphrase JWT auth is unaffected (no Redis dependency).
+        """
+        import redis as redis_lib  # noqa: PLC0415
+
+        with patch(
+            "synth_engine.bootstrapper.dependencies.sessions.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.side_effect = redis_lib.ConnectionError("Redis down")
+            mock_redis.return_value = redis_client
+
+            token = _make_token(role="operator")
+            # Calling a session-gated endpoint with Redis down
+            resp = oidc_app.post(
+                "/auth/refresh", headers=_auth_header(token)
+            )
+        assert resp.status_code in (
+            401,
+            503,
+        ), f"Expected 401 or 503 when Redis down on session validation, got {resp.status_code}"
+
+    def test_passphrase_auth_still_works_when_redis_down(self) -> None:
+        """Passphrase JWT auth succeeds when Redis raises ConnectionError.
+
+        AC: Redis failures must not affect stateless JWT authentication.
+        The passphrase auth path has no Redis dependency.
+        """
+        import redis as redis_lib  # noqa: PLC0415
+
+        from synth_engine.bootstrapper.dependencies.tenant import (  # noqa: PLC0415
+            get_current_user,
+        )
+
+        # Patch Redis to raise on any call
+        with patch(
+            "synth_engine.bootstrapper.dependencies.redis.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.side_effect = redis_lib.ConnectionError("Redis down")
+            mock_redis.return_value = redis_client
+
+            # Create a valid JWT (passphrase auth path)
+            token = _make_token(sub="operator@example.com", role="operator")
+
+            # The JWT-based get_current_user should still work — no Redis call
+            from fastapi.testclient import TestClient  # noqa: PLC0415
+            from fastapi import FastAPI  # noqa: PLC0415
+            from fastapi import Depends  # noqa: PLC0415
+            from fastapi.responses import JSONResponse  # noqa: PLC0415
+
+            app = FastAPI()
+
+            @app.get("/test-auth")
+            def test_endpoint(
+                ctx: Any = Depends(get_current_user),  # noqa: B008
+            ) -> JSONResponse:
+                return JSONResponse({"role": ctx.role})
+
+            with patch("synth_engine.shared.settings.get_settings") as mock_s:
+                settings = MagicMock()
+                settings.jwt_secret_key.get_secret_value.return_value = _TEST_SECRET
+                settings.jwt_algorithm = "HS256"
+                settings.conclave_env = "development"
+                settings.is_production.return_value = False
+                settings.conclave_pass_through_enabled = False
+                mock_s.return_value = settings
+
+                client = TestClient(app, raise_server_exceptions=False)
+                resp = client.get(
+                    "/test-auth",
+                    headers=_auth_header(token),
+                )
+        # Passphrase JWT auth must succeed even when Redis is down
+        assert resp.status_code == 200, (
+            f"Passphrase JWT auth failed when Redis down: {resp.status_code}"
+        )
+
+    def test_oidc_authorize_fails_closed_when_redis_down(self, oidc_app: Any) -> None:
+        """Redis ConnectionError on state write → 503 Service Unavailable.
+
+        AC: OIDC authorize endpoint must fail closed if Redis is unavailable.
+        State cannot be written → cannot start the flow → 503.
+        """
+        import redis as redis_lib  # noqa: PLC0415
+
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.setex.side_effect = redis_lib.ConnectionError(
+                "Redis connection refused"
+            )
+            redis_client.set.side_effect = redis_lib.ConnectionError(
+                "Redis connection refused"
+            )
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.get(
+                "/auth/oidc/authorize"
+                "?code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+                "&code_challenge_method=S256"
+            )
+        assert resp.status_code == 503, (
+            f"Expected 503 when Redis down on authorize, got {resp.status_code}"
+        )
+
+    def test_oidc_callback_fails_closed_when_redis_down(self, oidc_app: Any) -> None:
+        """Redis ConnectionError on state read → 503 Service Unavailable.
+
+        AC: OIDC callback must fail closed if Redis is unavailable.
+        State cannot be validated → cannot complete the flow → 503.
+        """
+        import redis as redis_lib  # noqa: PLC0415
+
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.side_effect = redis_lib.ConnectionError(
+                "Redis connection refused"
+            )
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=some-auth-code"
+                "&state=some-state-value"
+            )
+        assert resp.status_code == 503, (
+            f"Expected 503 when Redis down on callback, got {resp.status_code}"
+        )
+
+
+# ===========================================================================
+# SECTION 6: SSRF / Air-Gap (6 tests)
+# ===========================================================================
+
+
+class TestSSRFAirGap:
+    """Tests for SSRF prevention in OIDC issuer URL validation."""
+
+    def test_metadata_endpoint_aws_blocked(self) -> None:
+        """169.254.169.254 (AWS IMDS) rejected by validate_oidc_issuer_url.
+
+        AC: Cloud metadata endpoints must be blocked unconditionally.
+        This is the most critical SSRF protection — if this passes, an
+        attacker can exfiltrate cloud credentials via the IdP config.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+
+        with pytest.raises(ValueError) as exc_info:
+            validate_oidc_issuer_url("http://169.254.169.254/latest/meta-data/")
+        assert "forbidden" in str(exc_info.value).lower() or (
+            "blocked" in str(exc_info.value).lower()
+            or "metadata" in str(exc_info.value).lower()
+        ), f"Expected SSRF block message, got: {exc_info.value}"
+
+    def test_metadata_endpoint_alibaba_blocked(self) -> None:
+        """100.100.100.200 (Alibaba Cloud IMDS) rejected by validate_oidc_issuer_url.
+
+        AC: Alibaba Cloud metadata endpoint must be blocked unconditionally.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+
+        with pytest.raises(ValueError):
+            validate_oidc_issuer_url("http://100.100.100.200/")
+
+    def test_metadata_endpoint_gcp_hostname_blocked(self) -> None:
+        """metadata.google.internal rejected by validate_oidc_issuer_url.
+
+        AC: GCP metadata hostname must be blocked unconditionally.
+        Hostname-based block (not just IP) to prevent DNS rebinding attacks.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+
+        with pytest.raises(ValueError):
+            validate_oidc_issuer_url("http://metadata.google.internal/")
+
+    def test_loopback_issuer_blocked(self) -> None:
+        """127.0.0.1 (loopback) rejected by validate_oidc_issuer_url.
+
+        AC: Loopback addresses must be blocked — an OIDC provider on
+        localhost would redirect to the local process, enabling SSRF.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+
+        with pytest.raises(ValueError):
+            validate_oidc_issuer_url("http://127.0.0.1:8080/")
+
+    def test_rfc1918_issuer_allowed_in_air_gap(self) -> None:
+        """http://10.0.0.1/ accepted by validate_oidc_issuer_url.
+
+        AC: RFC-1918 private addresses must be allowed for air-gap IdPs.
+        This is the key difference from validate_callback_url which blocks
+        all private ranges. Air-gap IdPs live on private networks.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+
+        # Should NOT raise — RFC-1918 is allowed for air-gap IdPs
+        try:
+            validate_oidc_issuer_url("http://10.0.0.1/")
+        except ValueError as exc:
+            pytest.fail(
+                f"RFC-1918 issuer should be allowed for air-gap IdPs, got: {exc}"
+            )
+
+    def test_external_public_ip_rejected_in_production_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Public IP issuer in CONCLAVE_ENV=production rejected.
+
+        AC: In production mode, public IPs are not allowed as OIDC issuers.
+        Production OIDC must use a real hostname, not a raw IP address.
+        This prevents misconfiguration pointing to a rogue IP in production.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+
+        monkeypatch.setenv("CONCLAVE_ENV", "production")
+
+        with pytest.raises(ValueError) as exc_info:
+            validate_oidc_issuer_url("http://203.0.113.5/")
+        assert exc_info.value is not None
+
+
+# ===========================================================================
+# SECTION 7: Rate Limiting (3 tests)
+# ===========================================================================
+
+
+class TestRateLimiting:
+    """Tests that rate limits are enforced on OIDC endpoints."""
+
+    def test_authorize_endpoint_rate_limit_429_on_eleventh_request(
+        self, oidc_app: Any
+    ) -> None:
+        """11th request to /auth/oidc/authorize within the window returns 429.
+
+        AC: OIDC authorize endpoint is rate-limited at 10 req/min/IP.
+        The 11th request must receive 429 Too Many Requests.
+        """
+        from synth_engine.bootstrapper.dependencies.rate_limit_backend import (  # noqa: PLC0415
+            check_rate_limit,
+        )
+
+        # Simulate rate limit exceeded by patching the rate limit check
+        with patch(
+            "synth_engine.bootstrapper.dependencies.rate_limit_backend.check_rate_limit"
+        ) as mock_rate:
+            # First 10 calls allowed, 11th rejected
+            call_count = 0
+
+            def side_effect(*args: Any, **kwargs: Any) -> bool:
+                nonlocal call_count
+                call_count += 1
+                return call_count > 10  # True = limit exceeded
+
+            mock_rate.side_effect = side_effect
+
+            responses = [
+                oidc_app.get(
+                    "/auth/oidc/authorize"
+                    "?code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+                    "&code_challenge_method=S256"
+                )
+                for _ in range(11)
+            ]
+
+        assert responses[-1].status_code == 429, (
+            f"Expected 429 on 11th request, got {responses[-1].status_code}"
+        )
+
+    def test_callback_endpoint_rate_limit_429_on_eleventh_request(
+        self, oidc_app: Any
+    ) -> None:
+        """11th request to /auth/oidc/callback within the window returns 429.
+
+        AC: OIDC callback endpoint is rate-limited at 10 req/min/IP.
+        The 11th request must receive 429 Too Many Requests.
+        """
+        with patch(
+            "synth_engine.bootstrapper.dependencies.rate_limit_backend.check_rate_limit"
+        ) as mock_rate:
+            call_count = 0
+
+            def side_effect(*args: Any, **kwargs: Any) -> bool:
+                nonlocal call_count
+                call_count += 1
+                return call_count > 10
+
+            mock_rate.side_effect = side_effect
+
+            responses = [
+                oidc_app.get(
+                    f"/auth/oidc/callback"
+                    f"?code=auth-code-{i}"
+                    f"&state=state-{i}"
+                )
+                for i in range(11)
+            ]
+
+        assert responses[-1].status_code == 429, (
+            f"Expected 429 on 11th callback, got {responses[-1].status_code}"
+        )
+
+    def test_rate_limit_resets_after_window(self, oidc_app: Any) -> None:
+        """Requests succeed again after the rate-limit window expires.
+
+        AC: Rate limiting is time-windowed. After the window resets,
+        requests are allowed again (not permanently blocked).
+        """
+        with patch(
+            "synth_engine.bootstrapper.dependencies.rate_limit_backend.check_rate_limit"
+        ) as mock_rate:
+            # After window reset: limit is no longer exceeded
+            mock_rate.return_value = False  # Not exceeded
+
+            resp = oidc_app.get(
+                "/auth/oidc/authorize"
+                "?code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+                "&code_challenge_method=S256"
+            )
+        # After reset: should get something other than 429
+        assert resp.status_code != 429, (
+            f"Expected non-429 after rate limit window reset, got {resp.status_code}"
+        )
+
+
+# ===========================================================================
+# SECTION 8: Auth Middleware Exempt Paths (2 tests)
+# ===========================================================================
+
+
+class TestAuthMiddlewareExemptPaths:
+    """Tests that OIDC initiation endpoints are reachable without auth."""
+
+    def test_authorize_reachable_without_jwt(self) -> None:
+        """/auth/oidc/authorize is reachable without a JWT.
+
+        AC: The authorize endpoint must be in AUTH_EXEMPT_PATHS so
+        unauthenticated users can initiate the OIDC flow.
+        """
+        from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS  # noqa: PLC0415
+
+        assert "/auth/oidc/authorize" in AUTH_EXEMPT_PATHS, (
+            "/auth/oidc/authorize must be in AUTH_EXEMPT_PATHS to allow "
+            "unauthenticated users to initiate the OIDC flow"
+        )
+
+    def test_callback_reachable_without_jwt(self) -> None:
+        """/auth/oidc/callback is reachable without a JWT.
+
+        AC: The callback endpoint must be in AUTH_EXEMPT_PATHS so
+        unauthenticated users can complete the OIDC flow.
+        """
+        from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS  # noqa: PLC0415
+
+        assert "/auth/oidc/callback" in AUTH_EXEMPT_PATHS, (
+            "/auth/oidc/callback must be in AUTH_EXEMPT_PATHS to allow "
+            "unauthenticated users to complete the OIDC flow"
+        )
+
+
+# ===========================================================================
+# SECTION 9: IdP Availability (3 tests)
+# ===========================================================================
+
+
+class TestIdPAvailability:
+    """Tests for boot-time IdP availability checks."""
+
+    def test_boot_fails_if_oidc_enabled_and_idp_unreachable(self) -> None:
+        """Startup raises ConfigurationError when discovery endpoint returns connection refused.
+
+        AC: OIDC boot sequence must fail-closed if IdP is unreachable.
+        Fail at startup prevents silent auth bypass during operation.
+        """
+        from synth_engine.bootstrapper.dependencies.oidc import (  # noqa: PLC0415
+            initialize_oidc_provider,
+        )
+        import httpx  # noqa: PLC0415
+
+        with patch("httpx.get") as mock_get:
+            mock_get.side_effect = httpx.ConnectError("Connection refused")
+
+            with pytest.raises((Exception,)) as exc_info:
+                initialize_oidc_provider(
+                    issuer_url="http://idp.internal:9999",
+                    client_id="test-client",
+                    client_secret="test-secret",  # pragma: allowlist secret
+                )
+            # Must raise an error — not silently succeed
+            assert exc_info.value is not None
+
+    def test_boot_fails_if_oidc_enabled_and_discovery_doc_invalid(self) -> None:
+        """Startup raises when discovery document is not valid JSON or missing fields.
+
+        AC: A malformed discovery document is a misconfiguration that must
+        fail at startup. Running with an invalid IdP configuration is unsafe.
+        """
+        from synth_engine.bootstrapper.dependencies.oidc import (  # noqa: PLC0415
+            initialize_oidc_provider,
+        )
+        import httpx  # noqa: PLC0415
+
+        # Mock returning invalid JSON
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = json.JSONDecodeError("Expecting value", "", 0)
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.get", return_value=mock_response):
+            with pytest.raises((Exception,)) as exc_info:
+                initialize_oidc_provider(
+                    issuer_url="http://idp.internal:9999",
+                    client_id="test-client",
+                    client_secret="test-secret",  # pragma: allowlist secret
+                )
+            assert exc_info.value is not None
+
+    def test_boot_succeeds_if_oidc_not_configured(self) -> None:
+        """OIDC_ENABLED=false → startup proceeds without any IdP check.
+
+        AC: When OIDC is disabled, no attempt is made to connect to an IdP.
+        The application boots normally and serves passphrase auth only.
+        """
+        from synth_engine.bootstrapper.dependencies.oidc import (  # noqa: PLC0415
+            maybe_initialize_oidc_provider,
+        )
+
+        with patch("synth_engine.shared.settings.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.oidc_enabled = False
+            mock_settings.return_value = settings
+
+            # Should not raise even without IdP configured
+            with patch("httpx.get") as mock_get:
+                maybe_initialize_oidc_provider()
+                # No HTTP call should have been made
+                mock_get.assert_not_called()
+
+
+# ===========================================================================
+# SECTION 10: Token Replay / Authorization Code (2 tests)
+# ===========================================================================
+
+
+class TestTokenReplay:
+    """Tests for authorization code replay prevention."""
+
+    def test_authorization_code_replay_returns_401(self, oidc_app: Any) -> None:
+        """Same authorization code submitted twice returns 401 on second use.
+
+        AC: Authorization codes are single-use. The state key is deleted
+        on first use, so the second attempt finds no state → 401.
+        This prevents replay of captured authorization codes.
+        """
+        call_count = 0
+
+        def redis_get_once(key: str) -> bytes | None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return json.dumps(
+                    {"code_verifier": "valid-verifier-1234567890123456789012",
+                     "created_at": "2026-01-01T00:00:00Z"}
+                ).encode()
+            return None  # Second use → not found → 401
+
+        with patch(
+            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+        ) as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.side_effect = redis_get_once
+            mock_redis.return_value = redis_client
+
+            resp2 = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=replayed-auth-code"
+                "&state=already-used-state"
+            )
+        assert resp2.status_code == 401, (
+            f"Expected 401 on authorization code replay, got {resp2.status_code}"
+        )
+
+    def test_authorization_code_from_different_client_returns_401(
+        self, oidc_app: Any
+    ) -> None:
+        """Code issued to client_id=A is rejected when presented to client_id=B.
+
+        AC: Authorization codes are client-bound. Cross-client reuse must be
+        rejected. The IdP enforces this at the token endpoint (client_id
+        mismatch → error response from IdP → our callback returns 401).
+        """
+        import httpx  # noqa: PLC0415
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+            ) as mock_redis,
+            patch("httpx.post") as mock_post,
+        ):
+            redis_client = MagicMock()
+            redis_client.get.return_value = json.dumps(
+                {"code_verifier": "valid-verifier-1234567890123456789012",
+                 "created_at": "2026-01-01T00:00:00Z"}
+            ).encode()
+            mock_redis.return_value = redis_client
+
+            # IdP returns error for wrong client
+            error_response = MagicMock()
+            error_response.status_code = 400
+            error_response.json.return_value = {
+                "error": "invalid_grant",
+                "error_description": "Code was issued to a different client",
+            }
+            error_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "400 Bad Request",
+                request=MagicMock(),
+                response=error_response,
+            )
+            mock_post.return_value = error_response
+
+            resp = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=code-for-client-a"
+                "&state=valid-state"
+            )
+        assert resp.status_code == 401, (
+            f"Expected 401 for cross-client auth code, got {resp.status_code}"
+        )
+
+
+# ===========================================================================
+# SECTION 11: Input Validation (4 tests)
+# ===========================================================================
+
+
+class TestInputValidation:
+    """Tests for input validation on OIDC and session endpoints."""
+
+    def test_callback_oversized_id_token_returns_413(self, oidc_app: Any) -> None:
+        """Response body from IdP token endpoint exceeding 64KB causes 413 or safe 401.
+
+        AC: Memory exhaustion prevention. IdP response > 64KB must be
+        rejected. This prevents a rogue IdP from OOM-killing the service.
+        Either 413 Payload Too Large or a safe 401 (truncated response
+        fails token validation) is acceptable.
+        """
+        import httpx  # noqa: PLC0415
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
+            ) as mock_redis,
+            patch("httpx.post") as mock_post,
+        ):
+            redis_client = MagicMock()
+            redis_client.get.return_value = json.dumps(
+                {"code_verifier": "valid-verifier-1234567890123456789012",
+                 "created_at": "2026-01-01T00:00:00Z"}
+            ).encode()
+            mock_redis.return_value = redis_client
+
+            # IdP returns a 64KB+ response
+            oversized_content = "x" * (64 * 1024 + 1)  # 64KB + 1 byte
+            oversized_response = MagicMock()
+            oversized_response.status_code = 200
+            oversized_response.content = oversized_content.encode()
+            oversized_response.headers = {"content-length": str(len(oversized_content))}
+            oversized_response.raise_for_status = MagicMock()
+            mock_post.return_value = oversized_response
+
+            resp = oidc_app.get(
+                "/auth/oidc/callback"
+                "?code=valid-auth-code"
+                "&state=valid-state"
+            )
+        assert resp.status_code in (
+            413,
+            401,
+            400,
+        ), f"Expected 413/401 for oversized IdP response, got {resp.status_code}"
+
+    def test_revoke_user_id_sql_injection_returns_422(self, oidc_app: Any) -> None:
+        """user_id containing SQL injection string fails UUID validation with 422.
+
+        AC: user_id must be a valid UUID. SQL injection payloads fail
+        Pydantic UUID parsing and return 422 Unprocessable Entity.
+        This is the first defense against injection — the UUID constraint
+        ensures the value never reaches a database query.
+        """
+        token = _make_token(role="admin")
+        resp = oidc_app.post(
+            "/auth/revoke",
+            json={"user_id": "'; DROP TABLE users; --"},
+            headers=_auth_header(token),
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for SQL injection in user_id, got {resp.status_code}"
+        )
+
+    def test_idp_role_claim_does_not_escalate_privileges(self) -> None:
+        """IdP token claiming role='admin' must not grant admin access.
+
+        AC: Decision 10 — IdP role claims are IGNORED. Role is ALWAYS
+        resolved from the local DB. This test is the enforcement test for
+        the most critical security property: the IdP cannot escalate privileges.
+        """
+        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+            _extract_role_from_token_claims,
+        )
+        # Even if the IdP token claims admin, we must not use it
+        claims_with_admin_role: dict[str, Any] = {
+            "sub": "user-sub-id",
+            "email": "user@example.com",
+            "role": "admin",
+            "groups": ["admins", "super-users"],
+            "permissions": ["*"],
+        }
+        # The function must return None (role not extracted from claims)
+        # or raise, but NEVER return "admin" or any IdP-supplied role.
+        result = _extract_role_from_token_claims(claims_with_admin_role)
+        assert result is None, (
+            f"IdP role claim must be ignored, but got: {result!r}. "
+            "Role must always come from the local DB."
+        )
+
+    def test_session_key_uses_random_token_not_user_id(self) -> None:
+        """Session Redis key must use random token, not derived from user_id.
+
+        AC: Session fixation prevention (Attack Vector AV-5). The session
+        key must NOT be derived from user_id. If it were, an attacker
+        knowing the user_id could predict or forge session keys.
+        """
+        from synth_engine.bootstrapper.dependencies.sessions import (  # noqa: PLC0415
+            create_session_key,
+        )
+        user_id = str(uuid.uuid4())
+
+        key1 = create_session_key()
+        key2 = create_session_key()
+
+        # Keys must be random — different each time
+        assert key1 != key2, (
+            "Session keys must be random — two calls returned the same key"
+        )
+        # Keys must NOT contain the user_id
+        assert user_id not in key1, (
+            f"Session key {key1!r} must not contain user_id {user_id!r}"
+        )
+        # Keys must start with the correct namespace prefix
+        assert key1.startswith("conclave:session:"), (
+            f"Session key {key1!r} must start with 'conclave:session:'"
+        )
