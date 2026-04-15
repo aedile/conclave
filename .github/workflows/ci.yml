@@ -21,6 +21,9 @@
 # Local run: cosmic-ray init cosmic-ray.toml session.sqlite &&
 #             cosmic-ray exec cosmic-ray.toml session.sqlite &&
 #             python scripts/check_mutation_score.py session.sqlite
+#
+# Python version matrix (Phase 87):
+#   Production gate: Python 3.12 and 3.13 (matrix — must pass to merge)
 
 name: CI
 
@@ -140,22 +143,27 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Lint — ruff, mypy, bandit, vulture, import-linter, pip-audit
+  # Matrix: Python 3.12 and 3.13 (production gate)
   # Runs after security to ensure no credential leaks reach expensive checks
   # ---------------------------------------------------------------------------
   lint:
-    name: Lint & Static Analysis
+    name: Lint & Static Analysis (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: [security, changes]
     if: needs.changes.outputs.python == 'true'
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+      fail-fast: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up Python 3.14
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
@@ -168,8 +176,8 @@ jobs:
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
-          restore-keys: venv-${{ runner.os }}-py3.14-
+          key: venv-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Verify poetry.lock is in sync with pyproject.toml
         run: poetry check --lock
@@ -202,23 +210,29 @@ jobs:
         # published. Track: https://github.com/pygments/pygments/issues/2834
         run: poetry run pip-audit --ignore-vuln CVE-2026-4539
 
+
   # ---------------------------------------------------------------------------
-  # Unit tests — pytest with 90% coverage gate
+  # Unit tests — pytest with 95% coverage gate
+  # Matrix: Python 3.12 and 3.13 (production gate)
   # ---------------------------------------------------------------------------
   test:
-    name: Unit Tests (Python 3.14)
+    name: Unit Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: [lint, changes]
     if: needs.changes.outputs.python == 'true'
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+      fail-fast: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up Python 3.14
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
@@ -231,8 +245,8 @@ jobs:
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
-          restore-keys: venv-${{ runner.os }}-py3.14-
+          key: venv-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Install dependencies
         run: poetry install --with dev
@@ -252,8 +266,10 @@ jobs:
           --cov-report=term-missing
           --cov-fail-under=95
 
+
   # ---------------------------------------------------------------------------
   # Integration tests — pytest-postgresql in pg_ctl process mode
+  # Matrix: Python 3.12 and 3.13 (production gate)
   #
   # pytest-postgresql's proc fixtures spawn their own ephemeral pg_ctl
   # instance; a services: postgres: container conflicts with that pattern.
@@ -269,16 +285,20 @@ jobs:
   # failure causing all tests to skip silently).
   # ---------------------------------------------------------------------------
   integration-test:
-    name: Integration Tests (Python 3.14)
+    name: Integration Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: [test, changes]
     if: needs.changes.outputs.python == 'true'
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+      fail-fast: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
         with:
@@ -307,8 +327,10 @@ jobs:
           CONCLAVE_ENV: "development"
         run: poetry run pytest tests/integration/ -v --tb=short --no-cov -p pytest_postgresql -m "not synthesizer"
 
+
   # ---------------------------------------------------------------------------
   # Synthesizer integration tests — real CTGAN training on Faker-generated data
+  # Matrix: Python 3.12 and 3.13 (production gate)
   #
   # Installs the synthesizer dependency group (sdv, torch, etc.) and runs the
   # synthesizer-specific integration tests.  These tests are separated from the
@@ -316,16 +338,20 @@ jobs:
   # only required for synthesis tasks.
   # ---------------------------------------------------------------------------
   synthesizer-integration-test:
-    name: Synthesizer Integration Tests
+    name: Synthesizer Integration Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: [test, changes]
     if: needs.changes.outputs.python == 'true'
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+      fail-fast: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Python 3.14
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
         with:
@@ -343,23 +369,29 @@ jobs:
             -m synthesizer \
             -v --no-cov
 
+
   # ---------------------------------------------------------------------------
   # SBOM — generate Software Bill of Materials after tests pass
+  # Matrix: Python 3.12 and 3.13 (production gate)
   # ---------------------------------------------------------------------------
   sbom:
-    name: Generate SBOM
+    name: Generate SBOM (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: [test, changes]
     if: needs.changes.outputs.python == 'true'
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+      fail-fast: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up Python 3.14
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
@@ -372,8 +404,8 @@ jobs:
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
-          restore-keys: venv-${{ runner.os }}-py3.14-
+          key: venv-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Install dependencies
         run: poetry install --with dev
@@ -384,7 +416,7 @@ jobs:
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: sbom
+          name: sbom-py${{ matrix.python-version }}
           path: sbom.json
           retention-days: 90
 
@@ -396,6 +428,9 @@ jobs:
   # does NOT block integration-test or sbom — it runs in parallel with them.
   # Fails the pipeline if any HIGH or CRITICAL severity CVE is found, ensuring
   # container vulnerabilities are caught before deployment.
+  #
+  # Not version-matrixed: Docker image uses python:3.13-slim as the production
+  # base image. Container testing is independent of the Python test matrix.
   # ---------------------------------------------------------------------------
   trivy-scan:
     name: Trivy Container Scan
@@ -668,6 +703,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # OWASP ZAP Baseline Scan — dynamic application security testing (DAST)
+  # Matrix: Python 3.12 and 3.13 (production gate — runs app on both versions)
   #
   # Starts the Conclave Engine in SQLite mode, unseals the vault, then runs
   # the ZAP baseline scan against the live API. The baseline scan is
@@ -691,21 +727,25 @@ jobs:
   # artifact name collision error (P6-T6.2 DevOps blocker fix).
   # ---------------------------------------------------------------------------
   zap-baseline:
-    name: OWASP ZAP Baseline Scan
+    name: OWASP ZAP Baseline Scan (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: [test, changes]
     if: needs.changes.outputs.python == 'true'
     permissions:
       contents: read
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+      fail-fast: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up Python 3.14
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
@@ -718,8 +758,8 @@ jobs:
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-py3.14-${{ hashFiles('poetry.lock') }}
-          restore-keys: venv-${{ runner.os }}-py3.14-
+          key: venv-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Install dependencies
         run: poetry install --with dev
@@ -767,7 +807,7 @@ jobs:
           rules_file_name: ".zap/rules.tsv"
           cmd_options: "-a -j"
           fail_action: false
-          artifact_name: "zap-baseline-report"
+          artifact_name: "zap-baseline-report-py${{ matrix.python-version }}"
         continue-on-error: true
 
       - name: Stop background API server

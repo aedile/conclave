@@ -33,6 +33,18 @@ the system enters their target tier.
 |----|-------------|---------|--------------|
 | _(No deferred items — all 7 tiers assessed COMPLETE as of 2026-04-01. All open advisories are at-tier.)_ | | | |
 
+### [2026-04-14] Phase 87 — Python 3.12 / 3.13 CI Matrix Testing
+
+**Tasks**: T87.1 (CI matrix expansion), T87.2 (Dockerfile base image update), T87.3 (pyproject.toml version bounds)
+
+**Summary**: Expands CI test matrix from Python 3.14-only to 3.12 + 3.13 as required jobs. Python 3.14 removed from supported range (`>=3.12,<3.14`) — not production-ready. Dockerfile base image updated from `python:3.14-slim` to `python:3.13-slim`. 6 CI jobs matrixed (lint, test, integration-test, synthesizer-integration-test, sbom, zap-baseline) with `fail-fast: false`.
+
+**Classification**: Lightweight (Rule 30) — QA reviewer only.
+
+**Review findings fixed**: 3 FINDINGs (version constraint tightened to `<3.14` per spec, stale pyarrow comment updated, 3.14 informational CI jobs removed).
+
+**Advisory count**: 3 open (ADV-P80-01, ADV-P80-02, ADV-P80-03). Below Rule 11 threshold of 8.
+
 ### [2026-04-09] Phase 80 — Role-Based Access Control (RBAC)
 
 **Tasks**: T80.0 (ADR-0066), T80.1 (Role model, permission matrix), T80.2 (Permission middleware on all endpoints), T80.3 (Admin user management endpoints), T80.4 (Auditor role, audit log endpoint), T80.5 (Erasure semantics update)

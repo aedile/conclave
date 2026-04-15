@@ -6,7 +6,11 @@ authors = []
 license = "AGPL-3.0-or-later"
 readme = "README.md"
 packages = [{ include = "synth_engine", from = "src" }]
-
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 # ---------------------------------------------------------------------------
 # CLI entrypoints
 # ---------------------------------------------------------------------------
@@ -16,7 +20,7 @@ conclave-audit = "synth_engine.bootstrapper.cli:audit_group"
 generate-ts-types = "scripts.generate_ts_types:main"
 
 [tool.poetry.dependencies]
-python = "^3.14"
+python = ">=3.12,<3.14"
 click = ">=8.0.0,<9.0.0"
 fastapi = ">=0.115.0,<0.136.0"
 uvicorn = {version = ">=0.32.0,<0.42.0", extras = ["standard"]}
@@ -66,7 +70,7 @@ limits = ">=3.14.0,<6.0.0"
 opentelemetry-exporter-otlp-proto-grpc = ">=1.28.0,<2.0.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.3"
+pytest = ">=8.3,<10.0.0"
 pytest-cov = "^6.1"
 pytest-asyncio = ">=1.3.0,<2.0.0"
 ruff = "^0.11"
@@ -124,8 +128,8 @@ pytest-postgresql = "^7.0"
 #   pyarrow  — Parquet serialisation engine used by pandas.to_parquet() /
 #              pd.read_parquet(). Preferred over fastparquet for broader type
 #              coverage and NumPy 2.x compatibility.
-#              Updated to >=22.0.0 — first release with cp314 manylinux wheels;
-#              19.0.1 had no Python 3.14 wheel causing CI source-build failures.
+#              Updated to >=22.0.0 — first release with full NumPy 2.x
+#              compatibility; earlier releases had incomplete NumPy 2.0 support.
 #   boto3    — S3-compatible client for the concrete MinIO backend
 #              (EphemeralStorageClient's MinioStorageBackend). Unit tests use
 #              InMemoryBackend and never instantiate this class.
@@ -138,10 +142,10 @@ pytest-postgresql = "^7.0"
 # synthesizer group to avoid redundancy (T4.1 fix).
 # ---------------------------------------------------------------------------
 [tool.poetry.group.synthesizer.dependencies]
-torch = {version = ">=2.5.0,<3.0.0", python = ">=3.14,<3.15"}
+torch = {version = ">=2.5.0,<3.0.0", python = ">=3.12,<3.14"}
 pyarrow = ">=22.0.0,<24.0.0"
 boto3 = ">=1.35.0,<2.0.0"
-sdv = {version = ">=1.17.0,<2.0.0", python = ">=3.14,<3.15"}
+sdv = {version = ">=1.17.0,<2.0.0", python = ">=3.12,<3.14"}
 # opacus 1.5.4 — Differential Privacy for PyTorch (DP-SGD via PrivacyEngine).
 # Verified compatible: opacus>=1.4.0 requires torch>=2.0; our env has torch 2.10.0.
 # No Python version constraint needed — opacus requires python>=3.7.5.
@@ -179,7 +183,7 @@ build-backend = "poetry.core.masonry.api"
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py312"
 src = ["src"]
 
 [tool.ruff.lint]
@@ -259,7 +263,7 @@ external = ["DOC"]
 # ---------------------------------------------------------------------------
 [tool.mypy]
 strict = true
-python_version = "3.14"
+python_version = "3.12"
 mypy_path = "src"
 packages = ["synth_engine"]
 
