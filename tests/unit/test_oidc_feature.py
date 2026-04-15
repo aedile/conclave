@@ -1256,6 +1256,176 @@ class TestOIDCHelperFunctions:
         )
 
 
+class TestOIDCProviderInitialization:
+    """Tests for OIDCProvider instantiation and initialize_oidc_provider happy path.
+
+    These tests cover the initialization path when the IdP is reachable and
+    returns a valid discovery document and JWKS.
+    """
+
+    def test_oidc_provider_init_stores_all_fields(self) -> None:
+        """OIDCProvider.__init__ stores all constructor arguments as attributes."""
+        from synth_engine.bootstrapper.dependencies.oidc import OIDCProvider
+
+        provider = OIDCProvider(
+            issuer="https://idp.example.com",
+            authorization_endpoint="https://idp.example.com/authorize",
+            token_endpoint="https://idp.example.com/token",
+            jwks_uri="https://idp.example.com/.well-known/jwks.json",
+            client_id="my-client-id",
+            jwks_data={"keys": [{"kty": "RSA", "kid": "key-1"}]},
+        )
+
+        assert provider.issuer == "https://idp.example.com", (
+            f"Expected issuer to be stored, got {provider.issuer!r}"
+        )
+        assert provider.authorization_endpoint == "https://idp.example.com/authorize", (
+            f"Expected authorization_endpoint stored, got {provider.authorization_endpoint!r}"
+        )
+        assert provider.token_endpoint == "https://idp.example.com/token", (
+            f"Expected token_endpoint stored, got {provider.token_endpoint!r}"
+        )
+        assert provider.jwks_uri == "https://idp.example.com/.well-known/jwks.json", (
+            f"Expected jwks_uri stored, got {provider.jwks_uri!r}"
+        )
+        assert provider.client_id == "my-client-id", (
+            f"Expected client_id stored, got {provider.client_id!r}"
+        )
+        assert provider.jwks_data == {"keys": [{"kty": "RSA", "kid": "key-1"}]}, (
+            f"Expected jwks_data stored, got {provider.jwks_data!r}"
+        )
+
+    def test_initialize_oidc_provider_happy_path_returns_provider(self) -> None:
+        """initialize_oidc_provider returns OIDCProvider when IdP is reachable.
+
+        Covers the full happy-path code path: SSRF validation, discovery doc
+        fetch, JWKS fetch, OIDCProvider construction, and singleton assignment.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from synth_engine.bootstrapper.dependencies.oidc import (
+            OIDCProvider,
+            initialize_oidc_provider,
+        )
+
+        discovery_doc = {
+            "issuer": "https://idp.example.com",
+            "authorization_endpoint": "https://idp.example.com/authorize",
+            "token_endpoint": "https://idp.example.com/token",
+            "jwks_uri": "https://idp.example.com/.well-known/jwks.json",
+        }
+        jwks_data = {"keys": [{"kty": "RSA", "kid": "key-1"}]}
+
+        discovery_response = MagicMock()
+        discovery_response.status_code = 200
+        discovery_response.json.return_value = discovery_doc
+        discovery_response.raise_for_status = MagicMock()
+
+        jwks_response = MagicMock()
+        jwks_response.status_code = 200
+        jwks_response.json.return_value = jwks_data
+        jwks_response.raise_for_status = MagicMock()
+
+        with patch("httpx.get", side_effect=[discovery_response, jwks_response]) as mock_get:
+            with patch(
+                "synth_engine.bootstrapper.dependencies.oidc.validate_oidc_issuer_url"
+            ) as mock_ssrf:
+                mock_ssrf.return_value = None  # passes validation
+
+                provider = initialize_oidc_provider(
+                    issuer_url="https://idp.example.com",
+                    client_id="my-client-id",
+                    client_secret="my-secret",  # pragma: allowlist secret
+                )
+
+        assert isinstance(provider, OIDCProvider), (
+            f"Expected OIDCProvider instance, got {type(provider).__name__}"
+        )
+        assert provider.issuer == "https://idp.example.com", (
+            f"Expected issuer from discovery doc, got {provider.issuer!r}"
+        )
+        assert provider.client_id == "my-client-id", (
+            f"Expected client_id passed to provider, got {provider.client_id!r}"
+        )
+        assert provider.jwks_data == jwks_data, (
+            f"Expected JWKS data stored, got {provider.jwks_data!r}"
+        )
+        assert mock_get.call_count == 2, (
+            f"Expected 2 HTTP calls (discovery + JWKS), got {mock_get.call_count}"
+        )
+        mock_ssrf.assert_called_once_with("https://idp.example.com")
+
+    def test_initialize_oidc_provider_raises_on_missing_required_fields(self) -> None:
+        """initialize_oidc_provider raises RuntimeError when discovery doc missing fields."""
+        from unittest.mock import MagicMock, patch
+
+        from synth_engine.bootstrapper.dependencies.oidc import initialize_oidc_provider
+
+        # Missing token_endpoint and jwks_uri
+        incomplete_doc = {
+            "issuer": "https://idp.example.com",
+            "authorization_endpoint": "https://idp.example.com/authorize",
+        }
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = incomplete_doc
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.get", return_value=mock_response):
+            with patch("synth_engine.bootstrapper.dependencies.oidc.validate_oidc_issuer_url"):
+                with pytest.raises(RuntimeError) as exc_info:
+                    initialize_oidc_provider(
+                        issuer_url="https://idp.example.com",
+                        client_id="client",
+                        client_secret="secret",  # pragma: allowlist secret
+                    )
+        assert "missing required fields" in str(exc_info.value), (
+            f"Expected 'missing required fields' in error, got: {exc_info.value!r}"
+        )
+
+    def test_get_oidc_provider_returns_initialized_provider(self) -> None:
+        """get_oidc_provider returns the singleton set by initialize_oidc_provider."""
+        from unittest.mock import MagicMock, patch
+
+        from synth_engine.bootstrapper.dependencies.oidc import (
+            OIDCProvider,
+            get_oidc_provider,
+            initialize_oidc_provider,
+        )
+
+        discovery_doc = {
+            "issuer": "https://idp.example.com",
+            "authorization_endpoint": "https://idp.example.com/authorize",
+            "token_endpoint": "https://idp.example.com/token",
+            "jwks_uri": "https://idp.example.com/.well-known/jwks.json",
+        }
+        jwks_data: dict[str, list[object]] = {"keys": []}
+
+        disco_resp = MagicMock()
+        disco_resp.json.return_value = discovery_doc
+        disco_resp.raise_for_status = MagicMock()
+
+        jwks_resp = MagicMock()
+        jwks_resp.json.return_value = jwks_data
+        jwks_resp.raise_for_status = MagicMock()
+
+        with patch("httpx.get", side_effect=[disco_resp, jwks_resp]):
+            with patch("synth_engine.bootstrapper.dependencies.oidc.validate_oidc_issuer_url"):
+                initialize_oidc_provider(
+                    issuer_url="https://idp.example.com",
+                    client_id="client",
+                    client_secret="secret",  # pragma: allowlist secret
+                )
+
+        provider = get_oidc_provider()
+        assert isinstance(provider, OIDCProvider), (
+            f"Expected OIDCProvider, got {type(provider).__name__}"
+        )
+        assert provider.issuer == "https://idp.example.com", (
+            f"Expected cached issuer, got {provider.issuer!r}"
+        )
+
+
 class TestRefreshWithSessionUpdate:
     """Tests covering the Redis session update path in /auth/refresh."""
 
