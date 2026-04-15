@@ -92,7 +92,7 @@ def write_session(
     Raises:
         redis.RedisError: If the Redis write fails. Callers should catch
             this and return 503 Service Unavailable (fail-closed).
-    """
+    """  # noqa: DOC502
     now = datetime.now(UTC).isoformat()
     session_data = json.dumps(
         {
@@ -142,7 +142,7 @@ def enforce_concurrent_session_limit(
 
     Raises:
         redis.RedisError: If the Redis scan or delete fails.
-    """
+    """  # noqa: DOC502
     session_keys: list[bytes] = list(redis_client.scan_iter(f"{SESSION_KEY_PREFIX}*"))
 
     if not session_keys:

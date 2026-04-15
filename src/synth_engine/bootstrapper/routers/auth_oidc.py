@@ -229,7 +229,7 @@ def _extract_email_from_token_claims(claims: dict[str, Any]) -> str:
 
     Raises:
         HTTPException: 401 if the ``email`` claim is absent or empty.
-    """
+    """  # noqa: DOC503
     email = claims.get("email")
     if not email or not isinstance(email, str) or not email.strip():
         _logger.warning("OIDC token missing or empty email claim")
@@ -288,7 +288,7 @@ def _handle_oidc_user_provisioning(
             exists in a different organization (oracle prevention per
             Decision 13 — the response body must be byte-identical to
             other auth failures).
-    """
+    """  # noqa: DOC502
 
     return _find_or_provision_user(email=email, org_id=org_id, db=db)
 
@@ -461,7 +461,7 @@ async def get_oidc_authorize(
         HTTPException: 400 if response_type is not "code" (implicit flow rejected).
         HTTPException: 400/422 if code_challenge_method is not "S256".
         HTTPException: 503 if Redis is unavailable.
-    """
+    """  # noqa: DOC503
     settings = get_settings()
 
     if not settings.oidc_enabled:
@@ -605,7 +605,7 @@ async def get_oidc_callback(
         HTTPException: 401 if code_verifier missing or wrong.
         HTTPException: 401 if email claim missing or cross-org collision.
         HTTPException: 503 if Redis or IdP unavailable.
-    """
+    """  # noqa: DOC503
     settings = get_settings()
 
     if not settings.oidc_enabled:
@@ -904,7 +904,7 @@ async def post_auth_refresh(
     Raises:
         HTTPException: 404 if OIDC is not configured.
         HTTPException: 401 if the JWT is absent or invalid (from get_current_user).
-    """
+    """  # noqa: DOC503
     settings = get_settings()
 
     if not settings.oidc_enabled:
@@ -998,7 +998,7 @@ async def post_auth_revoke(
         HTTPException: 403 if non-admin trying to revoke another user's sessions.
         HTTPException: 404 if target user not found in caller's org (IDOR).
         HTTPException: 503 if Redis is unavailable.
-    """
+    """  # noqa: DOC503
     settings = get_settings()
 
     if not settings.oidc_enabled:

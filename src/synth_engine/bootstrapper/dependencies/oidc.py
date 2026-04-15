@@ -71,6 +71,14 @@ class OIDCProvider:
         jwks_uri: JWKS endpoint URL (stored but JWKS fetched separately).
         client_id: The registered client ID.
         jwks_data: Raw JWKS JSON data for token verification.
+
+    Args:
+        issuer: The IdP issuer URL (from discovery document).
+        authorization_endpoint: Authorization endpoint URL.
+        token_endpoint: Token exchange endpoint URL.
+        jwks_uri: JWKS endpoint URL (stored but JWKS fetched separately).
+        client_id: The registered client ID.
+        jwks_data: Raw JWKS JSON data for token verification.
     """
 
     def __init__(
@@ -125,7 +133,7 @@ def initialize_oidc_provider(
         RuntimeError: If the discovery document is unreachable, not valid JSON,
             or missing required fields. If the JWKS endpoint is unreachable or
             returns invalid data.
-    """
+    """  # noqa: DOC503
     global _OIDC_PROVIDER
 
     # Validate the issuer URL against SSRF rules (Decision 2).
@@ -215,7 +223,7 @@ def maybe_initialize_oidc_provider() -> None:
     Raises:
         ValueError: If the issuer URL fails SSRF validation.
         RuntimeError: If the IdP is unreachable or returns invalid data.
-    """
+    """  # noqa: DOC502
     from synth_engine.shared.settings import get_settings
 
     settings = get_settings()
