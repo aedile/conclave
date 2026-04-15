@@ -428,3 +428,24 @@ patch_user  # unused function — FastAPI route handler (routers/admin_users.py 
 delete_user  # unused function — FastAPI route handler (routers/admin_users.py P80-T80.3)
 get_audit_log  # unused function — FastAPI route handler (routers/compliance.py P80-T80.4)
 require_scope  # unused function — kept for external backward compat (dependencies/auth.py); all internal usage migrated to require_permission (P80-T80.2)
+
+# ---------------------------------------------------------------------------
+# Category Z — P81 SSO/OIDC Integration
+# FastAPI route handlers registered via @router decorators in auth_oidc.py.
+# maybe_initialize_oidc_provider is a lifecycle hook called at app startup.
+# _find_user_by_email is a private helper called by _find_or_provision_user.
+# last_login_at is a SQLModel field populated by the ORM at login time.
+# expires_in and revoked_sessions are Pydantic response model fields.
+# _is_loopback is a private helper called by validate_oidc_issuer_url (ssrf.py).
+# ---------------------------------------------------------------------------
+
+get_oidc_authorize  # unused function — FastAPI route handler (routers/auth_oidc.py P81)
+get_oidc_callback  # unused function — FastAPI route handler (routers/auth_oidc.py P81)
+post_auth_refresh  # unused function — FastAPI route handler (routers/auth_oidc.py P81)
+post_auth_revoke  # unused function — FastAPI route handler (routers/auth_oidc.py P81)
+maybe_initialize_oidc_provider  # unused function — lifecycle hook called at startup (dependencies/oidc.py P81)
+_find_user_by_email  # unused function — private helper called by _find_or_provision_user (routers/auth_oidc.py P81)
+last_login_at  # unused variable — SQLModel field; set by ORM at OIDC login (shared/models/user.py P81)
+expires_in  # unused variable — Pydantic response model field (routers/auth_oidc.py P81)
+revoked_sessions  # unused variable — Pydantic response model field (routers/auth_oidc.py P81)
+_is_loopback  # unused function — private helper called by validate_oidc_issuer_url (shared/ssrf.py P81)

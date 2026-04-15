@@ -80,6 +80,7 @@ no runtime override mechanism at Tier 8.
 | admin:settings | yes | no | no | no |
 | settings:read | yes | yes | yes | no |
 | settings:write | yes | no | no | no |
+| sessions:revoke | yes | no | no | no |
 
 Rationale for key decisions:
 - `jobs:start` maps to `jobs:create` (same capability, no separate permission)
@@ -88,6 +89,7 @@ Rationale for key decisions:
 - `compliance:erasure` is admin-only (multi-subject scope change from self-only)
 - `compliance:audit-read` is admin + auditor (audit materiality)
 - `settings:write` is admin-only (runtime behavior mutation)
+- `sessions:revoke` is admin-only (cross-user session revocation, Phase 81 / ADR-0067)
 - `security:admin` is admin-only (cryptographic operations are destructive)
 - Auditor has only `privacy:read` and `compliance:audit-read` (strict least-privilege)
 

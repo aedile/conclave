@@ -26,11 +26,8 @@ Phase: 81 — SSO/OIDC Integration
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
-import uuid
-from base64 import urlsafe_b64encode
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -83,83 +80,101 @@ class TestValidateOIDCIssuerURL:
 
         AC: RFC-1918 ranges must be accepted — air-gap IdPs live on private networks.
         """
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        # Should not raise
-        validate_oidc_issuer_url("http://10.50.0.10/")
+        url = "http://10.50.0.10/"
+        raised = False
+        try:
+            validate_oidc_issuer_url(url)
+        except ValueError:
+            raised = True
+        assert raised == False, f"RFC-1918 10.x URL should be allowed for air-gap IdPs: {url}"
 
     def test_rfc1918_172_block_allowed(self) -> None:
         """172.16.0.0/12 block is allowed for air-gap IdPs."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        validate_oidc_issuer_url("http://172.20.0.5/")
+        url = "http://172.20.0.5/"
+        raised = False
+        try:
+            validate_oidc_issuer_url(url)
+        except ValueError:
+            raised = True
+        assert raised == False, f"RFC-1918 172.x URL should be allowed for air-gap IdPs: {url}"
 
     def test_rfc1918_192_168_block_allowed(self) -> None:
         """192.168.0.0/16 block is allowed for air-gap IdPs."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        validate_oidc_issuer_url("http://192.168.1.100/")
+        url = "http://192.168.1.100/"
+        raised = False
+        try:
+            validate_oidc_issuer_url(url)
+        except ValueError:
+            raised = True
+        assert raised == False, f"RFC-1918 192.168.x URL should be allowed for air-gap IdPs: {url}"
 
     def test_aws_imds_blocked(self) -> None:
         """169.254.169.254 is blocked unconditionally."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
         with pytest.raises(ValueError, match="(?i)(forbidden|blocked|metadata|reserved)"):
             validate_oidc_issuer_url("http://169.254.169.254/")
 
     def test_alibaba_imds_blocked(self) -> None:
         """100.100.100.200 is blocked unconditionally."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=".*"):
             validate_oidc_issuer_url("http://100.100.100.200/")
 
     def test_gcp_metadata_hostname_blocked(self) -> None:
         """metadata.google.internal is blocked unconditionally."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=".*"):
             validate_oidc_issuer_url("http://metadata.google.internal/")
 
     def test_loopback_blocked(self) -> None:
         """127.0.0.1 is blocked unconditionally."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=".*"):
             validate_oidc_issuer_url("http://127.0.0.1/")
 
     def test_ipv6_loopback_blocked(self) -> None:
         """::1 (IPv6 loopback) is blocked unconditionally."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=".*"):
             validate_oidc_issuer_url("http://[::1]/")
 
-    def test_public_ip_allowed_in_development(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_public_ip_allowed_in_development(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Public IP is allowed in development mode."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
         monkeypatch.setenv("CONCLAVE_ENV", "development")
-        # Should not raise in development mode
-        validate_oidc_issuer_url("http://203.0.113.5/")
+        url = "http://203.0.113.5/"
+        raised = False
+        try:
+            validate_oidc_issuer_url(url)
+        except ValueError:
+            raised = True
+        assert raised == False, f"Public IP should be allowed in development mode: {url}"
 
-    def test_public_ip_blocked_in_production(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_public_ip_blocked_in_production(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Public IP is blocked in production mode."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
         monkeypatch.setenv("CONCLAVE_ENV", "production")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=".*"):
             validate_oidc_issuer_url("http://203.0.113.5/")
 
     def test_rfc1918_issuer_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Accepting RFC-1918 issuer emits a WARNING-level security notice."""
-        import logging  # noqa: PLC0415
+        import logging
 
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
         with caplog.at_level(logging.WARNING, logger="synth_engine.shared.ssrf"):
             validate_oidc_issuer_url("http://10.0.0.1/")
@@ -171,16 +186,16 @@ class TestValidateOIDCIssuerURL:
 
     def test_missing_scheme_rejected(self) -> None:
         """URL without a scheme (http/https) is rejected."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=".*"):
             validate_oidc_issuer_url("not-a-url")
 
     def test_empty_url_rejected(self) -> None:
         """Empty URL string is rejected."""
-        from synth_engine.shared.ssrf import validate_oidc_issuer_url  # noqa: PLC0415
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=".*"):
             validate_oidc_issuer_url("")
 
 
@@ -197,18 +212,18 @@ class TestOIDCSettingsFields:
 
         AC: OIDC is disabled by default — operators must explicitly enable it.
         """
-        from synth_engine.shared.settings import ConclaveSettings  # noqa: PLC0415
+        from synth_engine.shared.settings import ConclaveSettings
 
         monkeypatch.delenv("OIDC_ENABLED", raising=False)
         monkeypatch.delenv("CONCLAVE_OIDC_ENABLED", raising=False)
         settings = ConclaveSettings(_env_file=None)
-        assert settings.oidc_enabled is False, (
+        assert settings.oidc_enabled == False, (
             f"Expected oidc_enabled=False by default, got {settings.oidc_enabled}"
         )
 
     def test_oidc_state_ttl_defaults_to_600(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """OIDC_STATE_TTL_SECONDS defaults to 600 (10 minutes)."""
-        from synth_engine.shared.settings import ConclaveSettings  # noqa: PLC0415
+        from synth_engine.shared.settings import ConclaveSettings
 
         monkeypatch.delenv("OIDC_STATE_TTL_SECONDS", raising=False)
         settings = ConclaveSettings(_env_file=None)
@@ -218,7 +233,7 @@ class TestOIDCSettingsFields:
 
     def test_session_ttl_defaults_to_28800(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """SESSION_TTL_SECONDS defaults to 28800 (8 hours)."""
-        from synth_engine.shared.settings import ConclaveSettings  # noqa: PLC0415
+        from synth_engine.shared.settings import ConclaveSettings
 
         monkeypatch.delenv("SESSION_TTL_SECONDS", raising=False)
         settings = ConclaveSettings(_env_file=None)
@@ -226,11 +241,9 @@ class TestOIDCSettingsFields:
             f"Expected 28800, got {settings.session_ttl_seconds}"
         )
 
-    def test_concurrent_session_limit_defaults_to_3(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_concurrent_session_limit_defaults_to_3(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """CONCURRENT_SESSION_LIMIT defaults to 3."""
-        from synth_engine.shared.settings import ConclaveSettings  # noqa: PLC0415
+        from synth_engine.shared.settings import ConclaveSettings
 
         monkeypatch.delenv("CONCURRENT_SESSION_LIMIT", raising=False)
         settings = ConclaveSettings(_env_file=None)
@@ -240,9 +253,9 @@ class TestOIDCSettingsFields:
 
     def test_oidc_state_ttl_max_3600(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """OIDC_STATE_TTL_SECONDS maximum is 3600 (1 hour)."""
-        from pydantic import ValidationError  # noqa: PLC0415
+        from pydantic import ValidationError
 
-        from synth_engine.shared.settings import ConclaveSettings  # noqa: PLC0415
+        from synth_engine.shared.settings import ConclaveSettings
 
         monkeypatch.setenv("OIDC_STATE_TTL_SECONDS", "3601")
         with pytest.raises(ValidationError):
@@ -262,7 +275,7 @@ class TestPermissionMatrixSessionsRevoke:
 
         AC: Decision 8 — sessions:revoke must be added to the matrix.
         """
-        from synth_engine.bootstrapper.dependencies.permissions import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.permissions import (
             PERMISSION_MATRIX,
         )
 
@@ -276,10 +289,9 @@ class TestPermissionMatrixSessionsRevoke:
         AC: Cross-user session revocation is an administrative action.
         Only admins can revoke other users' sessions.
         """
-        from synth_engine.bootstrapper.dependencies.permissions import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.permissions import (
             PERMISSION_MATRIX,
             Role,
-            has_permission,
         )
 
         allowed_roles = PERMISSION_MATRIX["sessions:revoke"]
@@ -289,7 +301,7 @@ class TestPermissionMatrixSessionsRevoke:
 
     def test_sessions_revoke_denied_for_non_admin_roles(self) -> None:
         """operator, viewer, and auditor cannot use sessions:revoke."""
-        from synth_engine.bootstrapper.dependencies.permissions import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.permissions import (
             has_permission,
         )
 
@@ -309,13 +321,13 @@ class TestAuthExemptPaths:
 
     def test_oidc_authorize_in_auth_exempt_paths(self) -> None:
         """AUTH_EXEMPT_PATHS contains /auth/oidc/authorize."""
-        from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
         assert "/auth/oidc/authorize" in AUTH_EXEMPT_PATHS
 
     def test_oidc_callback_in_auth_exempt_paths(self) -> None:
         """AUTH_EXEMPT_PATHS contains /auth/oidc/callback."""
-        from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
         assert "/auth/oidc/callback" in AUTH_EXEMPT_PATHS
 
@@ -330,7 +342,7 @@ class TestSessionManagementFeature:
 
     def test_create_session_key_returns_correct_format(self) -> None:
         """create_session_key returns a key in 'conclave:session:<token>' format."""
-        from synth_engine.bootstrapper.dependencies.sessions import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.sessions import (
             create_session_key,
         )
 
@@ -339,22 +351,16 @@ class TestSessionManagementFeature:
             f"Session key {key!r} must start with 'conclave:session:'"
         )
         # Token part must be non-empty and URL-safe
-        token_part = key[len("conclave:session:"):]
-        assert len(token_part) >= 32, (
-            f"Token part {token_part!r} must be at least 32 chars"
-        )
+        token_part = key[len("conclave:session:") :]
+        assert len(token_part) >= 32, f"Token part {token_part!r} must be at least 32 chars"
         # URL-safe base64 characters only
-        allowed = set(
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-        )
+        allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
         invalid_chars = set(token_part) - allowed
-        assert not invalid_chars, (
-            f"Token contains invalid chars: {invalid_chars!r}"
-        )
+        assert not invalid_chars, f"Token contains invalid chars: {invalid_chars!r}"
 
     def test_create_session_key_unique_each_call(self) -> None:
         """create_session_key produces a different key on each call."""
-        from synth_engine.bootstrapper.dependencies.sessions import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.sessions import (
             create_session_key,
         )
 
@@ -363,7 +369,7 @@ class TestSessionManagementFeature:
 
     def test_enforce_concurrent_session_limit_no_eviction_under_limit(self) -> None:
         """No eviction when session count < limit."""
-        from synth_engine.bootstrapper.dependencies.sessions import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.sessions import (
             enforce_concurrent_session_limit,
         )
 
@@ -371,13 +377,15 @@ class TestSessionManagementFeature:
         # Only 2 sessions exist — under limit of 3
         session_keys = [b"conclave:session:s1", b"conclave:session:s2"]
         sessions_data = [
-            json.dumps({
-                "user_id": _USER_A_UUID,
-                "org_id": _ORG_A_UUID,
-                "role": "operator",
-                "created_at": f"2026-01-0{i+1}T00:00:00Z",
-                "last_refreshed_at": f"2026-01-0{i+1}T00:00:00Z",
-            }).encode()
+            json.dumps(
+                {
+                    "user_id": _USER_A_UUID,
+                    "org_id": _ORG_A_UUID,
+                    "role": "operator",
+                    "created_at": f"2026-01-0{i + 1}T00:00:00Z",
+                    "last_refreshed_at": f"2026-01-0{i + 1}T00:00:00Z",
+                }
+            ).encode()
             for i in range(2)
         ]
         redis_client.scan_iter.return_value = iter(session_keys)
@@ -391,10 +399,11 @@ class TestSessionManagementFeature:
         )
 
         redis_client.delete.assert_not_called()
+        assert redis_client.delete.call_count == 0, "No sessions should be evicted when under limit"
 
     def test_enforce_concurrent_session_limit_evicts_oldest(self) -> None:
         """When at limit, oldest session is evicted before new one is written."""
-        from synth_engine.bootstrapper.dependencies.sessions import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.sessions import (
             enforce_concurrent_session_limit,
         )
 
@@ -406,27 +415,33 @@ class TestSessionManagementFeature:
             b"conclave:session:newest",
         ]
         sessions_data = [
-            json.dumps({
-                "user_id": _USER_A_UUID,
-                "org_id": _ORG_A_UUID,
-                "role": "operator",
-                "created_at": "2026-01-01T00:00:00Z",  # oldest
-                "last_refreshed_at": "2026-01-01T00:00:00Z",
-            }).encode(),
-            json.dumps({
-                "user_id": _USER_A_UUID,
-                "org_id": _ORG_A_UUID,
-                "role": "operator",
-                "created_at": "2026-01-02T00:00:00Z",
-                "last_refreshed_at": "2026-01-02T00:00:00Z",
-            }).encode(),
-            json.dumps({
-                "user_id": _USER_A_UUID,
-                "org_id": _ORG_A_UUID,
-                "role": "operator",
-                "created_at": "2026-01-03T00:00:00Z",
-                "last_refreshed_at": "2026-01-03T00:00:00Z",
-            }).encode(),
+            json.dumps(
+                {
+                    "user_id": _USER_A_UUID,
+                    "org_id": _ORG_A_UUID,
+                    "role": "operator",
+                    "created_at": "2026-01-01T00:00:00Z",  # oldest
+                    "last_refreshed_at": "2026-01-01T00:00:00Z",
+                }
+            ).encode(),
+            json.dumps(
+                {
+                    "user_id": _USER_A_UUID,
+                    "org_id": _ORG_A_UUID,
+                    "role": "operator",
+                    "created_at": "2026-01-02T00:00:00Z",
+                    "last_refreshed_at": "2026-01-02T00:00:00Z",
+                }
+            ).encode(),
+            json.dumps(
+                {
+                    "user_id": _USER_A_UUID,
+                    "org_id": _ORG_A_UUID,
+                    "role": "operator",
+                    "created_at": "2026-01-03T00:00:00Z",
+                    "last_refreshed_at": "2026-01-03T00:00:00Z",
+                }
+            ).encode(),
         ]
         redis_client.scan_iter.return_value = iter(session_keys)
         redis_client.mget.return_value = sessions_data
@@ -440,10 +455,11 @@ class TestSessionManagementFeature:
 
         # The oldest session must be evicted
         redis_client.delete.assert_called_once_with(b"conclave:session:oldest")
+        assert redis_client.delete.call_count == 1, "Exactly one session should be evicted"
 
     def test_write_session_to_redis_correct_key_format(self) -> None:
         """write_session writes value under 'conclave:session:<token>' with correct TTL."""
-        from synth_engine.bootstrapper.dependencies.sessions import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.sessions import (
             write_session,
         )
 
@@ -486,11 +502,11 @@ class TestOIDCStateKeyNamespace:
 
     def test_state_redis_key_format(self) -> None:
         """OIDC state key follows 'conclave:oidc:state:<state_value>' format."""
-        from synth_engine.bootstrapper.dependencies.oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.oidc import (
             make_state_redis_key,
         )
 
-        state_value = "abc123def456"
+        state_value = "abc123def456"  # pragma: allowlist secret
         key = make_state_redis_key(state_value)
         assert key == f"conclave:oidc:state:{state_value}", (
             f"State key {key!r} must be 'conclave:oidc:state:{state_value}'"
@@ -498,7 +514,7 @@ class TestOIDCStateKeyNamespace:
 
     def test_state_value_with_colon_rejected(self) -> None:
         """State value containing ':' is rejected (cannot be used as Redis key suffix)."""
-        from synth_engine.bootstrapper.dependencies.oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.oidc import (
             validate_state_value,
         )
 
@@ -507,23 +523,27 @@ class TestOIDCStateKeyNamespace:
 
     def test_state_value_non_urlsafe_rejected(self) -> None:
         """State value with non-URL-safe characters is rejected."""
-        from synth_engine.bootstrapper.dependencies.oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.oidc import (
             validate_state_value,
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=".*"):
             validate_state_value("state value with spaces")
 
     def test_state_value_valid_urlsafe_accepted(self) -> None:
         """Valid URL-safe base64 state value is accepted."""
-        from synth_engine.bootstrapper.dependencies.oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.dependencies.oidc import (
             validate_state_value,
         )
 
         # secrets.token_urlsafe(32) produces these characters
         valid_state = "abcABC0123456789-_" * 2  # URL-safe base64 chars
-        # Should not raise
-        validate_state_value(valid_state)
+        raised = False
+        try:
+            validate_state_value(valid_state)
+        except ValueError:
+            raised = True
+        assert raised == False, f"URL-safe base64 state should be accepted: {valid_state[:20]!r}"
 
 
 # ===========================================================================
@@ -536,7 +556,7 @@ class TestEmailExtraction:
 
     def test_extract_valid_email_returns_email(self) -> None:
         """Valid email claim in token is returned correctly."""
-        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.routers.auth_oidc import (
             _extract_email_from_token_claims,
         )
 
@@ -545,16 +565,14 @@ class TestEmailExtraction:
             "email": "user@example.com",
         }
         result = _extract_email_from_token_claims(claims)
-        assert result == "user@example.com", (
-            f"Expected 'user@example.com', got {result!r}"
-        )
+        assert result == "user@example.com", f"Expected 'user@example.com', got {result!r}"
 
     def test_role_claims_never_extracted(self) -> None:
         """IdP role/groups/permissions claims are never returned by _extract_role_from_token_claims.
 
         AC: Decision 10 — IdP role claims must be ignored entirely.
         """
-        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.routers.auth_oidc import (
             _extract_role_from_token_claims,
         )
 
@@ -565,9 +583,8 @@ class TestEmailExtraction:
                 role_claim: "admin",
             }
             result = _extract_role_from_token_claims(claims)
-            assert result is None, (
-                f"IdP {role_claim!r} claim must be ignored, got {result!r}"
-            )
+            assert result is None, f"IdP {role_claim!r} claim must be ignored, got {result!r}"
+            assert result != "admin", f"IdP {role_claim!r} claim must never return admin role"
 
 
 # ===========================================================================
@@ -578,25 +595,21 @@ class TestEmailExtraction:
 class TestOIDCConfigValidation:
     """Tests for startup configuration validation for OIDC settings."""
 
-    def test_session_ttl_minimum_60_seconds(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_session_ttl_minimum_60_seconds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """SESSION_TTL_SECONDS must be >= 60."""
-        from pydantic import ValidationError  # noqa: PLC0415
+        from pydantic import ValidationError
 
-        from synth_engine.shared.settings import ConclaveSettings  # noqa: PLC0415
+        from synth_engine.shared.settings import ConclaveSettings
 
         monkeypatch.setenv("SESSION_TTL_SECONDS", "59")
         with pytest.raises(ValidationError):
             ConclaveSettings(_env_file=None)
 
-    def test_concurrent_session_limit_minimum_1(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_concurrent_session_limit_minimum_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """CONCURRENT_SESSION_LIMIT must be >= 1."""
-        from pydantic import ValidationError  # noqa: PLC0415
+        from pydantic import ValidationError
 
-        from synth_engine.shared.settings import ConclaveSettings  # noqa: PLC0415
+        from synth_engine.shared.settings import ConclaveSettings
 
         monkeypatch.setenv("CONCURRENT_SESSION_LIMIT", "0")
         with pytest.raises(ValidationError):
@@ -613,9 +626,8 @@ class TestMigration011:
 
     def test_user_model_has_last_login_at_field(self) -> None:
         """User model has a nullable last_login_at field of type datetime | None."""
-        from synth_engine.shared.models.user import User  # noqa: PLC0415
-        import inspect  # noqa: PLC0415
-        import datetime  # noqa: PLC0415
+
+        from synth_engine.shared.models.user import User
 
         # Get field annotations
         user_fields = User.model_fields
@@ -625,21 +637,16 @@ class TestMigration011:
 
         field = user_fields["last_login_at"]
         # Field must be optional (nullable)
-        assert field.default is None, (
-            f"last_login_at must default to None, got {field.default!r}"
-        )
+        assert field.default is None, f"last_login_at must default to None, got {field.default!r}"
 
     def test_migration_file_011_exists(self) -> None:
         """Migration file 011_add_last_login_at.py must exist in alembic/versions/."""
-        import os  # noqa: PLC0415
+        import os
 
         migration_path = (
-            "/Users/jessercastro/Projects/SYNTHETIC_DATA"
-            "/alembic/versions/011_add_last_login_at.py"
+            "/Users/jessercastro/Projects/SYNTHETIC_DATA/alembic/versions/011_add_last_login_at.py"
         )
-        assert os.path.exists(migration_path), (
-            f"Migration file not found: {migration_path}"
-        )
+        assert os.path.exists(migration_path), f"Migration file not found: {migration_path}"
 
 
 # ===========================================================================
@@ -655,10 +662,10 @@ class TestOIDCAuthorizeEndpoint:
 
         AC: Decision 11 — JSON response, not HTTP redirect.
         """
-        from fastapi import FastAPI  # noqa: PLC0415
-        from fastapi.testclient import TestClient  # noqa: PLC0415
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
 
-        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.routers.auth_oidc import (
             router as oidc_router,
         )
 
@@ -666,13 +673,8 @@ class TestOIDCAuthorizeEndpoint:
         app.include_router(oidc_router)
 
         with (
-            patch("synth_engine.shared.settings.get_settings") as mock_settings,
-            patch(
-                "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
-            ) as mock_redis,
-            patch(
-                "synth_engine.bootstrapper.dependencies.oidc._OIDC_PROVIDER"
-            ) as mock_provider,
+            patch("synth_engine.bootstrapper.routers.auth_oidc.get_settings") as mock_settings,
+            patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis,
         ):
             settings = MagicMock()
             settings.oidc_enabled = True
@@ -685,14 +687,6 @@ class TestOIDCAuthorizeEndpoint:
             redis_client = MagicMock()
             redis_client.setex = MagicMock(return_value=True)
             mock_redis.return_value = redis_client
-
-            provider = MagicMock()
-            provider.authorization_endpoint = (
-                "http://idp.internal:9999/auth"
-            )
-            mock_provider.authorization_endpoint = (
-                "http://idp.internal:9999/auth"
-            )
 
             client = TestClient(app, raise_server_exceptions=False)
             resp = client.get(
@@ -708,9 +702,7 @@ class TestOIDCAuthorizeEndpoint:
         assert "redirect_url" in body, (
             f"Response must contain 'redirect_url', got keys: {list(body.keys())}"
         )
-        assert "state" in body, (
-            f"Response must contain 'state', got keys: {list(body.keys())}"
-        )
+        assert "state" in body, f"Response must contain 'state', got keys: {list(body.keys())}"
 
     def test_authorize_returns_no_location_header(self) -> None:
         """GET /auth/oidc/authorize must NOT return a Location header.
@@ -718,10 +710,10 @@ class TestOIDCAuthorizeEndpoint:
         AC: Decision 11 — no HTTP redirect. The frontend SPA reads the JSON.
         A Location header would create an open redirect attack surface.
         """
-        from fastapi import FastAPI  # noqa: PLC0415
-        from fastapi.testclient import TestClient  # noqa: PLC0415
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
 
-        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.routers.auth_oidc import (
             router as oidc_router,
         )
 
@@ -729,10 +721,8 @@ class TestOIDCAuthorizeEndpoint:
         app.include_router(oidc_router)
 
         with (
-            patch("synth_engine.shared.settings.get_settings") as mock_settings,
-            patch(
-                "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
-            ) as mock_redis,
+            patch("synth_engine.bootstrapper.routers.auth_oidc.get_settings") as mock_settings,
+            patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis,
         ):
             settings = MagicMock()
             settings.oidc_enabled = True
@@ -750,7 +740,7 @@ class TestOIDCAuthorizeEndpoint:
                 "/auth/oidc/authorize"
                 "?code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
                 "&code_challenge_method=S256",
-                allow_redirects=False,
+                follow_redirects=False,
             )
 
         assert "location" not in resp.headers, (
@@ -766,68 +756,131 @@ class TestOIDCAuthorizeEndpoint:
 class TestOIDCDisabledEndpoints:
     """Tests that /auth/refresh and /auth/revoke return 404 when OIDC disabled."""
 
-    def test_refresh_returns_404_when_oidc_disabled(self) -> None:
+    def test_refresh_returns_404_when_oidc_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """POST /auth/refresh returns 404 when OIDC is not configured.
 
         AC: Decision 5 — Session endpoints return 404 when OIDC disabled.
         This prevents these endpoints from advertising their existence.
         """
-        from fastapi import FastAPI  # noqa: PLC0415
-        from fastapi.testclient import TestClient  # noqa: PLC0415
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
 
-        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.routers.auth_oidc import (
             router as oidc_router,
         )
+        from synth_engine.shared.settings import get_settings
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+        monkeypatch.setenv("OIDC_ENABLED", "false")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+        get_settings.cache_clear()
 
         app = FastAPI()
         app.include_router(oidc_router)
 
-        with patch("synth_engine.shared.settings.get_settings") as mock_settings:
-            settings = MagicMock()
-            settings.oidc_enabled = False
-            mock_settings.return_value = settings
-
-            token = _make_token(role="operator")
-            client = TestClient(app, raise_server_exceptions=False)
-            resp = client.post(
-                "/auth/refresh",
-                headers={"Authorization": f"Bearer {token}"},
-            )
+        token = _make_token(role="operator")
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post(
+            "/auth/refresh",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        get_settings.cache_clear()
 
         assert resp.status_code == 404, (
             f"Expected 404 for /auth/refresh when OIDC disabled, got {resp.status_code}"
         )
 
-    def test_revoke_returns_404_when_oidc_disabled(self) -> None:
+    def test_revoke_returns_404_when_oidc_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """POST /auth/revoke returns 404 when OIDC is not configured.
 
         AC: Decision 5 — Session endpoints return 404 when OIDC disabled.
         """
-        from fastapi import FastAPI  # noqa: PLC0415
-        from fastapi.testclient import TestClient  # noqa: PLC0415
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
 
-        from synth_engine.bootstrapper.routers.auth_oidc import (  # noqa: PLC0415
+        from synth_engine.bootstrapper.routers.auth_oidc import (
             router as oidc_router,
         )
+        from synth_engine.shared.settings import get_settings
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+        monkeypatch.setenv("OIDC_ENABLED", "false")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+        get_settings.cache_clear()
 
         app = FastAPI()
         app.include_router(oidc_router)
 
-        with patch("synth_engine.shared.settings.get_settings") as mock_settings:
-            settings = MagicMock()
-            settings.oidc_enabled = False
-            mock_settings.return_value = settings
-
-            token = _make_token(role="admin")
-            client = TestClient(app, raise_server_exceptions=False)
-            resp = client.post(
-                "/auth/revoke",
-                json={"user_id": _USER_A_UUID},
-                headers={"Authorization": f"Bearer {token}"},
-            )
+        # Use a valid UUID4 string so Pydantic accepts it
+        valid_uuid4 = "12345678-1234-4234-8234-123456789abc"
+        token = _make_token(role="admin")
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post(
+            "/auth/revoke",
+            json={"user_id": valid_uuid4},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        get_settings.cache_clear()
 
         assert resp.status_code == 404, (
             f"Expected 404 for /auth/revoke when OIDC disabled, got {resp.status_code}"
+        )
+
+    def test_authorize_returns_404_when_oidc_disabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """GET /auth/oidc/authorize returns 404 when OIDC is not configured.
+
+        AC: Decision 5 — OIDC endpoints return 404 when OIDC disabled.
+        """
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router
+        from synth_engine.shared.settings import get_settings
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("OIDC_ENABLED", "false")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+        get_settings.cache_clear()
+
+        app = FastAPI()
+        app.include_router(oidc_router)
+
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get(
+            "/auth/oidc/authorize"
+            "?code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+            "&code_challenge_method=S256"
+        )
+        get_settings.cache_clear()
+
+        assert resp.status_code == 404, (
+            f"Expected 404 for /auth/oidc/authorize when OIDC disabled, got {resp.status_code}"
+        )
+
+    def test_authorize_rejects_empty_code_challenge(self, oidc_app: Any) -> None:
+        """GET /auth/oidc/authorize with empty code_challenge returns 422.
+
+        AC: code_challenge is required. Empty string must be rejected.
+        """
+        with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
+            mock_redis.return_value = MagicMock()
+            resp = oidc_app.get(
+                "/auth/oidc/authorize"
+                "?code_challenge=%20"  # whitespace-only after strip
+                "&code_challenge_method=S256"
+            )
+        assert resp.status_code == 422, (
+            f"Expected 422 for empty code_challenge, got {resp.status_code}"
         )
 
 
@@ -839,18 +892,17 @@ class TestOIDCDisabledEndpoints:
 class TestRFC7807ErrorResponses:
     """Tests for RFC 7807 Problem Details format on OIDC error paths."""
 
-    def test_oidc_error_returns_problem_json_content_type(
-        self, oidc_app: Any
-    ) -> None:
+    def test_oidc_error_returns_problem_json_content_type(self, oidc_app: Any) -> None:
         """OIDC auth failure returns Content-Type: application/problem+json.
 
         AC: Decision 13 — all OIDC error paths use RFC 7807 Problem Details.
         """
-        resp = oidc_app.get(
-            "/auth/oidc/callback"
-            "?code=some-code"
-            "&state=nonexistent-state"
-        )
+        with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
+            redis_client = MagicMock()
+            redis_client.get.return_value = None  # State not found → 401
+            mock_redis.return_value = redis_client
+
+            resp = oidc_app.get("/auth/oidc/callback?code=some-code&state=nonexistent-state")
         # Must be 401 with problem+json content type
         assert resp.status_code == 401
         content_type = resp.headers.get("content-type", "")
@@ -858,30 +910,508 @@ class TestRFC7807ErrorResponses:
             f"Expected problem+json content type, got: {content_type!r}"
         )
 
-    def test_oidc_error_body_has_required_rfc7807_fields(
-        self, oidc_app: Any
-    ) -> None:
+    def test_oidc_error_body_has_required_rfc7807_fields(self, oidc_app: Any) -> None:
         """OIDC 401 error body has 'type', 'title', 'status', 'detail' fields.
 
         AC: Decision 13 — RFC 7807 shape required.
         """
-        with patch(
-            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
-        ) as mock_redis:
+        with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
             redis_client = MagicMock()
             redis_client.get.return_value = None  # State not found
             mock_redis.return_value = redis_client
 
-            resp = oidc_app.get(
-                "/auth/oidc/callback"
-                "?code=some-code"
-                "&state=nonexistent-state"
-            )
+            resp = oidc_app.get("/auth/oidc/callback?code=some-code&state=nonexistent-state")
 
         assert resp.status_code == 401
         body = resp.json()
-        assert "status" in body, f"RFC 7807 body missing 'status': {body}"
-        assert body["status"] == 401, f"Expected status=401, got {body['status']}"
+        # FastAPI wraps HTTPException.detail under the "detail" key.
+        # The RFC 7807 problem dict is under body["detail"].
+        problem = body.get("detail", body)
+        assert "status" in problem, f"RFC 7807 body missing 'status': {body}"
+        assert problem["status"] == 401, (
+            f"Expected status=401 in problem detail, got {problem.get('status')}"
+        )
+
+
+# ===========================================================================
+# SECTION 13: Refresh and Revoke Happy Paths
+# ===========================================================================
+
+
+class TestRefreshAndRevokeHappyPaths:
+    """Happy path tests for POST /auth/refresh and POST /auth/revoke.
+
+    These tests verify the endpoint bodies execute successfully when OIDC is
+    enabled and authentication passes. They cover the code paths that are
+    not exercised by the OIDC-disabled (404) and attack (401/403/422) tests.
+    """
+
+    def test_refresh_returns_200_with_new_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """POST /auth/refresh with valid JWT returns 200 with a new access token.
+
+        AC: Authenticated users can refresh their JWT. The response must
+        contain access_token, token_type, and expires_in.
+        """
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext
+        from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router
+        from synth_engine.shared.settings import get_settings
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+        monkeypatch.setenv("OIDC_ENABLED", "true")
+        monkeypatch.setenv("OIDC_ISSUER_URL", "http://localhost:9999")
+        monkeypatch.setenv("OIDC_CLIENT_ID", "test-client")
+        monkeypatch.setenv("OIDC_CLIENT_SECRET", "test-secret")  # pragma: allowlist secret
+        monkeypatch.setenv("SESSION_TTL_SECONDS", "28800")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+        get_settings.cache_clear()
+
+        app = FastAPI()
+        app.include_router(oidc_router)
+
+        # Override get_current_user to inject a valid TenantContext
+        from synth_engine.bootstrapper.dependencies.tenant import get_current_user
+
+        def mock_get_current_user() -> TenantContext:
+            return TenantContext(
+                org_id=_ORG_A_UUID,
+                user_id=_USER_A_UUID,
+                role="operator",
+            )
+
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+
+        with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
+            redis_client = MagicMock()
+            redis_client.scan_iter.return_value = iter([])
+            mock_redis.return_value = redis_client
+
+            client = TestClient(app, raise_server_exceptions=False)
+            resp = client.post("/auth/refresh")
+
+        get_settings.cache_clear()
+
+        assert resp.status_code == 200, (
+            f"Expected 200 for authenticated /auth/refresh, got {resp.status_code}: {resp.text}"
+        )
+        body = resp.json()
+        assert "access_token" in body, (
+            f"Refresh response must contain access_token, got keys: {list(body.keys())}"
+        )
+        assert body["token_type"] == "bearer", (
+            f"Expected token_type='bearer', got {body.get('token_type')!r}"
+        )
+        assert body["expires_in"] == 3600, f"Expected expires_in=3600, got {body.get('expires_in')}"
+
+    def test_revoke_admin_same_org_returns_200(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """POST /auth/revoke with admin JWT revoking same-org user returns 200.
+
+        AC: Admin can revoke any user's sessions within their org.
+        """
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext
+        from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router
+        from synth_engine.shared.settings import get_settings
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+        monkeypatch.setenv("OIDC_ENABLED", "true")
+        monkeypatch.setenv("OIDC_ISSUER_URL", "http://localhost:9999")
+        monkeypatch.setenv("OIDC_CLIENT_ID", "test-client")
+        monkeypatch.setenv("OIDC_CLIENT_SECRET", "test-secret")  # pragma: allowlist secret
+        monkeypatch.setenv("SESSION_TTL_SECONDS", "28800")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+        get_settings.cache_clear()
+
+        import uuid as _uuid
+
+        app = FastAPI()
+        app.include_router(oidc_router)
+
+        # Override get_current_user to inject an admin context
+        from synth_engine.bootstrapper.dependencies.tenant import get_current_user
+
+        def mock_get_current_user() -> TenantContext:
+            return TenantContext(
+                org_id=_ORG_A_UUID,
+                user_id="admin@example.com",
+                role="admin",
+            )
+
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+
+        target_user_id = _USER_A_UUID
+
+        with (
+            patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis,
+            patch("synth_engine.bootstrapper.routers.auth_oidc._get_user_org") as mock_get_org,
+        ):
+            # Target user is in same org as the admin
+            mock_get_org.return_value = _uuid.UUID(_ORG_A_UUID)
+            redis_client = MagicMock()
+            redis_client.scan_iter.return_value = iter([])
+            mock_redis.return_value = redis_client
+
+            client = TestClient(app, raise_server_exceptions=False)
+            resp = client.post(
+                "/auth/revoke",
+                json={"user_id": target_user_id},
+            )
+
+        get_settings.cache_clear()
+
+        assert resp.status_code == 200, (
+            f"Expected 200 for admin same-org revoke, got {resp.status_code}: {resp.text}"
+        )
+        body = resp.json()
+        assert "revoked_sessions" in body, (
+            f"Revoke response must contain revoked_sessions, got keys: {list(body.keys())}"
+        )
+        assert body["revoked_sessions"] == 0, (
+            f"Expected revoked_sessions=0 (no sessions), got {body.get('revoked_sessions')}"
+        )
+
+
+# ===========================================================================
+# SECTION 14: Private Helper Function Coverage
+# ===========================================================================
+
+
+class TestOIDCHelperFunctions:
+    """Direct unit tests for private helper functions in auth_oidc.py.
+
+    These tests cover the helper functions that are called from the OIDC
+    callback endpoint but are not easily exercised through the full HTTP
+    flow in unit tests (which would require a real database connection).
+    """
+
+    def test_find_user_by_email_returns_user_when_found(self) -> None:
+        """_find_user_by_email returns user when found in DB."""
+        from synth_engine.bootstrapper.routers.auth_oidc import _find_user_by_email
+
+        db = MagicMock()
+        mock_user = MagicMock()
+        mock_user.email = "user@example.com"
+        db.exec.return_value.first.return_value = mock_user
+
+        result = _find_user_by_email("user@example.com", db)
+        assert result == mock_user, f"Expected mock user, got {result!r}"
+
+    def test_find_user_by_email_returns_none_when_not_found(self) -> None:
+        """_find_user_by_email returns None when user is not in DB."""
+        from synth_engine.bootstrapper.routers.auth_oidc import _find_user_by_email
+
+        db = MagicMock()
+        db.exec.return_value.first.return_value = None
+
+        result = _find_user_by_email("notfound@example.com", db)
+        assert result is None, f"Expected None, got {result!r}"
+        assert db.exec.call_count == 1, f"Expected 1 DB call, got {db.exec.call_count}"
+
+    def test_find_or_provision_user_returns_existing_user(self) -> None:
+        """_find_or_provision_user returns existing user and updates last_login_at."""
+        import uuid as _uuid
+
+        from synth_engine.bootstrapper.routers.auth_oidc import _find_or_provision_user
+
+        db = MagicMock()
+        org_id = _uuid.UUID(_ORG_A_UUID)
+        mock_user = MagicMock()
+        mock_user.email = "user@example.com"
+        mock_user.org_id = org_id
+        mock_user.role = "operator"
+
+        # First exec call: exact match (email + org)
+        db.exec.return_value.first.return_value = mock_user
+
+        result = _find_or_provision_user(
+            email="user@example.com",
+            org_id=org_id,
+            db=db,
+        )
+
+        assert result == mock_user, f"Expected mock user, got {result!r}"
+        assert result.role == "operator", f"Expected operator role, got {result.role!r}"
+
+    def test_find_or_provision_user_provisions_new_user(self) -> None:
+        """_find_or_provision_user creates a new user when none exists."""
+        import uuid as _uuid
+
+        from synth_engine.bootstrapper.routers.auth_oidc import _find_or_provision_user
+
+        db = MagicMock()
+        org_id = _uuid.UUID(_ORG_A_UUID)
+
+        # First call (exact match) returns None; second call (any org) returns None
+        db.exec.return_value.first.side_effect = [None, None]
+
+        with patch("synth_engine.bootstrapper.routers.auth_oidc.get_audit_logger") as mock_al:
+            mock_al.return_value = MagicMock()
+            _find_or_provision_user(
+                email="new@example.com",
+                org_id=org_id,
+                db=db,
+            )
+
+        # db.add should have been called (new user inserted)
+        assert db.add.call_count == 1, f"Expected 1 db.add call, got {db.add.call_count}"
+        assert db.commit.call_count == 1, f"Expected 1 db.commit call, got {db.commit.call_count}"
+
+    def test_find_or_provision_user_raises_401_for_cross_org_email(self) -> None:
+        """_find_or_provision_user raises 401 when email exists in another org."""
+        import uuid as _uuid
+
+        from fastapi import HTTPException
+
+        from synth_engine.bootstrapper.routers.auth_oidc import _find_or_provision_user
+
+        db = MagicMock()
+        org_a = _uuid.UUID(_ORG_A_UUID)
+        other_org_user = MagicMock()
+        other_org_user.org_id = _uuid.UUID("22222222-2222-2222-2222-222222222222")
+
+        # Exact match in org A: None; any-org match returns user from different org
+        db.exec.return_value.first.side_effect = [None, other_org_user]
+
+        with pytest.raises(HTTPException, match=".*") as exc_info:
+            _find_or_provision_user(
+                email="crossorg@example.com",
+                org_id=org_a,
+                db=db,
+            )
+        assert exc_info.value.status_code == 401, (
+            f"Expected 401 for cross-org email, got {exc_info.value.status_code}"
+        )
+
+    def test_handle_oidc_user_provisioning_delegates_to_find_or_provision(
+        self,
+    ) -> None:
+        """_handle_oidc_user_provisioning delegates to _find_or_provision_user."""
+        import uuid as _uuid
+
+        from synth_engine.bootstrapper.routers.auth_oidc import (
+            _handle_oidc_user_provisioning,
+        )
+
+        db = MagicMock()
+        org_id = _uuid.UUID(_ORG_A_UUID)
+        mock_user = MagicMock()
+        mock_user.role = "operator"
+        # First exec (exact match) returns user
+        db.exec.return_value.first.return_value = mock_user
+
+        result = _handle_oidc_user_provisioning(
+            email="user@example.com",
+            org_id=org_id,
+            db=db,
+        )
+        assert result == mock_user, f"Expected mock user, got {result!r}"
+        assert result.role == "operator", f"Expected operator role, got {result.role!r}"
+
+    def test_get_user_org_returns_org_id_for_valid_user(self) -> None:
+        """_get_user_org returns org_id UUID when user exists."""
+        import uuid as _uuid
+
+        from synth_engine.bootstrapper.routers.auth_oidc import _get_user_org
+
+        db = MagicMock()
+        org_id = _uuid.UUID(_ORG_A_UUID)
+        mock_user = MagicMock()
+        mock_user.org_id = org_id
+        db.exec.return_value.first.return_value = mock_user
+
+        result = _get_user_org(_USER_A_UUID, db)
+        assert result == org_id, f"Expected org_id {org_id}, got {result!r}"
+
+    def test_get_user_org_returns_none_when_user_not_found(self) -> None:
+        """_get_user_org returns None when user_id has no record in DB."""
+        from synth_engine.bootstrapper.routers.auth_oidc import _get_user_org
+
+        db = MagicMock()
+        db.exec.return_value.first.return_value = None
+
+        result = _get_user_org(_USER_A_UUID, db)
+        assert result is None, f"Expected None for missing user, got {result!r}"
+        assert db.exec.call_count == 1, f"Expected 1 DB call, got {db.exec.call_count}"
+
+    def test_get_user_org_returns_none_for_invalid_uuid(self) -> None:
+        """_get_user_org returns None for a non-UUID user_id string."""
+        from synth_engine.bootstrapper.routers.auth_oidc import _get_user_org
+
+        db = MagicMock()
+        result = _get_user_org("not-a-valid-uuid", db)
+        assert result is None, f"Expected None for invalid UUID, got {result!r}"
+        # DB should not be called if UUID parsing fails
+        assert db.exec.call_count == 0, (
+            f"DB must not be called for invalid UUID, got {db.exec.call_count} calls"
+        )
+
+
+class TestRefreshWithSessionUpdate:
+    """Tests covering the Redis session update path in /auth/refresh."""
+
+    def test_refresh_updates_existing_session_in_redis(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """POST /auth/refresh updates last_refreshed_at for matching Redis sessions.
+
+        Covers the scan_iter loop body (lines 927-940 in auth_oidc.py).
+        """
+        import json as _json
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext
+        from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router
+        from synth_engine.shared.settings import get_settings
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+        monkeypatch.setenv("OIDC_ENABLED", "true")
+        monkeypatch.setenv("OIDC_ISSUER_URL", "http://localhost:9999")
+        monkeypatch.setenv("OIDC_CLIENT_ID", "test-client")
+        monkeypatch.setenv("OIDC_CLIENT_SECRET", "test-secret")  # pragma: allowlist secret
+        monkeypatch.setenv("SESSION_TTL_SECONDS", "28800")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+        get_settings.cache_clear()
+
+        app = FastAPI()
+        app.include_router(oidc_router)
+
+        from synth_engine.bootstrapper.dependencies.tenant import get_current_user
+
+        def mock_get_current_user() -> TenantContext:
+            return TenantContext(
+                org_id=_ORG_A_UUID,
+                user_id=_USER_A_UUID,
+                role="operator",
+            )
+
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+
+        session_data = _json.dumps(
+            {
+                "user_id": _USER_A_UUID,
+                "org_id": _ORG_A_UUID,
+                "role": "operator",
+                "created_at": "2026-01-01T00:00:00Z",
+                "last_refreshed_at": "2026-01-01T00:00:00Z",
+            }
+        ).encode()
+
+        with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
+            redis_client = MagicMock()
+            session_key = b"conclave:session:test-key"
+            redis_client.scan_iter.return_value = iter([session_key])
+            redis_client.get.return_value = session_data
+            redis_client.ttl.return_value = 28000
+            mock_redis.return_value = redis_client
+
+            client = TestClient(app, raise_server_exceptions=False)
+            resp = client.post("/auth/refresh")
+
+        get_settings.cache_clear()
+
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        # Verify Redis setex was called to update the session
+        assert redis_client.setex.call_count == 1, (
+            f"Expected 1 setex call to update session, got {redis_client.setex.call_count}"
+        )
+
+
+class TestRevokeWithSessions:
+    """Tests covering the Redis session deletion path in /auth/revoke."""
+
+    def test_revoke_deletes_matching_sessions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """POST /auth/revoke deletes all sessions for the target user.
+
+        Covers the scan + delete path (lines 1058-1076 in auth_oidc.py).
+        """
+        import json as _json
+        import uuid as _uuid
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from synth_engine.bootstrapper.dependencies.tenant import TenantContext
+        from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router
+        from synth_engine.shared.settings import get_settings
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+        monkeypatch.setenv("OIDC_ENABLED", "true")
+        monkeypatch.setenv("OIDC_ISSUER_URL", "http://localhost:9999")
+        monkeypatch.setenv("OIDC_CLIENT_ID", "test-client")
+        monkeypatch.setenv("OIDC_CLIENT_SECRET", "test-secret")  # pragma: allowlist secret
+        monkeypatch.setenv("SESSION_TTL_SECONDS", "28800")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+        get_settings.cache_clear()
+
+        app = FastAPI()
+        app.include_router(oidc_router)
+
+        # Admin context
+        from synth_engine.bootstrapper.dependencies.tenant import get_current_user
+
+        def mock_get_current_user() -> TenantContext:
+            return TenantContext(
+                org_id=_ORG_A_UUID,
+                user_id="admin@example.com",
+                role="admin",
+            )
+
+        app.dependency_overrides[get_current_user] = mock_get_current_user
+
+        target_user_id = _USER_A_UUID
+        session_data = _json.dumps(
+            {
+                "user_id": target_user_id,
+                "org_id": _ORG_A_UUID,
+                "role": "operator",
+                "created_at": "2026-01-01T00:00:00Z",
+                "last_refreshed_at": "2026-01-01T00:00:00Z",
+            }
+        ).encode()
+
+        with (
+            patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis,
+            patch("synth_engine.bootstrapper.routers.auth_oidc._get_user_org") as mock_get_org,
+        ):
+            mock_get_org.return_value = _uuid.UUID(_ORG_A_UUID)
+            redis_client = MagicMock()
+            session_key = b"conclave:session:test-key"
+            redis_client.scan_iter.return_value = iter([session_key])
+            redis_client.get.return_value = session_data
+            redis_client.delete.return_value = 1
+            mock_redis.return_value = redis_client
+
+            client = TestClient(app, raise_server_exceptions=False)
+            resp = client.post(
+                "/auth/revoke",
+                json={"user_id": target_user_id},
+            )
+
+        get_settings.cache_clear()
+
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        body = resp.json()
+        assert body["revoked_sessions"] == 1, (
+            f"Expected revoked_sessions=1, got {body.get('revoked_sessions')}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -889,38 +1419,41 @@ class TestRFC7807ErrorResponses:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def oidc_app() -> Any:
-    """Minimal FastAPI test client for OIDC endpoint tests."""
-    from fastapi import FastAPI  # noqa: PLC0415
-    from fastapi.testclient import TestClient  # noqa: PLC0415
+@pytest.fixture
+def oidc_app(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Minimal FastAPI test client for OIDC endpoint tests.
 
-    from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router  # noqa: PLC0415
+    Uses monkeypatch.setenv + cache_clear to control settings.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("CONCLAVE_ENV", "development")
+    monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+    monkeypatch.setenv("OIDC_ENABLED", "true")
+    monkeypatch.setenv("OIDC_ISSUER_URL", "http://localhost:9999")
+    monkeypatch.setenv("OIDC_CLIENT_ID", "test-client")
+    monkeypatch.setenv("OIDC_CLIENT_SECRET", "test-secret")  # pragma: allowlist secret
+    monkeypatch.setenv("OIDC_STATE_TTL_SECONDS", "600")
+    monkeypatch.setenv("SESSION_TTL_SECONDS", "28800")
+    monkeypatch.setenv("CONCURRENT_SESSION_LIMIT", "3")
+    monkeypatch.setenv("CONCLAVE_MULTI_TENANT_ENABLED", "false")
+    monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+
+    from synth_engine.shared.settings import get_settings
+
+    get_settings.cache_clear()
+
+    from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router
 
     app = FastAPI()
     app.include_router(oidc_router)
 
-    with (
-        patch("synth_engine.shared.settings.get_settings") as mock_settings,
-        patch(
-            "synth_engine.bootstrapper.dependencies.oidc.get_redis_client"
-        ) as mock_redis,
-    ):
-        settings = MagicMock()
-        settings.jwt_secret_key.get_secret_value.return_value = _TEST_SECRET
-        settings.jwt_algorithm = "HS256"
-        settings.jwt_expiry_seconds = 3600
-        settings.conclave_env = "development"
-        settings.conclave_multi_tenant_enabled = False
-        settings.oidc_enabled = True
-        settings.oidc_issuer_url = "http://localhost:9999"
-        settings.oidc_client_id = "test-client"
-        settings.oidc_client_secret.get_secret_value.return_value = "test-secret"  # pragma: allowlist secret
-        settings.oidc_state_ttl_seconds = 600
-        settings.session_ttl_seconds = 28800
-        settings.concurrent_session_limit = 3
-        mock_settings.return_value = settings
-
+    with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
         mock_redis.return_value = MagicMock()
 
         yield TestClient(app, raise_server_exceptions=False)
+
+    get_settings.cache_clear()
