@@ -49,7 +49,13 @@ _logger = logging.getLogger(__name__)
 #: Routes that bypass authentication entirely.
 #: Composed from COMMON_INFRA_EXEMPT_PATHS plus ``/auth/token`` so operators
 #: can log in before any token is available (ADV-T39.1-01).
-AUTH_EXEMPT_PATHS: frozenset[str] = COMMON_INFRA_EXEMPT_PATHS | frozenset({"/auth/token"})
+AUTH_EXEMPT_PATHS: frozenset[str] = COMMON_INFRA_EXEMPT_PATHS | frozenset(
+    {
+        "/auth/token",
+        "/auth/oidc/authorize",  # Phase 81: OIDC flow initiation (unauthenticated)
+        "/auth/oidc/callback",  # Phase 81: OIDC callback (unauthenticated)
+    }
+)
 
 
 class AuthenticationError(Exception):

@@ -366,6 +366,54 @@ def _check_production_security_settings() -> None:
     )
 
 
+def _validate_oidc_config(errors: list[str]) -> None:
+    """Validate OIDC configuration when OIDC is enabled (Phase 81).
+
+    Checks:
+    - When OIDC_ENABLED=true: OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET required.
+    - When OIDC_ENABLED=true AND multi-tenant mode: OIDC_DEFAULT_ORG_ID required.
+    - When OIDC_ENABLED=true: REDIS_URL must be set (sessions require Redis).
+
+    Args:
+        errors: Mutable list to append error strings into.
+    """
+    settings = get_settings()
+
+    if not settings.oidc_enabled:
+        return
+
+    if not settings.oidc_issuer_url or not settings.oidc_issuer_url.strip():
+        errors.append(
+            "OIDC_ISSUER_URL must be set when OIDC_ENABLED=true. "
+            "Set it to your IdP issuer URL (e.g. https://idp.example.com/realms/conclave)."
+        )
+
+    if not settings.oidc_client_id or not settings.oidc_client_id.strip():
+        errors.append(
+            "OIDC_CLIENT_ID must be set when OIDC_ENABLED=true. "
+            "Set it to the client ID registered with your IdP."
+        )
+
+    client_secret = settings.oidc_client_secret.get_secret_value()
+    if not client_secret or not client_secret.strip():
+        errors.append(
+            "OIDC_CLIENT_SECRET must be set when OIDC_ENABLED=true. "
+            "Set it to the client secret registered with your IdP."
+        )
+
+    if not settings.redis_url or settings.redis_url.strip() == "":
+        errors.append(
+            "REDIS_URL must be set when OIDC_ENABLED=true. OIDC session management requires Redis."
+        )
+
+    if settings.conclave_multi_tenant_enabled and not settings.oidc_default_org_id:
+        errors.append(
+            "OIDC_DEFAULT_ORG_ID must be set when OIDC_ENABLED=true and "
+            "CONCLAVE_MULTI_TENANT_ENABLED=true. "
+            "Set it to the UUID of the organization auto-provisioned OIDC users join."
+        )
+
+
 def validate_config() -> None:
     """Validate required environment variables at application startup.
 
@@ -398,6 +446,7 @@ def validate_config() -> None:
 
     errors: list[str] = []
     _check_always_required_fields(errors)
+    _validate_oidc_config(errors)  # Phase 81: OIDC config validation
     # T46.2 / ADV-P46-03: validate mTLS cert files exist and are readable.
     _validate_mtls_cert_files(errors)
     if errors:

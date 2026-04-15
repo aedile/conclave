@@ -121,6 +121,7 @@ def _include_routers(app: FastAPI) -> None:
     from synth_engine.bootstrapper.routers.admin import router as admin_router
     from synth_engine.bootstrapper.routers.admin_users import router as admin_users_router
     from synth_engine.bootstrapper.routers.auth import router as auth_router
+    from synth_engine.bootstrapper.routers.auth_oidc import router as auth_oidc_router  # Phase 81
     from synth_engine.bootstrapper.routers.compliance import router as compliance_router
     from synth_engine.bootstrapper.routers.connections import router as connections_router
     from synth_engine.bootstrapper.routers.health import router as health_router
@@ -157,6 +158,7 @@ def _include_routers(app: FastAPI) -> None:
     # AUTH_EXEMPT_PATHS.  Moving them to /api/v1/ would break all middleware
     # exempt-path matching.
     app.include_router(auth_router)  # /auth/token — AUTH_EXEMPT_PATHS
+    app.include_router(auth_oidc_router)  # Phase 81: OIDC endpoints
     app.include_router(security_router)  # /security/shred — SEAL_EXEMPT_PATHS
     app.include_router(licensing_router)  # /license/challenge, /license/activate — COMMON_INFRA
     app.include_router(health_router)  # /health, /ready, /health/vault — COMMON_INFRA
