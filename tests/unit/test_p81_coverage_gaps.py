@@ -457,3 +457,36 @@ class TestMigrateAuditSignaturesEdgeCases:
             assert lines == [], (
                 f"Expected AuditEvent construction failure to be skipped, got: {lines!r}"
             )
+
+
+# ===========================================================================
+# synth_engine/__init__.py PackageNotFoundError fallback coverage
+# ===========================================================================
+
+
+class TestPackageVersionFallback:
+    """Line 21-23: __version__ fallback when package is not installed."""
+
+    def test_version_fallback_when_package_not_found(self) -> None:
+        """__version__ must fall back to '1.0.0' when PackageNotFoundError is raised.
+
+        Lines 21-23: the except PackageNotFoundError clause in __init__.py.
+        Forces the fallback path by patching importlib.metadata.version.
+        """
+        from importlib.metadata import PackageNotFoundError as PkgNotFound
+        from unittest.mock import patch
+
+        with patch(
+            "synth_engine._pkg_version",
+            side_effect=PkgNotFound("conclave-engine"),
+        ):
+            import importlib
+
+            import synth_engine
+
+            importlib.reload(synth_engine)
+            fallback_version = synth_engine.__version__
+
+        assert fallback_version == "1.0.0", (
+            f"Expected fallback version '1.0.0', got {fallback_version!r}"
+        )
