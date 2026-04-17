@@ -228,7 +228,9 @@ def _resolve_tier(request: Request) -> str:
     path = request.url.path
     if path == "/unseal":
         return "unseal"
-    if path == "/auth/token":
+    # F7 (P81 review): /auth/oidc/authorize and /auth/oidc/callback use auth
+    # tier (10 req/min/IP) — same limit as /auth/token (brute-force protection).
+    if path in ("/auth/token", "/auth/oidc/authorize", "/auth/oidc/callback"):
         return "auth"
     if path.endswith(_DOWNLOAD_PATH_SUFFIX):
         return "download"

@@ -492,21 +492,6 @@ files = [
 ]
 
 [[package]]
-name = "authlib"
-version = "1.6.10"
-description = "The ultimate Python library in building OAuth and OpenID Connect servers and clients."
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "authlib-1.6.10-py2.py3-none-any.whl", hash = "sha256:aa639b43292554539924a3b4aaa9e81cd67ab64d3e28b22428c61f1200240287"},
-    {file = "authlib-1.6.10.tar.gz", hash = "sha256:856a4f54d6ef3361ca6bb6d14a27e8b88f8097cca795fb428ffe13720e2ecde6"},
-]
-
-[package.dependencies]
-cryptography = "*"
-
-[[package]]
 name = "babel"
 version = "2.18.0"
 description = "Internationalization utilities"
@@ -9524,4 +9509,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "591d02d71240b89e1af329d06de899a6f20d39a3a5fb83c1585023e017d147a3"
+content-hash = "7a24c1f8eb785f291abd855278310578db69d95898e835548171b2752c63b8f4"

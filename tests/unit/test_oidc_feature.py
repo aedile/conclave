@@ -27,12 +27,17 @@ Phase: 81 — SSO/OIDC Integration
 from __future__ import annotations
 
 import json
-import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import jwt as pyjwt
 import pytest
+
+from tests.unit.helpers_oidc import (
+    OIDC_TEST_JWT_SECRET as _TEST_SECRET,
+)
+from tests.unit.helpers_oidc import (
+    make_oidc_token as _make_token,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -40,31 +45,8 @@ pytestmark = pytest.mark.unit
 # Constants
 # ---------------------------------------------------------------------------
 
-_TEST_SECRET = (  # pragma: allowlist secret
-    "unit-test-jwt-secret-key-long-enough-for-hs256-32chars+"
-)
 _ORG_A_UUID = "11111111-1111-1111-1111-111111111111"
 _USER_A_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-
-
-def _make_token(
-    sub: str = "user@example.com",
-    org_id: str = _ORG_A_UUID,
-    role: str = "operator",
-    user_id: str = _USER_A_UUID,
-    expired: bool = False,
-) -> str:
-    now = int(time.time())
-    payload: dict[str, Any] = {
-        "sub": sub,
-        "org_id": org_id,
-        "user_id": user_id,
-        "role": role,
-        "scope": ["read", "write"],
-        "iat": now,
-        "exp": now - 10 if expired else now + 3600,
-    }
-    return pyjwt.encode(payload, _TEST_SECRET, algorithm="HS256")
 
 
 # ===========================================================================
@@ -388,7 +370,7 @@ class TestSessionManagementFeature:
             ).encode()
             for i in range(2)
         ]
-        redis_client.scan_iter.return_value = iter(session_keys)
+        redis_client.smembers.return_value = set(session_keys)
         redis_client.mget.return_value = sessions_data
 
         enforce_concurrent_session_limit(
@@ -443,8 +425,10 @@ class TestSessionManagementFeature:
                 }
             ).encode(),
         ]
-        redis_client.scan_iter.return_value = iter(session_keys)
-        redis_client.mget.return_value = sessions_data
+        redis_client.smembers.return_value = set(session_keys)
+        # Use side_effect for order-independent mget (smembers returns a set, unordered)
+        _sessions_by_key = dict(zip(session_keys, sessions_data, strict=False))
+        redis_client.mget.side_effect = lambda keys: [_sessions_by_key.get(k) for k in keys]
 
         enforce_concurrent_session_limit(
             redis_client=redis_client,
@@ -453,7 +437,7 @@ class TestSessionManagementFeature:
             limit=3,
         )
 
-        # The oldest session must be evicted
+        # The oldest session must be evicted (created_at 2026-01-01 is earliest)
         redis_client.delete.assert_called_once_with(b"conclave:session:oldest")
         assert redis_client.delete.call_count == 1, "Exactly one session should be evicted"
 
@@ -476,15 +460,16 @@ class TestSessionManagementFeature:
         assert session_key.startswith("conclave:session:"), (
             f"Session key {session_key!r} must start with 'conclave:session:'"
         )
-        # Verify setex was called with correct TTL
-        redis_client.setex.assert_called_once()
-        call_args = redis_client.setex.call_args
-        key_arg, ttl_arg, value_arg = call_args[0]
-        assert key_arg == session_key, f"Key mismatch: {key_arg!r} != {session_key!r}"
-        assert ttl_arg == 28800, f"TTL mismatch: {ttl_arg} != 28800"
+        # write_session uses a Lua script via redis_client.eval (not setex directly).
+        # eval(script, numkeys, KEYS[1]=session_key, KEYS[2]=index_key,
+        #      ARGV[1]=session_json, ARGV[2]=ttl_str, ARGV[3]=limit_str)
+        redis_client.eval.assert_called_once()
+        eval_args = redis_client.eval.call_args[0]
+        assert eval_args[2] == session_key, f"KEYS[1] mismatch: {eval_args[2]!r} != {session_key!r}"
+        assert eval_args[5] == "28800", f"TTL arg mismatch: {eval_args[5]!r} != '28800'"
 
         # Verify the session data contains required fields
-        session_data = json.loads(value_arg)
+        session_data = json.loads(eval_args[4])
         assert session_data["user_id"] == _USER_A_UUID
         assert session_data["org_id"] == _ORG_A_UUID
         assert session_data["role"] == "operator"
@@ -568,23 +553,20 @@ class TestEmailExtraction:
         assert result == "user@example.com", f"Expected 'user@example.com', got {result!r}"
 
     def test_role_claims_never_extracted(self) -> None:
-        """IdP role/groups/permissions claims are never returned by _extract_role_from_token_claims.
+        """OIDC_DEFAULT_USER_ROLE is used for all OIDC logins — IdP role claims are never trusted.
 
         AC: Decision 10 — IdP role claims must be ignored entirely.
+        _extract_role_from_token_claims was removed (F8 review fix): the system
+        now uses the constant OIDC_DEFAULT_USER_ROLE ("operator") for all OIDC users.
         """
-        from synth_engine.bootstrapper.routers.auth_oidc import (
-            _extract_role_from_token_claims,
-        )
+        from synth_engine.bootstrapper.routers.auth_oidc import OIDC_DEFAULT_USER_ROLE
 
-        for role_claim in ("role", "groups", "permissions", "scope"):
-            claims: dict[str, Any] = {
-                "sub": "user-id",
-                "email": "user@example.com",
-                role_claim: "admin",
-            }
-            result = _extract_role_from_token_claims(claims)
-            assert result is None, f"IdP {role_claim!r} claim must be ignored, got {result!r}"
-            assert result != "admin", f"IdP {role_claim!r} claim must never return admin role"
+        # The default role must be a low-privilege role — never admin.
+        assert OIDC_DEFAULT_USER_ROLE == "operator", (
+            "OIDC_DEFAULT_USER_ROLE must be 'operator' (lowest privilege), "
+            f"got {OIDC_DEFAULT_USER_ROLE!r}"
+        )
+        assert OIDC_DEFAULT_USER_ROLE != "admin", "OIDC_DEFAULT_USER_ROLE must never be 'admin'"
 
 
 # ===========================================================================
@@ -672,9 +654,17 @@ class TestOIDCAuthorizeEndpoint:
         app = FastAPI()
         app.include_router(oidc_router)
 
+        mock_provider = MagicMock()
+        mock_provider.authorization_endpoint = "http://idp.internal:9999/authorize"
+        mock_provider.client_id = "test-client"
+
         with (
             patch("synth_engine.bootstrapper.routers.auth_oidc.get_settings") as mock_settings,
             patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis,
+            patch(
+                "synth_engine.bootstrapper.dependencies.oidc.get_oidc_provider",
+                return_value=mock_provider,
+            ),
         ):
             settings = MagicMock()
             settings.oidc_enabled = True
@@ -899,7 +889,7 @@ class TestRFC7807ErrorResponses:
         """
         with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
             redis_client = MagicMock()
-            redis_client.get.return_value = None  # State not found → 401
+            redis_client.getdel.return_value = None  # State not found → 401
             mock_redis.return_value = redis_client
 
             resp = oidc_app.get("/auth/oidc/callback?code=some-code&state=nonexistent-state")
@@ -917,7 +907,7 @@ class TestRFC7807ErrorResponses:
         """
         with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
             redis_client = MagicMock()
-            redis_client.get.return_value = None  # State not found
+            redis_client.getdel.return_value = None  # State not found
             mock_redis.return_value = redis_client
 
             resp = oidc_app.get("/auth/oidc/callback?code=some-code&state=nonexistent-state")
@@ -988,7 +978,7 @@ class TestRefreshAndRevokeHappyPaths:
 
         with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
             redis_client = MagicMock()
-            redis_client.scan_iter.return_value = iter([])
+            redis_client.smembers.return_value = set()
             mock_redis.return_value = redis_client
 
             client = TestClient(app, raise_server_exceptions=False)
@@ -1058,7 +1048,8 @@ class TestRefreshAndRevokeHappyPaths:
             # Target user is in same org as the admin
             mock_get_org.return_value = _uuid.UUID(_ORG_A_UUID)
             redis_client = MagicMock()
-            redis_client.scan_iter.return_value = iter([])
+            redis_client.smembers.return_value = set()
+            redis_client.delete.return_value = 0
             mock_redis.return_value = redis_client
 
             client = TestClient(app, raise_server_exceptions=False)
@@ -1095,27 +1086,47 @@ class TestOIDCHelperFunctions:
     """
 
     def test_find_user_by_email_returns_user_when_found(self) -> None:
-        """_find_user_by_email returns user when found in DB."""
-        from synth_engine.bootstrapper.routers.auth_oidc import _find_user_by_email
+        """_find_or_provision_user returns existing user when found in DB.
+
+        _find_user_by_email was merged into _find_or_provision_user (review fix F7).
+        """
+        import uuid as _uuid
+
+        from synth_engine.bootstrapper.routers.auth_oidc import _find_or_provision_user
 
         db = MagicMock()
+        org_id = _uuid.UUID(_ORG_A_UUID)
         mock_user = MagicMock()
         mock_user.email = "user@example.com"
+        mock_user.org_id = org_id
+        mock_user.role = "operator"
         db.exec.return_value.first.return_value = mock_user
 
-        result = _find_user_by_email("user@example.com", db)
+        result = _find_or_provision_user(email="user@example.com", org_id=org_id, db=db)
         assert result == mock_user, f"Expected mock user, got {result!r}"
 
     def test_find_user_by_email_returns_none_when_not_found(self) -> None:
-        """_find_user_by_email returns None when user is not in DB."""
-        from synth_engine.bootstrapper.routers.auth_oidc import _find_user_by_email
+        """_find_or_provision_user auto-provisions a new user when not found in DB.
+
+        _find_user_by_email was merged into _find_or_provision_user (review fix F7).
+        When the user is not found, a new user is auto-provisioned (not None returned).
+        """
+        import uuid as _uuid
+
+        from synth_engine.bootstrapper.routers.auth_oidc import _find_or_provision_user
 
         db = MagicMock()
-        db.exec.return_value.first.return_value = None
+        org_id = _uuid.UUID(_ORG_A_UUID)
+        # First exec (exact match) returns None; second (any org) returns None
+        db.exec.return_value.first.side_effect = [None, None]
 
-        result = _find_user_by_email("notfound@example.com", db)
-        assert result is None, f"Expected None, got {result!r}"
-        assert db.exec.call_count == 1, f"Expected 1 DB call, got {db.exec.call_count}"
+        with patch("synth_engine.bootstrapper.routers.auth_oidc.get_audit_logger") as mock_al:
+            mock_al.return_value = MagicMock()
+            _find_or_provision_user(email="notfound@example.com", org_id=org_id, db=db)
+
+        # New user should be created (db.add called)
+        assert db.add.call_count == 1, f"Expected 1 db.add call, got {db.add.call_count}"
+        assert db.commit.call_count == 1, f"Expected 1 db.commit call, got {db.commit.call_count}"
 
     def test_find_or_provision_user_returns_existing_user(self) -> None:
         """_find_or_provision_user returns existing user and updates last_login_at."""
@@ -1195,12 +1206,14 @@ class TestOIDCHelperFunctions:
     def test_handle_oidc_user_provisioning_delegates_to_find_or_provision(
         self,
     ) -> None:
-        """_handle_oidc_user_provisioning delegates to _find_or_provision_user."""
+        """_find_or_provision_user returns the existing user with DB-authoritative role.
+
+        _handle_oidc_user_provisioning was removed (F7 review fix) and merged into
+        _find_or_provision_user. This test verifies the same behavior directly.
+        """
         import uuid as _uuid
 
-        from synth_engine.bootstrapper.routers.auth_oidc import (
-            _handle_oidc_user_provisioning,
-        )
+        from synth_engine.bootstrapper.routers.auth_oidc import _find_or_provision_user
 
         db = MagicMock()
         org_id = _uuid.UUID(_ORG_A_UUID)
@@ -1209,7 +1222,7 @@ class TestOIDCHelperFunctions:
         # First exec (exact match) returns user
         db.exec.return_value.first.return_value = mock_user
 
-        result = _handle_oidc_user_provisioning(
+        result = _find_or_provision_user(
             email="user@example.com",
             org_id=org_id,
             db=db,
@@ -1335,7 +1348,6 @@ class TestOIDCProviderInitialization:
                 provider = initialize_oidc_provider(
                     issuer_url="https://idp.example.com",
                     client_id="my-client-id",
-                    client_secret="my-secret",  # pragma: allowlist secret
                 )
 
         assert isinstance(provider, OIDCProvider), (
@@ -1377,7 +1389,6 @@ class TestOIDCProviderInitialization:
                     initialize_oidc_provider(
                         issuer_url="https://idp.example.com",
                         client_id="client",
-                        client_secret="secret",  # pragma: allowlist secret
                     )
         assert "missing required fields" in str(exc_info.value), (
             f"Expected 'missing required fields' in error, got: {exc_info.value!r}"
@@ -1414,7 +1425,6 @@ class TestOIDCProviderInitialization:
                 initialize_oidc_provider(
                     issuer_url="https://idp.example.com",
                     client_id="client",
-                    client_secret="secret",  # pragma: allowlist secret
                 )
 
         provider = get_oidc_provider()
@@ -1484,7 +1494,8 @@ class TestRefreshWithSessionUpdate:
         with patch("synth_engine.bootstrapper.routers.auth_oidc.get_redis_client") as mock_redis:
             redis_client = MagicMock()
             session_key = b"conclave:session:test-key"
-            redis_client.scan_iter.return_value = iter([session_key])
+            # Refresh endpoint uses smembers to find sessions via per-user index (F2).
+            redis_client.smembers.return_value = {session_key}
             redis_client.get.return_value = session_data
             redis_client.ttl.return_value = 28000
             mock_redis.return_value = redis_client
@@ -1564,7 +1575,8 @@ class TestRevokeWithSessions:
             mock_get_org.return_value = _uuid.UUID(_ORG_A_UUID)
             redis_client = MagicMock()
             session_key = b"conclave:session:test-key"
-            redis_client.scan_iter.return_value = iter([session_key])
+            # Revoke endpoint uses smembers to find sessions via per-user index (F2).
+            redis_client.smembers.return_value = {session_key}
             redis_client.get.return_value = session_data
             redis_client.delete.return_value = 1
             mock_redis.return_value = redis_client

@@ -25,19 +25,23 @@ remains passphrase-only. SSO/OIDC integration completes the identity stack.
 
 ## Decision
 
-### Library: `authlib >= 1.3.0, < 2.0.0` (pinned: 1.6.10 at implementation time)
+### Library: `PyJWT >= 2.10.0, < 3.0.0` with `httpx` for token exchange
+
+**Updated**: P81 review fix F6 — `authlib` was declared in pyproject.toml but never imported
+in the implementation. The implementation uses `PyJWT` (already a project dependency for JWT
+signing) + `httpx` directly for the token exchange. `authlib` has been removed.
 
 **Rationale**:
-- Pure Python implementation — no C extensions required (critical for air-gap bundle integrity;
-  eliminates the need for platform-specific wheels in disconnected environments).
-- Native PKCE S256 support (`AuthorizationCodeFlow` with `code_challenge_method="S256"`).
-- Actively maintained with regular security releases.
-- Minimal CVE surface relative to alternatives.
-- No LangChain or external service dependencies.
+- `PyJWT` is already a project dependency for JWT signing and verification.
+- Using `PyJWT.algorithms.RSAAlgorithm.from_jwk()` for JWKS key loading avoids a second
+  JWT library in the dependency tree (reduced attack surface, air-gap bundle size).
+- `httpx` (already a project dependency) handles token exchange HTTP calls.
+- Pure Python — no C extensions required for air-gap deployments.
+- Manual PKCE: S256 = SHA256 + base64url, implemented in stdlib (`hashlib`, `base64`).
 
 **Alternatives considered and rejected**:
-- `python-jose` + manual PKCE: requires manual PKCE implementation, higher error surface.
-- `httpx-oauth`: fewer stars, less PKCE documentation, uncertain air-gap status.
+- `authlib`: was declared but never imported; removed to avoid dead dependency.
+- `python-jose`: unmaintained, CVEs, replaced by PyJWT project-wide.
 
 ### PKCE Requirement: S256 Only
 
@@ -219,7 +223,7 @@ fails, the endpoint returns 500 and no mutation occurs.
 
 ## Implementation Notes
 
-- `authlib` version confirmed on PyPI: 1.6.10 (current stable at implementation time).
+- `PyJWT` version confirmed on PyPI: 2.10.1 (current stable at implementation time). `authlib` removed (P81 review F6).
 - `pytest-httpserver` added to dev dependencies for integration tests with mock OIDC provider.
 - Migration 011 adds `last_login_at: datetime | None` to the `users` table.
 - `sessions:revoke` added to PERMISSION_MATRIX in `bootstrapper/dependencies/permissions.py`

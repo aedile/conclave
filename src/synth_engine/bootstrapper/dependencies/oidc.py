@@ -24,6 +24,7 @@ Security properties:
 - PKCE S256 mandatory: plain method rejected.
 - Role from IdP claims: IGNORED. DB-authoritative always.
 - SSRF protection: validate_oidc_issuer_url() blocks metadata endpoints.
+- HTTP issuer in production: CRITICAL warning logged (B7).
 
 Module Boundary:
     Lives in ``bootstrapper/dependencies/`` — NOT in ``shared/`` or ``modules/``.
@@ -33,6 +34,7 @@ CONSTITUTION Priority 0: Security — OIDC provider trust, PKCE, SSRF prevention
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Phase: 81 — SSO/OIDC Integration
 ADR: ADR-0067 — OIDC Integration
+Review fix: B7 (HTTPS enforcement warning), F10 (remove unused client_secret param)
 """
 
 from __future__ import annotations
@@ -108,7 +110,6 @@ def initialize_oidc_provider(
     *,
     issuer_url: str,
     client_id: str,
-    client_secret: str,
 ) -> OIDCProvider:
     """Fetch the OIDC discovery document and JWKS, cache the result.
 
@@ -119,11 +120,14 @@ def initialize_oidc_provider(
     The discovery document is fetched from ``<issuer_url>/.well-known/openid-configuration``.
     Required fields: ``issuer``, ``authorization_endpoint``, ``token_endpoint``, ``jwks_uri``.
 
+    In production mode (``CONCLAVE_ENV=production``), if the issuer URL uses
+    ``http://`` (not HTTPS), a CRITICAL warning is logged. The fetch proceeds
+    because the IdP may be behind a TLS-terminating proxy (B7).
+
     Args:
         issuer_url: The OIDC provider issuer URL. Validated against SSRF rules
             (RFC-1918 allowed for air-gap; cloud metadata always blocked).
         client_id: The OIDC client ID registered with the IdP.
-        client_secret: The OIDC client secret registered with the IdP.
 
     Returns:
         :class:`OIDCProvider` instance with cached discovery document and JWKS.
@@ -138,6 +142,18 @@ def initialize_oidc_provider(
 
     # Validate the issuer URL against SSRF rules (Decision 2).
     validate_oidc_issuer_url(issuer_url)
+
+    # B7: Warn when the issuer URL uses HTTP in production mode.
+    from synth_engine.shared.settings import get_settings
+
+    _settings = get_settings()
+    if issuer_url.lower().startswith("http://") and _settings.is_production():
+        _logger.critical(
+            "OIDC issuer URL uses HTTP in production mode — JWKS fetch is not encrypted. "
+            "Configure the IdP with HTTPS or ensure TLS is terminated by a proxy before "
+            "the Conclave Engine. issuer_url=%r",
+            issuer_url,
+        )
 
     # Normalize issuer URL (strip trailing slash for consistent key construction).
     issuer_url = issuer_url.rstrip("/")
@@ -235,7 +251,6 @@ def maybe_initialize_oidc_provider() -> None:
     initialize_oidc_provider(
         issuer_url=settings.oidc_issuer_url,
         client_id=settings.oidc_client_id,
-        client_secret=settings.oidc_client_secret.get_secret_value(),
     )
 
 

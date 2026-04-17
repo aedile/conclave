@@ -18,6 +18,8 @@ Security properties (ADR-0067):
 ---------------------------------
 - PKCE S256 mandatory: plain method and implicit flow rejected.
 - State is single-use: atomically deleted on first use (replay prevented).
+  Uses Redis GETDEL (atomic get-and-delete, Redis 6.2+) to eliminate TOCTOU.
+- ID token signature verified with JWKS (RS256). iss, aud, exp, iat checked.
 - IdP role claims IGNORED: role always from local DB (Decision 10).
 - Email-only identity anchor (no oidc_sub column, Tier 8 limitation).
 - Cross-org email collision returns 401 with generic message (oracle prevention).
@@ -25,6 +27,7 @@ Security properties (ADR-0067):
 - RFC 7807 error responses on all error paths.
 - Audit events emitted BEFORE mutations (T68.3 pattern).
 - Token exchange response limited to 64KB (AV-9 mitigation).
+- Token exchange uses async httpx (non-blocking).
 
 Module Boundary:
     Lives in ``bootstrapper/routers/`` — OIDC is an HTTP-layer authentication concern.
@@ -33,6 +36,10 @@ CONSTITUTION Priority 0: Security — PKCE, SSRF, CSRF, IDOR prevention
 CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Phase: 81 — SSO/OIDC Integration
 ADR: ADR-0067 — OIDC Integration
+Review fixes: B1 (JWT signature verification), B2 (async httpx), F1 (code_challenge format),
+    F4 (audit resource uses user.id), F5 (safe_error_msg), F8 (remove dead role extractor),
+    F9 (inline provisioning wrapper), F11 (GETDEL), F12 (remove dead find_by_email),
+    F13 (silent except fixed), F14 (json.JSONDecodeError around token_resp.json())
 """
 
 from __future__ import annotations
@@ -40,6 +47,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import secrets
 import uuid
 from base64 import urlsafe_b64encode
@@ -47,6 +55,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import httpx
+import jwt as pyjwt
 import redis as redis_lib
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -56,13 +65,10 @@ from synth_engine.bootstrapper.dependencies.permissions import (
     Role,
 )
 from synth_engine.bootstrapper.dependencies.redis import get_redis_client
-from synth_engine.bootstrapper.dependencies.sessions import (
-    SESSION_KEY_PREFIX,
-    enforce_concurrent_session_limit,
-    write_session,
-)
+from synth_engine.bootstrapper.dependencies.sessions import write_session
 from synth_engine.bootstrapper.dependencies.tenant import TenantContext, get_current_user
 from synth_engine.bootstrapper.errors import problem_detail
+from synth_engine.shared.errors import safe_error_msg
 from synth_engine.shared.security.audit import get_audit_logger
 from synth_engine.shared.settings import get_settings
 
@@ -81,6 +87,10 @@ _OAUTH2_TOKEN_TYPE: str = "bearer"  # noqa: S105
 
 #: PKCE S256 method identifier (RFC 7636).
 _PKCE_S256_METHOD: str = "S256"
+
+#: RFC 7636 §4.2: S256 code_challenge is BASE64URL(SHA256(verifier)) without padding.
+#: SHA-256 produces 32 bytes → 43 base64url chars (no padding).
+_CODE_CHALLENGE_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9\-_]{43}$")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -237,78 +247,75 @@ def _extract_email_from_token_claims(claims: dict[str, Any]) -> str:
     return cast(str, email.strip())
 
 
-def _extract_role_from_token_claims(
-    claims: dict[str, Any],
-) -> None:
-    """Intentionally return None — IdP role claims are ALWAYS ignored.
+def _verify_id_token(
+    id_token: str,
+    provider: Any,
+) -> dict[str, Any]:
+    """Verify the OIDC ID token signature and standard claims.
 
-    Decision 10 / ADR-0067: The OIDC callback MUST NOT read any role,
-    groups, permissions, or equivalent claim from the IdP's ID token.
-    Role is ALWAYS resolved from the local DB users.role column.
-
-    This function exists to make the policy explicit and testable. Any
-    future developer who tries to read role from claims will find this
-    function and the test covering it.
+    Decodes the JWT header to get ``kid``, finds the matching public key in
+    the provider's JWKS, and verifies the RS256 signature. Also verifies
+    ``iss`` (must equal provider.issuer), ``aud`` (must equal provider.client_id),
+    ``exp``, and ``iat`` claims.
 
     Args:
-        claims: Decoded OIDC ID token claims (ignored).
+        id_token: The compact JWT string from the IdP token response.
+        provider: :class:`~synth_engine.bootstrapper.dependencies.oidc.OIDCProvider`
+            instance with cached JWKS data.
 
     Returns:
-        Always ``None``. Role must come from the local DB.
-    """
-    return None
-
-
-def _handle_oidc_user_provisioning(
-    *,
-    email: str,
-    org_id: uuid.UUID,
-    db: Any,
-) -> Any:
-    """Look up or create a user record for an OIDC-authenticated email.
-
-    Decision 3 (email-only anchor): matches on (email, org_id).
-    Decision 10 (DB-authoritative role): never reads role from IdP token.
-
-    Resolution logic:
-    1. Query for user with matching email in this org → return existing user.
-    2. Query for user with same email in a DIFFERENT org → raise 401 generic.
-    3. No match → create new user with default role (operator).
-
-    Args:
-        email: Email address extracted from the OIDC ID token.
-        org_id: UUID of the organization for this login.
-        db: SQLModel Session (or compatible DB session).
-
-    Returns:
-        The user record (existing or newly created).
+        The verified JWT claims dictionary.
 
     Raises:
-        HTTPException: 401 with generic "Authentication failed" if the email
-            exists in a different organization (oracle prevention per
-            Decision 13 — the response body must be byte-identical to
-            other auth failures).
-    """  # noqa: DOC502
-
-    return _find_or_provision_user(email=email, org_id=org_id, db=db)
-
-
-def _find_user_by_email(email: str, db: Any) -> Any | None:
-    """Find a user record by email address (any org).
-
-    Args:
-        email: Email address to search for.
-        db: SQLModel Session.
-
-    Returns:
-        User record if found, None otherwise.
+        HTTPException: 401 if the token is invalid, expired, or signature
+            verification fails.
     """
-    from sqlmodel import select
+    try:
+        unverified_header = pyjwt.get_unverified_header(id_token)
+    except pyjwt.DecodeError:
+        _logger.warning("OIDC ID token has malformed header")
+        raise _oidc_auth_error("Authentication failed") from None
 
-    from synth_engine.shared.models.user import User
+    kid = unverified_header.get("kid")
 
-    stmt = select(User).where(User.email == email)
-    return db.exec(stmt).first()
+    # Find the matching public key in JWKS.
+    keys = provider.jwks_data.get("keys", [])
+    matching_key: dict[str, Any] | None = None
+    for k in keys:
+        if kid is None or k.get("kid") == kid:
+            matching_key = k
+            break
+
+    if matching_key is None:
+        _logger.warning("OIDC JWKS does not contain a key with kid=%r — token rejected", kid)
+        raise _oidc_auth_error("Authentication failed")
+
+    try:
+        # RSAAlgorithm.from_jwk returns AllowedPublicKeys | AllowedPrivateKeys
+        # We know it returns a public key from a JWKS endpoint.
+        # The type: ignore is needed because mypy sees RSAPrivateKey | RSAPublicKey
+        # but pyjwt.decode accepts AllowedPublicKeys which includes RSAPublicKey.
+        public_key = pyjwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(matching_key))
+    except Exception:
+        _logger.warning("OIDC JWKS key parsing failed", exc_info=True)
+        raise _oidc_auth_error("Authentication failed") from None
+
+    try:
+        claims: dict[str, Any] = pyjwt.decode(
+            id_token,
+            public_key,  # type: ignore[arg-type]  # RSAAlgorithm returns union including private key
+            algorithms=["RS256"],
+            audience=provider.client_id,
+            issuer=provider.issuer,
+        )
+    except pyjwt.ExpiredSignatureError:
+        _logger.warning("OIDC ID token expired")
+        raise _oidc_auth_error("Authentication failed") from None
+    except pyjwt.InvalidTokenError as exc:
+        _logger.warning("OIDC ID token verification failed: %s", exc)
+        raise _oidc_auth_error("Authentication failed") from None
+
+    return claims
 
 
 def _find_or_provision_user(
@@ -318,6 +325,14 @@ def _find_or_provision_user(
     db: Any,
 ) -> Any:
     """Find an existing user or provision a new one for OIDC login.
+
+    Decision 3 (email-only anchor): matches on (email, org_id).
+    Decision 10 (DB-authoritative role): never reads role from IdP token.
+
+    Resolution logic:
+    1. Query for user with matching email in this org → return existing user.
+    2. Query for user with same email in a DIFFERENT org → raise 401 generic.
+    3. No match → create new user with default role (operator).
 
     Args:
         email: Email address from the OIDC ID token.
@@ -369,14 +384,6 @@ def _find_or_provision_user(
 
     # No existing user — auto-provision with default role.
     audit_logger = get_audit_logger()
-    audit_logger.log_event(
-        event_type="USER_AUTO_PROVISIONED",
-        actor="oidc_callback",
-        resource=f"user:{email}",
-        action="provision",
-        details={"org_id": str(org_id), "role": OIDC_DEFAULT_USER_ROLE},
-    )
-
     new_user = User(
         org_id=org_id,
         email=email,
@@ -386,6 +393,15 @@ def _find_or_provision_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    # F4: audit resource uses user UUID, not email.
+    audit_logger.log_event(
+        event_type="USER_AUTO_PROVISIONED",
+        actor="oidc_callback",
+        resource=f"user:{new_user.id}",
+        action="provision",
+        details={"org_id": str(org_id), "role": OIDC_DEFAULT_USER_ROLE},
+    )
 
     _logger.info(
         "Auto-provisioned OIDC user: email_hash=... org_id=%s role=%s",
@@ -449,6 +465,7 @@ async def get_oidc_authorize(
 
     Args:
         code_challenge: The PKCE S256 challenge (BASE64URL(SHA256(verifier))).
+            Must be exactly 43 URL-safe base64 characters (RFC 7636 S256).
         code_challenge_method: Must be "S256". "plain" is rejected.
         response_type: Must be "code" or absent. Implicit flow ("token")
             is not supported and is rejected with 400.
@@ -459,7 +476,9 @@ async def get_oidc_authorize(
     Raises:
         HTTPException: 404 if OIDC is not configured.
         HTTPException: 400 if response_type is not "code" (implicit flow rejected).
-        HTTPException: 400/422 if code_challenge_method is not "S256".
+        HTTPException: 400 if code_challenge_method is not "S256".
+        HTTPException: 400 if code_challenge does not match RFC 7636 format.
+        HTTPException: 422 if code_challenge is empty.
         HTTPException: 503 if Redis is unavailable.
     """  # noqa: DOC503
     settings = get_settings()
@@ -506,6 +525,21 @@ async def get_oidc_authorize(
             ),
         )
 
+    # F1: Validate code_challenge format — must be exactly 43 URL-safe base64 chars
+    # (RFC 7636 §4.2: S256 challenge = BASE64URL(SHA256(verifier)), 32 bytes → 43 chars).
+    if not _CODE_CHALLENGE_RE.match(code_challenge):
+        raise HTTPException(
+            status_code=400,
+            detail=problem_detail(
+                status=400,
+                title="Bad Request",
+                detail=(
+                    "code_challenge must be exactly 43 URL-safe base64 characters "
+                    "(RFC 7636 S256 format: BASE64URL(SHA256(verifier)) without padding)."
+                ),
+            ),
+        )
+
     # Generate state value.
     state = secrets.token_urlsafe(32)
 
@@ -522,10 +556,15 @@ async def get_oidc_authorize(
         auth_endpoint = provider.authorization_endpoint
         client_id = provider.client_id
     except RuntimeError:
-        # Provider not initialized — may be in test mode or OIDC misconfigured.
-        # In tests, the endpoint is still functional with mocked settings.
-        auth_endpoint = settings.oidc_issuer_url.rstrip("/") + "/authorize"
-        client_id = settings.oidc_client_id
+        # Provider not initialized — return 503 (B3: no fallback in production).
+        raise HTTPException(
+            status_code=503,
+            detail=problem_detail(
+                status=503,
+                title="Service Unavailable",
+                detail="OIDC provider not available. Contact the system administrator.",
+            ),
+        ) from None
 
     redirect_url = (
         f"{auth_endpoint}"
@@ -572,7 +611,7 @@ async def get_oidc_authorize(
     summary="Complete OIDC authorization callback",
     description=(
         "Complete the OIDC flow: validate state, verify PKCE, exchange code "
-        "for tokens, provision user, and issue a JWT. "
+        "for tokens, verify JWT signature, provision user, and issue a JWT. "
         "Returns JSON with access_token (NOT an HTTP redirect). "
         "Returns 404 when OIDC is not configured."
     ),
@@ -587,8 +626,11 @@ async def get_oidc_callback(
 
     Validates the state parameter (CSRF protection), verifies the PKCE
     code_verifier against the stored challenge, exchanges the authorization
-    code for an ID token, extracts the email claim, provisions or logs in
-    the user, and issues a JWT.
+    code for an ID token, verifies the ID token signature with JWKS (B1),
+    extracts the email claim, provisions or logs in the user, and issues a JWT.
+
+    The state is consumed atomically using Redis GETDEL (Redis 6.2+) to prevent
+    TOCTOU replay attacks (F11).
 
     Args:
         code: The authorization code from the IdP.
@@ -603,7 +645,9 @@ async def get_oidc_callback(
         HTTPException: 404 if OIDC not configured.
         HTTPException: 401 if state invalid/expired/replayed.
         HTTPException: 401 if code_verifier missing or wrong.
+        HTTPException: 401 if ID token signature invalid or claims fail.
         HTTPException: 401 if email claim missing or cross-org collision.
+        HTTPException: 502 if IdP token response is not valid JSON.
         HTTPException: 503 if Redis or IdP unavailable.
     """  # noqa: DOC503
     settings = get_settings()
@@ -628,7 +672,9 @@ async def get_oidc_callback(
 
     try:
         redis_client = get_redis_client()
-        raw_state: bytes | None = cast(bytes | None, redis_client.get(state_key))
+        # F11: GETDEL is atomic — eliminates TOCTOU between GET and DELETE.
+        # Supported since Redis 6.2.0. Returns the value and deletes the key atomically.
+        raw_state: bytes | None = cast(bytes | None, redis_client.getdel(state_key))
     except redis_lib.RedisError as exc:
         _logger.error("Redis error reading OIDC state: %s", exc)
         raise HTTPException(
@@ -662,12 +708,6 @@ async def get_oidc_callback(
             ),
         )
 
-    # Delete state atomically — one-time use.
-    try:
-        redis_client.delete(state_key)
-    except redis_lib.RedisError:
-        pass  # Best effort — state may expire naturally.
-
     try:
         state_data: dict[str, str] = json.loads(raw_state)
     except (json.JSONDecodeError, ValueError):
@@ -687,7 +727,7 @@ async def get_oidc_callback(
         )
         raise _oidc_auth_error("Authentication failed")
 
-    # --- Step 3: Exchange authorization code for tokens ---
+    # --- Step 3: Exchange authorization code for tokens (async, non-blocking) ---
     try:
         from synth_engine.bootstrapper.dependencies.oidc import get_oidc_provider
 
@@ -695,23 +735,31 @@ async def get_oidc_callback(
         token_endpoint = provider.token_endpoint
         client_id = provider.client_id
     except RuntimeError:
-        token_endpoint = settings.oidc_issuer_url.rstrip("/") + "/token"
-        client_id = settings.oidc_client_id
+        raise HTTPException(
+            status_code=503,
+            detail=problem_detail(
+                status=503,
+                title="Service Unavailable",
+                detail="OIDC provider not available. Contact the system administrator.",
+            ),
+        ) from None
 
     client_secret = settings.oidc_client_secret.get_secret_value()
 
     try:
-        token_resp = httpx.post(
-            token_endpoint,
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "code_verifier": code_verifier,
-            },
-            timeout=10.0,
-        )
+        # B2: Use async httpx to avoid blocking the event loop.
+        async with httpx.AsyncClient() as http_client:
+            token_resp = await http_client.post(
+                token_endpoint,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code_verifier": code_verifier,
+                },
+                timeout=10.0,
+            )
         # Check response size limit (Decision 18 / AV-9).
         if len(token_resp.content) > _TOKEN_EXCHANGE_MAX_BYTES:
             _logger.error(
@@ -735,7 +783,6 @@ async def get_oidc_callback(
             )
 
         token_resp.raise_for_status()
-        token_data = token_resp.json()
 
     except httpx.HTTPStatusError as exc:
         _logger.warning("IdP token exchange failed: %s", exc)
@@ -747,6 +794,7 @@ async def get_oidc_callback(
             details={"reason": "idp_error"},
         )
         raise _oidc_auth_error("Authentication failed") from None
+
     except httpx.HTTPError as exc:
         _logger.error("IdP token exchange HTTP error: %s", exc)
         raise HTTPException(
@@ -758,12 +806,37 @@ async def get_oidc_callback(
             ),
         ) from None
 
-    # --- Step 4: Extract claims (role is NEVER read from IdP token) ---
-    id_token_claims: dict[str, Any] = token_data
+    # F14: Wrap token_resp.json() in try/except to return 502 on malformed IdP response.
+    try:
+        token_data: dict[str, Any] = token_resp.json()
+    except json.JSONDecodeError as exc:
+        _logger.error("IdP token response is not valid JSON: %s", exc)
+        audit_logger.log_event(
+            event_type="OIDC_LOGIN_FAILURE",
+            actor="oidc_callback",
+            resource="oidc_token_exchange",
+            action="parse_response",
+            details={"reason": "invalid_json"},
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=problem_detail(
+                status=502,
+                title="Bad Gateway",
+                detail="Identity provider returned an invalid response.",
+            ),
+        ) from None
+
+    # --- Step 4: Verify ID token signature and extract claims (B1) ---
+    id_token_str = token_data.get("id_token")
+    if not id_token_str or not isinstance(id_token_str, str):
+        _logger.warning("IdP token response missing id_token field")
+        raise _oidc_auth_error("Authentication failed")
+
+    # Verify signature, iss, aud, exp, iat — DB-authoritative role (Decision 10).
+    id_token_claims = _verify_id_token(id_token_str, provider)
 
     email = _extract_email_from_token_claims(id_token_claims)
-    # _extract_role_from_token_claims always returns None — DB is authoritative.
-    _extract_role_from_token_claims(id_token_claims)
 
     # --- Step 5: Provision or look up user ---
     # Resolve the target org.
@@ -798,7 +871,7 @@ async def get_oidc_callback(
 
         db_url = _get_settings().database_url or "sqlite:///:memory:"
         with Session(get_engine(db_url)) as session:
-            user = _handle_oidc_user_provisioning(
+            user = _find_or_provision_user(
                 email=email,
                 org_id=target_org_id,
                 db=session,
@@ -808,7 +881,8 @@ async def get_oidc_callback(
     except HTTPException:
         raise
     except Exception as exc:
-        _logger.error("DB error during OIDC user provisioning: %s", exc)
+        # F5: use safe_error_msg to avoid leaking internal DB details in logs.
+        _logger.error("DB error during OIDC user provisioning: %s", safe_error_msg(str(exc)))
         raise HTTPException(
             status_code=503,
             detail=problem_detail(
@@ -839,18 +913,14 @@ async def get_oidc_callback(
     # --- Step 7: Create Redis session (if OIDC session management enabled) ---
     try:
         redis_client = get_redis_client()
-        enforce_concurrent_session_limit(
-            redis_client=redis_client,
-            user_id=user_id_str,
-            org_id=org_id_str,
-            limit=settings.concurrent_session_limit,
-        )
+        # F2/F3: write_session now atomically enforces the concurrent limit via Lua.
         write_session(
             redis_client=redis_client,
             user_id=user_id_str,
             org_id=org_id_str,
             role=user_role,
             ttl_seconds=settings.session_ttl_seconds,
+            concurrent_limit=settings.concurrent_session_limit,
         )
         audit_logger.log_event(
             event_type="SESSION_CREATED",
@@ -919,11 +989,15 @@ async def post_auth_refresh(
         role=ctx.role,
     )
 
-    # Update last_refreshed_at in Redis session (best effort).
+    # Update last_refreshed_at in Redis session (best effort — non-fatal per ADR-0067).
     try:
         redis_client = get_redis_client()
-        # Find and update this user's sessions.
-        for key in redis_client.scan_iter(f"{SESSION_KEY_PREFIX}*"):
+        # Find and update this user's sessions via per-user index.
+        from synth_engine.bootstrapper.dependencies.sessions import _user_index_key
+
+        index_key = _user_index_key(ctx.user_id, ctx.org_id)
+        session_keys: set[bytes] = cast(set[bytes], redis_client.smembers(index_key))
+        for key in session_keys:
             raw: bytes | None = cast(bytes | None, redis_client.get(key))
             if raw is None:
                 continue
@@ -931,11 +1005,10 @@ async def post_auth_refresh(
                 data: dict[str, str] = json.loads(raw)
             except (json.JSONDecodeError, ValueError):
                 continue
-            if data.get("user_id") == ctx.user_id and data.get("org_id") == ctx.org_id:
-                data["last_refreshed_at"] = datetime.now(UTC).isoformat()
-                ttl: int = cast(int, redis_client.ttl(key))
-                if ttl > 0:
-                    redis_client.setex(key, ttl, json.dumps(data))
+            data["last_refreshed_at"] = datetime.now(UTC).isoformat()
+            ttl: int = cast(int, redis_client.ttl(key))
+            if ttl > 0:
+                redis_client.setex(key, ttl, json.dumps(data))
     except redis_lib.RedisError as exc:
         _logger.warning("Redis error updating session on refresh: %s", exc)
         # Non-fatal: JWT was issued successfully.
@@ -1035,8 +1108,21 @@ async def post_auth_revoke(
             db_url = settings.database_url or "sqlite:///:memory:"
             with Session(get_engine(db_url)) as session:
                 target_org_id = _get_user_org(target_user_id, session)
-        except Exception:
-            target_org_id = None
+        except Exception as exc:
+            # F13: log error and return 503 — do not silently set target_org_id=None.
+            _logger.error(
+                "DB error looking up target user org during revoke: %s",
+                exc,
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=problem_detail(
+                    status=503,
+                    title="Service Unavailable",
+                    detail="Authentication service temporarily unavailable.",
+                ),
+            ) from None
 
         if target_org_id is None or str(target_org_id) != caller_org_id:
             raise HTTPException(
@@ -1048,32 +1134,20 @@ async def post_auth_revoke(
                 ),
             )
 
-    # Revoke sessions in Redis.
+    # Revoke sessions in Redis using the per-user session index (F2).
     try:
         redis_client = get_redis_client()
         revoked_count = 0
 
-        keys_to_revoke: list[bytes] = []
-        for key in redis_client.scan_iter(f"{SESSION_KEY_PREFIX}*"):
-            raw_session: bytes | None = cast(bytes | None, redis_client.get(key))
-            if raw_session is None:
-                continue
-            try:
-                data: dict[str, str] = json.loads(raw_session)
-            except (json.JSONDecodeError, ValueError):
-                continue
+        from synth_engine.bootstrapper.dependencies.sessions import _user_index_key
 
-            session_user_id = data.get("user_id", "")
-            session_org_id = data.get("org_id", "")
+        index_key = _user_index_key(target_user_id, caller_org_id)
+        session_keys_to_revoke: set[bytes] = cast(set[bytes], redis_client.smembers(index_key))
 
-            user_matches = session_user_id == target_user_id
-            org_matches = session_org_id == caller_org_id
-
-            if user_matches and (is_self_revocation or org_matches):
-                keys_to_revoke.append(key)
-
-        if keys_to_revoke:
-            revoked_count = cast(int, redis_client.delete(*keys_to_revoke))
+        if session_keys_to_revoke:
+            revoked_count = cast(int, redis_client.delete(*session_keys_to_revoke))
+            # Clean up the index itself.
+            redis_client.delete(index_key)
 
     except redis_lib.RedisError as exc:
         _logger.error("Redis error during session revocation: %s", exc)
