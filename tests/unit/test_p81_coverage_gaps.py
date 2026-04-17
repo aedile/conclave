@@ -42,6 +42,7 @@ class TestSSRFPrivateHelpers:
         # "not-an-ip" is not a valid IP address — must return False, not raise
         result = _is_blocked("not-an-ip")
         assert result is False, f"Expected False for invalid IP string, got {result!r}"
+        assert result == False
 
     def test_is_rfc1918_returns_false_on_invalid_ip_string(self) -> None:
         """_is_rfc1918 must return False (not raise) on non-IP input.
@@ -52,6 +53,7 @@ class TestSSRFPrivateHelpers:
 
         result = _is_rfc1918("definitely-not-an-ip")
         assert result is False, f"Expected False for invalid IP string, got {result!r}"
+        assert result == False
 
     def test_is_rfc1918_returns_false_for_ipv6_non_mapped(self) -> None:
         """_is_rfc1918 must return False for a non-IPv4-mapped IPv6 address.
@@ -65,6 +67,7 @@ class TestSSRFPrivateHelpers:
         # ::2 is a pure IPv6 address (not IPv4-mapped) — must not match IPv4 ranges
         result = _is_rfc1918("::2")
         assert result is False, f"Expected False for non-mapped IPv6 address, got {result!r}"
+        assert result == False
 
     def test_is_loopback_returns_false_on_invalid_ip_string(self) -> None:
         """_is_loopback must return False (not raise) on non-IP input.
@@ -75,6 +78,7 @@ class TestSSRFPrivateHelpers:
 
         result = _is_loopback("still-not-an-ip")
         assert result is False, f"Expected False for invalid IP string, got {result!r}"
+        assert result == False
 
 
 class TestValidateDeliveryIPsDrift:
@@ -179,6 +183,8 @@ class TestAuditLoggerLoadPersistedChainHeadEdgeCases:
         # _anchor_file_path is None — must return None
         result = logger._load_persisted_chain_head()
         assert result is None, f"Expected None when no anchor_file_path, got {result!r}"
+        # Guard was sufficient; add a type assertion: None is falsy
+        assert not result, "None result must be falsy — no state to resume"
 
     def test_oserror_reading_anchor_file_starts_from_genesis(self) -> None:
         """OSError while reading the anchor file logs a WARNING and returns None.
@@ -205,6 +211,10 @@ class TestAuditLoggerLoadPersistedChainHeadEdgeCases:
 
             assert result is None, (
                 f"Expected None after OSError reading anchor file, got {result!r}"
+            )
+            # Logger must have fallen back to genesis state
+            assert logger._entry_count == 0, (
+                f"Expected entry_count=0 after OSError fallback, got {logger._entry_count}"
             )
         finally:
             os.unlink(anchor_path)
@@ -238,6 +248,10 @@ class TestAuditLoggerLoadPersistedChainHeadEdgeCases:
 
             result = logger._load_persisted_chain_head()
             assert result is None, f"Expected None after invalid chain_head_hash, got {result!r}"
+            # Anchor path must still be stored (logger did not clear it)
+            assert logger._anchor_file_path == anchor_path, (
+                f"Expected anchor_file_path preserved, got {logger._anchor_file_path!r}"
+            )
         finally:
             os.unlink(anchor_path)
 
@@ -270,6 +284,10 @@ class TestAuditLoggerLoadPersistedChainHeadEdgeCases:
 
             result = logger._load_persisted_chain_head()
             assert result is None, f"Expected None for entry_count=0, got {result!r}"
+            # Logger entry_count must remain unchanged (genesis) since load failed
+            assert logger._entry_count == 0, (
+                f"Expected entry_count=0 after failed load, got {logger._entry_count}"
+            )
         finally:
             os.unlink(anchor_path)
 
@@ -340,6 +358,7 @@ class TestAuditLoggerVerifyEventEdgeCases:
             result = logger.verify_event(event)
 
         assert result is False, f"Expected False when _sign_v2 raises ValueError, got {result!r}"
+        assert result == False
 
 
 # ===========================================================================
