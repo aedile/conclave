@@ -490,3 +490,68 @@ class TestPackageVersionFallback:
         assert fallback_version == "1.0.0", (
             f"Expected fallback version '1.0.0', got {fallback_version!r}"
         )
+
+
+# ===========================================================================
+# idempotency.py InvalidTokenError path coverage
+# ===========================================================================
+
+
+class TestIdempotencyExtractOperatorId:
+    """Lines 110-111: InvalidTokenError path in _extract_operator_id."""
+
+    def test_malformed_jwt_returns_anonymous(self) -> None:
+        """A malformed JWT token must return 'anonymous' without raising.
+
+        Lines 110-111: the except pyjwt.InvalidTokenError clause in
+        _extract_operator_id — hit when the token is structurally invalid.
+        """
+        from unittest.mock import MagicMock
+
+        from synth_engine.shared.middleware.idempotency import _extract_operator_id
+
+        request = MagicMock()
+        request.headers = {"Authorization": "Bearer not.a.valid.jwt.token.at.all"}
+
+        result = _extract_operator_id(request)
+
+        assert result == "anonymous", f"Expected 'anonymous' for malformed JWT, got {result!r}"
+
+
+# ===========================================================================
+# hmac_signing.py invalid hex key coverage
+# ===========================================================================
+
+
+class TestHmacSigningInvalidHex:
+    """Lines 225->230, 227-228: invalid hex in legacy artifact key."""
+
+    def test_invalid_hex_artifact_key_logs_warning_and_disables_legacy(self) -> None:
+        """Invalid hex in ARTIFACT_SIGNING_KEY logs WARNING and disables legacy verification.
+
+        Lines 227-228: the except ValueError clause in build_key_map_from_settings
+        when the legacy key is not valid hex.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from pydantic import SecretStr
+
+        from synth_engine.shared.security.hmac_signing import build_key_map_from_settings
+
+        # Use a versioned key that IS valid hex so key_map is not empty
+        valid_key_id = "aa" * 4  # 8-char hex = 4 bytes
+        valid_key = "bb" * 32  # 64-char hex = 32 bytes
+        mock_settings = MagicMock()
+        mock_settings.artifact_signing_keys = {valid_key_id: valid_key}
+        # artifact_signing_key (legacy single-key) with invalid hex
+        mock_settings.artifact_signing_key = SecretStr("not-valid-hex-!!!")
+
+        with patch(
+            "synth_engine.shared.settings.get_settings",
+            return_value=mock_settings,
+        ):
+            result = build_key_map_from_settings()
+
+        # The result must not be None (the valid versioned key was loaded)
+        assert result is not None, "Expected key_map with versioned key, got None"
+        assert len(result) >= 1, f"Expected at least 1 key in map, got {result!r}"
