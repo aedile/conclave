@@ -23,6 +23,8 @@ Security properties:
 - Key uses a random token (not derived from user_id) — prevents session fixation.
 - Concurrent session limit enforced by evicting oldest (earliest created_at).
   Uses atomic Lua script: SMEMBERS → count → evict → SADD (no TOCTOU window).
+- Index key TTL bounded to ``ttl * limit`` seconds to prevent unbounded Redis
+  memory growth from dead index keys (F18).
 - Redis failure on write → 503 Service Unavailable (fail-closed).
 - Redis failure on read/validate → 401 Unauthorized (fail-closed).
 
@@ -35,6 +37,7 @@ CONSTITUTION Priority 5: Code Quality — strict typing, Google docstrings
 Phase: 81 — SSO/OIDC Integration
 ADR: ADR-0067 — OIDC Integration
 Review fix: F2 (O(N) SCAN replaced by per-user index), F3 (TOCTOU fixed with Lua script)
+Review fix: F18 (index key TTL bounded), F19 (user_index_key made public)
 """
 
 from __future__ import annotations
@@ -72,6 +75,7 @@ _USER_SESSIONS_INDEX_PREFIX: str = "conclave:user_sessions:"
 #:   3. If count >= limit, delete the oldest session key and SREM it from the index.
 #:   4. SET the new session key with TTL.
 #:   5. SADD the new session key to the user index.
+#:   6. EXPIRE the index key to ``ttl * limit`` seconds (F18: bound index lifetime).
 #:
 #: This executes atomically — no other command can interleave.
 _WRITE_SESSION_LUA = """
@@ -111,11 +115,17 @@ end
 redis.call('SETEX', session_key, ttl, session_val)
 redis.call('SADD', index_key, session_key)
 
+-- F18: Bound the index key lifetime to prevent unbounded Redis memory growth.
+-- The index can hold at most ``limit`` members, each with TTL ``ttl``.
+-- Setting the index TTL to ``ttl * limit`` ensures it is garbage-collected
+-- even if all sessions expire without a revoke call removing the index.
+redis.call('EXPIRE', index_key, ttl * limit)
+
 return 1
 """
 
 
-def _user_index_key(user_id: str, org_id: str) -> str:
+def user_index_key(user_id: str, org_id: str) -> str:
     """Construct the Redis SET key for a user's session index.
 
     Args:
@@ -186,7 +196,7 @@ def write_session(
     )
 
     session_key = create_session_key()
-    index_key = _user_index_key(user_id, org_id)
+    index_key = user_index_key(user_id, org_id)
 
     redis_client.eval(
         _WRITE_SESSION_LUA,
@@ -233,7 +243,7 @@ def enforce_concurrent_session_limit(
     Raises:
         redis.RedisError: If the Redis scan or delete fails.
     """  # noqa: DOC502
-    index_key = _user_index_key(user_id, org_id)
+    index_key = user_index_key(user_id, org_id)
     session_keys: set[bytes] = cast(set[bytes], redis_client.smembers(index_key))
 
     if not session_keys:
@@ -300,5 +310,5 @@ def remove_session_from_index(
         org_id: UUID string of the session owner's organization.
         session_key: The session Redis key to remove from the index.
     """
-    index_key = _user_index_key(user_id, org_id)
+    index_key = user_index_key(user_id, org_id)
     redis_client.srem(index_key, session_key)

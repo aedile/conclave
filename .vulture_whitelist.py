@@ -449,3 +449,7 @@ last_login_at  # unused variable — SQLModel field; set by ORM at OIDC login (s
 expires_in  # unused variable — Pydantic response model field (routers/auth_oidc.py P81)
 revoked_sessions  # unused variable — Pydantic response model field (routers/auth_oidc.py P81)
 _is_loopback  # unused function — private helper called by validate_oidc_issuer_url (shared/ssrf.py P81)
+enforce_concurrent_session_limit  # unused function — session utility called from tests and as a standalone helper (bootstrapper/dependencies/sessions.py P81)
+remove_session_from_index  # unused function — session utility called from index cleanup (bootstrapper/dependencies/sessions.py P81)
+_lookup_user_email  # unused function — private helper for OIDC self-revocation email check (routers/auth_oidc.py P81)
+_get_user_by_id  # unused function — private helper called by _lookup_user_email (routers/auth_oidc.py P81)

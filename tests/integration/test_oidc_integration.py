@@ -295,3 +295,381 @@ class TestOIDCDisabled:
             )
         finally:
             get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# F21: RS256 full callback flow integration test
+# ---------------------------------------------------------------------------
+
+
+class TestRS256CallbackFlow:
+    """Integration test for the full RS256 callback → token exchange → JWT verification flow.
+
+    Uses a real RSA key pair generated in the test. Serves the JWKS and token
+    endpoint via pytest-httpserver (a real local HTTP server — not a mock).
+    Exercises the complete _verify_id_token() path with a real RS256-signed
+    ID token.
+
+    F21 — round-2 review finding: no integration test existed for the full
+    RS256 callback flow.
+    """
+
+    def test_rs256_callback_issues_jwt(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        httpserver: HTTPServer,
+    ) -> None:
+        """Full authorize → callback → JWT flow with real RS256 key pair.
+
+        AC: The callback endpoint must:
+        1. Accept a real RS256-signed ID token (not HS256).
+        2. Verify the signature using the public key from a live JWKS endpoint
+           served by pytest-httpserver.
+        3. Return a compact JWT access token on success.
+
+        This test generates a real RSA-2048 key pair, signs an OIDC ID token,
+        serves the corresponding JWKS via pytest-httpserver, and exercises the
+        full _verify_id_token() code path.
+        """
+        import math
+        import time
+        import uuid as _uuid
+        from base64 import urlsafe_b64encode as _b64
+
+        import jwt as pyjwt
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        # --- Generate a real RSA-2048 key pair ---
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+        public_key = private_key.public_key()
+
+        # --- Build JWKS from public key ---
+        pub_numbers = public_key.public_numbers()
+
+        def _int_to_b64(n: int) -> str:
+            byte_length = math.ceil(n.bit_length() / 8)
+            return _b64(n.to_bytes(byte_length, "big")).rstrip(b"=").decode()
+
+        kid = "test-rsa-key-1"
+        jwk = {
+            "kty": "RSA",
+            "use": "sig",
+            "alg": "RS256",
+            "kid": kid,
+            "n": _int_to_b64(pub_numbers.n),
+            "e": _int_to_b64(pub_numbers.e),
+        }
+        jwks = {"keys": [jwk]}
+
+        issuer_url = httpserver.url_for("").rstrip("/")
+
+        # --- Sign a real OIDC ID token with the private key ---
+        now = int(time.time())
+        id_token_claims = {
+            "iss": issuer_url,
+            "sub": "user@example.com",
+            "aud": "test-client",
+            "iat": now,
+            "exp": now + 300,
+            "email": "user@example.com",
+        }
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        id_token = pyjwt.encode(
+            id_token_claims,
+            private_pem,
+            algorithm="RS256",
+            headers={"kid": kid},
+        )
+
+        # --- Build the mock token endpoint response ---
+        token_response = {
+            "access_token": "idp-access-token",
+            "token_type": "bearer",
+            "id_token": id_token,
+        }
+
+        # --- Configure pytest-httpserver endpoints ---
+        discovery_doc = {
+            "issuer": issuer_url,
+            "authorization_endpoint": f"{issuer_url}/authorize",
+            "token_endpoint": f"{issuer_url}/token",
+            "jwks_uri": f"{issuer_url}/.well-known/jwks.json",
+        }
+        httpserver.expect_request("/.well-known/openid-configuration").respond_with_json(
+            discovery_doc
+        )
+        httpserver.expect_request("/.well-known/jwks.json").respond_with_json(jwks)
+        httpserver.expect_request("/token", method="POST").respond_with_json(token_response)
+
+        # --- Configure environment ---
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+        monkeypatch.setenv("OIDC_ENABLED", "true")
+        monkeypatch.setenv("OIDC_ISSUER_URL", issuer_url)
+        monkeypatch.setenv("OIDC_CLIENT_ID", "test-client")
+        monkeypatch.setenv("OIDC_CLIENT_SECRET", "test-secret")  # pragma: allowlist secret
+        monkeypatch.setenv("OIDC_STATE_TTL_SECONDS", "600")
+        monkeypatch.setenv("SESSION_TTL_SECONDS", "28800")
+        monkeypatch.setenv("CONCURRENT_SESSION_LIMIT", "3")
+        monkeypatch.setenv("CONCLAVE_MULTI_TENANT_ENABLED", "false")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+        from synth_engine.bootstrapper.dependencies.oidc import (
+            initialize_oidc_provider,
+        )
+        from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router
+
+        app = FastAPI()
+        app.include_router(oidc_router)
+
+        with patch("synth_engine.bootstrapper.dependencies.oidc.validate_oidc_issuer_url"):
+            initialize_oidc_provider(
+                issuer_url=issuer_url,
+                client_id="test-client",
+            )
+
+        # --- Redis mock: in-memory store for PKCE state ---
+        redis_store: dict[str, bytes] = {}
+
+        mock_redis = MagicMock()
+
+        def _setex(key: str, ttl: int, value: str | bytes) -> None:
+            redis_store[key] = value if isinstance(value, bytes) else value.encode()
+
+        def _getdel(key: str) -> bytes | None:
+            return redis_store.pop(key, None)
+
+        mock_redis.setex.side_effect = _setex
+        mock_redis.getdel.side_effect = _getdel
+        mock_redis.smembers.return_value = set()
+        mock_redis.eval.return_value = 1
+
+        # --- DB mock: provision a new user ---
+        mock_user = MagicMock()
+        mock_user.id = _uuid.UUID(_USER_UUID)
+        mock_user.email = "user@example.com"
+        mock_user.role = "operator"
+        mock_db_session = MagicMock()
+        mock_db_session.exec.return_value.first.return_value = None  # no existing user
+
+        def _mock_refresh(u: Any) -> None:
+            u.id = _uuid.UUID(_USER_UUID)
+            u.email = "user@example.com"
+            u.role = "operator"
+
+        mock_db_session.refresh.side_effect = _mock_refresh
+
+        verifier, challenge = _make_pkce_pair()
+
+        client = TestClient(app, raise_server_exceptions=False)
+
+        with (
+            patch(
+                "synth_engine.bootstrapper.routers.auth_oidc.get_redis_client",
+                return_value=mock_redis,
+            ),
+            patch("synth_engine.bootstrapper.routers.auth_oidc.get_audit_logger") as mock_al,
+            patch("sqlmodel.Session") as mock_session_cls,
+            patch("synth_engine.shared.db.get_engine"),
+        ):
+            mock_al.return_value = MagicMock()
+            mock_session_cls.return_value.__enter__ = lambda s, *a: mock_db_session
+            mock_session_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+            # Step 1: authorize
+            auth_resp = client.get(
+                f"/auth/oidc/authorize?code_challenge={challenge}&code_challenge_method=S256"
+            )
+            assert auth_resp.status_code == 200, (
+                f"Expected 200 from authorize, got {auth_resp.status_code}: {auth_resp.text}"
+            )
+
+            # Step 2: extract state from authorize response
+            auth_body = auth_resp.json()
+            state = auth_body["state"]
+            assert state, "Authorize must return a non-empty state"
+
+            # Step 3: callback — pass the state and code_verifier
+            callback_resp = client.get(
+                f"/auth/oidc/callback?code=test-auth-code&state={state}&code_verifier={verifier}"
+            )
+
+        get_settings.cache_clear()
+
+        assert callback_resp.status_code == 200, (
+            f"Expected 200 from callback (RS256), got {callback_resp.status_code}: "
+            f"{callback_resp.text}"
+        )
+        body = callback_resp.json()
+        assert "access_token" in body, (
+            f"Callback must return 'access_token', got keys: {list(body.keys())}"
+        )
+        assert body["token_type"] == "bearer", (
+            f"token_type must be 'bearer', got {body['token_type']!r}"
+        )
+        assert body["expires_in"] == 3600, f"expires_in must be 3600, got {body['expires_in']!r}"
+
+        # Verify the returned JWT is a valid compact JWT (3 dot-separated segments)
+        token_parts = body["access_token"].split(".")
+        assert len(token_parts) == 3, (
+            f"access_token must be a compact JWT (3 parts), got {len(token_parts)} parts"
+        )
+
+    def test_rs256_callback_rejects_tampered_id_token(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        httpserver: HTTPServer,
+    ) -> None:
+        """Callback with a tampered RS256 ID token returns 401.
+
+        AC: A tampered signature on the ID token must be rejected by
+        _verify_id_token(). This validates that signature verification is
+        actually enforced, not just present.
+        """
+        import math
+        import time
+        from base64 import urlsafe_b64encode as _b64
+
+        import jwt as pyjwt
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        # --- Two separate key pairs: one signs, other is in JWKS (mismatch) ---
+        signing_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwks_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwks_pub_numbers = jwks_key.public_key().public_numbers()
+
+        def _int_to_b64(n: int) -> str:
+            byte_length = math.ceil(n.bit_length() / 8)
+            return _b64(n.to_bytes(byte_length, "big")).rstrip(b"=").decode()
+
+        kid = "test-rsa-key-2"
+        jwk = {
+            "kty": "RSA",
+            "use": "sig",
+            "alg": "RS256",
+            "kid": kid,
+            "n": _int_to_b64(jwks_pub_numbers.n),
+            "e": _int_to_b64(jwks_pub_numbers.e),
+        }
+        jwks = {"keys": [jwk]}
+
+        issuer_url = httpserver.url_for("").rstrip("/")
+
+        now = int(time.time())
+        id_token_claims = {
+            "iss": issuer_url,
+            "sub": "user@example.com",
+            "aud": "test-client",
+            "iat": now,
+            "exp": now + 300,
+            "email": "user@example.com",
+        }
+        # Sign with the WRONG key (not in JWKS)
+        signing_pem = signing_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        id_token = pyjwt.encode(
+            id_token_claims, signing_pem, algorithm="RS256", headers={"kid": kid}
+        )
+
+        token_response = {"access_token": "idp-at", "token_type": "bearer", "id_token": id_token}
+
+        discovery_doc = {
+            "issuer": issuer_url,
+            "authorization_endpoint": f"{issuer_url}/authorize",
+            "token_endpoint": f"{issuer_url}/token",
+            "jwks_uri": f"{issuer_url}/.well-known/jwks.json",
+        }
+        httpserver.expect_request("/.well-known/openid-configuration").respond_with_json(
+            discovery_doc
+        )
+        httpserver.expect_request("/.well-known/jwks.json").respond_with_json(jwks)
+        httpserver.expect_request("/token", method="POST").respond_with_json(token_response)
+
+        monkeypatch.setenv("CONCLAVE_ENV", "development")
+        monkeypatch.setenv("JWT_SECRET_KEY", _TEST_SECRET)
+        monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("JWT_EXPIRY_SECONDS", "3600")
+        monkeypatch.setenv("OIDC_ENABLED", "true")
+        monkeypatch.setenv("OIDC_ISSUER_URL", issuer_url)
+        monkeypatch.setenv("OIDC_CLIENT_ID", "test-client")
+        monkeypatch.setenv("OIDC_CLIENT_SECRET", "test-secret")  # pragma: allowlist secret
+        monkeypatch.setenv("OIDC_STATE_TTL_SECONDS", "600")
+        monkeypatch.setenv("SESSION_TTL_SECONDS", "28800")
+        monkeypatch.setenv("CONCURRENT_SESSION_LIMIT", "3")
+        monkeypatch.setenv("CONCLAVE_MULTI_TENANT_ENABLED", "false")
+        monkeypatch.setenv("CONCLAVE_PASS_THROUGH_ENABLED", "false")
+
+        from synth_engine.shared.settings import get_settings
+
+        get_settings.cache_clear()
+
+        from synth_engine.bootstrapper.dependencies.oidc import initialize_oidc_provider
+        from synth_engine.bootstrapper.routers.auth_oidc import router as oidc_router
+
+        app = FastAPI()
+        app.include_router(oidc_router)
+
+        with patch("synth_engine.bootstrapper.dependencies.oidc.validate_oidc_issuer_url"):
+            initialize_oidc_provider(issuer_url=issuer_url, client_id="test-client")
+
+        redis_store: dict[str, bytes] = {}
+        mock_redis = MagicMock()
+
+        def _setex(key: str, ttl: int, value: str | bytes) -> None:
+            redis_store[key] = value if isinstance(value, bytes) else value.encode()
+
+        def _getdel(key: str) -> bytes | None:
+            return redis_store.pop(key, None)
+
+        mock_redis.setex.side_effect = _setex
+        mock_redis.getdel.side_effect = _getdel
+        mock_redis.smembers.return_value = set()
+
+        verifier, challenge = _make_pkce_pair()
+        client = TestClient(app, raise_server_exceptions=False)
+
+        with patch(
+            "synth_engine.bootstrapper.routers.auth_oidc.get_redis_client",
+            return_value=mock_redis,
+        ):
+            auth_resp = client.get(
+                f"/auth/oidc/authorize?code_challenge={challenge}&code_challenge_method=S256"
+            )
+            assert auth_resp.status_code == 200, (
+                f"Expected 200 from authorize, got {auth_resp.status_code}"
+            )
+            state = auth_resp.json()["state"]
+
+            callback_resp = client.get(
+                f"/auth/oidc/callback?code=test-code&state={state}&code_verifier={verifier}"
+            )
+
+        get_settings.cache_clear()
+
+        assert callback_resp.status_code == 401, (
+            f"Expected 401 for tampered RS256 signature, got {callback_resp.status_code}: "
+            f"{callback_resp.text}"
+        )
+        body = callback_resp.json()
+        problem = body.get("detail", body)
+        assert problem.get("status") == 401, (
+            f"Expected RFC 7807 status=401 in problem body, got {problem!r}"
+        )

@@ -40,6 +40,8 @@ Review fixes: B1 (JWT signature verification), B2 (async httpx), F1 (code_challe
     F4 (audit resource uses user.id), F5 (safe_error_msg), F8 (remove dead role extractor),
     F9 (inline provisioning wrapper), F11 (GETDEL), F12 (remove dead find_by_email),
     F13 (silent except fixed), F14 (json.JSONDecodeError around token_resp.json())
+Round-2 review fixes: F17 (pyjwt required claims), F18 (index TTL), F19 (user_index_key public),
+    F20 (self-revocation OIDC email/UUID mismatch)
 """
 
 from __future__ import annotations
@@ -307,6 +309,7 @@ def _verify_id_token(
             algorithms=["RS256"],
             audience=provider.client_id,
             issuer=provider.issuer,
+            options={"require": ["exp", "sub", "iat"]},
         )
     except pyjwt.ExpiredSignatureError:
         _logger.warning("OIDC ID token expired")
@@ -435,6 +438,61 @@ def _get_user_org(user_id: str, db: Any) -> uuid.UUID | None:
     stmt = select(User).where(User.id == uid)
     user = db.exec(stmt).first()
     return user.org_id if user is not None else None
+
+
+def _get_user_by_id(user_id: str, db: Any) -> Any | None:
+    """Look up a user record by UUID string.
+
+    Used by the revoke endpoint to resolve the user's email for OIDC
+    self-revocation checks (F20). OIDC tokens carry sub=email, so
+    comparing ctx.user_id (email) against str(body.user_id) (UUID)
+    would always fail. This helper fetches the user so the email can be
+    compared directly.
+
+    Args:
+        user_id: UUID string of the target user.
+        db: SQLModel Session.
+
+    Returns:
+        The User ORM object, or None if no user with that UUID exists.
+    """
+    from sqlmodel import select
+
+    from synth_engine.shared.models.user import User
+
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        return None
+
+    stmt = select(User).where(User.id == uid)
+    return db.exec(stmt).first()
+
+
+def _lookup_user_email(user_id: str, db_url: str) -> str | None:
+    """Look up the email for a user by UUID, opening a DB session internally.
+
+    Used by the self-revocation check to compare email (OIDC sub) against
+    ctx.user_id when the standard UUID comparison fails (F20).
+
+    Args:
+        user_id: UUID string of the target user.
+        db_url: Database URL string.
+
+    Returns:
+        The user's email string, or None if not found or on any error.
+    """
+    try:
+        from sqlmodel import Session
+
+        from synth_engine.shared.db import get_engine
+
+        with Session(get_engine(db_url)) as _session:
+            user = _get_user_by_id(user_id, _session)
+            return user.email if user is not None else None
+    except Exception as exc:
+        _logger.debug("_lookup_user_email failed for user_id=%s: %s", user_id, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -993,9 +1051,9 @@ async def post_auth_refresh(
     try:
         redis_client = get_redis_client()
         # Find and update this user's sessions via per-user index.
-        from synth_engine.bootstrapper.dependencies.sessions import _user_index_key
+        from synth_engine.bootstrapper.dependencies.sessions import user_index_key
 
-        index_key = _user_index_key(ctx.user_id, ctx.org_id)
+        index_key = user_index_key(ctx.user_id, ctx.org_id)
         session_keys: set[bytes] = cast(set[bytes], redis_client.smembers(index_key))
         for key in session_keys:
             raw: bytes | None = cast(bytes | None, redis_client.get(key))
@@ -1081,7 +1139,21 @@ async def post_auth_revoke(
     caller_user_id = ctx.user_id
     caller_org_id = ctx.org_id
 
+    # F20: Self-revocation check must handle two identity formats.
+    # - Passphrase auth: ctx.user_id = user UUID string (sub=UUID).
+    # - OIDC auth:       ctx.user_id = email address (sub=email, per callback Step 6).
+    # Comparing UUID string against email always fails for OIDC users — they can
+    # never self-revoke unless we also check if the looked-up user's email matches.
     is_self_revocation = target_user_id == caller_user_id
+
+    if not is_self_revocation:
+        # Secondary check: look up the target user and compare email against ctx.user_id.
+        # This allows OIDC users (whose JWT sub is their email) to self-revoke by
+        # matching the DB user email against ctx.user_id (which holds the JWT sub=email).
+        db_url_self = settings.database_url or "sqlite:///:memory:"
+        target_email = _lookup_user_email(target_user_id, db_url_self)
+        if target_email is not None and target_email == caller_user_id:
+            is_self_revocation = True
 
     if not is_self_revocation:
         # Cross-user revocation requires sessions:revoke permission (admin only).
@@ -1139,9 +1211,9 @@ async def post_auth_revoke(
         redis_client = get_redis_client()
         revoked_count = 0
 
-        from synth_engine.bootstrapper.dependencies.sessions import _user_index_key
+        from synth_engine.bootstrapper.dependencies.sessions import user_index_key
 
-        index_key = _user_index_key(target_user_id, caller_org_id)
+        index_key = user_index_key(target_user_id, caller_org_id)
         session_keys_to_revoke: set[bytes] = cast(set[bytes], redis_client.smembers(index_key))
 
         if session_keys_to_revoke:
