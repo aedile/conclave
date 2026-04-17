@@ -624,12 +624,12 @@ class TestMigration011:
 
     def test_migration_file_011_exists(self) -> None:
         """Migration file 011_add_last_login_at.py must exist in alembic/versions/."""
-        import os
+        from pathlib import Path
 
         migration_path = (
-            "/Users/jessercastro/Projects/SYNTHETIC_DATA/alembic/versions/011_add_last_login_at.py"
+            Path(__file__).resolve().parents[2] / "alembic/versions/011_add_last_login_at.py"
         )
-        assert os.path.exists(migration_path), f"Migration file not found: {migration_path}"
+        assert migration_path.exists(), f"Migration file not found: {migration_path}"
 
 
 # ===========================================================================
