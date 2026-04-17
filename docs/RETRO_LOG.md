@@ -22,6 +22,9 @@ Updated after each task's review phase completes.
 | ADV-P80-01 | DB-error-path tests in test_rbac_feature.py have setup-to-assertion ratios approaching 7:1-8:1. Justified by multi-patch context management for SQLAlchemy error simulation. Track for refactor opportunity. | P80 |
 | ADV-P80-02 | Shared passphrase model (`verify_operator_credentials`) is structurally incompatible with multi-tenant role isolation. Per-user credentials or SSO-only auth needed for true multi-tenant RBAC. Architectural — future phase. | P80 |
 | ADV-P80-03 | Rate limiter uses per-process `MemoryStorage` during Redis failover. In N-worker K8s deployments, effective rate limit multiplies by pod count. Pre-existing (carried from P75). | P80 |
+| ADV-P81-01 | Session write failure (Redis) has no Prometheus counter — elevated failure rates invisible to alerting. | P81 |
+| ADV-P81-02 | JWKS key selection does not filter by `kty=RSA` or `use=sig` — fragile against mixed-type JWKS. | P81 |
+| ADV-P81-03 | OIDC email not normalized to lowercase before DB lookup — IdP case changes could create duplicate users. | P81 |
 
 ### Deferred by Tier
 
@@ -32,6 +35,18 @@ the system enters their target tier.
 | ID | Target Tier | Summary | Raised Phase |
 |----|-------------|---------|--------------|
 | _(No deferred items — all 7 tiers assessed COMPLETE as of 2026-04-01. All open advisories are at-tier.)_ | | | |
+
+### [2026-04-17] Phase 81 — SSO / OIDC Integration
+
+**Tasks**: T81.0 (ADR-0067), T81.0b (mock OIDC test infra), T81.1 (OIDC provider integration), T81.2 (user provisioning), T81.3 (session management), T81.4 (air-gap configuration)
+
+**Summary**: Adds enterprise SSO via OIDC alongside existing passphrase auth. PKCE S256 required, no implicit flow. Redis-backed sessions with per-user index (Lua-scripted atomic operations), concurrent session limit with eviction, configurable TTL. SSRF-aware IdP validation with air-gap exception (RFC-1918 allowed, cloud metadata blocked). DB-authoritative roles — IdP claims ignored. ID token signature verified against boot-cached JWKS. Atomic state consumption via GETDEL. Migration 011 for `last_login_at`. ADR-0067 documents authlib→PyJWT decision, session architecture, JWKS caching, accepted limitations.
+
+**Spec-challenger findings**: 16 missing ACs, 45 negative tests, 9 attack vectors, 6 config risks — all incorporated into developer brief.
+
+**Review findings fixed**: 7 BLOCKERs across 2 fix rounds: B1 (ID token signature never verified — JWKS fetched but unused), B2 (sync httpx.post in async handler), B3 (OIDC provider lifespan wiring dead), B4 (no integration tests), B5 (rate limit 429 tests proxy-only), B6 (client secret production warning missing), B7 (HTTPS enforcement missing). 23 FINDINGs including: code_challenge validation, per-user session index replacing O(N) SCAN, atomic GETDEL state, email removed from audit, authlib removed (unused), rate limit wiring, dead code removal, self-revocation bug (email vs UUID sub), required JWT claims enforcement, session index TTL, private function import, test quality improvements.
+
+**Advisory count**: 6 open (ADV-P80-01 through ADV-P80-03, ADV-P81-01 through ADV-P81-03). Below Rule 11 threshold of 8.
 
 ### [2026-04-14] Phase 87 — Python 3.12 / 3.13 CI Matrix Testing
 
