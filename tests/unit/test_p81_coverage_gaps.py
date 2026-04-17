@@ -555,3 +555,32 @@ class TestHmacSigningInvalidHex:
         # The result must not be None (the valid versioned key was loaded)
         assert result is not None, "Expected key_map with versioned key, got None"
         assert len(result) >= 1, f"Expected at least 1 key in map, got {result!r}"
+
+
+class TestSSRFPrivateHelpersNormalPaths:
+    """Additional coverage for _is_rfc1918 and _is_loopback normal execution paths."""
+
+    def test_is_rfc1918_returns_true_for_ipv4_mapped_ipv6_private(self) -> None:
+        """_is_rfc1918 must return True for an IPv4-mapped IPv6 private address.
+
+        Line 415: `ip = ip.ipv4_mapped` — hit when IPv6 address IS IPv4-mapped.
+        ::ffff:192.168.1.1 maps to 192.168.1.1 (RFC-1918), so result is True.
+        """
+        from synth_engine.shared.ssrf import _is_rfc1918
+
+        # ::ffff:192.168.1.1 maps to 192.168.1.1 — RFC-1918 range
+        result = _is_rfc1918("::ffff:192.168.1.1")
+        assert result is True, f"Expected True for IPv4-mapped IPv6 private address, got {result!r}"
+        assert result == True
+
+    def test_is_loopback_returns_true_for_loopback_address(self) -> None:
+        """_is_loopback must return True for 127.0.0.1 (normal path).
+
+        Line 434: `return ip.is_loopback` — the normal return when the IP
+        parses successfully. 127.0.0.1 is a loopback address.
+        """
+        from synth_engine.shared.ssrf import _is_loopback
+
+        result = _is_loopback("127.0.0.1")
+        assert result is True, f"Expected True for 127.0.0.1 (loopback), got {result!r}"
+        assert result == True
