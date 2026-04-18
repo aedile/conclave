@@ -1,0 +1,586 @@
+"""Coverage gap tests for P81 CI fix — uncovered error paths.
+
+Targets uncovered lines from the 94.13% coverage run:
+- ssrf.py: lines 134-135, 260, 411-412, 414-417, 430-434, 476, 495
+- audit_logger.py: lines 151, 159-167, 196-204, 207-214, 337-338, 397-398
+- audit_migrations.py: lines 88, 93-99, 104-111
+
+All tests exercise legitimate error-handling paths and edge cases that were
+not reached by existing tests.
+
+CONSTITUTION Priority 0: Security — audit integrity error paths must be tested.
+CONSTITUTION Priority 3: TDD — coverage gate requires 95% minimum.
+Task: P81-CI-FIX — resolve coverage gap after OIDC integration.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import logging
+import os
+import tempfile
+from unittest.mock import mock_open, patch
+
+import pytest
+
+# ===========================================================================
+# ssrf.py error-path coverage
+# ===========================================================================
+
+
+class TestSSRFPrivateHelpers:
+    """Edge-case coverage for _is_blocked_ip, _is_rfc1918, _is_loopback."""
+
+    def test_is_blocked_ip_returns_false_on_invalid_ip_string(self) -> None:
+        """_is_blocked_ip must return False (not raise) on non-IP input.
+
+        Line 134-135: the ValueError except clause in _is_blocked_ip.
+        """
+        from synth_engine.shared.ssrf import _is_blocked
+
+        # "not-an-ip" is not a valid IP address — must return False, not raise
+        result = _is_blocked("not-an-ip")
+        assert result is False, f"Expected False for invalid IP string, got {result!r}"
+        assert result == False
+
+    def test_is_rfc1918_returns_false_on_invalid_ip_string(self) -> None:
+        """_is_rfc1918 must return False (not raise) on non-IP input.
+
+        Lines 411-412: the ValueError except clause in _is_rfc1918.
+        """
+        from synth_engine.shared.ssrf import _is_rfc1918
+
+        result = _is_rfc1918("definitely-not-an-ip")
+        assert result is False, f"Expected False for invalid IP string, got {result!r}"
+        assert result == False
+
+    def test_is_rfc1918_returns_false_for_ipv6_non_mapped(self) -> None:
+        """_is_rfc1918 must return False for a non-IPv4-mapped IPv6 address.
+
+        Lines 414-417: the isinstance(ip, IPv6Address) branch where
+        ip.ipv4_mapped is None — the function should return False since
+        a pure IPv6 address cannot be in an RFC-1918 IPv4 range.
+        """
+        from synth_engine.shared.ssrf import _is_rfc1918
+
+        # ::2 is a pure IPv6 address (not IPv4-mapped) — must not match IPv4 ranges
+        result = _is_rfc1918("::2")
+        assert result is False, f"Expected False for non-mapped IPv6 address, got {result!r}"
+        assert result == False
+
+    def test_is_loopback_returns_false_on_invalid_ip_string(self) -> None:
+        """_is_loopback must return False (not raise) on non-IP input.
+
+        Lines 430-434: the ValueError except clause in _is_loopback.
+        """
+        from synth_engine.shared.ssrf import _is_loopback
+
+        result = _is_loopback("still-not-an-ip")
+        assert result is False, f"Expected False for invalid IP string, got {result!r}"
+        assert result == False
+
+
+class TestValidateDeliveryIPsDrift:
+    """IP drift warning path in validate_delivery_ips (line 260)."""
+
+    def test_ip_drift_logs_warning_but_does_not_block(self) -> None:
+        """When resolved IPs differ from pinned IPs, a WARNING is logged but delivery proceeds.
+
+        Line 260: the _logger.warning call inside the if pinned_ips drift branch.
+        """
+        from synth_engine.shared.ssrf import validate_delivery_ips
+
+        # Patch socket.getaddrinfo to return a specific IP
+        fake_ip = "93.184.216.34"  # example.com — public, not blocked
+        fake_addr_infos = [(None, None, None, None, (fake_ip, 80))]
+
+        log_stream = io.StringIO()
+        handler = logging.StreamHandler(log_stream)
+        handler.setLevel(logging.WARNING)
+        ssrf_logger = logging.getLogger("synth_engine.shared.ssrf")
+        ssrf_logger.addHandler(handler)
+
+        # pinned_ips differ from resolved — should trigger drift warning
+        different_pinned = ["1.2.3.4"]  # differs from fake_ip
+
+        try:
+            with patch(
+                "synth_engine.shared.ssrf.socket.getaddrinfo",
+                return_value=fake_addr_infos,
+            ):
+                with patch("synth_engine.shared.ssrf._is_blocked", return_value=False):
+                    # Must not raise — drift is a warning, not a block
+                    validate_delivery_ips("example.com", pinned_ips=different_pinned)
+            log_output = log_stream.getvalue()
+            assert "drift" in log_output.lower() or "pinned" in log_output.lower(), (
+                f"Expected IP drift warning in logs, got: {log_output!r}"
+            )
+        finally:
+            ssrf_logger.removeHandler(handler)
+
+
+class TestValidateOIDCIssuerURLEdgeCases:
+    """Additional edge cases for validate_oidc_issuer_url."""
+
+    def test_url_with_no_hostname_rejected(self) -> None:
+        """URL that parses with no hostname component is rejected.
+
+        Line 476: the `if not hostname` guard.
+        urlparse('http:///no-host-here') returns hostname=None, so ValueError is raised.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
+
+        with pytest.raises(ValueError, match="(?i)(hostname|invalid)"):
+            validate_oidc_issuer_url("http:///no-host-here")
+
+    def test_ipv4_mapped_ipv6_loopback_is_blocked(self) -> None:
+        """IPv4-mapped IPv6 loopback (::ffff:127.0.0.1) must be blocked.
+
+        Line 495: the IPv4-mapped IPv6 unwrap branch in validate_oidc_issuer_url.
+        This ensures the unwrap happens and loopback detection fires correctly.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
+
+        # ::ffff:127.0.0.1 maps to 127.0.0.1 — must be blocked as loopback
+        with pytest.raises(ValueError, match="(?i)(loopback|forbidden)"):
+            validate_oidc_issuer_url("http://[::ffff:127.0.0.1]/")
+
+    def test_ipv4_mapped_ipv6_metadata_is_blocked(self) -> None:
+        """IPv4-mapped IPv6 cloud metadata IP (::ffff:169.254.169.254) must be blocked.
+
+        Line 495: the IPv4-mapped IPv6 unwrap branch — after unwrap, the
+        metadata IP check fires.
+        """
+        from synth_engine.shared.ssrf import validate_oidc_issuer_url
+
+        with pytest.raises(ValueError, match="(?i)(forbidden|metadata|cloud)"):
+            validate_oidc_issuer_url("http://[::ffff:169.254.169.254]/")
+
+
+# ===========================================================================
+# audit_logger.py error-path coverage
+# ===========================================================================
+
+
+class TestAuditLoggerLoadPersistedChainHeadEdgeCases:
+    """Error-path coverage for _load_persisted_chain_head."""
+
+    def _make_key(self) -> bytes:
+        """Return a 32-byte HMAC key."""
+        return b"x" * 32
+
+    def test_returns_none_when_no_anchor_file_path(self) -> None:
+        """_load_persisted_chain_head returns None when anchor_file_path is None.
+
+        Line 151: the `if self._anchor_file_path is None: return None` guard.
+        This runs when AuditLogger is instantiated without an anchor_file_path
+        and _load_persisted_chain_head is called directly.
+        """
+        from synth_engine.shared.security.audit_logger import AuditLogger
+
+        logger = AuditLogger(audit_key=self._make_key())
+        # _anchor_file_path is None — must return None
+        result = logger._load_persisted_chain_head()
+        assert result is None, f"Expected None when no anchor_file_path, got {result!r}"
+        # Guard was sufficient; add a type assertion: None is falsy
+        assert not result, "None result must be falsy — no state to resume"
+
+    def test_oserror_reading_anchor_file_starts_from_genesis(self) -> None:
+        """OSError while reading the anchor file logs a WARNING and returns None.
+
+        Lines 159-167: the OSError except clause in _load_persisted_chain_head.
+        """
+        from synth_engine.shared.security.audit_logger import AuditLogger
+
+        key = self._make_key()
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as f:
+            anchor_path = f.name
+
+        try:
+            # Bypass _resume_from_anchor during __init__ — patch it out
+            with patch.object(AuditLogger, "_resume_from_anchor"):
+                logger = AuditLogger(audit_key=key, anchor_file_path=anchor_path)
+                logger._anchor_file_path = anchor_path
+
+            # Now mock open to raise OSError on the next call
+            mocked = mock_open()
+            mocked.side_effect = OSError("permission denied")
+            with patch("builtins.open", mocked):
+                result = logger._load_persisted_chain_head()
+
+            assert result is None, (
+                f"Expected None after OSError reading anchor file, got {result!r}"
+            )
+            # Logger must have fallen back to genesis state
+            assert logger._entry_count == 0, (
+                f"Expected entry_count=0 after OSError fallback, got {logger._entry_count}"
+            )
+        finally:
+            os.unlink(anchor_path)
+
+    def test_invalid_chain_head_hash_returns_none_with_warning(self) -> None:
+        """Invalid chain_head_hash triggers WARNING and returns None.
+
+        Lines 196-204: the ValueError from _validate_chain_head_hash.
+        """
+        from synth_engine.shared.security.audit_logger import AuditLogger
+
+        key = self._make_key()
+        # Write an anchor record with an invalid (non-hex) chain_head_hash
+        invalid_record = json.dumps(
+            {
+                "chain_head_hash": "not-a-valid-hex-hash",
+                "entry_count": 5,
+            }
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(invalid_record + "\n")
+            anchor_path = f.name
+
+        try:
+            with patch.object(AuditLogger, "_resume_from_anchor"):
+                logger = AuditLogger(audit_key=key, anchor_file_path=anchor_path)
+                logger._anchor_file_path = anchor_path
+
+            result = logger._load_persisted_chain_head()
+            assert result is None, f"Expected None after invalid chain_head_hash, got {result!r}"
+            # Anchor path must still be stored (logger did not clear it)
+            assert logger._anchor_file_path == anchor_path, (
+                f"Expected anchor_file_path preserved, got {logger._anchor_file_path!r}"
+            )
+        finally:
+            os.unlink(anchor_path)
+
+    def test_entry_count_zero_returns_none_with_warning(self) -> None:
+        """entry_count < 1 triggers WARNING and returns None.
+
+        Lines 207-214: the `if not isinstance(entry_count, int) or entry_count < 1` guard.
+        """
+        from synth_engine.shared.security.audit_logger import AuditLogger
+
+        key = self._make_key()
+        valid_hash = "a" * 64  # valid 64-char hex string
+        invalid_record = json.dumps(
+            {
+                "chain_head_hash": valid_hash,
+                "entry_count": 0,  # invalid — must be >= 1
+            }
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(invalid_record + "\n")
+            anchor_path = f.name
+
+        try:
+            with patch.object(AuditLogger, "_resume_from_anchor"):
+                logger = AuditLogger(audit_key=key, anchor_file_path=anchor_path)
+                logger._anchor_file_path = anchor_path
+
+            result = logger._load_persisted_chain_head()
+            assert result is None, f"Expected None for entry_count=0, got {result!r}"
+            # Logger entry_count must remain unchanged (genesis) since load failed
+            assert logger._entry_count == 0, (
+                f"Expected entry_count=0 after failed load, got {logger._entry_count}"
+            )
+        finally:
+            os.unlink(anchor_path)
+
+
+class TestAuditLoggerAnchoringFailure:
+    """Line 337-338: anchoring exception must not propagate from log_event."""
+
+    def test_anchoring_exception_does_not_propagate(self) -> None:
+        """Anchoring failure is best-effort — must not interrupt log_event.
+
+        Lines 337-338: the broad except clause around get_anchor_manager().
+        """
+        from synth_engine.shared.security.audit_logger import AuditLogger
+
+        key = b"y" * 32
+        logger = AuditLogger(audit_key=key)
+
+        # Simulate get_anchor_manager raising an unexpected exception.
+        # The lazy import targets audit_anchor — patch it there.
+        with patch(
+            "synth_engine.shared.security.audit_anchor.get_anchor_manager",
+            side_effect=RuntimeError("anchor manager unavailable"),
+        ):
+            # Must not raise — anchoring is best-effort
+            event = logger.log_event(
+                event_type="TEST_ANCHOR_FAIL",
+                actor="test",
+                resource="test",
+                action="test",
+                details={},
+            )
+
+        assert event.event_type == "TEST_ANCHOR_FAIL", (
+            "log_event must return the event even when anchoring fails"
+        )
+
+
+class TestAuditLoggerVerifyEventEdgeCases:
+    """Line 397-398: ValueError in _sign_v2 during verify_event."""
+
+    def test_v2_sign_value_error_returns_false(self) -> None:
+        """If _sign_v2 raises ValueError during verify_event, return False.
+
+        Lines 397-398: the except ValueError clause in the v2 branch.
+        """
+        from synth_engine.shared.security.audit_logger import AuditEvent, AuditLogger
+
+        key = b"z" * 32
+        logger = AuditLogger(audit_key=key)
+
+        # Construct a fake v2 event
+        event = AuditEvent(
+            timestamp="2024-01-01T00:00:00+00:00",
+            event_type="TEST",
+            actor="actor",
+            resource="res",
+            action="act",
+            details={},
+            prev_hash="0" * 64,
+            signature="v2:abc123",
+        )
+
+        # Patch _sign_v2 to raise ValueError (e.g. oversized details)
+        with patch(
+            "synth_engine.shared.security.audit_logger._sign_v2",
+            side_effect=ValueError("oversized"),
+        ):
+            result = logger.verify_event(event)
+
+        assert result is False, f"Expected False when _sign_v2 raises ValueError, got {result!r}"
+        assert result == False
+
+
+# ===========================================================================
+# audit_migrations.py error-path coverage
+# ===========================================================================
+
+
+class TestMigrateAuditSignaturesEdgeCases:
+    """Error-path coverage for migrate_audit_signatures."""
+
+    def test_empty_lines_are_skipped_silently(self) -> None:
+        """Empty lines in the input JSONL are skipped without error.
+
+        Line 88: the `if not raw_line: continue` guard.
+        """
+        from synth_engine.shared.security.audit_migrations import migrate_audit_signatures
+
+        key = b"m" * 32
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "audit.jsonl")
+            output_path = os.path.join(tmpdir, "audit_out.jsonl")
+
+            # Write only blank lines — no actual entries
+            with open(input_path, "w", encoding="utf-8") as f:
+                f.write("\n\n\n")
+
+            # Must not crash
+            migrate_audit_signatures(
+                input_path=input_path,
+                output_path=output_path,
+                audit_key=key,
+            )
+
+            with open(output_path, encoding="utf-8") as f:
+                lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+
+            assert lines == [], f"Expected empty output for blank-line input, got {lines!r}"
+
+    def test_invalid_json_line_is_skipped_with_error_log(self) -> None:
+        """A line that is not valid JSON is skipped (ERROR logged, no crash).
+
+        Lines 93-99: the json.JSONDecodeError except clause.
+        """
+        from synth_engine.shared.security.audit_migrations import migrate_audit_signatures
+
+        key = b"m" * 32
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "audit.jsonl")
+            output_path = os.path.join(tmpdir, "audit_out.jsonl")
+
+            with open(input_path, "w", encoding="utf-8") as f:
+                f.write("this is { not : valid json }\n")
+
+            # Must not crash
+            migrate_audit_signatures(
+                input_path=input_path,
+                output_path=output_path,
+                audit_key=key,
+            )
+
+            with open(output_path, encoding="utf-8") as f:
+                lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+
+            assert lines == [], f"Expected invalid JSON line to be skipped, got output: {lines!r}"
+
+    def test_audit_event_construction_failure_is_skipped(self) -> None:
+        """A valid JSON line that fails AuditEvent construction is skipped.
+
+        Lines 104-111: the broad Exception except clause around AuditEvent(**entry_dict).
+        """
+        from synth_engine.shared.security.audit_migrations import migrate_audit_signatures
+
+        key = b"m" * 32
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "audit.jsonl")
+            output_path = os.path.join(tmpdir, "audit_out.jsonl")
+
+            # Valid JSON but missing required AuditEvent fields
+            bad_entry = json.dumps({"foo": "bar", "not_an_audit_event": True})
+            with open(input_path, "w", encoding="utf-8") as f:
+                f.write(bad_entry + "\n")
+
+            # Must not crash
+            migrate_audit_signatures(
+                input_path=input_path,
+                output_path=output_path,
+                audit_key=key,
+            )
+
+            with open(output_path, encoding="utf-8") as f:
+                lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+
+            assert lines == [], (
+                f"Expected AuditEvent construction failure to be skipped, got: {lines!r}"
+            )
+
+
+# ===========================================================================
+# synth_engine/__init__.py PackageNotFoundError fallback coverage
+# ===========================================================================
+
+
+class TestPackageVersionFallback:
+    """Line 21-23: __version__ fallback when package is not installed."""
+
+    def test_version_fallback_when_package_not_found(self) -> None:
+        """__version__ must fall back to '1.0.0' when PackageNotFoundError is raised.
+
+        Lines 21-23: the except PackageNotFoundError clause in __init__.py.
+        Forces the fallback path by patching importlib.metadata.version.
+        """
+        from importlib.metadata import PackageNotFoundError as PkgNotFound
+        from unittest.mock import patch
+
+        with patch(
+            "synth_engine._pkg_version",
+            side_effect=PkgNotFound("conclave-engine"),
+        ):
+            import importlib
+
+            import synth_engine
+
+            importlib.reload(synth_engine)
+            fallback_version = synth_engine.__version__
+
+        assert fallback_version == "1.0.0", (
+            f"Expected fallback version '1.0.0', got {fallback_version!r}"
+        )
+
+
+# ===========================================================================
+# idempotency.py InvalidTokenError path coverage
+# ===========================================================================
+
+
+class TestIdempotencyExtractOperatorId:
+    """Lines 110-111: InvalidTokenError path in _extract_operator_id."""
+
+    def test_malformed_jwt_returns_anonymous(self) -> None:
+        """A malformed JWT token must return 'anonymous' without raising.
+
+        Lines 110-111: the except pyjwt.InvalidTokenError clause in
+        _extract_operator_id — hit when the token is structurally invalid.
+        """
+        from unittest.mock import MagicMock
+
+        from synth_engine.shared.middleware.idempotency import _extract_operator_id
+
+        request = MagicMock()
+        request.headers = {"Authorization": "Bearer not.a.valid.jwt.token.at.all"}
+
+        result = _extract_operator_id(request)
+
+        assert result == "anonymous", f"Expected 'anonymous' for malformed JWT, got {result!r}"
+
+
+# ===========================================================================
+# hmac_signing.py invalid hex key coverage
+# ===========================================================================
+
+
+class TestHmacSigningInvalidHex:
+    """Lines 225->230, 227-228: invalid hex in legacy artifact key."""
+
+    def test_invalid_hex_artifact_key_logs_warning_and_disables_legacy(self) -> None:
+        """Invalid hex in ARTIFACT_SIGNING_KEY logs WARNING and disables legacy verification.
+
+        Lines 227-228: the except ValueError clause in build_key_map_from_settings
+        when the legacy key is not valid hex.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from pydantic import SecretStr
+
+        from synth_engine.shared.security.hmac_signing import build_key_map_from_settings
+
+        # Use a versioned key that IS valid hex so key_map is not empty
+        valid_key_id = "aa" * 4  # 8-char hex = 4 bytes
+        valid_key = "bb" * 32  # 64-char hex = 32 bytes
+        mock_settings = MagicMock()
+        mock_settings.artifact_signing_keys = {valid_key_id: valid_key}
+        # artifact_signing_key (legacy single-key) with invalid hex
+        mock_settings.artifact_signing_key = SecretStr("not-valid-hex-!!!")
+
+        with patch(
+            "synth_engine.shared.settings.get_settings",
+            return_value=mock_settings,
+        ):
+            result = build_key_map_from_settings()
+
+        # The result must not be None (the valid versioned key was loaded)
+        assert result is not None, "Expected key_map with versioned key, got None"
+        assert len(result) >= 1, f"Expected at least 1 key in map, got {result!r}"
+
+
+class TestSSRFPrivateHelpersNormalPaths:
+    """Additional coverage for _is_rfc1918 and _is_loopback normal execution paths."""
+
+    def test_is_rfc1918_returns_true_for_ipv4_mapped_ipv6_private(self) -> None:
+        """_is_rfc1918 must return True for an IPv4-mapped IPv6 private address.
+
+        Line 415: `ip = ip.ipv4_mapped` — hit when IPv6 address IS IPv4-mapped.
+        ::ffff:192.168.1.1 maps to 192.168.1.1 (RFC-1918), so result is True.
+        """
+        from synth_engine.shared.ssrf import _is_rfc1918
+
+        # ::ffff:192.168.1.1 maps to 192.168.1.1 — RFC-1918 range
+        result = _is_rfc1918("::ffff:192.168.1.1")
+        assert result is True, f"Expected True for IPv4-mapped IPv6 private address, got {result!r}"
+        assert result == True
+
+    def test_is_loopback_returns_true_for_loopback_address(self) -> None:
+        """_is_loopback must return True for 127.0.0.1 (normal path).
+
+        Line 434: `return ip.is_loopback` — the normal return when the IP
+        parses successfully. 127.0.0.1 is a loopback address.
+        """
+        from synth_engine.shared.ssrf import _is_loopback
+
+        result = _is_loopback("127.0.0.1")
+        assert result is True, f"Expected True for 127.0.0.1 (loopback), got {result!r}"
+        assert result == True

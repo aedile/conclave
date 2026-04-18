@@ -122,6 +122,8 @@ PERMISSION_MATRIX: types.MappingProxyType[str, frozenset[Role]] = types.MappingP
         # Settings
         "settings:read": frozenset({Role.admin, Role.operator, Role.viewer}),
         "settings:write": frozenset({Role.admin}),
+        # Session management (Phase 81 — ADR-0067)
+        "sessions:revoke": frozenset({Role.admin}),
     }
 )
 
@@ -180,10 +182,8 @@ def require_permission(permission: str) -> Callable[..., TenantContext]:
     Returns:
         A FastAPI-compatible dependency callable that returns :class:`TenantContext`
         on success or raises :exc:`~fastapi.HTTPException` on failure.
-
-    Raises:
-        HTTPException: 401 if the JWT is absent or invalid (from ``get_current_user``).
-            403 if the role does not have the required permission.
+        The returned callable raises HTTPException 401/403 when authentication
+        or authorization fails (see error ordering above).
 
     Example::
 

@@ -3,7 +3,8 @@
 ``UnsealRequest`` re-exported from :mod:`schemas.vault` (T60.5).
 ``GET /health`` moved to :mod:`routers.health` (T60.2).
 Shutdown catches narrowed from broad Exception to specific types (T72.2).
-Tasks: P29-T29.3, T46.3, T47.8, T60.2, T60.5, T72.2
+OIDC provider initialization wired at startup (P81 B3).
+Tasks: P29-T29.3, T46.3, T47.8, T60.2, T60.5, T72.2, P81
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
 from synth_engine.bootstrapper.config_validation import validate_config
+from synth_engine.bootstrapper.dependencies.oidc import maybe_initialize_oidc_provider
 from synth_engine.bootstrapper.dependencies.redis import close_redis_client
 from synth_engine.bootstrapper.errors import operator_error_response
 from synth_engine.bootstrapper.schemas.vault import UnsealRequest as UnsealRequest  # re-exported
@@ -41,6 +43,11 @@ _logger = logging.getLogger(__name__)
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """FastAPI lifespan — startup validation and shutdown cleanup.
 
+    Startup sequence:
+    1. validate_config() — fail-fast on misconfiguration.
+    2. update_cert_expiry_metrics() — emit TLS cert expiry Prometheus metrics.
+    3. maybe_initialize_oidc_provider() — fetch OIDC discovery + JWKS if enabled.
+
     Args:
         app: FastAPI application (lifespan protocol; unused here).
 
@@ -49,6 +56,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     validate_config()
     await asyncio.to_thread(update_cert_expiry_metrics)
+    # B3: Initialize OIDC provider at startup — fail-closed if OIDC is enabled
+    # and the IdP is unreachable. Runs synchronously (discovery/JWKS fetch).
+    await asyncio.to_thread(maybe_initialize_oidc_provider)
     try:
         yield
     finally:

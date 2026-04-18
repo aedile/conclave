@@ -359,14 +359,14 @@ def test_common_infra_exempt_paths_has_exactly_seven_paths() -> None:
 
 
 def test_auth_exempt_paths_has_exactly_eight_paths() -> None:
-    """AUTH_EXEMPT_PATHS must have exactly 8 paths (7 common + /auth/token).
+    """AUTH_EXEMPT_PATHS must have exactly 10 paths (7 common + 3 auth paths).
 
-    Count: 12 (T48.3) → 10 (P50) → 11 (T55.1) → 8 (T66.2 removed /docs,/redoc,/openapi.json).
+    Count: 12 (T48.3) → 10 (P50) → 11 (T55.1) → 8 (T66.2) → 10 (P81 OIDC endpoints).
     """
     from synth_engine.bootstrapper.dependencies.auth import AUTH_EXEMPT_PATHS
 
-    assert len(AUTH_EXEMPT_PATHS) == 8, (
-        f"Expected 8 paths in AUTH_EXEMPT_PATHS. "
+    assert len(AUTH_EXEMPT_PATHS) == 10, (
+        f"Expected 10 paths in AUTH_EXEMPT_PATHS. "
         f"Got {len(AUTH_EXEMPT_PATHS)}: {sorted(AUTH_EXEMPT_PATHS)}"
     )
 

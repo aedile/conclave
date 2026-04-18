@@ -852,6 +852,88 @@ class ConclaveSettingsFields(BaseModel):
     )
 
     # -----------------------------------------------------------------------
+    # OIDC / SSO (Phase 81)
+    # -----------------------------------------------------------------------
+
+    oidc_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable OIDC/SSO authentication (Phase 81). When True, the OIDC "
+            "authorize and callback endpoints are active. When False (default), "
+            "passphrase auth is the only authentication method. "
+            "Set OIDC_ENABLED=true to activate. "
+            "Requires OIDC_ISSUER_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET."
+        ),
+    )
+    oidc_issuer_url: str = Field(
+        default="",
+        description=(
+            "OIDC provider issuer URL (e.g. 'https://idp.example.com/realms/conclave'). "
+            "The discovery document is fetched from <issuer_url>/.well-known/openid-configuration "
+            "at application startup. RFC-1918 addresses are allowed for air-gap IdPs. "
+            "Cloud metadata endpoints (169.254.169.254, etc.) are always blocked. "
+            "Required when OIDC_ENABLED=true. Phase 81 / ADR-0067."
+        ),
+    )
+    oidc_client_id: str = Field(
+        default="",
+        description=(
+            "OIDC client ID registered with the identity provider. "
+            "Required when OIDC_ENABLED=true. Phase 81 / ADR-0067."
+        ),
+    )
+    oidc_client_secret: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "OIDC client secret registered with the identity provider. "
+            "SecretStr — never exposed in repr or model_dump(). "
+            "Required when OIDC_ENABLED=true. Phase 81 / ADR-0067."
+        ),
+    )
+    oidc_state_ttl_seconds: int = Field(
+        default=600,
+        ge=60,
+        le=3600,
+        description=(
+            "TTL in seconds for OIDC state/PKCE keys stored in Redis. "
+            "Must be >= 60 (minimum viable OAuth2 flow) and <= 3600 (1 hour). "
+            "Defaults to 600 (10 minutes). Phase 81 / ADR-0067."
+        ),
+    )
+    oidc_default_org_id: str | None = Field(
+        default=None,
+        description=(
+            "UUID of the organization auto-provisioned OIDC users are placed in. "
+            "Required when OIDC_ENABLED=true and CONCLAVE_MULTI_TENANT_ENABLED=true. "
+            "When multi-tenant is disabled, DEFAULT_ORG_UUID is used instead. "
+            "Phase 81 / ADR-0067 Decision 9."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
+    # Session Management (Phase 81)
+    # -----------------------------------------------------------------------
+
+    session_ttl_seconds: int = Field(
+        default=28800,
+        ge=60,
+        description=(
+            "TTL in seconds for OIDC session keys stored in Redis. "
+            "Defaults to 28800 (8 hours). Must be >= 60. "
+            "Phase 81 / ADR-0067 Decision 5."
+        ),
+    )
+    concurrent_session_limit: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Maximum number of concurrent active sessions per user. "
+            "When the limit is exceeded on new login, the oldest session is evicted. "
+            "Must be >= 1. Defaults to 3. Phase 81 / ADR-0067 Decision 5."
+        ),
+    )
+
+    # -----------------------------------------------------------------------
     # Validators
     # -----------------------------------------------------------------------
 

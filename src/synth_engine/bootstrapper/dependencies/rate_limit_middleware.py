@@ -255,7 +255,8 @@ class RateLimitGateMiddleware(BaseHTTPMiddleware):
                 self._unseal_limit,
                 f"ip:{_extract_client_ip(request, trusted_proxy_count=self._trusted_proxy_count)}",
             )
-        if path == "/auth/token":
+        # F7 (P81 review): OIDC endpoints use auth tier (10 req/min/IP).
+        if path in ("/auth/token", "/auth/oidc/authorize", "/auth/oidc/callback"):
             return (
                 self._auth_limit,
                 f"ip:{_extract_client_ip(request, trusted_proxy_count=self._trusted_proxy_count)}",

@@ -99,14 +99,14 @@ def test_role_enum_has_four_values() -> None:
 
 
 def test_permission_matrix_has_twenty_permissions() -> None:
-    """PERMISSION_MATRIX contains exactly 20 permission entries.
+    """PERMISSION_MATRIX contains exactly 21 permission entries.
 
     Verifies the static frozen data structure has the complete permission set
-    as defined in the developer brief.
+    as defined in the developer brief (20) plus sessions:revoke (Phase 81).
     """
     from synth_engine.bootstrapper.dependencies.permissions import PERMISSION_MATRIX
 
-    assert len(PERMISSION_MATRIX) == 20
+    assert len(PERMISSION_MATRIX) == 21
 
 
 def test_permission_matrix_is_frozen() -> None:
@@ -124,9 +124,10 @@ def test_permission_matrix_is_frozen() -> None:
 
 
 def test_permission_matrix_contains_known_permissions() -> None:
-    """PERMISSION_MATRIX contains all 20 expected permission strings.
+    """PERMISSION_MATRIX contains all 21 expected permission strings.
 
-    Verifies the complete list from the developer brief and phase-80.md.
+    Verifies the complete list from the developer brief (20 from phase-80.md)
+    plus sessions:revoke added in Phase 81.
     """
     from synth_engine.bootstrapper.dependencies.permissions import PERMISSION_MATRIX
 
@@ -151,6 +152,7 @@ def test_permission_matrix_contains_known_permissions() -> None:
         "admin:settings",
         "settings:read",
         "settings:write",
+        "sessions:revoke",  # Phase 81: OIDC session management
     }
     assert set(PERMISSION_MATRIX.keys()) == expected
 

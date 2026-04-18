@@ -29,6 +29,7 @@ Phase: 80 — RBAC (F2: unique constraint on org_id+email)
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import ClassVar
 
 from sqlalchemy import UniqueConstraint
@@ -55,6 +56,8 @@ class User(BaseModel, table=True):
             ``auditor``.  Defaults to ``operator``.
         created_at: UTC timestamp of user creation (from BaseModel).
         updated_at: UTC timestamp of last update (from BaseModel).
+        last_login_at: UTC timestamp of the last successful OIDC login. Null
+            for passphrase-auth-only users or users not yet logged in via OIDC.
     """
 
     __tablename__ = "users"
@@ -65,3 +68,10 @@ class User(BaseModel, table=True):
     org_id: uuid.UUID = Field(foreign_key="organizations.id", index=True)
     email: str = Field(..., index=True)
     role: str = Field(default="operator")
+    last_login_at: datetime | None = Field(
+        default=None,
+        description=(
+            "UTC timestamp of last successful OIDC login. "
+            "Updated on each OIDC login. Null for passphrase-auth-only users."
+        ),
+    )

@@ -80,6 +80,8 @@ _EXPECTED_AUTH_EXEMPT_PATHS: frozenset[str] = frozenset(
         "/license/challenge",
         "/license/activate",
         "/auth/token",
+        "/auth/oidc/authorize",  # P81 — OIDC authorize redirect (user has no token yet)
+        "/auth/oidc/callback",  # P81 — OIDC callback from IdP (no token in redirect)
     }
 )
 

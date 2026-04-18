@@ -358,3 +358,175 @@ def validate_callback_url(url: str, *, strict: bool = True) -> None:
                     f"Callback URL resolves to a private, reserved, or forbidden "
                     f"IP address ({ip}). URL is private, reserved, or forbidden."
                 )
+
+
+# ---------------------------------------------------------------------------
+# OIDC-specific SSRF validator (T81.1)
+#
+# Different from validate_callback_url() because air-gap IdPs live on
+# RFC-1918 addresses — we MUST allow private ranges for OIDC issuers.
+# However, cloud metadata endpoints (IMDS) remain unconditionally blocked
+# because they are the most dangerous SSRF targets.
+#
+# See ADR-0067 for the full rationale.
+# ---------------------------------------------------------------------------
+
+#: Cloud metadata endpoints that are ALWAYS blocked, regardless of environment.
+#: These are the most dangerous SSRF targets — accessing them via a misconfigured
+#: IdP URL would allow credential exfiltration from cloud-hosted deployments.
+_BLOCKED_METADATA_IPS: frozenset[str] = frozenset(
+    {
+        "169.254.169.254",  # AWS / GCP / Azure IMDS
+        "100.100.100.200",  # Alibaba Cloud IMDS
+    }
+)
+
+#: Cloud metadata hostnames that are ALWAYS blocked.
+_BLOCKED_METADATA_HOSTNAMES: frozenset[str] = frozenset(
+    {
+        "metadata.google.internal",  # GCP metadata server
+    }
+)
+
+#: RFC-1918 private IP networks allowed for air-gap OIDC IdPs.
+#: These are intentionally NOT in BLOCKED_NETWORKS to allow on-premises IdPs.
+_RFC1918_NETWORKS: list[ipaddress.IPv4Network] = [
+    ipaddress.IPv4Network("10.0.0.0/8"),
+    ipaddress.IPv4Network("172.16.0.0/12"),
+    ipaddress.IPv4Network("192.168.0.0/16"),
+]
+
+
+def _is_rfc1918(ip_str: str) -> bool:
+    """Return True if ``ip_str`` is in an RFC-1918 private range.
+
+    Args:
+        ip_str: IP address string.
+
+    Returns:
+        ``True`` if the IP is in 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16.
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        else:
+            return False
+    return any(ip in network for network in _RFC1918_NETWORKS)
+
+
+def _is_loopback(ip_str: str) -> bool:
+    """Return True if ``ip_str`` is a loopback address.
+
+    Args:
+        ip_str: IP address string.
+
+    Returns:
+        ``True`` if the IP is 127.0.0.0/8 or ::1.
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return ip.is_loopback
+
+
+def validate_oidc_issuer_url(url: str) -> None:
+    """Validate an OIDC issuer URL for SSRF risks.
+
+    Unlike :func:`validate_callback_url`, this function ALLOWS RFC-1918
+    addresses because air-gapped IdPs are deployed on private networks.
+    However, cloud metadata endpoints and loopback addresses are ALWAYS
+    blocked regardless of environment.
+
+    Blocking policy:
+    - **Always blocked**: cloud metadata IPs (169.254.169.254, 100.100.100.200),
+      metadata hostnames (metadata.google.internal), loopback (127.0.0.0/8, ::1).
+    - **Allowed**: RFC-1918 ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+      — required for air-gap IdPs.  A WARNING-level security notice is logged.
+    - **Blocked in production**: public IP addresses when
+      ``CONCLAVE_ENV=production``.
+
+    Args:
+        url: The OIDC issuer URL to validate (e.g. from ``OIDC_ISSUER_URL``
+            environment variable).
+
+    Raises:
+        ValueError: If the URL is loopback, a cloud metadata endpoint,
+            or (in production mode) a public IP address.
+
+    Note:
+        This function does NOT perform DNS resolution.  It validates the
+        literal IP address or hostname in the URL.  A hostname pointing to
+        a metadata IP at resolution time is caught at boot-time by the
+        OIDC provider initialization flow, which resolves the discovery URL.
+    """
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(
+            f"OIDC issuer URL scheme must be http or https, got {scheme!r}. URL is invalid."
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("OIDC issuer URL has no hostname. URL is invalid.")
+
+    # Block well-known metadata hostnames unconditionally.
+    if hostname.lower() in _BLOCKED_METADATA_HOSTNAMES:
+        raise ValueError(
+            f"OIDC issuer URL hostname {hostname!r} is a cloud metadata endpoint. "
+            "URL is forbidden — cloud metadata endpoints cannot be OIDC issuers."
+        )
+
+    # Try to parse hostname as an IP address.
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        # Not an IP address — it's a hostname. Allow it (DNS validation happens
+        # at boot time when the discovery document is fetched).
+        return
+
+    # Unwrap IPv4-mapped IPv6.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+
+    ip_str = str(ip)
+
+    # Block cloud metadata IPs unconditionally.
+    if ip_str in _BLOCKED_METADATA_IPS:
+        raise ValueError(
+            f"OIDC issuer URL resolves to a cloud metadata IP address ({ip_str}). "
+            "URL is forbidden — cloud metadata endpoints cannot be OIDC issuers."
+        )
+
+    # Block loopback unconditionally.
+    if ip.is_loopback:
+        raise ValueError(
+            f"OIDC issuer URL resolves to a loopback address ({ip_str}). "
+            "URL is forbidden — loopback addresses cannot be OIDC issuers."
+        )
+
+    # Allow RFC-1918 with a security warning.
+    if _is_rfc1918(ip_str):
+        _logger.warning(
+            "OIDC issuer URL uses RFC-1918 address (%s) — "
+            "this is expected for air-gap IdPs but should be "
+            "reviewed to ensure it is not a misconfiguration.",
+            ip_str,
+        )
+        return
+
+    # In production mode, block public IPs.
+    import os
+
+    conclave_env = os.environ.get("CONCLAVE_ENV", "production").lower()
+    if conclave_env == "production":
+        raise ValueError(
+            f"OIDC issuer URL uses a public IP address ({ip_str}) in production mode. "
+            "Use a hostname (FQDN) for the OIDC issuer in production. "
+            "URL is forbidden."
+        )

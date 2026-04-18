@@ -298,14 +298,15 @@ class TestAuthExemptPaths:
         assert "/auth/token" in _get_auth()
 
     def test_auth_exempt_paths_has_exactly_eight_paths(self) -> None:
-        """AUTH_EXEMPT_PATHS must have exactly 8 paths (7 common + /auth/token).
+        """AUTH_EXEMPT_PATHS must have exactly 10 paths (7 common + 3 auth paths).
 
         After T66.2 removed /docs, /redoc, /openapi.json from COMMON_INFRA_EXEMPT_PATHS:
         - COMMON_INFRA_EXEMPT_PATHS has 7 paths
-        - AUTH_EXEMPT_PATHS = 7 + /auth/token = 8 paths
-        Count: 12 (T48.3) → 10 (P50) → 11 (T55.1) → 8 (T66.2, ADV-P62-01).
+        - AUTH_EXEMPT_PATHS = 7 + /auth/token + /auth/oidc/authorize
+          + /auth/oidc/callback = 10 paths
+        Count: 12 (T48.3) → 10 (P50) → 11 (T55.1) → 8 (T66.2) → 10 (P81 OIDC endpoints).
         """
-        assert len(_get_auth()) == 8
+        assert len(_get_auth()) == 10
 
     def test_auth_exempt_paths_excludes_security_shred(self) -> None:
         """/security/shred must NOT be in AUTH_EXEMPT_PATHS (requires JWT auth)."""

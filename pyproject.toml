@@ -113,6 +113,7 @@ mutmut = "^3.5.0"
 pydoclint = "^0.8.3"
 cosmic-ray = "^8.4.4"
 pytest-xdist = "^3.8.0"
+pytest-httpserver = ">=1.1.0,<2.0.0"
 [tool.poetry.group.integration.dependencies]
 pytest-postgresql = "^7.0"
 
